@@ -9,11 +9,11 @@
 - Verified plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
 - Current code pin: `contracts-v0.1.29`, commit `65f76ab9829d7a0fda2835c10abc7ffae2c35215`. The base contains merged #245.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
-- Current reviewed base: `554d43e890b391cefc9da205c71db6856accb21d` on `v1`.
+- Current head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb` (verified disjoint base merge).
+- Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package NOT CLEAN (1 open) for PR #233 at `4d05d270d6c6cebcdae247050cd702b6a157c639`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
+- Status: package NOT CLEAN (1 open) for PR #233 at `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -553,3 +553,18 @@ The reviewer read R-64. The steward settles r5's UnknownRoute as the reported Ha
 The missing d1 completion needs candidate A21 before Core can choose a completion or close reason.
 The R-63 fence remains required. The reviewer makes no transcript or contract change.
 The PC group is not complete. Wait for the completed gate doorbell. Never poll.
+
+Push record: #233 delta verdict 82fc2df8aa8c052c94f5819c5ec30b2b184aa337 is on origin/stage1/review-pc.
+VERDICT: NOT CLEAN (1 open), SI-5, at 4d05d270d6c6cebcdae247050cd702b6a157c639.
+The source delta has no additional finding. The reviewer worktree is clean. Wait for the completed gate doorbell.
+
+#233 disjoint base merge: `msg_plugin-w_1791709587_77d7ec`.
+Current head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`. Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+The reviewer read the completed check log and confirmed the PR head and base.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-4d05d270-6dd3caef-20261011.log`.
+Every condition passes. Only the base's xtask/src/ci.rs change is added.
+The reviewer independently confirmed the unchanged own diff: 48483 bytes, SHA-256 74399e1ff9c3d0bdb8ae1bb3fc1606758efa09e3d7666243aae1790547aa38c3.
+The new base is an ancestor of the new head. Both pending files retain the source-reviewed content.
+No source delta round is needed. The package verdict carries as NOT CLEAN (1 open), SI-5.
+The implementer reports cancellation of the stale-base gate and a final gate running on this head.
+The reviewer did not read or poll the running jobs. Wait for the completed gate doorbell. Never poll.

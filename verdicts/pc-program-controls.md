@@ -2,8 +2,10 @@
 
 VERDICT: NOT CLEAN (1 open)
 
-- Reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
-- Reviewed base: `554d43e890b391cefc9da205c71db6856accb21d` (`v1`).
+- Current head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`.
+- Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` (`v1`).
+- Source-reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
+- Source-reviewed base: `554d43e890b391cefc9da205c71db6856accb21d`.
 - Previous reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Risk tier: HIGH. This delta belongs to the shared testkit PR.
 - Open findings: 1.
@@ -14,6 +16,21 @@ VERDICT: NOT CLEAN (1 open)
 The final gate failed after package and integration CLEAN on the previous head.
 This verdict supersedes package CLEAN commit `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` for the current PR.
 SI-1 through SI-4 remain closed. The previous review below remains the source record for unchanged code.
+
+## Disjoint base merge
+
+Message: `msg_plugin-w_1791709587_77d7ec`.
+The current head only merges the base's #252 change to `xtask/src/ci.rs`.
+The reviewer read the completed base-merge check and confirmed the PR head and base.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-4d05d270-6dd3caef-20261011.log`.
+Every condition passes. The own diff outside line-set files is unchanged: 48483 bytes.
+SHA-256: `74399e1ff9c3d0bdb8ae1bb3fc1606758efa09e3d7666243aae1790547aa38c3`.
+The reviewer independently confirmed that diff and the new base's ancestry.
+The base leaves both pending files unchanged. The head retains the source-reviewed pending files.
+No source delta round is needed under the disjoint-base rule. This carries NOT CLEAN, not CLEAN.
+SI-5 remains open. The completed final gate on the exact current head must close it.
+The implementer reports cancellation of the stale-base gate and a new gate running on the current head.
+The reviewer did not read or poll either running job.
 
 ## Base-merge delta
 
