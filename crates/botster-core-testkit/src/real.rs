@@ -2834,6 +2834,7 @@ mod slow_tests {
                 tap: Weak::new(),
                 resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
+                wake: OwnedFd::from(UnixStream::pair().unwrap().0),
             },
         );
         let session = SessionId("s1".into());
