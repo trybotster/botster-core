@@ -10427,3 +10427,142 @@ Findings and the artifact go directly to P3 and current Sol integration.
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 156 — PR #227, package round 5 — 2026-10-10
+
+Exact head: `d1e00be37ea9b7830041e043186659f682e985a9`.
+Exact base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+Previous reviewed head: `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+Previous verdict: `95a50a91ccda66a356aa536f65221b809eac1496`, round 155.
+Tier: HIGH under BUILD rules 3 and 5. The shared testkit and Worker driver changes retain whole-unit review.
+The lead authorizes package round 5 through msg_plugin-w_1791683701_f2bdf1.
+Scope: F113's delta and every admission-parity row, including each start_checks check or a contractual reason for its difference.
+Authority also includes R-54 at contracts main 99d21663193240563daa447118e4846aeb4ef647 and plan 23af at 4f6516bd638bcf835dae5d7496e6ed9dc660bf5a.
+The reviewer reads the exact-head source, updated full PR body, completed gate, correction records, and source merge.
+F113's nonempty counterexample closes. New F114 prevents CLEAN.
+
+### F113 — MED — CLOSED
+
+Worker::admission(Source) now shares the live-payload, exit, and stopping checks among host writes, route input, and EV-8 replies.
+Worker::stopping checks termed, killed, and grace. Host and route input use that predicate at the start of their transaction.
+A nonempty route input that starts after Stop or Kill receives SessionEnded, with its original op and no written bytes.
+The two new route proofs cover immediate input and input queued behind an active host write.
+Both proofs run Stop and Kill before payload exit. They assert the exact refusal and no route PtyWrite.
+The queued proof permits only the earlier host transaction's bytes.
+Both named proofs pass in the completed exact-head gate.
+The supplied stop reversals fail their named proofs. The five parity reversals also fail the relevant behavior proofs.
+
+R-54's typed reply exception remains precise: Source::Reply bypasses Stopping, but it still requires a live payload without exit.
+The query-after-stop proof obtains the expected shadow reply from the terminal oracle.
+It observes the reply as one PtyWrite, then a host write that receives NotWritten(Stopping).
+The proof covers Stop and Kill. The existing no-reply-after-end proof remains in the gate.
+Replies retain no host operation and advance no input revision. Their transaction retains the AM-2 serialization point.
+No new private-state accessor, sleep, polling loop, or production test hook appears in this correction.
+
+### F114 — MED — OPEN — Empty route input bypasses session admission checks
+
+Locations: worker/input.rs:196-205, compared with try_start:263-273 and start_checks:380-396.
+Worker::enqueue_route_input returns immediately when bytes.is_empty(), before creating Pending::Route or calling admission(Source::Route).
+This applies to both an empty bytes frame and an empty text frame.
+The pinned codec at b161db8 accepts both frames with their type and eight-byte op, with no payload bytes.
+Its wire.rs:303-327 returns Decoded::Frame. Empty UTF-8 text is valid.
+Route::decide stores Received::Input for a writable route that has reached live.
+receive_route advances the client revision and reports receipt before apply_route calls enqueue_route_input.
+
+Concrete source case: attach a writable route and reach live; send Stop or Kill; receive an empty bytes or text frame with an op.
+The payload still has its live state before exit. The Worker receives the frame, then silently drops it before the stopping check.
+The client receives no input_refused{session_ended} for that op.
+A host write with an empty payload checks SessionEnded and Stopping before encoding and before its empty Written completion.
+The route path therefore omits the state checks that the admission table claims it shares.
+Empty input also bypasses the admission queue, so it cannot receive a later session refusal at its ordered turn.
+
+DP-5 maps NotWritten(Stopping) and NotWritten(SessionEnded) to input_refused{session_ended}.
+DP-5 gives no empty-input exception. R-54 retains Stopping refusal for every client input except EV-8 replies.
+IN-4 still treats the empty decoded frame as input at receipt; it is not an ignored extension.
+The source comment that an empty frame writes nothing does not authorize removal of its admission checks.
+This is within the lead's explicit requirement that every missing route-path check is a finding.
+
+Integration identifies the bypass in msg_plugin-w_1791688699_0ff703.
+The package reviewer independently reads the complete path and pinned codec and sends the case directly to P3.
+P3 confirms no contrary clause or anchor in msg_plugin-w_1791688858_1a92d2 and accepts the source finding.
+Integration inspection 760ad3332fbed267abc50fe186b2f4f74b7ddef1 independently records the same case as R5-1.
+The package reviewer reads that complete inspection and its source/evidence limits.
+No reviewer runs a reproduction, test, gate, or mutant.
+
+Required: preserve empty bytes/text input through the same ordered session checks as other route input.
+A live empty input must complete without a PTY write or a success acknowledgement.
+A refused empty input must retain its op and report SessionEnded with no written bytes.
+Prove both empty frame kinds after Stop and Kill before exit, through decoded client refusals and actions.
+Include an empty frame queued behind an active transaction whose turn arrives after Stop or payload end.
+Keep receipt-time role/readiness decisions, refusal reservations, revision counts, and R-54 replies unchanged in scope.
+Update the admission table. Supply correction records and an exact-head gate before the next authorized review.
+
+### Admission parity and whole-change review
+
+try_start waits for the spawn answer for all transactions that reach the queue.
+The shared admission function checks payload state, exit, and stopping for nonempty route input.
+F114 is the retained entry-path bypass of those shared checks for empty input.
+The host input guard checks the selected source class and revision. The terminal guard checks model_rev afterward.
+Route bytes/text frames carry no guard under DP-5 and IN-10. Replies also carry no guard.
+The conservative branch for an unknown SourceClass remains confined to host guards.
+Host semantic input is encoded with terminal modes at its start. This PR writes route bytes/text verbatim.
+Later route semantic kinds retain their receipt-time Unsupported refusal; their encoding remains later P4a scope.
+The model has already encoded an EV-8 reply.
+Host revision advances at admission. Client revision advances at receipt. Replies advance neither revision.
+The source supports these stated differences. It does not support the table's unqualified session-check parity claim.
+
+The round-155 whole-change review retains its read bounds, refusal reservations, settlement, binding-read behavior, and ownership conclusions.
+F103 and F107 remain CLOSED. F99, F100, F101, F102, F104, F105, and F106 retain their specific closures.
+F86's first-reason and F87's complete-receipt corrections remain satisfied.
+F88 and F90 retain their whole-unit scope while F114 leaves route admission incomplete.
+The feature prior-art note and its pinned sources retain the completed round-155 review.
+No own contract pin, public facade, C ABI, or mutation exclusion changes occur.
+
+The final merge brings v1 15791ea3, containing #228, into 0dafe6b9 without a reported conflict.
+Read-only comparison shows twelve of thirteen own-path diffs identical across the merge, excluding index lines and hunk coordinates.
+The only difference is core-real-pending context from #228's added explanation. Its own twelve added ids are unchanged.
+The #228 removal set has no overlap with this PR's added ids. The route and program groups remain twenty-nine and thirty-eight.
+The shared worker.rs overlap adds impostor_answer and worker_alive from the base. It does not alter the route allowance correction.
+The packaged Worker still accepts RouteReadAllowance in its existing route no-op group.
+The real route controls remain pending. This PR makes no completed real route or real minimum-id claim.
+The reviewer runs no executable merge-check job.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-d1e00be3-pool-20261010-200549-56531.log.
+Its header records this exact head and 15791ea3 base. All ten CI steps PASS on gaming.
+Default: 1583 passed in 14.216 seconds, with 485 skipped.
+Slow: 408 passed in 150.183 seconds, with 1977 skipped.
+Both testkit reports: 205 passed, zero failed, 485 ignored. Minimum testkit: 54/69.
+Strict pending: 374 of 395 ids run, 21 real-only ids not run, two held.
+Real minimum: 35/68 passing and 35/69 accepted. Pending-real: 83, with zero passing in that list.
+These increased real counts come from the merged base; they do not prove this PR's pending real route controls.
+Stage 1: 125 mutants, 122 caught, three unviable, zero missed and zero timeouts, in 259.2 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 524.3 seconds. Queue: 92 seconds. The job runs 537 seconds and exits zero after 629 seconds.
+The wrapper exits zero after 629 seconds.
+The three new stopping proofs pass. They use nonempty route payloads and do not cover F114.
+
+Correction files: shared/core-stage1/evidence/p3-pr3/pr3-round4-stopping-reverts.log and pr3-round5-parity-reverts.log.
+The first records four failed stop-check reversals, including the queued route proof.
+The second records five failed parity reversals: reply, route, host, stopping, and ended-payload checks.
+These files contain selected correction results. They are not exact-head full-gate records.
+The reviewer reads completed evidence only and runs no tests, builds, gates, measurements, mutants, or reversals.
+
+### Verdict
+
+PR #227 is NOT CLEAN at `d1e00be37ea9b7830041e043186659f682e985a9`.
+F113 is CLOSED for its nonempty route-input counterexample. F114 is MED and OPEN.
+This is package round 5, under the lead's explicit authorization.
+The lead authorizes round 6 through msg_plugin-w_1791688864_59179b.
+Its scope is F114 and P3's list of every return or early exit in the host, route, and reply paths.
+The lead requires admission to run before each outcome, refusal, or no-op. The reviewer must verify that list against source.
+P3 reports correction 4ede303f8b41adb703bafab683120cbc25a582d7, with its gate still running.
+This verdict does not review that replacement. Wait for its direct READY, path list, and completed exact-head evidence.
+Findings and the artifact go directly to P3 and current Sol integration.
+The lead receives BLOCKED with the exact head and verdict commit.
+#230 awaits direct READY. F39 and F61/F62 retain their prior scopes. The non-minimum P3 queue remains parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
