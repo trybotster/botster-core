@@ -20,7 +20,10 @@ Core #255 is CLEAN at `15633946e020a9d092ff2fcb8d0bf20560efd202`.
 RC-PR-1 and RC-PR-2 are closed. No finding remains open.
 The real control reads the current stored row. Both tiers have removal regressions through the control.
 The hello test checks only its observable wake signal.
-The final exact-head gate and integration CLEAN remain required.
+The integration reviewer reports CLEAN at the same head, with 0 open findings.
+Integration verdict: `0efa400e`, `verdicts/stage1/rc-program-ready.md`, round 2.
+Message: `msg_plugin-w_1791714268_35bab6`.
+The final exact-head gate remains required before merge.
 The earlier integration NOT CLEAN verdict was `25a1ca56597ed6ee463e715ab2983b297de873c2`.
 The retained Mac failure reproduces on plain v1 and remains explicit in the verdict.
 The remaining RC controls have no submitted head or verdict in this session.

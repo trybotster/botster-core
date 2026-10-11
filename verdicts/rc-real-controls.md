@@ -248,3 +248,10 @@ That test and identity implementation remain unchanged by this PR. The failure r
 The initial Linux gate does not cover this head. The final gate must pass on the exact final head before merge.
 Integration CLEAN remains separately required. Any further implementation change requires a delta review.
 The reviewer ran no test or gate.
+
+### Integration CLEAN received
+
+The integration reviewer reports CLEAN at `15633946e020a9d092ff2fcb8d0bf20560efd202`, with 0 open findings.
+Integration verdict: `0efa400e`, `verdicts/stage1/rc-program-ready.md`, round 2.
+The report arrived in `msg_plugin-w_1791714268_35bab6`.
+The final full gate remains required on the exact final head before merge.
