@@ -1,6 +1,6 @@
 # PC package review: worker_file_name capability, PR #276
 
-VERDICT: source CLEAN (0 open) at `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+VERDICT: CLEAN (0 open). Final gated head: `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
 
 Round 1 below records the source review. The earlier cause record remains as historical evidence.
 
@@ -190,4 +190,39 @@ The earlier gate at `67fd9112` remains evidence for that earlier head only.
 PC must record the merge, failed base check, both delta verdicts, and final exact-head gate in the PR body before merge.
 This source verdict does not establish the final gate condition or approve another base import.
 The reviewer ran no build, test, gate, mutation, reproduction, or executable base check.
+The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
+
+## Final gate, Sol delta, and merged receipt
+
+PC gate receipt: `msg_plugin-w_1791741230_09615a`. Sol delta receipt: `msg_plugin-w_1791741249_720a00`.
+Sol verdict: `b1eeeac1a1cb6e7f6a1cec63fb84104273d32c48`, Round 2.
+The reviewer read the complete Sol delta and verified its remote publication.
+Both source delta CLEANs cover head `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`, base `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+The failed base check stays FAIL. The two explicit delta reviews replace its unavailable exception.
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-pc-e1-1-worker-file-name-300eccec-pool-20261011-104914-15924.log`.
+SHA-256: `4acad31348c3a2f422e4e8af36672b3451a5a8fbffa146be86d1127997128bf0`.
+The header names this exact head and base. All ten steps PASS in 211.4 seconds.
+The Linux job exits 0 after 222 seconds. The wrapper exits 0 after 223 seconds.
+Default: 1738 PASS, 478 skipped, 11.493 seconds. Slow: 557 PASS, 2028 skipped, 40.528 seconds.
+The E1-1 real trial passes in 0.144 seconds. The same-run result check names it at line 4888.
+All four named proof rows pass, including both imported LC-2 rows. The baseline also passes E1-1 in 0.165 seconds.
+Minimum counts: testkit 60/69, real-passing 48/68, real-accepted 49/69.
+
+Stage 1 misses both capability mutants. Stage 2 catches both after its unmutated baseline passes.
+The final result is two caught, zero missed, zero timeout, zero unviable.
+The reviewer matches all four raw records with the two named catcher records. No FLAKY token exists.
+The fuzz step reports PASS with no changed crate that has a decoder harness. No gate step reports SKIPPED.
+
+The initial final-body text called fuzz skipped. The reviewer required a LOW correction in `msg_plugin-w_1791741280_9cdd24`.
+PC corrected it in `msg_plugin-w_1791741295_ba72c7`. The reviewer verified the corrected body through the GitHub API.
+The body now records both prior verdicts, the one base import, failed check, both delta verdicts, and final gate.
+That body note is closed. No source change or additional gate occurred for the correction.
+The same-head integration delta, final gate, and body conditions are closed. No package finding remains open.
+
+GitHub reports PR #276 MERGED at `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+The merge parents are imported v1 `84b1e9be2c58044b27958ed39fe1fffa2a0eb907` and gated head `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+The reviewer verifies that the merge and gated head share tree `ca4b8722aebb4e0a737b902aa4776c4681a8d966`.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable base check.
+The earlier red gate remains red. The OU-9 structural fix still needs its Core pin.
 The original program-controls group remains incomplete. Wait for the doorbell. Never poll.

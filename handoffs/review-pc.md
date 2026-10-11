@@ -1066,3 +1066,38 @@ The same-head integration-review condition is closed. The current-v1 import, app
 Neither verdict approves a later source delta or gate. No execution job ran here.
 #276 remains source CLEAN at merged head 300eccec; its Sol delta and final gate receipt remain pending here.
 Next: push this receipt record and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
+
+
+Receipt record pushed: 2f3731498e6058dd20961b922f73c1819c5cbf5b on origin/stage1/review-pc.
+#277 both source CLEANs cover 7d7d429f06335c18e8a21e6c63085be4c5465eb0. The final import, applicable base check, and gate remain due.
+The reviewer worktree is clean. Wait for the doorbell. Never poll.
+
+
+## PR #276: final gate and merged receipt
+
+PC receipts: msg_plugin-w_1791741230_09615a and msg_plugin-w_1791741295_ba72c7.
+Sol delta receipt: msg_plugin-w_1791741249_720a00. Verdict b1eeeac1a1cb6e7f6a1cec63fb84104273d32c48, Round 2.
+The reviewer read Sol's complete delta and verified remote publication. Both delta CLEANs cover 300eccec3f9c2929e137ee33eb2e8cbe45bf66a8.
+Base: 84b1e9be2c58044b27958ed39fe1fffa2a0eb907. Package delta verdict: ce5d6b6d1de679907a29b54e1330a7923bfb5625.
+The failed base check remains FAIL. Both explicit source reviews cover the overlap and resolution.
+Final gate: gates/botster-core-stage1-pc-e1-1-worker-file-name-300eccec-pool-20261011-104914-15924.log.
+SHA-256: 4acad31348c3a2f422e4e8af36672b3451a5a8fbffa146be86d1127997128bf0.
+All ten steps PASS in 211.4 seconds. Linux wrapper exit 0 after 223 seconds.
+Default 1738 PASS, 478 skipped, 11.493 seconds. Slow 557 PASS, 2028 skipped, 40.528 seconds.
+E1-1 PASS in 0.144 seconds. The same-run result check names it at line 4888; all four named proof rows pass.
+Baseline E1-1 PASS in 0.165 seconds. Counts: testkit 60/69; real-passing 48/68; real-accepted 49/69.
+Stage 1 misses two capability mutants; stage 2 catches both. Zero missed, timeout, unviable, or FLAKY outcomes.
+The reviewer matched four raw records with two named catchers. The fuzz step is PASS, with no changed decoder crate.
+PC corrected the LOW body note that called fuzz skipped. The reviewer verified the body through the GitHub API.
+The body now includes the one base import, failed check, both delta verdicts, and exact-head gate. All final review conditions close.
+GitHub reports PR #276 MERGED at 20c4e98df6b47a45f3e2284a976e1c8a1341457e.
+The reviewer verifies the merge and gated head share tree ca4b8722aebb4e0a737b902aa4776c4681a8d966.
+No execution job ran here. The earlier red gate stays red. The OU-9 structural fix still needs its Core pin.
+The original program-controls group remains incomplete.
+
+## PR #277: merged-head delta queued
+
+PC receipt: msg_plugin-w_1791741278_38410f.
+Head: 79277df141aa6c5b18f150ed47015bd733b5efc1. Imported v1: 84b1e9be2c58044b27958ed39fe1fffa2a0eb907.
+PC reports one conflict-free import and a failed pending-file check. The final gate is running.
+No merged-head package verdict exists yet. Next: publish #276 final evidence, then read the brief first and review #277. Never poll.
