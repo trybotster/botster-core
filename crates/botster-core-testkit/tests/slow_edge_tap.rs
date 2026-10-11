@@ -9,7 +9,7 @@
 use botster_core::open_parts;
 use botster_core_contract::prelude::*;
 use botster_core_host::driver::HostEdges;
-use botster_core_testkit::edge_tap::{EdgeTap, Rows};
+use botster_core_testkit::edge_tap::{EdgeTap, Heard, Rows};
 use std::collections::BTreeSet;
 use std::io::{self, Read, Write};
 use std::os::fd::AsRawFd;
@@ -50,7 +50,7 @@ fn a_broken_link_never_reaches_a_descriptor_that_reuses_its_number() {
         limits: CoreLimits::default(),
     })
     .unwrap();
-    let (mut edges, tap) = EdgeTap::new(inner, Rows::default());
+    let (mut edges, tap) = EdgeTap::new(inner, Rows::default(), Heard::default());
     let mut worker = UnixStream::connect(dir.join("c")).unwrap();
     // A connect on a Unix socket is queued at once; the accept sees it.
     let link = edges.accept_link().expect("a worker is waiting");
