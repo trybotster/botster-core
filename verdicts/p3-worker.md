@@ -12422,3 +12422,62 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. Earlier verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 175 — #267 disjoint merge transfer and exact-head gate, 2026-10-11
+
+Exact head: `159046a7366597d9c5cec5cadff4050779ba190c`.
+Exact base: `a47f4b86c36b78f03862e14f65ea7324b294552d`.
+Parents: previously CLEAN `599cff43d0bdfd360f1042aa2cdcd60da74c5cc5` and the exact base above.
+Owner receipt: `msg_plugin-w_1791727886_3177ec`.
+Risk tier: HIGH, unchanged. This is a merge-transfer and gate record, not a new source delta review.
+The published package source verdict remains Round 173 at `746eb90aeea8c552fd5127b4ff1c2f24d77d67a2`.
+The earlier integration completion remains `15d05afa12f60248a5a7eeb4ede06aca80aec66c` at that earlier exact head.
+
+### Disjoint merge transfer
+
+The reviewer reads the complete supplied check at `shared/core-stage1/evidence/p3-mutants-narrow/base-merge-check-599cff43-159046a7.log`.
+It reports ancestry, no merge conflicts, disjoint base paths, byte-identical own diff, and unchanged pending files relative to base.
+All required conditions report PASS. BUILD.md therefore requires no source delta round for this merge.
+The reviewer does not execute the merge-check job.
+Read-only Git comparisons independently confirm that the base changes only conformance/core-real-pending.txt.
+That path is disjoint from the four-path own diff. All four own source blobs equal the earlier reviewed blobs.
+The own diff is byte-identical before and after the import under the reviewer's Git invocation.
+Both pending files equal the new base blobs. This PR adds no pending-list delta of its own.
+The source conclusion and focused Mac proof retain the accepted scope of Round 173.
+The inherited Mac record remains at 599cff43; it is not relabeled as execution at this merge head.
+
+### Supplied exact-head gate
+
+Log: `gates/botster-core-stage1-p3-mutants-narrow-159046a7-pool-20261011-070805-82729.log`.
+The header names this exact head and base and runs the full Linux gate.
+All ten steps report PASS. Default: 1688 passed, 481 skipped. Slow: 546 passed, 1988 skipped.
+The one selected Driver::run body mutant is missed in the default stage and caught in the slow stage.
+The catcher is `slow_driver::a_client_close_ends_its_real_route`.
+The slow unmutated baseline passes 546 tests. Final mutation result: one caught, zero missed, zero timeout, zero unviable.
+No FLAKY record appears. The gate selects no changed decoder harness.
+Jobq exits zero after 183 seconds; botster-gate exits zero after 184 seconds.
+The selected-mutant and real-process proof limits from Round 173 remain applicable.
+No isolated write-filter EOF proof or preceding route-read WouldBlock fence is claimed.
+
+### Body correction and verdict
+
+**F129 LOW — the initial body lacks the new final gate and merge-check record. CLOSED.**
+The initial published body is byte-identical to the earlier final body and still labels the 599cff43 gate as Final.
+The reviewer asks P3 to publish the new head, base, final gate record, and complete check output.
+Finding receipts: P3 `msg_plugin-w_1791727960_4615f2`; Sol `msg_plugin-w_1791727960_bc032a`.
+P3 publishes the correction in receipt `msg_plugin-w_1791727986_78161b` without a source change.
+Final verified body: `/private/tmp/review-p3-pr267-159046a7-f129-fixed.json`.
+The reviewer verifies the unchanged exact head and base and reads every body change.
+The final body names the new merge, labels the 159046a7 gate as Final, and keeps the 599cff43 gate under Earlier.
+The full supplied check output appears in the body byte for byte. The Mac proof retains its original head.
+Every other body line remains unchanged. No repeat gate or source edit is needed.
+
+F126, F127, F128, and F129 are CLOSED. No package finding remains open for #267.
+The package CLEAN transfers to `159046a7366597d9c5cec5cadff4050779ba190c` with its accepted exact-head gate and final body.
+Formal integration acceptance at this new head remains separate. The lead owns the merge decision.
+No future import or #262 verdict is accepted here. F39 and F61/F62 retain separate scopes.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All prior verdict history remains preserved.
+
+VERDICT: CLEAN
