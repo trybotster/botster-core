@@ -241,7 +241,7 @@ impl CoreHarness for TestkitHarness {
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
     /// and edges that they need.
     fn has_control(&self, op: &str) -> bool {
-        self.controls.contains(op)
+        self.controls.contains(op) && crate::alloc_controls::supports(op)
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
