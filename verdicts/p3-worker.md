@@ -11480,7 +11480,7 @@ No new source merge occurs. The other five own paths retain round 163's complete
 The reviewer checks the correction against the whole route transport, descriptor transfer, allowances, and PTY budget change.
 The source diff check passes. No product test hook, sleep, or polling loop is added.
 
-### F122 LOW — CLOSED
+### F122 LOW — behavior CLOSED; documentation OPEN
 
 write_once now clears writable when a nonempty write returns Ok(0).
 The next readable-only event therefore cannot reuse the old write readiness to produce RouteWritable.
@@ -11489,6 +11489,11 @@ Its later writable event still produces RouteWritable, and the terminal write er
 The separate empty-write and Interrupted proofs remain unchanged.
 The selected reversal removes this assignment and fails the new assertion with Some(RouteWritable) instead of None.
 This closes the reported generic-stream event path. No observed UnixStream failure is claimed.
+The module header and current PR body still state that only WouldBlock clears readiness.
+The new nonempty Ok(0) branch also clears it. Update both descriptions to name that case.
+Sol records this remaining LOW scope in msg_plugin-w_1791704035_cf7b81 and source artifact 64d170f42fab6419c2c1151b9f864527cf3084a4.
+The reviewer reads the complete integration correction inspection; its source and evidence conclusions agree.
+F122 remains OPEN for this documentation correction. No additional test or gate is required for that wording change alone.
 
 ### F121 MED — OPEN: the new proof uses invalid limits
 
@@ -11550,7 +11555,8 @@ The reviewer changes no product code.
 ### Verdict
 
 PR #243 is NOT CLEAN at `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
-F122 LOW closes. F121 MED remains OPEN because its new proof uses invalid limits.
+F122 behavior closes, but its LOW documentation scope remains OPEN.
+F121 MED remains OPEN because its new proof uses invalid limits.
 This completes #243 package round 2. The next round is within the normal three-round limit.
 If that third round is NOT CLEAN, the lead must decide before a fourth round starts.
 The artifact goes directly to P3 and Sol integration. No ordinary NOT CLEAN report goes to the lead.
