@@ -13245,3 +13245,67 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 186 — #279 SLOT imports before the final gate, 2026-10-11
+
+Exact head: `80c5b50cfd4e94efd65b06ea13c045bab91a476f`.
+Exact PR base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+Parents: `e75d804056b080023f077d7780fa16becb53f895` and the exact base above.
+The first parent merges reviewed 74bcde21 with `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+Import READY: `msg_plugin-w_1791742079_effeff`. Risk: HIGH under BUILD rule 3, unchanged.
+Previous package source verdict: pushed `39704ff9dad7cad8ce55a0f67e6fb0f983afd567`, Round 185 CLEAN at 74bcde21.
+The lead's 04:50 SLOT ruling directs the #277 import before this PR's final gate.
+Complete current PR record: /private/tmp/review-p3-pr279-80c5b50c-import.json.
+
+### Required import delta review
+
+The reviewer reads the complete supplied base-merge-check-abcbf164-80c5b50c.log and base-merge-check-74bcde21-e75d8040.log.
+The cumulative check verifies ancestry and the core-pending line-set condition.
+Conditions (1)-(3) and the real-pending line-set condition FAIL.
+The cumulative conflict is the previously reviewed real-pending conflict. real.rs has base overlap.
+The intermediate check reports no new conflict, but real.rs overlap still prevents Q7-only transfer.
+This round performs the required package delta review. It claims no fully passing Q7 transfer.
+No executable merge-check job runs.
+
+The reviewer reads every new import change in the three own paths that overlap the base.
+Only four new lines enter real.rs: worker_file_name capability documentation, its advertised name, and its existing test list entry.
+These lines equal the base's added and removed line content exactly.
+They change no route input control, instance lookup, weak tap ownership, input log, or named route test.
+The complete own added and removed line content in real.rs remains identical against the new base.
+All six own blobs outside the overlapping paths remain identical to the Round 185 head.
+All eight newly changed base blobs outside the own paths equal the exact base.
+The imported parents are exact. The merge base equals the exact PR base. The own diff still has nine paths.
+
+### Pending accounting
+
+The new core-pending import removes only the base's e1_1_worker_found_by_host_supplied_path identifier.
+The new real-pending import removes only the base's a2_3_lost_session_closes_routes_session_lost identifier.
+The reviewer verifies the real-pending file equals the Round 185 file with exactly that line removed.
+The removed line is outside the own blocks. All previously resolved own and oracle blocks remain intact.
+The cumulative base removes four core-pending identifiers; the own change removes four different identifiers.
+No identifier belongs to both removal sets.
+Against the new base, core pending changes from 455 to 451, with no additions.
+Real pending changes from 32 to 36, with exactly the same four own additions and no own removal.
+Both files contain unique identifiers. minimum-core.txt retains its reviewed blob and the same 69 identifiers.
+The own four-id moves, eighteen relation identifiers, am_2, and a2_1 retain their prior scope.
+The imported base proof and pending removals are base changes. This PR claims no additional own real-tier transcript PASS.
+
+### Record and remaining gate
+
+The live PR head and base match this round. The body is unchanged from the corrected Round 185 body.
+The owner reports lists PASS, clean fmt, and zero clippy errors at this head. No raw local-check log accompanies READY.
+The reviewer records only these owner reports.
+The owner reports that the one final pool gate now runs at this exact head. No completed log is supplied yet.
+The earlier 6161 full gate remains historical evidence at its original head.
+This verdict is source CLEAN only. It accepts no running or future gate, additional import, or merge.
+The final PR record still needs the applicable complete base check and completed exact-head gate.
+Formal integration acceptance at this imported head remains separate. The lead owns the final merge decision.
+
+F135 through F139 remain CLOSED. No package finding arises from these import deltas.
+The separate ST-6 FLAKY contributes no catch. P5 owns its structural diagnosis; the failure cause remains unknown.
+F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
