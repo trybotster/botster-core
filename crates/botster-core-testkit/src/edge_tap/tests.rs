@@ -276,12 +276,19 @@ struct Rig {
     edges: EdgeTap<Fake>,
     tap: Weak<Mutex<Tap<Fake>>>,
     rows: Rows,
+    heard: Heard,
 }
 
 fn rig(fake: Fake) -> Rig {
     let rows = Rows::default();
-    let (edges, tap) = EdgeTap::new(fake, Arc::clone(&rows));
-    Rig { edges, tap, rows }
+    let heard = Heard::default();
+    let (edges, tap) = EdgeTap::new(fake, Arc::clone(&rows), Arc::clone(&heard));
+    Rig {
+        edges,
+        tap,
+        rows,
+        heard,
+    }
 }
 
 impl Rig {
@@ -541,6 +548,26 @@ fn a_link_or_an_exit_held_alone_keeps_the_edges_busy() {
         Some((identity(4), exit_status()))
     );
     assert!(exits.with(Tap::quiet));
+}
+
+/// [`Heard`]: the hello of an accepted link, or Core's connection to a worker's endpoint, puts the instance in the record
+/// of the directory, and the record outlives the tap. A link with no hello read yet puts nothing in it.
+#[test]
+fn a_hello_or_a_connection_to_the_endpoint_marks_the_worker_heard() {
+    let mut fake = fake_with_link(vec![Read::Data(hello_frame("1-7"))]);
+    fake.connects.insert(InstanceId("5-5".into()), B);
+    let mut rig = rig(fake);
+    let id = |s: &str| InstanceId(s.into());
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert!(!rig.with(|t| t.heard(&id("1-7"))), "no hello read yet");
+    assert_eq!(rig.recv(A, 4096).unwrap(), hello_frame("1-7"));
+    assert!(rig.with(|t| t.heard(&id("1-7"))));
+    assert!(!rig.with(|t| t.heard(&id("5-5"))));
+    assert_eq!(rig.edges.connect_worker(&id("5-5")), Some(B));
+    assert!(rig.with(|t| t.heard(&id("5-5"))));
+    let heard = Arc::clone(&rig.heard);
+    drop(rig);
+    assert_eq!(*lock(&heard), BTreeSet::from([id("1-7"), id("5-5")]));
 }
 
 #[test]
