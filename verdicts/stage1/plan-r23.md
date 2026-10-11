@@ -1630,3 +1630,67 @@ This documentation change requires no execution gate.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 6dbe1c43d55e31cba038cee1008098bc0ba41ef0
+
+
+## Round 48 — revision 23ak — 2026-10-11
+
+Reviewed head: `4eceef06434d643bf31e965a35a75d4252d27d19`.
+Prior accepted head and sole parent: `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
+Request: `msg_plugin-w_1791705383_a8b9b9`.
+Scope: the contracts input in section 0 and the added revision row.
+I compare both complete plan texts. Only the input-row prefix and revision row change.
+The input row retains its previous suffix of 10096 characters. No other plan section changes.
+
+I verify tag `contracts-v0.1.29` at `65f76ab9829d7a0fda2835c10abc7ffae2c35215`.
+The tag's delta from .28 changes seven paths: one transcript, the conformance driver and exports, tests, and steward rulings.
+The only changed transcript is `ev_2_one_marker_per_session`.
+It appends the title sentinel to the final bell output, adds await_title, and adds TitleChanged to the later ignore list.
+Its existing expectations remain unchanged. No other transcript changes in this tag.
+The tag changes no frozen contract, manifest, ledger, pending list, or withdrawn list.
+
+I read the new await_title implementation and its public vocabulary.
+It pumps and reads the cached ST-4 title. It does not poll events or move the clock.
+Its documentation retains R-57's limit: no launch or adoption report between the sentinel output and the wait.
+The accepted Core #242 proof and its budget and queue cases remain recorded in Round 47.
+This revision correctly identifies the driver step and EV-2 fence as present in .29, rather than planned for a later tag.
+
+I read R-58 at .29 and its A17 correction at fixed contracts main `d8c0137076c5b0cc7d934fbe615df08f6b846a4d`.
+The driver requires both the client's stream end and the recorded host RouteClosed reason for an ended expectation.
+One derivation serves both tiers. It ignores the route endpoint's claimed cause and uses the driver's host-event record.
+The record preserves the first reason by handle generation and route ID. It cannot borrow a prior handle's reason.
+The mapping contains five failed reasons. No Core reason maps to not_connected, as A17 requires.
+The tag already contains that five-row mapping and the negative not_connected proof; main adds the explicit ruling correction.
+R-50's correction is also present in .29: the holder writes nothing for SessionLost on a pending-handoff route.
+The plan states that correction and retains the host's OU-2b mapping. It changes no closed expectation or ID.
+
+I read R-59 at the new tag and main. I check its tally rule against the lead's ~03:42 steward receipt.
+The planned start_held control distinguishes a hold that stopped its step from a hold that is merely armed.
+The nine hold transcripts require the stated fence or proof that their held point is already certain under the full ruling.
+For AD-7's crash form, held:true must precede host_crash. The control and transcript fences remain later work.
+AD-7 stays in its current list, but its unfenced pass cannot count toward the real minimum.
+The current tally remains 35 / 68 plus one unfenced pass. The plan grants no acceptance for the current unfenced form.
+
+I read R-60 and R-61 at fixed main `d8c0137`.
+The program_ready control waits for probe setup before the first input when a later step asserts output or the input log.
+The real form observes the probe's connection after R-48 setup. The testkit form is true at once.
+R-48 keeps ONLCR. Exact output assertions avoid 0a and other bytes that OPOST changes.
+The three named output transcripts require later corrections. They do not change in .29.
+R-61 distinguishes waits for a newly produced value from waits that an earlier aggregate can satisfy.
+It counts pty_output containing 1b as a possible write and permits a named no-query exception.
+Its exact-output definition includes route bytes, literal output frames, and Tap bytes.
+Its input rule excludes 0d from exact pty_input and route_expect_pty assertions because R-48 keeps ICRNL.
+The plan summaries agree with these fixed rulings. This review waives none of their evidence or exception conditions.
+
+The lead's ~05:20 decision sends the separate HIGH code pin move before #233.
+The plan permits ID removal only on a PASS in that PR's Linux gate.
+IN-5 remains pending until #233's final gate on the new pin reports PASS. The plan states that specific boundary.
+The later pin review still checks R-56 and R-57 evidence and all touched-ID regressions, with no waiver.
+This verdict accepts no code pin, implementation PR, conformance removal, minimum PASS, or execution result.
+The revision changes no staffing limit, stage acceptance condition, or prospective Mac evidence rule.
+
+The exact-head diff check passes.
+The reviewed plan bytes have SHA256 `db7ba8e5c0748aa53257fb53a5e6f8923a9549c6c9871127a7d2ef2c97000813`.
+This documentation change requires no execution gate.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 4eceef06434d643bf31e965a35a75d4252d27d19
