@@ -2430,3 +2430,44 @@ The active code pin remains contracts-v0.1.36.
 I ran no execution job.
 
 VERDICT: CLEAN (0 open) at 6251ffcb11b85ef5caf0973673f057a817534bc8
+
+## Round 69 — revisions 23bc and 23bd, 2026-10-11
+
+Head: `03c56e269b9af7a38ab893973ef3109772d66e81`.
+Parent: `d9fbc7471d26f6cd4b0708e5ad6e12c00e61223b` (revision 23bc).
+Reviewed base: `6251ffcb11b85ef5caf0973673f057a817534bc8` (revision 23bb).
+Pin: `~/botster-sessions/pins/stage1-plan.03c56e26.md`, mode `0444`.
+SHA256: `885c9816bc027b8779db1b06488b5de05a9ad34a3cf395b2b3b6a401b6a3202e`.
+Lead receipt: `msg_plugin-w_1791734941_a9c74d`.
+
+I verify the parent chain, pin mode, hash, and committed bytes.
+I read every inserted word in revision 23bc and the complete combined delta through revision 23bd.
+Only docs/stage1-plan.md changes. All other plan words equal revision 23bb.
+Revision 23bd replaces the temporary guard in 23bc. The revision table preserves that history.
+The final plan requires one whole-log segment with one shared fixed label on both tiers.
+The implementation PR must prove that the label cannot collide with a contract operation label.
+The final plan does not authorize the withdrawn guard or an operation-free segment.
+
+I read pty_matches and its literal and contains helpers at Contracts .36, commit `96f48d6d3d7a0e75e752d78433eff92efad0e77e`.
+Literal hex and var parts compare against the concatenation of all segment bytes at the current position.
+A relation part first requires a segment that starts at that position, then compares its operation before its length or contains checks.
+A written_without_op part requires None. A segment with the fixed string label supplies Some(label), so that relation fails.
+A written_by_op part also fails if the PR proves the required label cannot equal the fixed label.
+A relation at another position fails because no segment starts there. No length or contains check bypasses that operation comparison.
+Thus a single segment can supply literal bytes without falsely passing these relation forms under the stated noncollision condition.
+The required reversal changes the labeled segment to an operation-free segment and proves that written_without_op then passes.
+That proof, actual control dispatch, and the label's noncollision evidence remain implementation review requirements.
+
+I read the route_expect_pty steps of both named dp_3 transcripts at the pinned contracts commit.
+They contain the relation forms that require the later operation-attributed segments.
+Both identifiers remain in the Core pending list and minimum list at d582853d.
+They are absent from core-real-pending.txt there; that fact alone establishes no real-tier PASS proof.
+The implementation PR must list the affected relation identifiers and keep their conformance accounting accurate on both tiers.
+Form (B), including the probe protocol change, remains a steward question. This plan does not approve that protocol change.
+
+AY-SI-1, AZ-SI-1, and BA-SI-1 remain closed with their recorded evidence.
+This CLEAN accepts the final plan text. It approves no future implementation, pin, gate, source import, or pending removal.
+The active code pin remains contracts-v0.1.36.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open) at 03c56e269b9af7a38ab893973ef3109772d66e81
