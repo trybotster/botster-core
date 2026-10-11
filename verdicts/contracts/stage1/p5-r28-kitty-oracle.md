@@ -40,3 +40,16 @@ VERDICT: NOT CLEAN (3 open).
 - Header: head `5ee91959dc63a62469870096cd15dbbd0fd25682`, base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` (BOTSTER_CI_BASE_REF), Linux pool. The PR's merge base is the same commit.
 - Result (read by me): all 10 steps PASS; `botster-gate: exit 0 after 425 s on msa1`.
 - F1 to F3 need only PR-body and evidence changes. If no commit follows, this gate stays the merging gate for this head.
+
+## Round 2: head `5ee91959dc63a62469870096cd15dbbd0fd25682` (unchanged; PR body and evidence only)
+
+VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration review.
+
+- **F1 closed.** The body states "Risk tier: HIGH", with the reason: the fence exception file is gate-decision data (the rule of #51).
+- **F2 closed.** The false sentence is gone. The body now says that step 5 is pin-specific: a pin that masks the value posts `ModesChanged{kitty_flags: 31}` and fails step 5, and such a pin roll must change the transcript.
+- **F3 closed.** Logs under `~/botster-sessions/shared/core-stage1/evidence/p5-r28/`, each with a header that names Core `2866d5928f66954cf57e0a4959db2e587a543080`, contracts `5ee91959dc63a62469870096cd15dbbd0fd25682` and the command:
+  - `probe-transcript.json` (SHA256 `b49bb8f931f23ceb9a928a887677bd2235232e0498b19780e2a9503d04ecc5c8`): steps 0 to 5 are the same as the PR's, then `terminal_state` with `kitty_flags: 0`;
+  - `probe-testkit-mac.log` (SHA256 `e6601384b34ee95b2f1863f34b1afd226d049182002e145ebd5a7f681ee21a69`): `ok`, exit 0;
+  - `probe-real-mac.log` (SHA256 `f2d6dc8142da007d9b10a15031aae3abba9745ba12db98e01618aec149d7436f`): `ok`, exit 0.
+- The gate on this head stays the merging gate: SHA256 `3d8f485390ecd34567905c33fa03c3cf55fbc0fa44c04053e329833906aba9f0`, all 10 steps PASS. Its base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` is still the main tip, and the PR's merge base is the same commit, so no main merge is needed.
+- 016c ACCEPT on the same head.
