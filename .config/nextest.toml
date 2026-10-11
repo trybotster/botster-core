@@ -45,7 +45,8 @@ inherits = "default"
 slow-timeout = { period = "2s" }
 # One retry of a failed test, in this profile only (BUILD.md Testing rule 9, contracts main e1da7be; lead, 2026-10-11):
 # only the test that failed reruns, once; a fail then a pass is FLAKY, nextest passes the run, and the mutant counts as
-# MISSED, so a flake is never a catch. The step names each FLAKY test (xtask/src/mutant_logs.rs). Every other profile
+# MISSED, so a fail-then-pass is no catch (a flaky test that fails both attempts still counts as a catch). The step
+# names each FLAKY test (xtask/src/mutant_logs.rs). Every other profile
 # keeps zero retries, and an unmutated run in this profile passes `--retries 0` or fails on a retry line.
 retries = 1
 
