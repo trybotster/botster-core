@@ -38,11 +38,12 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::JoinHandle;
 
 /// The controls that this module serves.
-pub(super) const CONTROLS: [&str; 6] = [
+pub(super) const CONTROLS: [&str; 7] = [
     "program_ready",
     "pty_output",
     "pty_input",
     "pty_blocked",
+    "pty_queued",
     "pty_accept",
     "pty_chunk",
 ];
@@ -57,9 +58,11 @@ struct Probe {
     /// Every `pty_output` that the probe acknowledged, in order, each with its mark (`State::marks` before it): the
     /// session's output history (`oracle_resume`, R-62).
     output: Vec<(u64, Vec<u8>)>,
-    /// The requests sent and the acknowledgements received.
+    /// The requests sent and the acknowledgements received. A `Queued` report acknowledges its `Queued` request.
     sent: u64,
     acked: u64,
+    /// The count of the last `Queued` report: the bytes in the probe's stdin buffer that it has not read (R-74).
+    queued: u64,
     /// The socket ended: the probe exited.
     closed: bool,
 }
@@ -265,6 +268,13 @@ impl Programs {
             .unwrap_or_default()
     }
 
+    /// The bytes that wait in the stdin buffer of the probe of `worker` and that it has not read (`FIONREAD`, R-74): the probe
+    /// answers a `Queued` request with them, in place of an acknowledgement.
+    fn queued(&self, worker: ProcessIdentity) -> Result<u64, ControlError> {
+        self.request(worker, &Request::Queued {})?;
+        Ok(self.hub.lock().probes[&worker].queued)
+    }
+
     /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
     fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
         let state = self.connected(worker)?;
@@ -467,6 +477,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
             output: vec![],
             sent: 0,
             acked: 0,
+            queued: 0,
             closed: false,
         },
     );
@@ -487,6 +498,11 @@ fn serve(hub: &Hub, stream: UnixStream) {
                 true
             }
             Some(Report::Ack {}) => {
+                probe.acked += 1;
+                false
+            }
+            Some(Report::Queued { bytes }) => {
+                probe.queued = bytes;
                 probe.acked += 1;
                 false
             }
@@ -551,6 +567,9 @@ struct PtyBlocked {
     session: SessionId,
     #[serde(default = "on")]
     on: bool,
+    /// The real tier sends nothing for it: the kernel buffers the PTY (steward ruling R-74). The testkit queues this many bytes.
+    #[serde(default)]
+    kernel_bytes: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -627,9 +646,19 @@ impl RealCoreHarness {
             }
             "pty_blocked" => {
                 let args: PtyBlocked = parse(args)?;
+                if let (false, Some(_)) = (args.on, args.kernel_bytes) {
+                    return Err(ControlError::Bad(
+                        "kernel_bytes: only a block (on: true) takes it".into(),
+                    ));
+                }
                 let worker = self.worker_of(handle, &args.session)?;
                 self.programs.request(worker, &Request::Blocked(args.on))?;
                 Ok(Value::Null)
+            }
+            "pty_queued" => {
+                let args: Session = parse(args)?;
+                let worker = self.worker_of(handle, &args.session)?;
+                Ok(json!({ "bytes": self.programs.queued(worker)? }))
             }
             "pty_accept" => {
                 let args: Bytes = parse(args)?;
@@ -916,6 +945,26 @@ mod slow_tests {
         assert!(args.on);
         let args: PtyBlocked = parse(&json!({"session": "s1", "on": false})).unwrap();
         assert!(!args.on);
+        // R-74: the real tier takes `kernel_bytes` and sends nothing for it (the kernel buffers).
+        let args: PtyBlocked = parse(&json!({"session": "s1", "kernel_bytes": 1})).unwrap();
+        assert_eq!((args.on, args.kernel_bytes), (true, Some(1)));
+    }
+
+    /// R-74: the probe answers `Queued` with its count in place of an acknowledgement, and `pty_queued` returns that count.
+    /// Each answer is the one to its own request: a later request gets the later count.
+    #[test]
+    fn pty_queued_returns_the_count_of_the_probes_answer() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        std::thread::scope(|s| {
+            for bytes in [7, 0] {
+                let control = s.spawn(|| programs.queued(me));
+                assert_eq!(probe.next_request(), Request::Queued {});
+                probe.report(&Report::Queued { bytes });
+                assert_eq!(control.join().unwrap(), Ok(bytes));
+            }
+        });
     }
 
     /// A recorded worker that no longer runs gives `Bad` at once: its probe can never connect, and a reused pid is never
