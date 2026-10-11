@@ -601,7 +601,7 @@ mod tests {
         ] {
             assert!(!not_own.is_own_real_trial(), "{not_own:?}");
             assert_eq!(
-                non_pending("conf::reuse", &real_only, &[not_own.clone()]),
+                non_pending("conf::reuse", &real_only, std::slice::from_ref(&not_own)),
                 NonPending::ByNamedProof(real_only[1].clone(), vec![not_own])
             );
         }
