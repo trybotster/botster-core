@@ -3,16 +3,20 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::{UnixListener, UnixStream};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 
 /// The anchor joins the worker's group before the worker body runs.
 /// The anchor stays alive after the production reaper reaps the worker.
 /// Closing the control stream makes the anchor kill its group, including itself.
+/// A group kill from outside the guard (the code under test) also ends the anchor; the drop then waits for the group's
+/// last members without a signal.
 pub struct GroupGuard {
     control: UnixStream,
     anchor: Child,
-    registration: Option<std::thread::JoinHandle<()>>,
+    /// Gives the worker's group, once the anchor joined it.
+    registration: Option<std::thread::JoinHandle<Option<rustix::process::Pid>>>,
     socket: PathBuf,
 }
 
@@ -53,19 +57,22 @@ impl GroupGuard {
         let mut registration_control = control.try_clone().unwrap();
         let registration = std::thread::spawn(move || {
             let Ok((mut worker, _)) = listener.accept() else {
-                return;
+                return None;
             };
             let mut pid = String::new();
             if BufReader::new(&worker).read_line(&mut pid).is_err() || pid.is_empty() {
-                return;
+                return None;
             }
+            let group = rustix::process::Pid::from_raw(pid.trim().parse().ok()?)?;
             if registration_control.write_all(pid.as_bytes()).is_err() {
-                return;
+                return None;
             }
             let mut ready = [0];
             if registration_control.read_exact(&mut ready).is_ok() && ready == [1] {
                 let _ = worker.write_all(&ready);
+                return Some(group);
             }
+            None
         });
         Self {
             control,
@@ -94,19 +101,29 @@ impl Drop for GroupGuard {
         if let Ok(stream) = UnixStream::connect(&self.socket) {
             let _ = stream.shutdown(std::net::Shutdown::Both);
         }
-        if let Some(thread) = self.registration.take() {
-            let _ = thread.join();
-        }
+        let group = self
+            .registration
+            .take()
+            .and_then(|thread| thread.join().ok().flatten());
         // The anchor ends with success only when no member of the group is left; otherwise it wrote why on its stderr,
         // which is this end of the control stream.
         let status = self.anchor.wait();
         if !matches!(&status, Ok(status) if status.success()) {
             let mut report = String::new();
             let _ = self.control.read_to_string(&mut report);
-            let report = format!(
-                "the group guard's cleanup failed ({status:?}): {}",
-                report.trim_start_matches('\u{1}').trim()
-            );
+            let report = report.trim_start_matches('\u{1}').trim();
+            // A SIGKILL with no report is a group kill from outside the guard: the anchor is a member of the group. The
+            // guard holds no reservation of the group then, so it only waits for the last members, as `PayloadGuard` does.
+            let killed = matches!(&status, Ok(status) if status.signal() == Some(9));
+            let ended = match group {
+                Some(group) if killed && report.is_empty() => await_group_end(group, CLEANUP)
+                    .map_err(|why| format!("the group was killed, but {why}")),
+                _ => Err(report.to_string()),
+            };
+            let Err(why) = ended else {
+                return;
+            };
+            let report = format!("the group guard's cleanup failed ({status:?}): {why}");
             if std::thread::panicking() {
                 eprintln!("{report}");
             } else {
@@ -119,7 +136,7 @@ impl Drop for GroupGuard {
 #[path = "guard_cleanup.rs"]
 pub(crate) mod cleanup;
 
-use cleanup::{end_group, CLEANUP};
+use cleanup::{await_group_end, end_group, CLEANUP};
 
 /// A separate test process holds membership in the worker's group.
 #[test]

@@ -64,12 +64,48 @@ struct Guard {
     _dir: tempfile::TempDir,
 }
 
+/// A FIFO at `path`.
+fn fifo(path: &std::path::Path) {
+    let made = std::process::Command::new("/usr/bin/mkfifo")
+        .arg(path)
+        .status()
+        .expect("mkfifo runs");
+    assert!(made.success());
+}
+
+/// The line that a shell writes to the FIFO `path` (with an external `/bin/echo`).
+fn told(path: &std::path::Path, what: &str) -> String {
+    let (told, heard) = std::sync::mpsc::channel();
+    let fifo = path.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = told.send(std::fs::read_to_string(fifo));
+    });
+    let said = heard
+        // timer: deadline — bounds the wait for the shell's line
+        .recv_timeout(Duration::from_secs(10))
+        .expect(what);
+    said.unwrap().trim().to_string()
+}
+
+/// Spawns `original` and returns once its group is registered with the anchor: the shell writes to a FIFO after the
+/// registration and before the body. So every test runs its body with the anchor in the group, and a group kill under
+/// test also ends the anchor (the guard's drop accepts that).
 fn spawn(children: &mut Children, original: SpawnSpec) -> (ProcessIdentity, Guard) {
     let dir = tempfile::tempdir().unwrap();
     let group = process_guard::GroupGuard::new(dir.path());
+    let registered = dir.path().join("registered");
+    fifo(&registered);
     let mut wrapped = spec(
         "/bin/sh",
-        &["-c", &format!("{}exec \"$@\"", group.prefix()), "guard"],
+        &[
+            "-c",
+            &format!(
+                "{}/bin/echo registered > '{}'; exec \"$@\"",
+                group.prefix(),
+                registered.display().to_string().replace('\'', "'\\''")
+            ),
+            "guard",
+        ],
     );
     wrapped.args.push(original.program.into());
     wrapped.args.extend(original.args);
@@ -80,6 +116,10 @@ fn spawn(children: &mut Children, original: SpawnSpec) -> (ProcessIdentity, Guar
         _dir: dir,
     };
     let identity = children.spawn(&wrapped).expect("spawn");
+    assert_eq!(
+        told(&registered, "the child registered with the anchor"),
+        "registered"
+    );
     (identity, guard)
 }
 
@@ -157,11 +197,7 @@ fn the_child_environment_is_exact() {
 fn the_worker_control_signal_reaches_the_worker_handler() {
     let tmp = tempfile::tempdir().unwrap();
     let ready = tmp.path().join("ready");
-    let made = std::process::Command::new("/usr/bin/mkfifo")
-        .arg(&ready)
-        .status()
-        .expect("mkfifo runs");
-    assert!(made.success());
+    fifo(&ready);
     let (mut children, woken) = children();
     let script = format!("trap 'exit 7' USR1; /bin/echo ready > \"$0\"; {WAITING_CHILD}");
     let (identity, _guard) = spawn(
@@ -171,16 +207,7 @@ fn the_worker_control_signal_reaches_the_worker_handler() {
             &["-c", &script, ready.to_str().expect("a temp path is UTF-8")],
         ),
     );
-    let (told, heard) = std::sync::mpsc::channel();
-    let fifo = ready.clone();
-    std::thread::spawn(move || {
-        let _ = told.send(std::fs::read_to_string(fifo));
-    });
-    let said = heard
-        // timer: deadline — bounds the wait for the trap
-        .recv_timeout(Duration::from_secs(10))
-        .expect("the shell installed its trap");
-    assert_eq!(said.unwrap().trim(), "ready");
+    assert_eq!(told(&ready, "the shell installed its trap"), "ready");
     children.signal_group(identity, GroupSignal::EndPayload);
     children.signal_group(identity, GroupSignal::EndPayload);
     let exit = next_exit(&mut children, &woken);
