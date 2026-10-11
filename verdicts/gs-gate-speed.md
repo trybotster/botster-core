@@ -1588,3 +1588,18 @@ Sol's published round 2, `9e8fea5a6abe6c798ce312a40f9b561635962179`, reports no 
 Sol owns the final integration closure. The lead owns the merge decision and current-base check. No repeat gate is needed for the body correction.
 
 I ran no gate, build, or test.
+
+
+### Core PR #262: integration completion
+
+Integration CLEAN is published in `c950e6e47ebe8f5670ac683f007761c7aff3857c` at the same exact head `bbd25214835b4648623cb1e5ac3a89ac50f5d260`.
+
+The base remains `56fae5826f766b408abca06f99376e0506982bf9`. I read the closure artifact and verified its remote branch contains the commit.
+
+Sol closes EC-SI-1 after reading package closure `7514a477b5b0c1fcca67e37d1cb4898624b2a729` and the last body correction.
+
+Both reviews are complete with zero open findings. The failed canonical base-check remains failed; both reviews supply the required source delta review.
+
+The exact-head gate remains valid. No repeat gate is required. The lead owns the merge decision and current-base check.
+
+I ran no gate, build, or test.

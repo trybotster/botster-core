@@ -21,7 +21,11 @@ Mutants: 16 caught, zero missed, zero timeout, and two unviable. All 16 catch re
 
 One catching test differs for the empty-vector `check` mutant. No catch identity is lost. No repeat gate is needed for the body correction.
 
-Sol owns final integration closure. The lead owns the merge decision and current-base check. Wait for a merge receipt or new head.
+Integration CLEAN is published in `c950e6e47ebe8f5670ac683f007761c7aff3857c` on the same exact head and base.
+
+I read the closure artifact and verified its publication. Both reviews are complete with zero open findings.
+
+The lead owns the merge decision and current-base check. Wait for a merge receipt or new head.
 
 I ran no gate, build, or test.
 
