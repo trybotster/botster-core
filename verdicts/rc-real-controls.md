@@ -1736,3 +1736,33 @@ The lead's explicit case acceptance is `msg_plugin-w_1791756275_141a13`, recorde
 Both reviewer acceptances and the lead's approval now permit the one same-head re-gate.
 TC-SI-FINAL-1 remains open. The record supplies no gate PASS or final acceptance.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #285 — approved re-gate evidence and body finding
+
+VERDICT: NOT CLEAN (1 open).
+Head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Message: `msg_plugin-w_1791756786_0de1e4`.
+The reviewer read the approved re-gate header, summaries, mutation results and citations, final exits, and live PR body.
+Log: `gates/botster-core-stage1-rc-testkit-controls-3cf46071-pool-20261011-150748-99309.log` under `~/botster-sessions`.
+The head and base match. All ten steps pass. The step total is 237.6 seconds.
+The job exits 0 after 248 seconds; the wrapper exits 0 after 249 seconds.
+The default suite reports 1788 passes. The slow suite and unmutated stage-2 baseline each report 584 passes.
+The previously failing identifier passes on the testkit, slow step, and unmutated baseline.
+Six mutants are caught, four in stage 2, with no miss, timeout, or unviable result.
+All six raw catch identities match six unique citation identities. Each cited test has a normal PASS record.
+No FLAKY token exists. This is the one re-gate approved by the lead under the recorded 23bl acceptance.
+
+RC-TK-DELTA-2 — LOW — The final evidence body misstates the failed step and source scope.
+The red-final-gate paragraph says `red at step slow`. The actual failure is in `mutants`, in its unmutated stage-2 baseline.
+The earlier slow step passes; fuzz does not run in that red gate.
+The paragraph also says `This PR changes no file on that path`, although #285 changes `real/route.rs`.
+The accepted non-interference finding is narrower: the route write and flush, worker, transcript, and `route_reports` behavior stay unchanged on this path.
+The re-gate paragraph calls 248 seconds the job wrapper time; the outer `botster-gate` wrapper reports 249 seconds.
+Required change: state the failed step and later non-run step correctly. Use the precise non-interference statement.
+Name 248 seconds as the job duration and 249 seconds as the outer wrapper duration, or omit the ambiguous label.
+No code change or additional execution is requested.
+
+The final body retains the controlled reproduction, both reviewer acceptances, lead approval, and contracts #69 fence repair.
+Final CLEAN remains pending the LOW body correction. The reviewer ran no test, build, gate, or diagnostic.
