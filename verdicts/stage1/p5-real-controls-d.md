@@ -329,3 +329,48 @@ The static diff check passes. No source finding exists so far, and the #265 snap
 This inspection supplies no formal imported-head CLEAN or gate approval.
 Final READY/body, the exact 0fed25b3 gate, and the applicable package artifact remain pending.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Imported-head gate inspection: 0fed25b3
+
+Head: `0fed25b32a2db1c025ba04233ea3826555b1b26a`. Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+READY receipt: msg_plugin-w_1791724664_65785b. The prior two import inspections supply the source review.
+Sol reads the complete published body and its subsequent one-line correction at this unchanged head and base.
+
+### Body correction
+
+D-F7 LOW agrees with the package finding in receipt msg_plugin-w_1791724706_a27818.
+The final gate bullet initially states that all imports change no own path. That statement conflicts with the four shared paths.
+The owner corrects the body in receipt msg_plugin-w_1791724733_3b7f8b. Sol verifies the published correction.
+The corrected body limits the unchanged-path statement to #265. It names #243's four shared paths and pending-list composition.
+It preserves the reviewed own added/deleted sequences and the fifteen own blobs from 15d682b2 after the #265 import.
+The prior Mac evidence covers unchanged own executable code. Imported changes retain their separately accepted base evidence.
+The shared-path deltas have static review and the new Linux gate. D-F7 closes in the body.
+The source head remains unchanged. The prior-art analysis and earlier findings retain their recorded scope and closure evidence.
+
+### Exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-0fed25b3-pool-20261011-060128-33639.log`.
+SHA256: `ac776a2e81ce317ba89894415efcbde3eb1a4a88eda24d20296c4d81e92ada37`.
+
+Sol reads the exact head/base header, checks, tier summaries, relevant named proofs, baseline, all raw mutation identities, catch reports, and final exit.
+All ten steps PASS in 928.2 seconds. Jobq exits zero after 941 seconds. The wrapper exits zero after 942 seconds.
+Default reports 1688 PASS, 481 skipped, in 10.326 seconds. Slow reports 514 PASS, 2016 skipped, in 38.786 seconds.
+Slow coverage checks 1045 slow-only tests. The slow selection contains 514 distinct PASS identities, including 151 real conformance identities.
+Both crash proofs, both reaper proofs, row-file proofs, snapshot root-mode and lock proofs report PASS.
+The reused-pid and two-directory proofs report PASS. AD-6 reports PASS in 0.164 seconds.
+The gate reports testkit-passing 56/69, real-passing 41/68, and real-accepted 42/69.
+The real-pending report retains 58 IDs, with 33 PASS under the ignored selection. This review accepts no additional pending-real removal.
+The own pending removal remains AD-6; the imported pending composition remains the reviewed three IN-10 removals.
+
+Stage 1 reports 122 distinct identities: 31 caught, 62 missed, 29 unviable, zero timeout, in 144.6 seconds.
+The stage-2 baseline passes 514 tests, ten slow, with 2700 skipped, in 40.354 seconds. The complete baseline step takes 50.5 seconds.
+Stage 2 reports 62 distinct identities: 57 caught, five unviable, zero missed or timeout, in 618.6 seconds.
+Sol independently parses and reads all 184 raw records. The stage-2 identity multiset equals the stage-1 miss multiset.
+Both catch multisets match all 31 stage-1 and 57 stage-2 named catch reports.
+The final result is 88 caught and 34 unviable, with zero missed or timeout. The complete mutation step takes 816.0 seconds.
+Fuzz passes because the diff changes no crate with a decoder harness.
+
+No source or body finding remains open so far. The supplied exact-head gate passes.
+This inspection grants no formal imported-head CLEAN. The same-head package artifact remains pending.
+The stopped 15d682b2 gate supplies no acceptance. No new Mac execution evidence is claimed for 0fed25b3.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
