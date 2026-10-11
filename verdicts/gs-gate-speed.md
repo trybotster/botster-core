@@ -492,3 +492,21 @@ My comparison's SHA-256 is `1eb4cf9ed0766a6e957dc6af5844f7ce1184de7b8c8e54cdc498
 The lead's carry-over condition is satisfied. The source CLEAN applies to this exact head. The failed earlier gate remains on the record.
 
 The implementer reports that the one full gate on this head is running. Gate acceptance remains pending. I ran no gate or build.
+
+### Final exact-head gate evidence
+
+I read the retained gate log for `0e222c592d17995380ec6f20449f91d71207d2fc`:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-0e222c59-pool-20261011-033134-11371.log`
+
+The log names base `c8907b74bd247002784843e1a12f6487b08c579f`. All ten steps report PASS. The total is 155.9 seconds.
+
+The mutation step reports 39 mutants: 35 caught, zero missed, zero timeout, and four unviable. I counted 35 catching-test report lines.
+
+Stage 2 does not run because stage 1 misses none. The real-tool flake fixture reports PASS in the slow step.
+
+This log satisfies the exact-head full gate condition for the recorded base. Source CLEAN remains unchanged, with zero open findings.
+
+The failed `db4fd197` gate remains on the record. This green gate runs on the new committed head required by the lead.
+
+The lead owns the merge decision and current-base check. I ran no gate or build.

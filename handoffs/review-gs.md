@@ -11,7 +11,13 @@
 
 The base-merge-check from `db4fd197` to `0e222c59` passes every check. I read the log and independently verified identical own diffs.
 
-Source CLEAN carries over to the exact new head. The implementer reports that its one full gate is running. Gate acceptance remains pending.
+Source CLEAN carries over to the exact new head. I read its final gate log: all ten steps PASS, total 155.9 seconds.
+
+The mutation step reports 39 mutants: 35 caught, zero missed, zero timeout, and four unviable. It prints 35 catching-test lines.
+
+Gate log: `~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-0e222c59-pool-20261011-033134-11371.log`.
+
+The lead owns the merge decision and current-base check. I ran no gate or build.
 
 The parser now detects a status-line candidate before it parses the known envelope. An unknown candidate returns an error.
 
@@ -65,7 +71,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the exact-head gate result or a delta review request. Both PR #256 source findings remain closed.
+Wait for the merge result or a delta review request. Both PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
