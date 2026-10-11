@@ -170,3 +170,18 @@ A delta re-review follows on the next head. If the next head changes only the bo
   - #54's body names the follow-up.
   - The follow-up is in the same contracts tag as #54 (.42), so no tag ships the lint without those tests.
 - F8 does not block CLEAN on `50fd7f4c`. CLEAN on `50fd7f4c` needs F7 closed in the scoped round 4, and the follow-up named in the body.
+
+## Round 4 (scoped by the steward: evidence and body only): CLEAN on 50fd7f4cc1693520d97361d3a8102b9642cd4976
+
+The head is unchanged. There is no source change and no new gate. The round 3 gate stays valid: `...-50fd7f4c-pool-20261011-143020-65365.log`, 10/10 PASS, exit 0.
+
+- **F7 closed.** Log `~/botster-sessions/shared/core-stage1/evidence/p5-r80/st6-pages-tiers-mac.log`, sha256 `8e74fddda7f946450e462674f558dcd0d9c085b196f7babd4c760872267257e1` (I recomputed it). Script `r80-st6-evidence.sh` is beside the log.
+  - The header names Core `d893833eb9dc3762e859c0130e51498bf6db91fe` (clean), contracts `50fd7f4c...`, and `BOTSTER_SEEDS=0-31`. No pending file names the id.
+  - Before (.39): testkit PASS, real PASS.
+  - After (contracts `50fd7f4c`): testkit PASS. The real tier does not build, because `Report::Queued` (.40) does not match Core's pin of .39 (E0004). This is a pin limit, not a result.
+  - After39 (.39 plus only the fenced transcript): testkit PASS, real PASS. The transcript blob is `45b0b023bd383261f4156a48e1ec5bf442ddf603`. I checked that it equals `50fd7f4c`'s blob.
+  - A check that must fail (`await_title` with a wrong title): testkit FAIL at step 7 (`received: {"last_title":"r80-st6-pages"}`), real INCONCLUSIVE at step 7. So both tiers execute the fence. The log marks the first testkit block of this check as a command error (an empty argument), and the rerun follows it.
+- **Body corrections are present.** The body says that 10 of the 11 changed transcripts are `fake: structural` (R-12, `run.rs:57-58`), and that only `in_9` runs to the end on the fake tier. It also corrects the round 1 runs: they had no `BOTSTER_SEEDS`, so the "CI seed set" labels are wrong.
+- **F8 (deferred by the steward).** Follow-up #67 is OPEN, at head `98bbc69736ec00bae085d38cf743a5942f576232`, stacked on this branch. #54's body names it and the `.42` tag condition. 016c reviews it. It must land in `.42` with #54.
+
+Every finding of mine is closed or deferred by the steward: F1 to F7 closed, F8 deferred to #67. 016c's R1-1, R1-2 and R2-1 are closed. 016c's R3-1 is the same item as F7.
