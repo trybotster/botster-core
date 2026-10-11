@@ -351,3 +351,49 @@ fn an_exit_and_a_write_failure_in_either_order_keep_the_drain_past_the_grace() {
         );
     }
 }
+
+/// R-78 item 4: the worker wrote `Exited`, and the session shows it, before the exit report and the end of file arrive. The
+/// worker's loss no longer decides the end: the session stays `Exited` with its code.
+#[test]
+fn an_exit_report_and_end_of_file_after_the_exited_frame_change_nothing() {
+    let mut w = world();
+    w.running("s1");
+    let link = w.link_of("s1");
+    w.worker_says("s1", exited_frame(3));
+    w.pump();
+    assert!(is_exit(state(&w), 3), "{:?}", state(&w));
+    w.engine.poll_events(256);
+    w.exited("s1");
+    w.pump();
+    w.feed(Input::LinkClosed { link });
+    w.pump();
+    assert!(is_exit(state(&w), 3), "{:?}", state(&w));
+    assert!(
+        w.engine
+            .poll_events(256)
+            .iter()
+            .all(|e| !matches!(e, Event::SessionState { .. })),
+        "no other end is posted"
+    );
+}
+
+/// R-78 item 3: only a stop that waits for its identity check takes the answer. An answer for the worker of a session with
+/// no such stop changes nothing.
+#[test]
+fn an_identity_answer_that_no_stop_waits_for_changes_nothing() {
+    let mut w = world();
+    w.running("s1");
+    let identity = w.identity_of("s1");
+    for answer in [IdentityState::Matches, IdentityState::Absent] {
+        w.feed(Input::IdentityState {
+            identity,
+            state: answer,
+        });
+        w.pump();
+        assert_eq!(state(&w), SessionState::Running, "{answer:?}");
+    }
+    // The worker still decides its own end: the drain classifies only on its exit and end of file.
+    w.worker_says("s1", exited_frame(4));
+    w.pump();
+    assert!(is_exit(state(&w), 4), "{:?}", state(&w));
+}
