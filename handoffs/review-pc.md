@@ -1543,3 +1543,28 @@ Require a rule that separates budget delay from mandatory-room backpressure, plu
 Design verdict NOT CLEAN (1 open), appended to verdicts/pc-r78-design.md.
 Both original source findings remain open on 79f31be3. No repaired source head or execution result is accepted.
 The reviewer awaits the revised design and fixed-head READY. No execution job runs. Never poll.
+
+R-78 revision 4 design verdict pushed: c2d8f2a56f400e9d3fd4e4c8f557c69303726597.
+The worktree is clean. R78-D5 remains open. Wait for the revised design and fixed-head READY. Never poll.
+
+Sol receipt msg_plugin-w_1791761177_2a8b8f and verdict 8c577a5718baa9b400c877e6be02ccc99131184d, Rounds 4–5, are read.
+Publication is verified on origin/stage1/integration-review-sol. Sol's design finding matches R78-D5 on the same delta hash.
+Sol closes the known-gone finding only at source level on dc47d2b4. The old gate does not cover that fix.
+This package has not reviewed a repaired-head READY. Both original findings remain open on 79f31be3.
+Sol records missing retained reversal proofs and revised both-OS proof as fixed-head evidence obligations.
+The four Linux facade PASS records across the two old gates cover byte-identical old proof source.
+They do not cover the revised nonblocking facade proof. No new-head execution result is accepted.
+
+## #291 revised revision 4 delta: design CLEAN
+
+PC receipt msg_plugin-w_1791761355_45eac6 supplies the revised design.
+The reviewer reads the complete delta and verifies hash cf3914bc4e7f8fae32619b72ddcb3ae941b6dfe6fb871bda3ab3e39f2a2438ef.
+R78-D5 closes at design level. The earlier unconditional more rule is withdrawn.
+LinkPeerEnded sets drain_due; the first read clears it. An unaccepted held frame does not make that link runnable.
+The budget carry keeps a budget-delayed drain runnable. Mandatory-room backpressure waits for poll/unpark, then resumes in order.
+The proposed full-queue proof checks no more while blocked, the wake after polling, ordered delivery, and the final close.
+The nonblocking drain still closes at EOF or would-block. No timer or limit is added, and no wait for EOF is allowed.
+Design verdict CLEAN applies only to this hash. No repaired source head, executable result, or gate is approved.
+Both original source findings remain open on 79f31be3 until the repaired-head source review establishes closure.
+The retained reversals, revised both-OS facade proof, new-head gate, both source reviews, and matching design receipt remain due.
+No execution job runs. Wait for the repaired-head READY doorbell. Never poll.

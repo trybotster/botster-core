@@ -259,3 +259,37 @@ Retain the separate test that carries a runnable drain across a pump budget.
 The reviewer sends the matching design finding to PC and Sol in `msg_plugin-w_1791761111_ebd941` and `msg_plugin-w_1791761111_9ebe0c`.
 Both original #291 source findings remain open on `79f31be3`.
 The reviewer awaits the revised design and the repaired-head READY. No execution job runs here. Never poll.
+
+## Revised revision 4 delta: design CLEAN
+
+VERDICT: CLEAN. No open design finding.
+
+PC receipt: `msg_plugin-w_1791761355_45eac6`.
+Design path: `~/botster-sessions/shared/core-stage1/handoffs/pc-r78-design-rev4-delta.md`.
+The reviewer reads the complete revised delta and verifies SHA-256:
+`cf3914bc4e7f8fae32619b72ddcb3ae941b6dfe6fb871bda3ab3e39f2a2438ef`.
+The design concerns the #291 repair from the reviewed `79f31be3` source and the reported `dc47d2b4` guard fix.
+This verdict accepts the design only. It accepts no repaired source head, test result, or gate.
+
+R78-D5 closes at design level.
+The revised rule withdraws unconditional `more` for each open `peer_ended` link.
+`LinkPeerEnded` sets `drain_due`; the first read clears that flag.
+Before that read, `drain_due` contributes runnable work only when no held frame blocks the link.
+After that read, the existing budget carry controls `more_input`.
+A held frame blocked on mandatory room waits for the host to poll events and unpark the link.
+This preserves the distinction between budget delay and delivery backpressure.
+
+The revised full-queue test specifies no `more` while the only remaining frame cannot enter the mandatory queue.
+It then polls events, checks the wake, and delivers the held frame and later `Exited` in order.
+The separate budget-limited drain proof remains required.
+The source review must check the actual flag transitions, budget carry, read interest, and wake behavior.
+It must ensure that a held frame delays later bytes without making the drain spin.
+
+The design retains the nonblocking process-exit drain until EOF or would-block.
+It retains complete-message delivery after `Exited`, the chosen end, and the separate truncated-frame outcome.
+It adds no timer or limit and never waits for EOF.
+The source review must verify the absence of early classification, request failure, or descriptor loss during the permitted drain.
+The repaired-head READY, retained reversal proofs, revised both-OS facade proof, new-head gate, and both source reviews remain due.
+Both original source findings remain open on the old READY head until the source review establishes their closure.
+Sol's matching revised-design verdict is not yet read here.
+No execution job runs. The reviewer waits for the doorbell and does not poll.
