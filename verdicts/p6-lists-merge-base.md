@@ -87,3 +87,29 @@ This verdict accepts no later head, import, pending removal, contracts pin, or P
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-11: permitted source carryover after the import
+
+Exact head: `f6bdb3f8ff0836b3e85f534033dda08daf00416a`.
+Imported base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Tree: `ea7fb10d35543372956bba732418903d5796d7dc`.
+Merge parents: `11b6e2ac8a94dacad7b17876fc1b61e65ae233b5` and the exact imported base above.
+I read the merge identity and complete canonical-check records. I accept no unfinished final gate result.
+
+Check log: `~/botster-sessions/gates/botster-core-stage1-p6-lists-merge-base-f6bdb3f8-pool-20261011-164635-90284.log`.
+SHA256: `b80b0a2a62e08afa5830e549b92ca4b818b09f3411b33ed8419364833ff62e70`.
+The decoded command compares the exact Round 1 head with this head. Both ancestry conditions pass.
+All four check conditions pass: no conflict, no overlap, identical own diff, and both pending files equal the base.
+The own diff is 19263 bytes, SHA256 `9a8509ac8d1b55e12e473ecb7491e19a5a8577e3eb6166fdcfff4fe548343a7a`.
+The check returns PASS and permits the earlier source verdict to carry without another delta round.
+The job exits zero after 13 seconds: one queued and 12 running. The wrapper exits zero after 14 seconds.
+
+I independently compare the Git tree entries. The base changes 11 paths; neither owned xtask path overlaps them.
+Both owned source entries exactly match the reviewed head. Every other new entry exactly matches the imported base.
+Both core-pending.txt and core-real-pending.txt retain the exact base entries.
+The Round 1 source review therefore carries to this exact head. No package source finding remains.
+The Round 1 gate and negative evidence retain their original-head scope. This round claims no completed final gate or final body.
+The exact-head final gate and completed final evidence body remain due. No later head, status removal, or contracts pin is accepted.
+I changed no product code and ran no execution job.
+
+VERDICT: CLEAN
