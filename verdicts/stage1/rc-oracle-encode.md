@@ -313,3 +313,64 @@ Sol requests no execution job and runs no build, test, gate, mutation, reversal,
 Never poll. Wait for the doorbell.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition: RED baseline attribution and disposition, complete final gate, final body, and final package verdict) at 46c8c5481a3cdf11ec98949227fda32f4d0f0ee0 against base f6025aed4cdf7da836e835e0040fc128b7e8f32f
+
+## Round 6 — accepted controlled ST-6 attribution
+
+Lead authorization: `msg_plugin-w_1791762533_7b87fe`.
+RC completed-proof receipt: `msg_plugin-w_1791762548_4e2ebb`.
+Lead case acceptance: `msg_plugin-w_1791762655_9e3738`.
+This is acceptance of one controlled evidence record. The RED final gate remains RED.
+
+Plain-v1 base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`; #288 is absent.
+Diagnostic snapshot: `bf55aa2fb5615c58333f87990433e127224d891e`, captured with --allow-dirty, explicitly not a merge gate.
+Sol independently verifies the snapshot's first parent is that base and its complete changed-path set contains only worker main.rs.
+The temporary snapshot captures the scratch delta; it is not a delivery-branch or PR source commit.
+The snapshot's full diff hash equals the separately retained scratch diff hash below.
+Contracts: .39, `ddce507e2c08e740f899e97dcfec566f3d2275b8`.
+Transcript blob: `81ece132501f26262d8fcac4396b09da9abec237`, independently checked against the pinned transcript.
+
+Completed log: `~/botster-sessions/gates/botster-core-detached-f6025aed-f6025aed-pool-20261011-164814-5086.log`.
+Log SHA-256: `a21e40b2b2db7710acd8cc0eb3572a726cd27f3720debcdde6db0f49e7428c09`.
+Scratch diff: `~/botster-sessions/gates/rc-st6-repro-scratch-f6025aed.diff`.
+Diff SHA-256: `5348e52c1741df1b50ffa31fc676681db95e964507a9ae1ded72936bce7f22ca`.
+Sol reads the complete decoded command, source/pin headers, entire diff, build output, test failure, worker trace, and completed exits.
+The pool uses MS-A1, four CPUs, and an exact captured checkout under its normal snapshot and target-stamp mechanism.
+It builds the changed worker and relevant test binaries and reinstalls the .39 probe before the real-tier test.
+The real-tier test uses BOTSTER_SEEDS=0 and exits 101, with one failed test after 1.05 seconds.
+The job and wrapper exit zero after 17 seconds, with one queued and 16 running.
+That zero follows the shell's retained failure and trace commands. It is not a test PASS or green gate.
+
+The exact failure is ST-6 capture_is_frozen_at_model_rev, seed 0, step 17, expected `{"ne":[1,1]}`, received relation does not hold.
+It matches the original RED baseline's identifier, seed, step, expression, and symptom byte for byte.
+The scratch code retains the first PTY read whose bytes equal B, delays its model feed by one second, then supplies those same bytes.
+While those bytes wait, it prevents another PTY read and shortens the poll interval to at most ten milliseconds.
+Control requests still run. The diagnostic changes no checked predicate, model-revision value, transcript, or terminal byte.
+For this transcript, it adds no missing output or model behavior. It expands the existing control-before-model-feed timing window.
+Sol reads the plain worker's control-first loop, read_pty_chunk, and on_output paths to check that mechanism.
+
+The trace shows an earlier one-byte read, then 42 held at 1791762509598 and released at 1791762510598 by worker pid 3553.
+It retains actual release of the byte; the scratch proof does not suppress it permanently.
+The trace has no ReadScreen-answer timestamp. The unchanged-revision failure and source order support an answer before that delayed feed.
+That answer ordering is an inference from the result and source, not an independently timestamped trace event.
+Sol accepts this exact-signature controlled proof under the lead's case-specific 23bl(A) decision.
+Sol confirms non-interference: #288 changes no model feed, program-control path, transcript, or model-read fence; this transcript calls no oracle.
+This receipt claims neither an uninstrumented-v1 failure nor a recovered trace of the original gate attempt.
+
+Sol reads full matching package receipt `843604d707cfb4a6a9049e54da46fba2ff4a001d`, `verdicts/rc-real-controls.md`.
+Its controlled-proof acceptance has the same exact source, hashes, signature, and limits.
+The lead explicitly accepts that record and assigns the future Core .42 pin work to RC.
+Sol reads the complete named repair diff at contracts `72eb31ba198c39cb0a8510978749262d7863e91a`.
+It replaces both ST-6 await_quiet steps with Output Activity waits, at clocks 5000 and 5001.
+That source repair is identified, but this receipt accepts no future Core pin, import, or repair execution.
+
+The lead moves SLOT through #294, then gives #288 one import of v1 `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Sol reads that exact merge: it is P6's lists-merge-base PR and its Cargo.toml retains contracts .39.
+The #294 import does not contain the future ST-6 fence repair. No .42 repair import is inferred from the slot sequence.
+If the imported source leaves this cause unchanged, plan 23an(a) still requires this accepted attribution and explicit lead case decision.
+The next gate must use that new head and base, with the applicable check and both required delta receipts.
+This receipt supplies Sol's controlled-attribution acceptance for that sequence. It authorizes no same-head re-gate.
+The new-head source/import review, completed final gate, final body, and final package verdict remain due.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base check. Never poll.
+
+CONTROLLED ATTRIBUTION: CLEAN within the exact case and limits above.
+VERDICT: NOT CLEAN (1 open final acceptance condition: new-head import review, completed final gate, final body, and final package verdict) for #288; no final merge acceptance
