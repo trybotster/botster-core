@@ -697,3 +697,65 @@ The PR does add source files, which the scanner reads. The supplied comparison d
 The reviewer does not claim a plain-v1 reproduction or that the added files have zero timing cost.
 A corrected source head will require its own exact-head gate. The supplied green log does not close either source finding.
 The reviewer ran no test, build, or gate.
+
+
+## Core #275 — round 2 — CLEAN
+
+Source head: `147853f8a8ea9c39ab58433d29304c3e75eb8ce5`.
+Reviewed base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Risk: HIGH. Open findings: 0.
+The reviewer read the complete correction delta and the final PR body.
+
+### Findings closed
+
+RC-OC-1 is closed. Both tiers derive expected query replies from a separate libghostty terminal.
+The test helper does not call the control or its dispatch helper.
+The tests retain the prefix, no-prefix, and session-width cases.
+The real payload test now compares with the source terminal's complete visible screen.
+
+RC-OC-2 is closed. The private Changed record test is removed.
+The replacement test calls harness controls to prove that another session's resize leaves the first session's screen correct.
+Captures of both sessions leave the controls supported.
+The correction also removes the new direct `Shared::check` assertions from the capture-layer test.
+No prohibited record assertion remains in the correction.
+
+### Base import delta review
+
+The failed base-merge-check requires a delta review. The reviewer performed that review.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-oracle-bmc-147853f8-20261011-100215.log`.
+The reviewer checked the merge parents and all imported paths.
+Every imported blob outside the PR's own paths equals the new base.
+The DESIGN.md import adds the named-proof policy before the oracle section. It preserves the oracle design changes.
+The pending files combine the base's TM-6 change with the PR's two testkit-to-real pending moves.
+The reviewer read the imported host wake and route-gate changes for interactions with the oracle controls.
+The wake change includes queued host actions; the cancel message waits for a pump.
+The gate/accept change permits the named accept limit under a closed gate.
+Neither change replaces the oracle history anchor, the query helper, or the shared change check.
+The corrected oracle implementation remains unchanged except for test-module visibility.
+
+### Mutation exclusions
+
+The reviewer read every inherited exclusion delta from round 1.
+The delta changes the slow-job explanation and adds two whole-body process-glue exclusions:
+`real_proofs::check_slow_run` and `test_budget::command` returning `Ok(())`.
+The reviewer read both excluded bodies and their cited decision helpers.
+The XML-result, named-proof, stale-report, option, exit, and budget decisions remain mutation-tested.
+The final gate prints the test-budget summaries and `real-proofs: 1 named proofs checked`.
+No exclusion covers the new oracle controls, the shared change decision, or their terminal reads.
+The cited-mutant and stale-exclusion checks pass at this exact head.
+
+### Exact-head evidence
+
+The full gate names this exact source and reviewed base, passes all ten steps, and ends with exit 0:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-controls-147853f8-pool-20261011-100215-28646.log`.
+It reports 40 mutants: 33 caught, including 13 in stage 2; 7 unviable; no miss or timeout.
+The real oracle test passes. Both IDs removed from the testkit pending file pass in this gate.
+Both IDs remain real-pending. The minimum `ev_8_no_route_shadow_answers_at_once` remains pending.
+The six Mac reversals failed at `3042a031`, before the later record-test correction and base merge:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-oracle-reversals-mac-3042a031-20261011-095819.log`.
+The exact-head Linux mutation results catch the same six real-tier mutants after those changes.
+The earlier gate and re-gate limits remain historical. This new head has its own full green gate.
+Integration CLEAN remains required on this exact head and base.
+Under Q8, this green gate is the merge gate when both CLEAN verdicts cover this unchanged head.
+A later head requires the applicable delta or base-merge review record and its exact-head gate.
+The reviewer ran no test, build, or gate.

@@ -171,3 +171,12 @@ Derive expected query replies with an independent libghostty terminal. Prove cha
 The supplied re-gate is green: 40 mutants, 33 caught, 7 unviable, no miss or timeout.
 Its special pre-review approval and missing plain-v1 reproduction remain explicit in the verdict.
 The reviewer ran no execution job. The reviewer waits for a corrected READY and does not poll.
+
+
+Core #275 round 2 is CLEAN at `147853f8a8ea9c39ab58433d29304c3e75eb8ce5`.
+Reviewed base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`. Risk HIGH. Open findings: 0.
+RC-OC-1 and RC-OC-2 are closed. The package reviewer completed the required base import delta review.
+Every imported mutation exclusion delta was checked. No exclusion covers the oracle controls.
+The exact-head full gate passes all ten steps: 40 mutants, 33 caught, 7 unviable, no miss or timeout.
+Integration CLEAN remains required. Under Q8, this gate counts for merge when both CLEANs cover this unchanged head.
+The reviewer ran no test, build, or gate. The reviewer waits for a doorbell and does not poll.
