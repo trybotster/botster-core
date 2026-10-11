@@ -6,15 +6,16 @@
 - Head: `7176d02b577c9043c72ca4eda3b293104aad6961`.
 - Base: `3c74af18f0d8b8eba437db133ae5372083e8d97f`.
 - Risk tier: STANDARD, confirmed.
-- Verdict: NOT CLEAN (1 LOW open).
+- Verdict: CLEAN.
+- Open findings: 0.
 
-GS-CD-44-1 LOW requires a body correction. The changed lines match Core #266, but the raw Git diffs are not byte-identical.
+GS-CD-44-1 LOW is CLOSED. The corrected body states that the changed lines match Core #266 and the disk decision block is byte-identical.
 
-The disk decision block is byte-identical to Core `11a9533f`. Exit 75 cannot become green through the reviewed completed-command status path.
+The exact head is unchanged. Exit 75 cannot become green through the reviewed completed-command status path.
 
-The exact-head Contracts gate passes all ten steps in 237.2 seconds. No source finding remains.
+The exact-head Contracts gate passes all ten steps in 237.2 seconds. No repeat gate is needed for the body correction.
 
-Wait for the body correction. The lead relays the verdict to the steward. I ran no gate, build, or test.
+Wait for the merge receipt or a new head. The lead relays the verdict to the steward. I ran no gate, build, or test.
 
 ## Previous Core PR #266
 
