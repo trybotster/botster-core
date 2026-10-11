@@ -579,6 +579,39 @@ fn oracle_encode_gives_empty_for_not_reported_and_refuses_unsupported() {
     );
 }
 
+/// The R-84 follow-up: an explicit `size` wins over the session's stored size for a mouse event. An SGR pixels press at
+/// (500, 300): the stored size has no cell size, so the binding reports the position as given (R-84 (4)); with 8x16 cells the
+/// 10x3 screen is 80x48 pixels, so the binding does not report it. Each expected value comes from the binding.
+#[test]
+fn oracle_encode_takes_an_explicit_size_over_the_stored_size() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    let sized = Size {
+        cell_px: Some(CellPx {
+            width: 8,
+            height: 16,
+        }),
+        ..SIZE
+    };
+    let modes = ModeFlags {
+        mouse_tracking: MouseTracking::Normal,
+        mouse_encoding: MouseEncoding::SgrPixels,
+        ..fresh()
+    };
+    let MouseArg { mouse } = serde_json::from_value(press(Some((500, 300)))).unwrap();
+    let stored = encode_mouse_with_modes(&modes, &SIZE, &mouse).unwrap();
+    assert!(!stored.is_empty());
+    assert_eq!(
+        encode_mouse_with_modes(&modes, &sized, &mouse),
+        Err(EncodeError::NotReported)
+    );
+    let mut args = json!({"session": "s1", "kind": "mouse", "input": press(Some((500, 300))),
+        "modes": {"mouse_tracking": "normal", "mouse_encoding": "sgr_pixels"}});
+    assert_eq!(harness.control("a", "oracle_encode", &args), hex(&stored));
+    args["size"] = serde_json::to_value(sized).unwrap();
+    assert_eq!(harness.control("a", "oracle_encode", &args), hex(&[]));
+}
+
 /// R-84 (2), (3): focus with reporting off gives `""`, on gives the binding's report; a paste with bracketed paste off is
 /// the text alone (Core IN-8), on is the binding's markers around the text.
 #[test]
