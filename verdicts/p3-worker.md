@@ -13309,3 +13309,83 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 187 — #279 final gate, corrected record, and merge completion, 2026-10-11
+
+Exact head: `80c5b50cfd4e94efd65b06ea13c045bab91a476f`.
+Exact gate and merged PR base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+Merge commit: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Risk: HIGH under BUILD rule 3, unchanged.
+Package source verdict: pushed `1a3ea8cbda7140a16acd3aef203025a4a7b5f6fe`, Round 186 CLEAN.
+Integration source verdict: `9f323b0c6eeed399c98c7074e35f07042d22d644`, Round 3 CLEAN.
+Sol completion request: `msg_plugin-w_1791742939_274fb3`.
+Owner record corrections: `msg_plugin-w_1791743070_627b5f` and `msg_plugin-w_1791743126_b69766`.
+
+### Supplied final gate
+
+Log: gates/botster-core-stage1-p3-testkit-route-input-80c5b50c-pool-20261011-110748-77593.log.
+Verified SHA256: 67444b1102f66f450942bc6b8cfffd0b9ffda341b6dab1c0115bfd49aa267850.
+The headers name the exact head and base above. All ten Linux gate steps PASS.
+Default: 1747 passed, 474 skipped, in 13.729 seconds. Slow: 559 passed, 2030 skipped, in 41.429 seconds.
+The new harness input-log test, both matcher boundary tests, and named real input/instance test PASS.
+The existing real lc_12_drop_leaves_workers_running test also PASSes.
+All four own moved identifiers PASS on the testkit. Their real-pending scope remains unchanged.
+Minimum: testkit 61/69; real 49/68 passing, 50/69 accepted. Base changes account for the imported proof scope.
+No additional own pending removal or real-tier transcript PASS is accepted here.
+
+The reviewer reads all 34 stage-1 outcomes, all 24 stage-2 outcomes, and all 22 named catcher records.
+Stage 1: nine caught, 24 missed, one unviable, zero timeout, in 67.9 seconds.
+The unmutated stage-2 baseline passes 559 tests, with 2720 skipped, in 41.171 seconds. Its full baseline step takes 52.4 seconds.
+Stage 2: thirteen caught, eleven unviable, zero missed or timeout, in 203.7 seconds.
+Final: 22 caught, including thirteen by stage 2; twelve unviable; zero missed or timeout.
+Read-only comparison matches every raw caught identity to its named catcher. No FLAKY record appears.
+The named real route test catches the instance comparison, probe input lookup, and route input dispatch mutants.
+Existing route tests catch the remaining route-control mutants. Unviable outcomes remain unviable, not catches.
+Fuzz selects no changed decoder harness. Total step time is 463.1 seconds.
+Jobq and the wrapper exit zero after 475 seconds, with one second queued and 474 running.
+The historical ST-6 FLAKY remains a separate P5 diagnosis. This passing gate does not diagnose or close that historical record.
+
+### Final record findings
+
+**F140 LOW — the final body gives incorrect review chronology. CLOSED.**
+The initial final body says both CLEANs apply at 6161c5c2. Sol was NOT CLEAN at that head.
+The corrected body records package Round 182 CLEAN and integration Round 1 NOT CLEAN at 6161c5c2.
+It records F138 in package Round 183 and F139 filed and closed in Round 184.
+Both source delta CLEANs first apply at abcbf164, with the exact package and integration verdict references.
+The reviewer requests and verifies the last F139 round-label correction separately.
+No source change or repeat gate is required. This finding matches integration RI-SI-2.
+
+**F141 LOW — the final body omits the complete cumulative failed-check output. CLOSED.**
+The owner publishes the complete output in issuecomment-6112214250 and links it from the body.
+The reviewer reads the complete comment and verifies that it contains the supplied check output unchanged, including compiler warnings.
+The body now lists both descent checks and every failed or passing condition.
+It retains both source delta acceptances and the failed check's exact head/base scope.
+The published record does not imply automatic Q7 transfer. Rounds 185 and 186 supply the required package delta reviews.
+No source change or repeat gate is required. This finding matches integration RI-SI-3.
+
+Finding receipts: P3 msg_plugin-w_1791743025_4d9be6; Sol msg_plugin-w_1791743025_3534fe.
+Final chronology request: P3 msg_plugin-w_1791743112_624e18; Sol msg_plugin-w_1791743112_33be1e.
+Verified final body: /private/tmp/review-p3-pr279-80c5b50c-final-closed.json.
+Verified comment: /private/tmp/review-p3-pr279-base-check-comment-6112214250.json.
+Published complete check: https://github.com/trybotster/botster-core/pull/279#issuecomment-6112214250.
+The reviewer verifies every body-only correction and the unchanged head, base, and merge commit.
+The final body records the cumulative imports, both source verdicts, exact final gate, passing suite counts, and mutation results.
+Earlier gates retain their historical heads.
+
+### Merge verification and completion
+
+The live PR is merged. The lead's 06:00 handoff records the same merge, source verdicts, and final gate.
+The merge parents are exactly the gate base and reviewed head above.
+Both reviewed and merge trees equal 7aae5082be535f92eaae806045bdc788ff4b602f. The read-only tree diff is empty.
+No post-review source delta appears in the merge.
+The package source CLEAN now has its accepted supplied exact-head final gate and corrected published record.
+F135 through F141 are CLOSED. No package finding remains.
+The reviewer reads integration Round 4 at b41e8f9e7fdb2909c9b32cd9ab596a20fa51e81d.
+That record accepts the gate and merge but still names the two then-open record findings.
+Formal integration closure after these body corrections remains separate.
+No future head, import, gate, pin, or pending removal is accepted. F39 and F61/F62 retain separate scopes.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All earlier verdict history remains preserved.
+
+VERDICT: CLEAN
