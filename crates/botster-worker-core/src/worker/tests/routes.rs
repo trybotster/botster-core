@@ -1560,6 +1560,79 @@ fn route_input_during_a_stop_is_refused_session_ended() {
     }
 }
 
+/// The empty client input frames that the codec accepts: `bytes` and `text` with no payload.
+fn empty_frames(op: u64) -> [ToWorker; 2] {
+    [
+        bytes_frame(op, b""),
+        ToWorker::Text {
+            op: Op(op),
+            text: String::new(),
+        },
+    ]
+}
+
+/// DP-5 (PR3 round 5, Sol): an empty client input frame takes the same admission as every other client input. On a live
+/// payload it writes nothing and is not refused; during a stop, or after the payload's end, it is refused `session_ended`
+/// with its op, also when it waits behind a host write.
+#[test]
+fn an_empty_route_input_takes_the_same_admission() {
+    for frame in empty_frames(4) {
+        let (mut w, mut client, _) = attached(limits());
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&frame),
+        });
+        assert!(pty_writes(&actions).is_empty(), "{frame:?}");
+        client.take_all(&mut w, RouteId(1), actions);
+        assert!(refusals_written(&client).is_empty(), "{frame:?}");
+        // The next input still starts: the empty frame holds no transaction.
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&bytes_frame(5, b"zz")),
+        });
+        assert_eq!(pty_writes(&actions), b"zz", "{frame:?}");
+    }
+    let ends: [fn(&mut World) -> Vec<Action>; 3] = [
+        |w| w.send(&HostMsg::Stop),
+        |w| w.send(&HostMsg::Kill),
+        |w| w.feed(Input::PayloadExited(ExitStatus::Code(0))),
+    ];
+    for (end, frame) in ends
+        .iter()
+        .flat_map(|end| empty_frames(4).map(|frame| (end, frame)))
+    {
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = end(&mut w);
+        actions.extend(w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&frame),
+        }));
+        assert!(pty_writes(&actions).is_empty(), "{frame:?}");
+        client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            refusals_written(&client),
+            vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
+            "{frame:?}"
+        );
+        // Queued behind a host write that is out when the stop or the end comes.
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = w.send(&write(1, b"abc", None));
+        actions.extend(w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&frame),
+        }));
+        actions.extend(end(&mut w));
+        actions.extend(w.feed(Input::PtyWritten(Ok(3))));
+        assert_eq!(pty_writes(&actions), b"abc", "{frame:?}");
+        client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            refusals_written(&client),
+            vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
+            "{frame:?}"
+        );
+    }
+}
+
 /// DP-5, IN-2 (PR3 F113): a client's input that waits behind a host write reaches its turn after `Stop` or `Kill`, before
 /// the payload exits: it is refused `session_ended` with its op and no written bytes, and only the host's write reaches the
 /// PTY.
