@@ -203,6 +203,11 @@ pub enum WorkerMsg {
     Observed {
         observation: Observation,
     },
+    /// The worker holds its own copy of the route's stream: its `AttachRoute` frame bound the descriptor that came with it
+    /// (DP-2, steward ruling R-65). The host closes its copy only now: a copy in flight is not the worker's own.
+    RouteReceived {
+        route: RouteId,
+    },
     /// A route reached `Closed` (OU-2): the host posts `RouteClosed` and frees the route.
     RouteClosed {
         route: RouteId,

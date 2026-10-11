@@ -4,6 +4,19 @@ use super::{gone, state_parent_and_group, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
+/// The number of threads of this process: the entries of `/proc/self/task`.
+///
+/// # Errors
+/// The listing failed.
+pub fn threads() -> std::io::Result<usize> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("/proc/self/task")? {
+        entry?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 /// The start time of `pid` in the unit of the platform, or `None` when no such process exists. Only equality has a meaning.
 /// It reads the same field as `botster_core_sys::process::start_time`, so the two agree.
 ///
