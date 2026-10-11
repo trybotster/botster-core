@@ -790,3 +790,15 @@ The real pending file retains the reviewed blob.
 Under Q7's line-set rule, source CLEAN carries to this exact head and base. Both findings remain closed.
 The final exact-head gate receipt remains required. The reviewer accepts no future gate result.
 The reviewer ran no test, build, or gate.
+
+
+### Integration Q7 carryover received for Core #275
+
+The integration reviewer carries source CLEAN to `ad1a38098a474f3ca9770bdbc828be7be92e4783`.
+Base: `b6fd4b98e5f95aba4a6a1dc13efb609036be36f2`.
+Integration verdict: `8f449adb861cdcd25b9d0691d0b3a4944bb29484`.
+Message: `msg_plugin-w_1791740409_269847`.
+The integration reviewer verifies the imported paths, combined pending removals, unchanged real-pending blob, and static merge tree.
+The complete own diff outside the list files matches: 52169 bytes, SHA256 `ae788e8b30d7a2cbe068bb2b8197db092b10e10237fa93d73cf2cac3508985e3`.
+Both source CLEAN verdicts cover this exact head and base. Both findings remain closed.
+The final exact-head gate remains pending. The reviewer ran no test, build, or gate.
