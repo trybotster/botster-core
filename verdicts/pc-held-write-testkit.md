@@ -374,4 +374,3 @@ The lead merged the exact gated tree from its recorded base. Q7's base and tree 
 The package's source review and final-gate audit are complete. The Sol message receipt remains due for the cross-review record.
 The `.40` pin, six held-write transcripts on both tiers, and later PC work remain outside this merged PR.
 The reviewer runs no build, test, gate, mutant, or executable base check. Never poll.
-
