@@ -7,7 +7,7 @@
 
 use crate::controls::ControlRegistry;
 use crate::core::{core_features, Directories, RunInputs};
-use crate::refusal::{ParkedWork, RefusalHandle, RefusalLayer};
+use crate::refusal::{CoreRecord, RefusalHandle, RefusalLayer};
 use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
 use crate::worker::{ProcessTable, TestkitCore, Workers};
@@ -32,8 +32,8 @@ pub struct TestkitHarness {
     /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
     /// Core consumes them.
     refusals: BTreeMap<String, RefusalHandle>,
-    /// The parked work of each handle's Core, as the layer in front of it records it (`parked_work`, R-87).
-    parked: BTreeMap<String, ParkedWork>,
+    /// What each handle's Core reported in its diagnostics, as the layer in front of it records it (`parked_work`, `op_posted`).
+    records: BTreeMap<String, CoreRecord>,
     /// The data directory and the process table of each handle that `open` built, for the controls.
     handles: BTreeMap<String, HandleEdges>,
     /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
@@ -83,7 +83,7 @@ impl TestkitHarness {
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
-            parked: BTreeMap::new(),
+            records: BTreeMap::new(),
             handles: BTreeMap::new(),
             core_send_not_sync: None,
         }
@@ -105,14 +105,14 @@ impl TestkitHarness {
     /// that a transcript sees can be scripted (Core A5-3 timing 1).
     pub fn with_refusals(&mut self, handle: &str, core: Box<dyn CoreApi>) -> Box<dyn CoreApi> {
         let script = self.refusals.entry(handle.to_string()).or_default().clone();
-        let parked = ParkedWork::default();
-        self.parked.insert(handle.to_string(), parked.clone());
-        Box::new(RefusalLayer::new(core, script, parked))
+        let record = CoreRecord::default();
+        self.records.insert(handle.to_string(), record.clone());
+        Box::new(RefusalLayer::new(core, script, record))
     }
 
-    /// The parked work of the Core of `handle`, once `open` built it (`parked_work`, R-87).
-    pub(crate) fn parked_of(&self, handle: &str) -> Option<&ParkedWork> {
-        self.parked.get(handle)
+    /// The record of the Core of `handle`, once `open` built it (`parked_work`, `op_posted`).
+    pub(crate) fn record_of(&self, handle: &str) -> Option<&CoreRecord> {
+        self.records.get(handle)
     }
 
     /// Returns the refusal script for a handle. The refusal module arms this script.

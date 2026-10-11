@@ -83,7 +83,7 @@ use crate::crash::{CrashHandle, Crashable};
 use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
 use crate::harness::limits_of;
 use crate::process_controls::LoseReason;
-use crate::refusal::{arm_refusal, ParkedWork, RefusalHandle, RefusalLayer};
+use crate::refusal::{arm_refusal, CoreRecord, RefusalHandle, RefusalLayer};
 use crate::stand_in::{self, StandIn};
 use crate::start_controls::{held_session, not_begun, row_report};
 use crate::worker::ImpostorField;
@@ -183,6 +183,13 @@ struct OfSession {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct OfOp {
+    /// Not `op`: that key of a control object names the control. `for_op`, as the scheduler controls name an op.
+    for_op: OpId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct OfRoute {
     session: SessionId,
     route: RouteId,
@@ -237,8 +244,8 @@ pub struct RealCoreHarness {
     /// The scripted synchronous refusals of each handle (`fail_next`, R-49 Q3): the testkit's own layer in front of the
     /// handle's Core returns them without calling Core.
     refusals: BTreeMap<String, RefusalHandle>,
-    /// The parked work of each tapped handle's Core, as the testkit's layer in front of it records it (`parked_work`, R-87).
-    parked: BTreeMap<String, ParkedWork>,
+    /// What each tapped handle's Core reported in its diagnostics, as the testkit's layer records it (`parked_work`, `op_posted`).
+    records: BTreeMap<String, CoreRecord>,
     /// The probes' control sockets (the program controls). Declared before `root`: its socket is in the root.
     programs: program::Programs,
     /// The bystanders of `reuse_pid`, by data directory and session. Their drop ends and reaps them (R-55 (3)), before the
@@ -314,7 +321,7 @@ impl RealCoreHarness {
             heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
-            parked: BTreeMap::new(),
+            records: BTreeMap::new(),
             bystanders: BTreeMap::new(),
             hold: None,
             stand_ins: 0,
@@ -543,16 +550,28 @@ impl RealCoreHarness {
     /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
     /// payload does for `payload_alive`.
     /// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
-    /// diagnostics reported after its last call ([`ParkedWork`]). A session with no row is `Bad`.
+    /// diagnostics reported after its last call ([`CoreRecord`]). A session with no row is `Bad`.
     fn parked_work(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         self.recorded(handle, &session)?;
         let parked = self
-            .parked
+            .records
             .get(handle)
             .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
             .parked(&session);
         Ok(json!({ "parked": parked }))
+    }
+
+    /// `{posted}`: Core has posted the op's terminal `Completed`, polled or not (steward ruling R-88 (B)), as Core's
+    /// diagnostics reported after its last call ([`CoreRecord`]). An op that Core never minted is not posted.
+    fn op_posted(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfOp { for_op } = parse(args)?;
+        let posted = self
+            .records
+            .get(handle)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
+            .op_posted(for_op);
+        Ok(json!({ "posted": posted }))
     }
 
     fn worker_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -1060,9 +1079,9 @@ impl CoreHarness for RealCoreHarness {
                 },
             );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            let parked = ParkedWork::default();
-            self.parked.insert(spec.handle.clone(), parked.clone());
-            Box::new(RefusalLayer::new(Box::new(slot), script.clone(), parked))
+            let record = CoreRecord::default();
+            self.records.insert(spec.handle.clone(), record.clone());
+            Box::new(RefusalLayer::new(Box::new(slot), script.clone(), record))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -1136,6 +1155,7 @@ impl CoreHarness for RealCoreHarness {
                     | "lose_worker"
                     | "worker_alive"
                     | "parked_work"
+                    | "op_posted"
                     | "impostor_worker"
                     | "announce_protocol"
                     | "withhold_control_link"
@@ -1173,6 +1193,7 @@ impl CoreHarness for RealCoreHarness {
             "lose_worker" if self.tapped => self.lose_worker(handle, args),
             "worker_alive" if self.tapped => self.worker_alive(handle, args),
             "parked_work" if self.tapped => self.parked_work(handle, args),
+            "op_posted" if self.tapped => self.op_posted(handle, args),
             "impostor_worker" if self.tapped => self.impostor_worker(handle, args),
             "announce_protocol" if self.tapped => self.announce_protocol(handle, args),
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
@@ -1398,6 +1419,7 @@ mod slow_controls {
             "lose_worker",
             "worker_alive",
             "parked_work",
+            "op_posted",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",
@@ -1978,9 +2000,18 @@ mod slow_controls {
         let dir = Candidate::beside_test_binary().expect("the candidate directory");
         let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
         let mut harness = RealCoreHarness::new(candidate).unwrap();
-        crate::refusal::parked_work_scenario::a_stop_is_parked_work_until_a_poll_frees_room(
+        crate::refusal::record_scenarios::a_stop_is_parked_work_until_a_poll_frees_room(
             &mut harness,
         );
+    }
+
+    /// `op_posted` (R-88 (B)) on the real tier: see the scenario.
+    #[test]
+    fn op_posted_reads_a_completion_before_its_poll() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        crate::refusal::record_scenarios::a_completion_is_posted_before_its_poll(&mut harness);
     }
 
     /// Core AD-6, AD-2, A10-2, EV-5(c), on real sessions:
@@ -2563,6 +2594,7 @@ mod slow_tests {
             "lose_worker",
             "worker_alive",
             "parked_work",
+            "op_posted",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",

@@ -374,7 +374,15 @@ fn lose_worker_refuses_what_it_cannot_end() {
 /// `parked_work` (R-87) on the testkit tier: see the scenario.
 #[test]
 fn parked_work_reads_the_work_that_waits_for_room() {
-    crate::refusal::parked_work_scenario::a_stop_is_parked_work_until_a_poll_frees_room(
+    crate::refusal::record_scenarios::a_stop_is_parked_work_until_a_poll_frees_room(
+        &mut TestkitHarness::new(0),
+    );
+}
+
+/// `op_posted` (R-88 (B)) on the testkit tier: see the scenario.
+#[test]
+fn op_posted_reads_a_completion_before_its_poll() {
+    crate::refusal::record_scenarios::a_completion_is_posted_before_its_poll(
         &mut TestkitHarness::new(0),
     );
 }
