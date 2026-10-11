@@ -10566,3 +10566,137 @@ The lead receives BLOCKED with the exact head and verdict commit.
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 157 — PR #227, package round 6 — 2026-10-10
+
+Exact head: `9ca7f2cecb621f8ad0954df0a981e4494e4bbe4c`.
+Exact base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+Previous reviewed head: `d1e00be37ea9b7830041e043186659f682e985a9`.
+Previous package verdict: `04bd3bb3afdac789f926f4add5ba9e1f1a84bc8c`, round 156.
+Tier: HIGH under BUILD rules 3 and 5. The prior whole-unit source and evidence review remains part of this verdict.
+Lead authority: msg_plugin-w_1791688864_59179b; precise scope: msg_plugin-w_1791688984_87ea0e.
+Plan 23ag is CLEAN at cbbdb74e27b0492ddf99104f6076546d00e8ea8f, integration verdict ee798bfac4896296eebdedea9a36d5af92222241.
+The reviewer reads that complete plan verdict and the admission rule.
+Scope: F114's delta and every return or early exit in the host-write, route-input, and reply paths.
+Admission must be the first session decision. Receipt decisions, scheduling waits, and required retirements retain their named exceptions.
+The reviewer verifies the exact PR head/base, both correction commits, the completed audit, gate, and supplied reversals.
+
+### F114 — MED — CLOSED
+
+Every empty bytes/text input now joins Pending::Route with its route and op.
+At its ordered turn, try_start calls admission(Source::Route) before either refusal or the empty no-op.
+A refused empty input sends SessionEnded with its original op and no written-byte field.
+An admitted empty input creates no Active transaction and sends no PtyWrite or success acknowledgement.
+The next transaction can start. An empty frame cannot leave an Active transaction that waits without progress.
+InputState::route_inputs counts the queued empty frame, so it reserves the same refusal room as every queued route input.
+Its payload contributes zero bytes to route_bytes. Receipt still advances the client revision once.
+Neither enqueue_route_input nor its empty branch repeats receipt or reads route readiness again.
+
+an_empty_route_input_takes_the_same_admission covers both empty frame kinds on a live payload.
+It checks one receipt revision, no PTY write, no refusal, and progress of the following nonempty input.
+It also covers Stop, Kill, and payload exit, both directly and with the empty frame queued behind an active host write.
+Each case checks the receipt revision and exact SessionEnded refusal with the op and absent written-byte field.
+Only the earlier host transaction's bytes reach the PTY in queued cases.
+The direct payload-exit case uses the retained route before the drain reports exit and closes routes.
+It does not claim that a closing route must process later input.
+
+an_empty_route_input_before_live_is_refused_not_ready covers both empty frame kinds.
+It checks the op, client receipt revision, NotReady refusal, and absence of PtyWrite.
+This preserves the receipt decision required by plan 23ad; a later session decision cannot replace it.
+Both named proofs pass in the completed exact-head gate.
+The old route early-return reversal fails the admission proof. Starting an empty Active transaction also fails it.
+The new proofs observe reports, actions, decoded client frames, and progress. They expose no private queue state.
+
+### Complete early-exit audit
+
+The audit also finds and corrects the empty reply return in enqueue_reply.
+Every reply now joins Pending::Reply. Rust evaluates admission(Source::Reply) before the && empty check in try_start.
+A reply retains the shared Live/exit check and only R-54's typed Stopping exception.
+The empty skip occurs after admission and creates no Active transaction.
+The model's shadow reply, drained PTY writes, and clipboard acknowledgements use this same enqueue_reply producer.
+They do not bypass it with an earlier empty-payload check.
+Replies retain no result operation and advance no input revision.
+
+Every host write joins the queue. start_checks calls admission(Source::Host) before its input and terminal guards.
+Encoding failures, unsupported worker encoding, and empty Written completion all occur after admission.
+The source-class guard remains conservative for an unknown class. The terminal guard retains its model_rev comparison.
+Active writes retain their original admission across short writes, blocked writes, cancellation, and payload-end completion.
+write_more does not create a second admission or let another source enter an active transaction.
+input_payload_ended ends a blocked active transaction or waits for its in-flight count, then starts queued input through try_start.
+
+The audit lists the permitted pre-admission receipt producers separately.
+Route::decide produces Unsupported, NotWritable, or NotReady at receipt.
+receive_route produces codec Unsupported, InvalidInput, or the ordered Bad marker. An ignored extension is not input.
+No route, no complete frame, and receipt already stopped at Bad are no-input exits.
+apply_route waits for refusal room without choosing a new outcome.
+Spawning, an active transaction, or no queued transaction also waits without an outcome.
+
+The retirement paths retain their contractual decisions.
+on_cancel gives a queued host write Cancelled with exact zero under IN-6.
+input_fence drops old-host queued writes and suppresses its active result under DESIGN 3.4, while retaining route input and replies.
+on_route_read discards bytes of a closing route. close_healthy clears received and preserves the first close reason.
+refuse suppresses frames on a gone or closing route, so route_closed remains its final frame under OU-2b.
+These route-close cases fit plan 23ag's retirement exception; they are not alternate session admission checks.
+The lifecycle fallback when a close frame cannot fit also closes the route under that same retirement scope.
+
+The first supplied table omitted some explicit producer rows.
+During review, P3 adds on_route_read, close_healthy, refuse, and the host empty completion without changing the head.
+Receipt: msg_plugin-w_1791691550_a8da06.
+The reviewer reads the completed table and verifies the unchanged exact head/base through the full PR body.
+Each listed producer, source line, ordering, and exception matches the source.
+The active-transaction exits listed below the table also follow original admission or are no-input waits.
+No remaining input path makes a session outcome, empty no-op, or session drop before admission.
+
+### Whole-change and scope
+
+The previous whole-change reviews retain the R-53 read bound, spent allowances, refusal reservations, settlement, and route/op ownership conclusions.
+The complete delta from d1e00be3 changes only worker/input.rs and worker/tests/routes.rs.
+The base is unchanged. No new source merge occurs in this round.
+The previously reviewed #228 merge and twelve own pending-id additions remain unchanged.
+The prior feature-art note and its source comparison remain accepted.
+No own pin, public facade, C ABI, mutation exclusion, or real-only mapping changes occur.
+
+F113 remains CLOSED. F103 and F107 remain CLOSED.
+F99, F100, F101, F102, F104, F105, and F106 retain their prior closures.
+F86 and F87 close for this PR's first-reason and complete-receipt changes.
+F88 and F90 close for this PR's bounded bytes/text route input and ownership through the admission point.
+The later semantic route kinds and production route driver remain their approved later P4a/DP-2 PR B scope.
+This verdict does not claim that those later features or pending real controls are complete.
+The packaged Worker still accepts RouteReadAllowance in its existing no-op route action group.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-9ca7f2ce-pool-20261010-202350-93206.log.
+The header identifies this exact head and 15791ea3 base. All ten CI steps PASS on msa1.
+Default: 1585 passed in 10.234 seconds, with 485 skipped.
+Slow: 408 passed in 104.967 seconds, with 1977 skipped.
+Both testkit reports: 205 passed, zero failed. Minimum testkit: 54/69.
+Strict pending: 374/395 run, 21 real-only not run, two held.
+Real minimum: 35/68 passing, 35/69 accepted. Pending-real: 83, with zero passing in that list.
+The real-count increase from round 155 belongs to the merged #228 base, not this PR's pending route controls.
+Stage 1: 129 mutants, 126 caught, three unviable, zero missed and zero timeouts, in 197.3 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 530.0 seconds. Queue: 1806 seconds. The job runs 600 seconds and exits zero after 2406 seconds.
+The wrapper exits zero after 2406 seconds. Queue time is not a blocker.
+
+Correction records: shared/core-stage1/evidence/p3-pr3/pr3-round5-empty-input-reverts.log and pr3-round6-reply-reverts.log.
+The reviewer reads both files completely.
+The first records two failed route reversals. The second records a failed empty-Active reply reversal and a failed route early return.
+The empty-reply early-return reversal remains green. The record states that an empty reply has no observable outcome.
+The reviewer accepts source ordering as the evidence for that structural rule and does not claim a behavioral red proof for it.
+The empty-Active reply reversal fails six existing public behavior proofs.
+These are selected correction records, not exact-final-head gate records. They contain no complete assertion output or final-head header.
+The complete exact-head gate supplies the passing acceptance evidence.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+
+### Verdict
+
+PR #227 is CLEAN at `9ca7f2cecb621f8ad0954df0a981e4494e4bbe4c`.
+F114 is CLOSED. No package finding remains open within this PR's approved scope.
+This completes authorized package round 6. The integration reviewer must complete its same-head review separately.
+The artifact goes directly to P3 and current Sol integration. The lead receives CLEAN with the exact head and verdict commit.
+#230 awaits direct READY. F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue remains parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
