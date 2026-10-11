@@ -213,3 +213,21 @@ Merge `f49f74302526a28b6aced1595f74c7d0a1d22836` has the exact base and reviewed
 Its tree equals the reviewed tree, `7aae5082be535f92eaae806045bdc788ff4b602f`.
 This verifies the merge object and accepts the final gate evidence. The two record findings still prevent final CLEAN.
 Sol ran no execution job. No future head, gate, pin, or pending removal is accepted.
+
+## Round 5 — final record corrections, 2026-10-11
+
+Verdict: CLEAN (0 open), complete, at `80c5b50cfd4e94efd65b06ea13c045bab91a476f`.
+Base remains `9f7085f703457b0669785697dbeb14ac687a8942`. Merge remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Sol reads the complete package completion at `914bc6e61cda4aa5f89a2a74588210da61934d17`, Round 187.
+The package record covers the exact final gate, all matched catchers, corrected body, complete published check, and verified merge.
+Sol independently reads the corrected Gate section and complete published PR comment 6112214250.
+The body links that comment. Its complete check output exactly matches the reviewed local check, including all warnings and failed conditions.
+RI-SI-3 and package F141 close.
+
+The body now preserves Sol's NOT CLEAN at 6161c5c2 and package F138 in Round 183.
+It places package F139 in Round 184 and both corrected source CLEANs at abcbf164.
+RI-SI-2 and package F140 close. These changes affect the body and one comment only.
+The exact head, base, source, gate, and merge object remain unchanged. No repeat gate is required or claimed.
+Round 4's final gate evidence and merge verification remain accepted.
+This record completes integration review of #279. All historical evidence limits remain.
+Sol ran no execution job. This verdict accepts no future head, pin, gate, or pending removal.
