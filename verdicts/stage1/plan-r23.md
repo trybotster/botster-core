@@ -1503,3 +1503,34 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 9fcddc35d719e3561afca768f1fd3d5905589507
+
+## Round 44 — revision 23ah amendment — 2026-10-10
+
+Reviewed head: `247f8e96678f7a4eb74d137a045897a2fc9d41ea`.
+Prior accepted head: `9fcddc35d719e3561afca768f1fd3d5905589507`.
+Scope: R-55's amended `host_crash` condition 2 and the revision row.
+The revision changes one file in one commit.
+I compared both complete plan texts. These are the only changes.
+
+I read the steward amendment at contracts commit `af17b973d2b4df76be68c5788e11b1b9fe643667`.
+The plan removes the earlier requirement that a drop leave no thread or descriptor.
+The plan permits exactly one reaper thread for each live worker that the dropped handle spawned.
+It also permits the wake object's fixed descriptor count. That count must not grow with the worker count.
+The reaper waits for its worker. It preserves production reaping without killing the live worker under LC-12.
+The proof must compare thread and descriptor counts before open and after drop.
+The dropped handle's tap must record no edge call after drop, including row writes, link writes, and signals.
+Each reaper must end after its worker ends.
+After all workers end, the counts must return to their initial values, except for the fixed wake descriptors.
+The remaining R-55 conditions and the separate runner scope stay unchanged.
+
+This verdict supersedes Round 43's description of condition 2.
+It accepts the amended plan only. It accepts no implementation, count proof, control proof, pending-list removal, or gate.
+The implementation reviewer must verify the counts and the absence of edge calls against the amended ruling.
+
+The revision changes no code pin, frozen contract, conformance ID, coverage list, passing count, staffing limit, or stage acceptance condition.
+The fetched plan head matches the assigned head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `b9c1871ce3ad595502a3716fc7490c9b4b9fd2f4ca5caa96b73e7b12b90c1daa`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 247f8e96678f7a4eb74d137a045897a2fc9d41ea
