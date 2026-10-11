@@ -1,17 +1,45 @@
 # PC package review: PR #233
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (1 open)
 
 - Reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
 - Reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781` (`v1`).
 - Risk tier: HIGH. BUILD.md rule 3 applies because the testkit is a shared crate.
-- Open findings: 0.
+- Open findings: 1.
 - Scope: this PR's five changed files, its merge resolutions, and its 16 real-pending removals.
 
-The binding plan is revision 23ah at `stage1-plan.247f8e96.md`.
-The reviewer verified SHA-256 `b9c1871ce3ad595502a3716fc7490c9b4b9fd2f4ca5caa96b73e7b12b90c1daa`.
+The current binding plan is revision 23ai at `stage1-plan.c7cbc474.md`.
+The reviewer verified SHA-256 `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
+The source review used revision 23ah before the lead issued revision 23ai.
 The contracts pin remains `contracts-v0.1.27`, commit `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
 The reviewer used the PC brief, BUILD.md, P3's real-form mapping, and the pinned transcripts.
+
+## Supplement to Round 1
+
+This verdict supersedes package CLEAN commit `deec5b5bf779b55d759e18b5264fe3ea0e6d1905` on the same reviewed head.
+The integration reviewer identified SI-4 after that package verdict. The package reviewer missed the required Prior art detail.
+The three earlier source findings remain closed.
+
+### SI-4 LOW — The Prior art note omits required comparisons and reasons
+
+Evidence: the PR body's Prior art section names the testkit controls and contracts #30 only.
+It gives no comparison with the pinned old Core code.
+It gives no library choice or reason for the custom socket hub and reader loop.
+BUILD.md rule 0 requires the prior-art comparison and a recorded reason for custom infrastructure.
+The pair-common brief also requires that note. Every LOW finding blocks CLEAN on this HIGH PR.
+
+Required change: complete the PR body's Prior art note.
+Record the pinned old-code comparison, the library choices, and the reason for the custom socket hub and reader loop.
+Name what was reused or rejected and why. Record actual research; do not invent it.
+Status: OPEN. This is a PR-body correction, with no requested product-code change.
+
+### Focused Mac evidence
+
+Plan revision 23ai requires focused Mac tests when the operating system decides the portable code's behavior.
+This PR's process identity and Unix sockets meet that condition.
+The retained focused Mac log must be in the PR before renewed CLEAN.
+The implementer's handoff reports that the run is in progress. The reviewer has not received its result.
+This evidence requirement remains pending. It is separate from SI-4.
 
 ## Logic
 
@@ -95,7 +123,8 @@ The integration reviewer must also report CLEAN on this head.
 A later code change requires a delta review.
 
 The reviewer ran no tests, build, gate, or mutation job. The reviewer checked logic and the supplied evidence.
-This verdict clears PR #233. It does not clear the 22 pending IDs or complete the PC group.
+The source review below records the checks already completed. The current verdict does not clear PR #233.
+The verdict does not clear the 22 pending IDs or complete the PC group.
 
 ---
 

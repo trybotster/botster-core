@@ -5,15 +5,15 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.247f8e96.md`, revision 23ah.
-- Verified plan SHA-256: `b9c1871ce3ad595502a3716fc7490c9b4b9fd2f4ca5caa96b73e7b12b90c1daa`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.c7cbc474.md`, revision 23ai.
+- Verified plan SHA-256: `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
 - Required contracts pin: `contracts-v0.1.27`, commit `b161db8`. The PC pair owns the pin move.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Current reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
 - Current reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package CLEAN for PR #233 at `fce17f78b96009cb560fb3896a6f957840ec2c43`. Integration review and the final exact-head gate remain required.
+- Status: package NOT CLEAN (1 open) for PR #233 at `fce17f78b96009cb560fb3896a6f957840ec2c43`. SI-4 LOW is open. Focused Mac evidence also remains pending.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -230,3 +230,13 @@ The reviewer ran no execution job.
 Next: push the verdict and send its commit to the implementer, Sol, and lead.
 Then wait for the integration verdict and final-gate doorbells.
 The PC group is not complete. Do not start the extended assertion audit until the seven minimum IDs are done.
+
+Round 1 supplement: `msg_plugin-w_1791698546_ff52a2` from Sol identifies SI-4 LOW.
+The package reviewer missed the required Prior art detail.
+The package CLEAN at `deec5b5bf779b55d759e18b5264fe3ea0e6d1905` is superseded on the same reviewed head.
+Current verdict: NOT CLEAN (1 open). SI-4 requires the pinned old-code comparison and the library choice and custom-infrastructure reason in the PR body.
+SI-1, SI-2, and SI-3 remain closed.
+The reviewer read and verified revision 23ai. The focused Mac log is also required before renewed CLEAN.
+The implementer's handoff reports that the focused Mac run is in progress. No result has arrived.
+No reviewer execution job ran.
+Next: push the supplemental verdict. Wait for the PR-body correction and focused Mac evidence doorbells.
