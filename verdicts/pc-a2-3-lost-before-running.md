@@ -103,3 +103,15 @@ Sol's same-head integration verdict remains required.
 After both CLEANs, PC must merge current v1 once, post the base-merge check, and run one final exact-head gate.
 The body notes a newer v1 and an overlapping pending-list path. This verdict approves no later source delta or conflict resolution.
 The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
+
+## Sol source CLEAN receipt
+
+Receipt: `msg_plugin-w_1791741176_90ec42`.
+Sol verdict: `2587b8498e51f36e034c8655ae2013be35e08ff1`, `verdicts/stage1/pc-a2-3-lost-before-running.md`, Round 1.
+The reviewer read the complete verdict and verified that `origin/stage1/integration-review-sol` contains its commit.
+Sol reports source CLEAN with zero open findings on `7d7d429f06335c18e8a21e6c63085be4c5465eb0`.
+Both source CLEANs cover that exact head and base `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Sol retains the evidence limits: the compact logs do not independently prove the scratch checkout's provenance.
+The separate engine reversals are PC's body reports. Neither reviewer executed or independently reproduced those reversals.
+The same-head integration-review condition is closed. The current-v1 import, applicable base check, and final exact-head gate remain due.
+Neither verdict approves a later source delta or gate. No execution job ran here. Wait for the doorbell. Never poll.

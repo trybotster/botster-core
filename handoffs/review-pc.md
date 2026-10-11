@@ -1045,3 +1045,24 @@ Before merge, the PR body must record the merge, failed base check, both delta v
 This source verdict approves no other base import and does not establish the final gate condition.
 The reviewer ran no execution job. The original program-controls group remains incomplete.
 Next: push the source verdict and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
+
+
+Source delta verdict pushed: ce5d6b6d1de679907a29b54e1330a7923bfb5625 on origin/stage1/review-pc.
+#276 source CLEAN (0 open) covers 300eccec3f9c2929e137ee33eb2e8cbe45bf66a8, own/PR base 84b1e9be2c58044b27958ed39fe1fffa2a0eb907.
+Sol's same-head delta verdict, final exact-head gate, and completed PR body record remain due.
+The reviewer worktree is clean. Wait for the doorbell. Never poll.
+
+
+## PR #277: Sol source CLEAN receipt
+
+Receipt: msg_plugin-w_1791741176_90ec42.
+Sol verdict: 2587b8498e51f36e034c8655ae2013be35e08ff1, verdicts/stage1/pc-a2-3-lost-before-running.md, Round 1.
+The reviewer read the complete verdict and verified publication on origin/stage1/integration-review-sol.
+Both source CLEANs have zero open findings on 7d7d429f06335c18e8a21e6c63085be4c5465eb0, base 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+Package verdict: 0f4d349fcf6cd4b681bd064264a705121877ec55.
+The compact comparison logs do not independently prove the scratch checkout's provenance. Engine reversals remain PC's body reports.
+Neither reviewer executed those reversals. The retained status comparison and exact-head gate support the recorded source verdicts.
+The same-head integration-review condition is closed. The current-v1 import, applicable base check, and final exact-head gate remain due.
+Neither verdict approves a later source delta or gate. No execution job ran here.
+#276 remains source CLEAN at merged head 300eccec; its Sol delta and final gate receipt remain pending here.
+Next: push this receipt record and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
