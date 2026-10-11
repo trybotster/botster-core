@@ -207,6 +207,10 @@ type Endpoint = Arc<Mutex<VecDeque<Connection>>>;
 /// until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one file system.
 type Endpoints = Arc<Mutex<BTreeMap<InstanceKey, Option<Endpoint>>>>;
 
+/// The run's held starts (`hold_start_at`, AD-7 step 4), each with whether its hold has stopped its step: the worker asked
+/// for the payload's spawn and kept it (`start_held`, R-59). False while the hold is only armed.
+type HeldStarts = Arc<Mutex<BTreeMap<InstanceKey, bool>>>;
+
 /// The field of the handshake that an impostor gets wrong (`impostor_worker`, Core A10-1), or the protocol that a stand-in
 /// for the worker announces (`announce_protocol`, Core A6-2, AD-4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -392,7 +396,7 @@ pub struct Workers {
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
     /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
-    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    held_starts: HeldStarts,
     endpoints: Endpoints,
     /// `withhold_control_link`: the sessions whose live worker does not take a host's connection. The connections wait in
     /// `withheld_links`, never read, so the host's deadline ends the adoption (Core A6-1, AD-2).
@@ -603,11 +607,18 @@ impl Workers {
     /// The start of `key` is already held.
     pub(crate) fn hold_start(&self, key: InstanceKey) -> Result<(), String> {
         let text = format!("{} in {}", key.instance.0, key.dir);
-        if lock(&self.held_starts).insert(key) {
-            Ok(())
-        } else {
-            Err(format!("the start of {text} is already held"))
+        let mut held = lock(&self.held_starts);
+        if held.contains_key(&key) {
+            return Err(format!("the start of {text} is already held"));
         }
+        held.insert(key, false);
+        Ok(())
+    }
+
+    /// Whether the hold of the start `key` has stopped its step (`start_held`, R-59): its worker asked for the payload's
+    /// spawn and kept it. False while the hold is only armed, and when no hold of `key` is set.
+    pub(crate) fn start_held(&self, key: &InstanceKey) -> bool {
+        lock(&self.held_starts).get(key).copied().unwrap_or(false)
     }
 
     /// Ends the hold of [`Workers::hold_start`]. A worker that kept a spawn, the process `worker`, spawns its payload at its
@@ -620,7 +631,7 @@ impl Workers {
         key: &InstanceKey,
         worker: Option<ProcessIdentity>,
     ) -> Result<(), String> {
-        if !lock(&self.held_starts).remove(key) {
+        if lock(&self.held_starts).remove(key).is_none() {
             return Err(format!(
                 "no hold of the start of {} in {}",
                 key.instance.0, key.dir
@@ -1024,7 +1035,7 @@ struct WorkerEdges {
     /// The session instance that the worker serves.
     key: InstanceKey,
     /// The run's held starts (`hold_start_at`).
-    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    held_starts: HeldStarts,
     /// The payload spawn that the worker asked for while its start was held (AD-7 step 4).
     held_spawn: Option<PayloadSpec>,
     /// This worker's endpoint, and the run's table of endpoints (the worker's exit removes its own).
@@ -1121,7 +1132,15 @@ impl WorkerEdges {
     }
 
     fn start_held(&self) -> bool {
-        lock(&self.held_starts).contains(&self.key)
+        lock(&self.held_starts).contains_key(&self.key)
+    }
+
+    /// Keeps the payload's spawn of a held start: the hold has stopped its step (`start_held`, R-59).
+    fn keep_spawn(&mut self, spec: PayloadSpec) {
+        if let Some(met) = lock(&self.held_starts).get_mut(&self.key) {
+            *met = true;
+        }
+        self.held_spawn = Some(spec);
     }
 
     /// Queues the payload's exit for the worker once its process ended. From then on, the payload is not alive.
@@ -1486,7 +1505,7 @@ impl Binding<SharedWorker> for WorkerEdges {
                     self.link.close();
                 }
             }
-            Action::SpawnPayload(spec) if self.start_held() => self.held_spawn = Some(spec),
+            Action::SpawnPayload(spec) if self.start_held() => self.keep_spawn(spec),
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
             Action::DrainPty => {
                 self.drain = Some(Drain::asked(

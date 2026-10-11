@@ -83,6 +83,7 @@ exclude_re = [
     # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
+    # the slow-only test check (slow_coverage::command, which prints "slow-coverage: N slow-only tests checked"), then
     # the real-tier conformance binary under `--ignored` with the slow tier's bounds (test_budget::pending_real; the ids of
     # core-real-pending.txt, plan 23l), and prints its report;
     # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
@@ -155,6 +156,20 @@ exclude_re = [
     # inputs (the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources), check
     # (a_shell_entry_that_names_the_tested_decision_it_calls_passes) and verdict (a_check_passes_only_with_no_violation).
     'xtask/src/gate_decisions\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask slow-coverage command -> Ok(()): process glue. It reads `cargo metadata` and the pending-real file of the real
+    # repository and lists the tests of the whole workspace twice; a test cannot list the real workspace inside a mutation
+    # run of it. Only this whole-body replacement is excluded; the body has no operator. Its decision stays
+    # mutation-tested: check (a_slow_only_test_outside_the_filter_or_an_ignored_one_not_pending_fails, on real nextest
+    # lists of a fixture), with violations (a_slow_only_test_outside_the_slow_filter_is_a_violation), listed_trial
+    # (a_listed_trial_of_each_kind_passes_and_a_pending_real_id_must_be_in_the_file) and parse_list
+    # (a_list_of_an_unknown_form_is_an_error); verdict (a_check_passes_only_with_no_violation).
+    'xtask/src/slow_coverage\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask mutants-stale command -> Ok(()): process glue. It runs `cargo mutants --list` on the whole workspace and `git
+    # rev-parse`, and reads the mutants file; a test cannot list the mutants of the real workspace inside a mutation run of
+    # it. Only this whole-body replacement is excluded; the body has no operator. Its decision stays mutation-tested: stale
+    # (an_exclusion_that_matches_no_mutant_is_stale), with file_of (the_file_of_an_exclusion_is_its_path_without_escapes);
+    # the parsers are gate-decisions' parse_mutants and exclusions_of, tested there.
+    'xtask/src/mutants_stale\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants-cited command -> Ok(()): process glue. It reads the mutants file, `cargo metadata` and the git file
     # list of the real repository, which a cargo-mutants copy does not have (no .git). Only this whole-body replacement is
     # excluded; the body has no operator. Its decisions stay mutation-tested: check
@@ -205,7 +220,7 @@ exclude_re = [
     # The exact-head slow baseline also proves the shared Worker's launch, signal, exit, and removal through Driver.
     # Changed chunking can change the schedule without changing these contract results.
     # This entry covers only the constant arithmetic. Read decisions in io_decisions remain mutation-tested.
-    'crates/botster-worker/src/main\.rs:47:55: replace \* with \+$',
+    'crates/botster-worker/src/main\.rs:53:55: replace \* with \+$',
     # P3 main: process glue only. It reads arguments/token, calls command_line::execute with the real Driver,
     # prints its diagnostic, and returns its status. WorkerLaunch owns parsing; execute owns status decisions.
     # Default execute tests catch all three generated mutations and prove refusal, identity, success, and driver failure.
@@ -345,7 +360,7 @@ exclude_re = [
     # The shared-worker lifecycle proof above completes all operations at the same values through the same edge code.
     # An all-build assertion rejects zero; `a_worker_refuses_zero_read_bound` proves it. A minimum whole-frame read is not required.
     # A seed reproduces the same build; changed read chunking can change a schedule without changing the contract results.
-    'crates/botster-core-testkit/src/worker\.rs:38:30: replace \* with \+$',
+    'crates/botster-core-testkit/src/worker\.rs:50:30: replace \* with \+$',
     # botster-core-testkit stand_in.rs PeerLink::read_and_answer, the WouldBlock guard replaced with true (the gate on #228
     # b7e6817b missed it in both stages; lead ruling, 2026-10-10): equivalent at the public boundary on the harness's own
     # path. A stand-in's link never carries a descriptor: Core sends one only with an AttachRoute frame on a worker link
@@ -610,11 +625,12 @@ exclude_re = [
     # breaking the other tests of the process. `gone_at_open` and the ESRCH case (a_wait_for_a_pid_with_no_process_reports_it_gone)
     # stay tested.
     'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard gone_at_open\(error\) with true in await_end$',
-    # platform/linux.rs live_members: the guard of the read of /proc/<pid>/stat. Always true: every error reads as "ended";
+    # platform/linux.rs live_where (live_members and live_children call it; the guard moved there from live_members in
+    # 9873f33d): the guard of the read of /proc/<pid>/stat. Always true: every error reads as "ended";
     # the file is readable by every user, so the other errors (EIO, ENOMEM) need a failing kernel. Always false: a process
     # that ends between the listing of /proc and the read fails the listing; only that race reaches the arm, and no test can
     # cause it on demand. `ended_since_listing` stays tested (only_a_missing_stat_or_esrch_proves_an_end_since_the_listing).
-    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with (true|false) in live_members$',
+    'crates/botster-test-process/src/platform/linux\.rs:\d+:\d+: replace match guard ended_since_listing\(&error\) with (true|false) in live_where$',
     # platform/linux.rs start_time: the same guard, always true: every read error of /proc/<pid>/stat reads as "gone". The
     # file is readable by every user, so the other errors need a failing kernel. Always false is killed by
     # processes_that_started_at_different_times_have_different_start_times (no process has the largest pid: None).
@@ -640,10 +656,6 @@ exclude_re = [
     # cannot cause one without breaking the other tests of the process. `gone` stays tested (only_esrch_proves_a_process_gone).
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in await_end$',
     'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace match guard gone\(&error\) with true in exiting_or_gone$',
-    # platform/macos.rs live_members `&&` with `||`: macOS refuses the information of a zombie, so a listed process with
-    # information is never SZOMB, and the mutant differs only for a process that the group listing returned and that moved to
-    # another group before the read. Only that race reaches the difference; no test can cause it on demand.
-    'crates/botster-test-process/src/platform/macos\.rs:\d+:\d+: replace && with \|\| in live_members$',
     # platform/macos.rs exiting_or_gone -> `Ok(true)`: live_members calls it only for a process whose information macOS
     # refused. A test process can cause that refusal only with a zombie, for which the answer is true. A live process of the
     # group whose information is refused needs another user's process in the test's group.

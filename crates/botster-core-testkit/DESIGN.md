@@ -3,7 +3,7 @@
 ## RealCoreHarness over Core's own composition (plan 23l)
 
 Scope: lead rulings of 2026-10-09 (plan 23l, R-43). `RealCoreHarness::open` calls `botster_core::open_parts` and then
-`HostDriver::open(cfg, EdgeTap::new(edges, rows))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
+`HostDriver::open(cfg, EdgeTap::new(edges, rows, heard))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
 only delegates to its driver, so every id runs on Core's own code. Core has no test branch and no feature flag.
 
 The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to the inner `RealEdges` unchanged:
@@ -29,6 +29,25 @@ The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to 
 - `injects_clock` is true (R-43 A): Core reads no clock, and `pump` takes `now` from the runner. Workers and payloads
   follow real time, so `progress_is_injected` is false (steward ruling R-46): the driver never jumps the clock to Core's
   next deadline, and the clock moves only by a transcript's `advance_clock`.
+
+The real route (`src/real/route.rs`, R-47 A). Both harnesses serve `attach_stream`, because the route is the client's
+and not the tap's:
+
+- `attach_stream` makes a `UnixStream::pair()`. One end goes to `CoreApi::attach` as `RouteTransport::Stream`, and
+  Core hands it to the worker in a pump (Core OU-9). The client keeps the other end. The harness keeps no copy of the
+  worker's end, so the client sees only the worker's writes, its close and the kernel's backpressure.
+- A read waits on the stream only after the handoff. The conformance driver pumps once at the first read of a route
+  that finds nothing ("one pump per route"), and the handoff is in a pump. So the first empty read returns at once, and
+  every later read waits for bytes until the step deadline. A read that waited before the handoff would hold the only
+  thread that pumps Core. The harness cannot see the handoff itself: the plain harness has no tap, and the worker's
+  end is a descriptor that Core owns (`unsafe_code` is forbidden, so the harness does not inspect it).
+- A step that reads until nothing comes (`route_drain`, `route_expect_model_equal`) waits for the step deadline after
+  the handoff. That costs time, not correctness.
+- `client_close` shuts down both directions of the client's end and drops it. `route_gate` (`{on}`) stops the
+  client's reads; the worker's writes then meet the kernel's backpressure. The buffer sizes are the kernel's defaults:
+  the harness sets none, so it adds no value to the transcripts.
+- A real route reports no end cause (`Eof { ended: None }`). The testkit records the causes through its `CoreApi`
+  wrapper; the real tier has no such wrapper yet.
 
 The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
 
