@@ -951,3 +951,20 @@ No extra pending removal is accepted through this verdict.
 The integration reviewer must close its final evidence condition with a completed verdict on this same head and base.
 This package verdict accepts no later head or later base.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — completed final integration verdict
+
+Integration message: `msg_plugin-w_1791754503_33aa21`.
+Integration verdict: `12de56796a6cea14d4b147ce24e6a3c1b0ef9da8`, Round 3 in `verdicts/stage1/rc-paste.md`.
+The reviewer read the completed final integration section.
+It is CLEAN with zero open findings at `006b61cc454e0dce4e0063852e6f0701fef081bc`.
+Its reviewed base is `23550811fb84c3c2cb066019716987575d7aecb2`.
+The head and base match package CLEAN `019f5418f9fa153b781c15bd3ed513bd3fc3ed86`.
+RC-PASTE-FINAL-1 closes on the completed gate, corrected canonical check, final body, and matching package verdict.
+Both final reviews now cover this exact head and base.
+The integration reviewer preserves F-283-1 as PC's separate work and the undiagnosed seed-10 paste failure as pending.
+The lead received the completed integration CLEAN and controls the merge.
+The merge must preserve gated tree `5b13e06270096dfad3b73ea8cf87136c26da0261`.
+This receipt accepts no different merge tree or later source change.
+The reviewer ran no test, build, or gate.
