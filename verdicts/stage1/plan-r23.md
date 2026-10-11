@@ -3191,3 +3191,78 @@ This verdict accepts no implementation, execution evidence, pending removal, lat
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: CLEAN (0 open) at 8b9f6104b117a65a8056303f43da642d9e61736e
+
+## Round 86 — revisions 23cj and 23ck, 2026-10-11
+
+Head: `2cd9a93e512c22ea1b71f17b97ffbd964992220d` (23ck).
+Parent: `f8fac3b7a4a57052e330bab29f5e61a594543cba` (23cj).
+Prior reviewed head: `8b9f6104b117a65a8056303f43da642d9e61736e` (23ci).
+Only docs/stage1-plan.md changes. Sol reads every changed term and both history rows.
+Sections 5, 6.3, and 8 remain byte-identical. The active manifest and Core identifiers remain unchanged.
+The 23cj pin is stage1-plan.22ce85df.md, SHA-256 `22ce85df0609cd790109d2202bcfcba99c989022f7b8284e6ccc6d6ca7018c02`.
+The 23ck pin is stage1-plan.c551f705.md, SHA-256 `c551f7050eaf7a1f6932d0bf52bd55d60f113158d3ca3b1b2ef11202b6457b72`.
+Both pins equal their committed bytes and have mode 0444.
+
+Sol reads both complete items in shared/steward/drafts/pending-rulings-edits.md.
+Draft SHA-256: `0abd0647456c31e833feb106585464ccd3a23c53a5c6dae615793558c45471bb`.
+Steward receipt `msg_plugin-w_1791749672_fe22fb` confirms that R-85 and the R-84 mouse-size follow-up govern now.
+The steward states that both items will land after contracts #59 merges.
+Sol also reads complete R-56, R-61, and R-7 in the published rulings.
+
+R-85 extends the input-log rule to resolved expected bytes from every source and on every tier.
+The driver must return a typed transcript-defect error when those expected bytes contain 0d.
+The rule covers pty_input equality/prefix, route_expect_pty hex/relation parts, and hex_prefix/hex_ends_with over an input log.
+The static literal check remains. A lint key list would duplicate encoder semantics, contrary to R-7.
+P3 owns one HIGH contracts PR with 016c and 017f review and the required red self-test.
+The kp_enter assertion uses another observation. Other flagged identifiers are fixed or listed with reasons.
+The draft retains the shrink-only exception scope. The plan's shorter wording does not authorize new unrestricted exceptions.
+This review accepts the rule and ownership, not a driver implementation or a transcript result.
+
+The R-84 follow-up permits stored size as host input. Explicit size wins.
+With modes present, the control reads no session modes or model state. R-84(4), sgr_pixels, remains unchanged.
+At verified Core v1 926dfb62, Sol reads OracleHandle::encode_mouse and the binding's explicit-mode mouse encoder.
+The encoder passes rows, cols, and cell_px into libghostty's mouse size context.
+Sol reads the real and testkit oracle_screen paths and both complete named size transcripts at Contracts 5e208064.
+ST-4 compares size with 24 rows and 80 columns. EV-6 compares size with 31 rows and 101 columns after two Resize calls.
+These assertions bound the shared stored-size risk; they do not prove that risk absent for every mouse call.
+Core #288 and contracts #60 still need their own implementation and evidence reviews.
+
+The oracle result counts and six failure diagnoses remain owner reports in this plan review.
+Sol has not reviewed #288's exact head, raw results, full source, or package verdict.
+The P3, P5, and PC assignments accept no pending removal or independent proof of those diagnoses.
+P3 owns the R-56 follow-up after #57, #59, and the R-85 PR. The full-count fence and no-regression rules remain.
+
+Sol reads the updated complete #287 flake record and the retained first failure output at lines 1035–1105.
+The raw output shows the cleanup panic at process_guard.rs:113, wait status 9, then TRY 2 PASS.
+Retained mutant-log SHA-256: `d18d53cc790eaa25c227fab7c072b140a763aa36299ec8a1c26f0ce9790e189a`.
+The proposed registration-race diagnosis and prepared fix remain unproved in this review.
+P6's separate structural PR remains due. No reproduction campaign, retry change, or timeout change is accepted.
+Sol reads the current mutant_logs.rs report path. The standing retention change remains future work.
+Sol reads package #287 Round 6 at `0afa017d583092cad34ce825d2687a6eeb74a40c`.
+Its completed package CLEAN agrees with integration CLEAN `31f348afd84dd0d2bc974ed3ebcb14fb414cd989` at 27cb2cc4.
+Final SLOT, import, applicable check, delta review, final gate, and body remain due.
+
+### PF-SI-3 — LOW, open: the R-56 count includes R-60 entries
+
+The added result paragraph states 45 R-56 exception entries for the two named in_9 identifiers at Contracts cce568e.
+Sol counts the entries in that exact Git object without running the lint.
+in_9_legacy_keys_table has 39 unfenced-capture R-56 entries and one no-program-ready R-60 entry.
+in_9_non_us_layout_uses_supplied_text has four unfenced-capture R-56 entries and one no-program-ready R-60 entry.
+The R-56 total is 43. The combined total is 45, including the two R-60 entries.
+Correct the plan's count or name both reasons. This requires no execution or product change.
+
+### PF-SI-4 — LOW, open: the standing artifact path is incorrect
+
+The plan states that botster-gate places the standing artifacts at <gate log>.flaky/.
+At compute-pool f7e3d4c, botster/botster-gate:232 moves the artifact directory to <gate log>.out/.
+Thus ci-out/flaky/ becomes <gate log>.out/flaky/.
+P6 receipt `msg_plugin-w_1791749748_f960cf` confirms that distinction.
+The existing <gate log>.flaky/ path is the manual recovery location for #287.
+Correct the standing path to <gate log>.out/flaky/. Preserve the historical manual recovery path separately.
+This requires no execution or product change.
+
+All other changed terms have no integration finding. Earlier review limits remain applicable.
+Sol accepts no implementation, execution evidence, pending removal, later pin, final import, or PR completion in this plan review.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: NOT CLEAN (2 open: PF-SI-3, PF-SI-4) at 2cd9a93e512c22ea1b71f17b97ffbd964992220d
