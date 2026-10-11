@@ -294,10 +294,57 @@ The separate-process core-sys run passes 115 tests in 0.813 seconds.
 The preceding individual passes add no distinct coverage.
 
 The body retains the final Linux gate requirement under the lead's pool rule. The parent gate proves its parent only.
-The current correction changes no runtime behavior beyond the already-reviewed correction, status list, pin, or transcript assertion.
+The current delta changes documentation and test helpers. The status lists, pin, and transcript assertions remain unchanged.
 The progressing-reader ID stays pending for its separate real route_fill proof.
 I find no additional integration issue in this delta.
 
 GitHub access recovers during this inspection. The previously local Round 2 commit `8ac8dacb4813b6b7b605e02f8f4902fa96f11579` is now pushed.
 The earlier DNS failures remain recorded in the handoff as historical limits.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 3 — 2026-10-11: real route transport is CLEAN
+
+Reviewed head: `53502d5517b5cf5863fca0ae768712d0e52ab804`.
+Stack base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
+Current gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
+Risk: HIGH. Binding plan: 23aj at `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
+The code still pins contracts .27 at `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
+Source closure record: `c5cddcd1ce16533aa625014e8f700a65b546b68c`.
+
+I read the complete exact-head package Round 165 / #243 Round 3 at `b8c7112641fc90ce249c2518e274613a3197eb23`.
+It reports CLEAN with F121 and F122 closed. Its head, stack base, scope, and evidence limits match this review.
+I also read the complete prior clarification at `3dbb9657a637dcbff591b40a9d6475bd479a6392`.
+The source inspection and formal rounds above preserve all findings and closure evidence.
+
+**PRC-1 MEDIUM / F121 — CLOSED.**
+The named real-worker proof uses validated legal limits for Launch, AttachRoute, and client decoding.
+It observes the blocked payload while the client reads nothing, then complete delivery after the client reads.
+Both normal fixtures pass. Both ignored-budget reversals fail when the done marker arrives before client progress.
+The exact-head focused Mac run passes in both fixtures. The progressing-reader conformance ID remains pending.
+The proof uses public stream and marker results. It adds no private queue accessor or production test branch.
+The uniform payload proves its byte count and content. It does not distinguish reordered identical bytes.
+The already-reviewed queue and write paths retain ordering. This closure concerns the real budget path.
+
+**PRC-2 LOW / F122 — CLOSED.**
+A nonempty zero write clears write readiness and waits for a writable event.
+The public event proof rejects readable-only resumption, and the selected reversal fails that assertion.
+The module header and PR body now describe this behavior correctly.
+Empty writes and interrupted retries keep their prior behavior. No observed UnixStream failure is claimed.
+
+No integration finding remains at this exact head. No conformance ID moves.
+The package artifact adds no new source issue or change to the scope already reviewed.
+The R-59 tally still excludes unfenced AD-7 from the real minimum.
+The separate GS exclusion work remains assigned outside this PR.
+
+The pre-review gate at `5ca808f8` proves its parent source and combined-stack diff, as recorded above.
+It does not establish a green gate for the correction head.
+The lead's pool rule requires one final Linux gate after both CLEAN reviews. That gate must cover the corrections before merge.
+#240 must land first. The PR must then retarget to `v1` and merge the current base.
+The retained base-merge check must satisfy the disjoint-source conditions, or both reviewers must review the actual source delta.
+This verdict does not waive those gate or stack conditions and does not complete the P4a group.
+
+The local Round 2 commit `8ac8dacb4813b6b7b605e02f8f4902fa96f11579` is pushed after DNS recovery.
+No verdict commit remains unpublished because of that earlier failure.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
