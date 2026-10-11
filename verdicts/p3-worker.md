@@ -11039,3 +11039,138 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+## Round 160 — PR #240, package round 2 — 2026-10-10
+
+Head: `f3d6e37066f027666392e65e945599371d428d66`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Replacement READY: msg_plugin-w_1791698600_7fb4d5.
+The reviewer verifies this exact head and base in the complete current GitHub body.
+Body record: /private/tmp/review-p3-pr240-f3d6e370.json.
+Previous artifact: round 159, 408637c5639f952a2c062ba433fc9e14733ba603, NOT CLEAN at 950527a6.
+The HIGH classification and approved PR B scope remain unchanged.
+
+### Complete correction review
+
+The reviewer reads the complete two-commit correction: d6ffb4384a536e1a492b8d5df1633df87c9c927f and this head.
+The delta changes five paths, with 225 insertions and twenty deletions.
+It changes worker.rs, handoff.rs, the handoff behavior proofs, the condition-2 helper, and worker-core DESIGN.md.
+No new source merge occurs. The exact base remains 11a5246a.
+All other ten own paths retain round 159's whole-change conclusions.
+The review checks each return after link_read_begins, each transition out of Ready, and the adoption ordering that the new cleanup can affect.
+BUILD rule 5 and the real-process test rules remain binding.
+Plan 23ai requires a focused Mac run for portable code whose behavior the OS decides, including descriptor passing.
+The lead's final-gate rule remains in force: one final gate after both CLEAN reviews.
+
+### F117 MED — CLOSED for its reported paths
+
+close_unchecked replaces close_unbound and takes every read that remains in the handoff table.
+It emits CloseDescriptor for an unbound descriptor.
+It calls end_route(HandoffFailed) for a read whose descriptor is already bound.
+Checked reads are removed from that table; their valid routes remain under DP-8.
+Taking the table before closing its entries prevents a second cleanup from closing the same entry again.
+
+close_link calls this cleanup before it changes the link state or stages LinkClose.
+The decoder error return and the post-frame return therefore release the affected descriptors without a later LinkClosed input.
+close_link_now applies the same cleanup before Terminate or the orphan self-exit closes the link immediately.
+Input::LinkClosed and adopt also call close_unchecked.
+The early return from link_read_begins closes its descriptors there.
+A loop break after the link changes state follows a close path that already takes the table.
+The new adoption call has a separate protocol-order regression, recorded as F120 below.
+
+The unbound oversized-header proof runs both manual read forms and observes exactly one CloseDescriptor plus LinkClose.
+The bound oversized-header proof runs both forms and observes one RouteClose and one HandoffFailed report.
+The Remove proof covers the post-frame return after a bound AttachRoute.
+The Terminate proof covers immediate closure with an unchecked bound route.
+The LinkClosed proof closes that unchecked route while retaining a route whose read was checked.
+These proofs use Worker inputs, actions, and decoded reports. They expose no private handoff map.
+
+### F118 MED — CLOSED
+
+Before the descriptor send, hello_and_launch sends a pre-launch Signal request and waits for its matching Done error.
+The worker processes that request only after its valid host HELLO passes.
+The reply therefore establishes the required event boundary before the descriptor segment can arrive.
+The request targets no live payload group and changes no process state.
+The helper retains [Launch][AttachRoute] in one descriptor send, so the worker holds the descriptor before payload spawn.
+The existing bounded report wait supplies the deadline. No sleep or polling loop is added.
+The later EOF observation and payload-alive marker remain intact.
+Source ordering closes the race; repeated passing runs are not the reason for closure.
+
+### F119 MED — CLOSED
+
+check_reads now returns immediately after descriptor_fault.
+That fault closes the link and removes every remaining unchecked record.
+The return prevents the next loop iteration from indexing a removed key.
+The new proof supplies the reported two descriptor-bearing reads of one split non-AttachRoute frame.
+It observes LinkClose and exactly one CloseDescriptor for each ID, with no bind and no private-state assertion.
+
+### F120 MED — OPEN: adoption sends a report before HELLO
+
+Location: crates/botster-worker-core/src/worker.rs, adopt, the AdoptLink action followed by close_unchecked before counter reset and send_hello.
+Concrete state: the old link is Ready and holds an unchecked read with a bound route.
+A complete AttachRoute followed by the first bytes of another frame creates this state.
+A valid candidate HELLO then enters adopt.
+
+adopt first emits Action::AdoptLink, which moves the driver to the new transport.
+close_unchecked calls end_route for the unchecked bound route.
+end_route calls report while self.link is still Ready.
+That report emits a WORKER_MSG RouteClosed on the new transport before the worker HELLO.
+Core-host driver.rs:638 rejects a first frame whose kind is not HELLO.
+The valid adoption therefore fails because descriptor cleanup violates the existing handshake order.
+An output report can also precede RouteClosed when output_unsent is set.
+
+The same ordering invalidates new-link byte accounting.
+send_frame counts the cleanup report in queued_total, then adopt resets queued_total to zero.
+The driver still sends that report on the new link and counts its bytes there.
+Worker LinkWritten totals can therefore include bytes that its reset queued_total omitted.
+
+Required correction: close the affected descriptors and bound route without sending a pre-HELLO report on the new transport.
+Preserve the valid HELLO/Adopted exchange and its new-link byte accounting.
+Add a public adoption proof from a Ready link with a complete AttachRoute plus a partial following frame.
+The proof must observe one affected route transport close and a valid new-host handshake.
+It must preserve the required closure scope and checked-route retention from F117.
+Package receipt to P3: msg_plugin-w_1791698672_ded6bd.
+Integration receipt: msg_plugin-w_1791698672_61d67f.
+The reviewer verifies this path through worker action ordering and the host's first-frame decision. The reviewer runs no reproduction.
+
+### Supplied correction evidence and limits
+
+The reviewer reads round159-reverts-macos.log completely.
+Restoring the old bound-route filter fails four named proofs: oversized bound frame, Remove, LinkClosed, and Terminate.
+Removing close_unchecked from close_link fails five proofs, including the unbound oversized frame and the two-read fault.
+Removing it from close_link_now fails the Terminate proof.
+Removing the return from check_reads fails the two-read proof.
+The records report 170/4, 169/5, 173/1, and 173/1 passed/failed, respectively.
+These are selected reversal records, without a complete exact-head gate header.
+The reviewer also reads the earlier f117-revert-macos.log and f119-revert-macos.log completely.
+They retain precise missing-closure assertion output and the removed-key panic location.
+No Mac reversal is claimed to prove the Linux-specific HELLO scheduling race.
+
+mac-slow-f3d6e370.log names this exact head, a clean tree, and Darwin 27.0.0 after worker prebuild.
+The reviewer reads the complete thirty-four-line record.
+It reports 59 worker slow tests in 5.33 seconds, 17 slow_cli tests in 0.11 seconds, and 35 slow_session tests in 5.30 seconds.
+The separate core-sys nextest run reports 115 passed, zero skipped, in 1.152 seconds.
+The record also reports ten passing condition-2 runs. Those repetitions add no distinct coverage and do not establish race closure.
+The first plain cargo test run has storage failures from the process-wide RLIMIT_NOFILE test.
+The lead records that coupling as separate P6 work. This PR changes no core-sys source.
+The nextest record uses a separate process for each test, as the gate does.
+
+The local worker-core 174 passes, clippy zero, fmt, xtask, and strict 206/0 results are P3's reported results in READY and the body.
+No complete gate at this correction head is supplied or claimed.
+The earlier two passing gates and source merge records retain their exact heads and limits from round 159.
+The final gate must cover the correction and its mutants after both reviewers report CLEAN.
+The supplied lc12-real-macos.log names an uncommitted correction tree on d6ffb438, not this exact committed head.
+It retains UnsupportedControl for attach_stream. It supplies no route ID flip and no final-head acceptance evidence.
+PR C still owns the real route transport and PTY budget. This correction moves no conformance ID.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+
+### Verdict
+
+PR #240 is NOT CLEAN at `f3d6e37066f027666392e65e945599371d428d66`.
+F117, F118, and F119 close their reported paths. F120 MED remains OPEN and must close before CLEAN.
+This completes #240 package round 2. The next round is within the normal three-round limit.
+The artifact goes directly to P3 and current Sol integration. The reviewer sends no ordinary NOT CLEAN report to the lead.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
