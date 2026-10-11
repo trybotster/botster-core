@@ -203,3 +203,88 @@ These logs precede the documentation-only child. They provide evidence for its u
 The reviewer changed no product code and ran no tests, builds, gates, mutations, or measurement jobs. Findings went directly to P5 and Sol. No NOT CLEAN report went to the lead.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-11
+
+- PR: https://github.com/trybotster/botster-core/pull/257.
+- Exact reviewed head: `5e6b15184bf4ab9d4bb1e572925b201409ea3d20`.
+- Parent: `e2b11b172ed5b968f9444eddfe8b0465ece67a02`.
+- Tree: `1740aeb6a3a6222531a510532721a6cbf772c156`.
+- Reviewed base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- READY: `msg_plugin-w_1791721536_39b25f`.
+- Risk: HIGH.
+- Authority: BUILD.md, R-55 including its condition 2 follow-up at contracts `main` `d13a165`, and approved plan 23ar.
+- Plan pin and hash remain the exact values recorded in round 2.
+- Additional scope authority: `handoffs/core-lead.md`, 09:15 and 09:20 entries. The lead requires the snapshot to use stat only for Core's top-level `lock` file.
+
+### Findings closed
+
+**D-F6 is CLOSED.** The unread-exit refusal proof now runs in `a_host_crash_waits_until_no_exit_is_unread`. Nextest gives that proof its own process. It retains both results: `Bad` with an unread exit and success after the pump consumes it.
+
+The count and wake proof starts only `s1` and `s2`. It has no earlier ended worker or retiring reaper. Before the crash, `pump_until` pumps until the report has no more work and the tap is quiet. The proof then checks the two surviving reapers, the lost tap, the stale socket, one worker's reap notification, the other live worker, and the fixed descriptor count. The named reaper and owned-thread join proofs remain unchanged.
+
+D-F1 through D-F5 and D-SI-1 remain CLOSED. No source finding remains open. The published body describes the split, the current lock-file change, and the exact-head evidence. Its historical D-F6 wording is corrected to preserve the formal finding's limit: no demonstrated false PASS was claimed.
+
+### Lock-file change
+
+The reviewer read the complete snapshot delta and its composition with `host_crash`. A regular file named `lock` directly under the root becomes `Node::Lock { mode, len }`. The snapshot never opens that file. It still records the root's kind and mode. It reads other regular files by bytes, including `rows/lock`. It does not follow links.
+
+This implements the lead's explicit stat-only instruction. A close of another descriptor for the same file in the process releases a POSIX record lock. Core runs in the real harness's process, so reading and closing its lock file would release that lock. The current base still uses `flock`; the planned LC-2 correction introduces the record lock. This review accepts the snapshot preparation, not that future lock implementation.
+
+The current storage source creates the lock file without truncation and stores the epoch in `rows`. Core does not write data to the lock file. The deliberate comparison limit is explicit: the snapshot compares the lock file's kind, mode, and length, not its contents. This is the lead-authorized exception. Every other regular file retains the byte comparison.
+
+`the_snapshot_never_opens_the_lock_file` holds a real record lock in the test process. An owned child re-executes `lock_probe` and tries the lock from another process. The probe reports held before and after the snapshot, then free after the holder closes. The proof also checks the lock node and both normal-file byte comparisons. The helper does nothing without its specific environment variable. Its parent owns and reaps each probe through `OwnedChild`.
+
+The Linux mutation report names this proof as the catcher for the lock-name `&&` to `||` and `==` to `!=` replacements. Both OS suites execute the proof. The body states a local red-on-revert result; the reviewer did not run or independently verify that local reversal. The retained pool results and mutation outcomes supply the accepted evidence.
+
+### Import and scope checks
+
+The reviewer read both corrected own paths: `real.rs` and `real/snapshot.rs`. All thirteen other own paths retain their round 2 blobs. The only own exclusion and process-check changes remain the previously accepted reaper entries. No new dependency, pin, transcript, exclusion, timeout, or pending-list change occurs in this correction.
+
+Merge `e2b11b17` has exactly the correction `404c845d11ad79fa69a01e237a64e541a9bf7f0e` and base `0c5ac80e512f986edd2ec1455012552a41c7f855` as parents. All thirteen paths imported by #261 are disjoint from the fifteen own paths. Every imported path has exactly the base's blob identity. The reviewer does not repeat #261's accepted package review.
+
+The base is an ancestor of the reviewed head. `git diff --check` reports no whitespace error. The published PR names the exact reviewed head. The earlier source conclusions remain applicable within the stated lock-file comparison limit.
+
+### Exact-head Linux evidence
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-5e6b1518-pool-20261011-050825-89519.log`.
+
+SHA256: `43a27754d89d1ac9ff3bae3960fbf0c85c7b0cef52aad28273278beb7e42f4af`.
+
+The header names the exact reviewed head and base. All ten CI steps pass in 908.1 seconds. The job and gate exit zero after 920 seconds on `msa1`.
+
+- Default tier: 1644 passed, 484 skipped, 12.033 seconds.
+- Slow tier: 494 passed, 1998 skipped, 31.747 seconds.
+- Slow coverage: 1028 slow-only tests checked.
+- Both crash proofs, the lock-file proof, both reaper proofs, root-mode proof, and two-directory proof pass.
+- Real conformance: 148 distinct PASS IDs. AD-6 passes in 0.157 seconds.
+- Minimum report: testkit-passing 56/69; real-passing 41/68; real-accepted 42/69.
+- Mutation stage 1: 122 distinct outcomes; 31 caught, 62 missed, 29 unviable, zero timeout; 133.8 seconds.
+- The unmutated slow baseline passes all 494 tests. Its complete step takes 38.9 seconds.
+- Mutation stage 2: exactly the 62 stage-1 miss identities, each once; 57 caught, five unviable, zero missed or timeout; 631.2 seconds.
+- The reviewer parsed all 184 raw outcome records and compared both identity multisets. Final result: 88 caught and 34 unviable; zero missed or timeout.
+- The full mutation step takes 807.1 seconds. Fuzz passes; no own changed crate has a decoder harness.
+
+### Exact-head Mac evidence
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-5e6b1518-pool-20261011-052405-65143.log`.
+
+SHA256: `1fafb463717485a0eb58b1b3e8b5ce0854400b6fe354fe6d1949b7a1ecbe951c`.
+
+The header names the same exact head and base. The pool job uses two CPUs. Worker prebuild and clippy pass. Clippy selects all targets and features for testkit, test-process, and core-sys.
+
+- Focused suite: 113 passed, 484 skipped, 2.665 seconds.
+- Both crash proofs, the lock-file proof, and all retained corrected proofs pass.
+- Separate AD-6 selection: one passed, 1442 skipped, 2.351 seconds.
+- The in-diff Mac mutation baseline passes. Both replacements of `threads` by `Ok(0)` and `Ok(1)` are caught.
+- Mac mutation result: two caught; zero missed, timeout, or unviable.
+- The focused mutation selection retains the scope accepted in round 2: `platform::` tests exercise the only new Mac function.
+- `MAC_EXIT=0`. The job exits zero after 56 seconds. The gate wrapper exits zero after 57 seconds.
+
+### Verdict scope
+
+This CLEAN covers the exact head and its supplied gate evidence. It does not cover a later base import or the planned LC-2 lock correction. A later import must satisfy the approved base-merge rules or receive the required delta reviews and exact-head gate.
+
+The reviewer changed no product code and ran no tests, builds, gates, mutations, reversal, measurement, or executable merge-check jobs.
+
+VERDICT: CLEAN
