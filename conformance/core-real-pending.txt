@@ -28,6 +28,7 @@ conf::a2_2_missing_op_is_bad_frame_not_refused
 conf::a2_3_lost_session_closes_routes_session_lost
 conf::ev_5_route_closed_retires_route_keyed_events
 conf::ou_5_peer_fault_closes_only_that_route
+conf::ou_7_exit_after_last_frame_then_close
 
 # the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (with ids from P4a PR3: pty_output, pty_input, pty_blocked).
 conf::a2_2_cancel_race_reports_the_real_outcome
