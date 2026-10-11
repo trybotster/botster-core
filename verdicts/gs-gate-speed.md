@@ -1134,3 +1134,32 @@ The PR keeps the earlier failed gate and earlier evidence. Neither is substitute
 Integration review remains required. P5's #257 stat-only snapshot handling of `lock` remains an integration condition for the final base.
 
 The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+
+
+## PR #265: base-merge delta review
+
+- Head: `3c8044f40a6b26400240616b8946b05478b72fca`.
+- Base: `ddd3b849df5db34d20d944ff6b8de23405fdb5c8`.
+- Previous reviewed head: `80f17bcf142823c5b8cebf16c704e2ee06b2a4cf`.
+- VERDICT: CLEAN, source delta.
+- Open findings: 0.
+
+The implementer reports that base-merge-check fails conditions 2 and 3 on `Cargo.lock`. I do not use automatic CLEAN carry-over.
+
+I independently verified the merge parents and reviewed the overlapping file. The PR still adds only `botster-test-process` to core-sys dependencies.
+
+The imported lockfile changes move the contracts pin to `.36` and add `botster-route-codec` to worker dependencies. The PR changes neither import.
+
+The full own diff is byte-identical to the previous reviewed diff after removal of Git blob index lines. Hunk headers and content are identical.
+
+Both normalized diffs have 24151 bytes and SHA256 `aa011c324c0b4d43745a9ce608f02ade6a13a4e33c67fdefdd490875da5b1dde`.
+
+The product lock and corrected tests are unchanged. Both prior findings remain CLOSED. I found no new source finding in this delta.
+
+The imported real-edge change retains a handed-off stream until acknowledgement. It adds no open of the lock file.
+
+The lead directs #265 to merge first. P5 must retain the approved stat-only snapshot correction in #257 when that PR follows.
+
+The final exact-head gate is reported running. No gate evidence for this new head is accepted yet. Integration delta review remains required.
+
+I ran no gate, build, or test. The lead owns the merge decision and current-base check.

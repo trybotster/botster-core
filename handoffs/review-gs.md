@@ -3,11 +3,19 @@
 ## Current review result
 
 - PR: #265, data-directory lock.
-- Head: `80f17bcf142823c5b8cebf16c704e2ee06b2a4cf`.
-- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Head: `3c8044f40a6b26400240616b8946b05478b72fca`.
+- Base: `ddd3b849df5db34d20d944ff6b8de23405fdb5c8`.
 - Risk: HIGH.
 - Verdict: CLEAN.
 - Open findings: 0. GS-DL-R1-1 MEDIUM and GS-DL-R1-2 LOW are CLOSED.
+
+The implementer reports a base-merge-check failure on `Cargo.lock`. I performed a source delta review instead of automatic CLEAN carry-over.
+
+The own diff is identical after removal of Git blob index lines. The lockfile addition is still the one dev-dependency line.
+
+Source CLEAN applies to the new exact head. Its final gate and integration delta review remain pending.
+
+The evidence below belongs to the previous reviewed head `80f17bcf`, not the new head.
 
 The corrected test makes one reopen per fixed cycle. A channel event starts the cycles, child work is bounded, and cleanup joins every spawner.
 
