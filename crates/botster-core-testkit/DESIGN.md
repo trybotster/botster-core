@@ -3,7 +3,7 @@
 ## RealCoreHarness over Core's own composition (plan 23l)
 
 Scope: lead rulings of 2026-10-09 (plan 23l, R-43). `RealCoreHarness::open` calls `botster_core::open_parts` and then
-`HostDriver::open(cfg, EdgeTap::new(edges, rows))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
+`HostDriver::open(cfg, EdgeTap::new(edges, rows, heard))`. `Core::open` is `HostDriver::open` over the same parts, and `Core`
 only delegates to its driver, so every id runs on Core's own code. Core has no test branch and no feature flag.
 
 The boundary is `HostEdges` (`src/edge_tap.rs`). `EdgeTap` passes every call to the inner `RealEdges` unchanged:
