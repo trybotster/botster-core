@@ -64,15 +64,29 @@
 //!   `af17b97`). Each is a fiction about history; at the moment Core looks, the OS facts that it reads are real. Each
 //!   control's documentation states its fiction and its conditions.
 //!
+//! - `hold_start` and `release_start` (`{session}`, Core LC-4, A2-1; steward ruling, plan 23bg, the same form as the
+//!   testkit's): the tap holds the worker's control link at the host's accept, after its hello, until the release
+//!   ([`Tap::hold_link`], [`Tap::release_link`]). Core spawned the worker, sees no link of it, and the session stays
+//!   `Starting`. `start_held` is true once the link is held. The hold is set while the session is `Created`; a release of
+//!   an armed hold disarms it; a second hold, or a release with no hold, is `Bad`. The worker's own startup clock runs
+//!   during the hold (TM-3, AD-7).
 //! - `fail_handoff` (no arguments, Core DP-2): the next `link_send_descriptor` of the handle's host fails, once
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
 //!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
 //!   `HandoffFailed`. Core sees exactly the result of a real failed send: the endpoint back, with `Failed`.
+//! - `hold_handoff` and `release_handoff` (no arguments, Core OU-9, A5-1, plan 23bf): the tap holds the next
+//!   `link_send_descriptor` of the handle's host, and every later one on its link, with `Blocked` until the release
+//!   ([`Tap::hold_handoff`], [`Tap::release_handoff`]). Core keeps the frame and the endpoint in order, as after a real send
+//!   that takes nothing now, so `attach` returns and the worker has no transport for the route. The tap keeps Core's write
+//!   interest on the held link from the inner edge, so no readiness wakes the host for it. A held hand-over is not a report:
+//!   `edges_quiet` can be true while it is held. The release gives the inner edge that interest and signals the wake. A
+//!   second `hold_handoff` before the release is `Bad`.
 //! - `oracle_resume` (`{session, capture}` → `{equal}`, Core ST-6b, R-62): the real form, through a capture layer between the
 //!   driver and Core's composition ([`resume`]).
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
+mod holders;
 mod oracle;
 mod program;
 mod resume;
@@ -104,6 +118,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
+use std::os::fd::AsFd;
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
@@ -160,6 +175,10 @@ struct EdgesQuiet {}
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FailHandoff {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HandoffHoldArgs {}
 
 fn on() -> bool {
     true
@@ -616,6 +635,39 @@ impl RealCoreHarness {
         }
     }
 
+    /// Core LC-4, A2-1 (steward ruling, plan 23bg): holds the session's start at the host's accept of the worker's control
+    /// link ([`Tap::hold_link`]). Core spawns the worker (AD-7 step 2); the worker connects and sends its hello; the tap
+    /// holds that link from the driver, so Core sees no link of the worker and the session stays `Starting`. The worker's
+    /// own startup clock runs during the hold. The hold is set before the `Start`.
+    fn hold_start(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        not_begun(&session, &row)?;
+        if lock(&tap).hold_link(row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "the start of {} is already held",
+                session.0
+            )))
+        }
+    }
+
+    /// Ends the hold of `hold_start` ([`Tap::release_link`]): the held link goes to Core's next accept, with every byte in
+    /// order; an armed hold is disarmed.
+    fn release_start(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        if lock(&tap).release_link(&row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "no hold of the start of {}",
+                session.0
+            )))
+        }
+    }
+
     /// Core AD-7, R-49 Q2: ends the hold of `hold_start_at`. Core's next flush sends the `Launch`.
     fn release_start_at(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
@@ -630,13 +682,17 @@ impl RealCoreHarness {
         }
     }
 
-    /// Steward ruling R-59: `{held}`, whether the hold of `hold_start_at` has stopped its step: the tap holds the first byte
-    /// of the session's `Launch` (R-49 Q2). False while the hold is only armed, and when no hold of the session is set. It
+    /// Steward ruling R-59: `{held}`, whether the hold of `hold_start_at` or `hold_start` has stopped its step: the tap holds
+    /// the first byte of the session's `Launch` (R-49 Q2), or the worker's control link (plan 23bg). False while the hold is
+    /// only armed, and when no hold of the session is set. It
     /// reads the tap and never waits (R-14.3): the worker's hello wakes the host, and the next pump reaches the hold.
     fn start_held(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, row) = self.stored(handle, &session)?;
-        let held = lock(&tap).launch_held(&row.instance);
+        let held = {
+            let tap = lock(&tap);
+            tap.launch_held(&row.instance) || tap.link_held(&row.instance)
+        };
         Ok(json!({ "held": held }))
     }
 
@@ -655,6 +711,27 @@ impl RealCoreHarness {
         let FailHandoff {} = parse(args)?;
         let tap = self.tap(handle)?;
         lock(&tap).fail_next_handoff();
+        Ok(Value::Null)
+    }
+
+    /// Core OU-9, A5-1: the tap holds the next hand-over of a route's stream endpoint ([`Tap::hold_handoff`]).
+    fn hold_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let HandoffHoldArgs {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        if lock(&tap).hold_handoff() {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(
+                "a hand-over is already held (`hold_handoff` twice)".into(),
+            ))
+        }
+    }
+
+    /// Core OU-9, A5-2: the tap delivers the held hand-over in the next pump ([`Tap::release_handoff`]).
+    fn release_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let HandoffHoldArgs {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        lock(&tap).release_handoff();
         Ok(Value::Null)
     }
 
@@ -1123,12 +1200,16 @@ impl CoreHarness for RealCoreHarness {
                     | "withhold_control_link"
                     | "signals_received"
                     | "registry_row"
+                    | "hold_start"
+                    | "release_start"
                     | "hold_start_at"
                     | "release_start_at"
                     | "start_held"
                     | "route_reports"
                     | "fail_next"
                     | "fail_handoff"
+                    | "hold_handoff"
+                    | "release_handoff"
                     | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
@@ -1159,12 +1240,16 @@ impl CoreHarness for RealCoreHarness {
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
             "signals_received" if self.tapped => self.signals_received(handle, args),
             "registry_row" if self.tapped => self.registry_row(handle, args),
+            "hold_start" if self.tapped => self.hold_start(handle, args),
+            "release_start" if self.tapped => self.release_start(handle, args),
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
             "route_reports" if self.tapped => self.route_reports(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
+            "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "oracle_query_reply" if self.tapped => self.oracle_query_reply(handle, args),
             "oracle_screen" if self.tapped => self.oracle_screen(handle, args),
@@ -1217,6 +1302,12 @@ impl CoreHarness for RealCoreHarness {
             )
         };
         let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
+        // R-47 item 3: the worker end's send buffer, read here, before Core hands the end to the worker; the harness keeps
+        // no copy of it.
+        let worker_send_buffer = rustix::net::sockopt::socket_send_buffer_size(&worker_end)
+            .map_err(|e| stream_failed(e.into()))?;
+        // Plan 23bf: the identity of the worker end's socket, read before Core takes the end (`route_stream_holders`).
+        let socket = holders::socket(worker_end.as_fd()).map_err(stream_failed)?;
         let mut route = route::RealRoute::new(client_end).map_err(stream_failed)?;
         // The tapped harness reads the handle's stored rows at its tap: the route reads its session's input log there.
         let tap = self.tap(handle).ok().filter(|_| self.tapped);
@@ -1240,8 +1331,70 @@ impl CoreHarness for RealCoreHarness {
                 options,
             )
             .map_err(|refused| refused.error)?;
+        let max_frame_bytes = usize::try_from(result.limits.max_frame_bytes).unwrap_or(usize::MAX);
+        let route = self.tapped_route(
+            handle,
+            route,
+            session,
+            worker_send_buffer,
+            max_frame_bytes,
+            socket,
+        );
         Ok((result, Box::new(route)))
     }
+}
+
+impl RealCoreHarness {
+    /// A route of the handle's host serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf). Only the tapped
+    /// harness keeps handles (`open`), so a route of the plain harness, or of a handle that is not open, serves neither.
+    fn tapped_route(
+        &self,
+        handle: &str,
+        route: route::RealRoute,
+        session: &SessionId,
+        worker_send_buffer: usize,
+        max_frame_bytes: usize,
+        socket: holders::Socket,
+    ) -> route::RealRoute {
+        let Some(tap) = self.handles.get(handle).map(|h| h.tap.clone()) else {
+            return route;
+        };
+        let id = socket.id;
+        route
+            .with_fill(route::Fill {
+                requests: self.programs.requests(),
+                worker: session_worker(tap.clone(), session.clone()),
+                worker_send_buffer,
+                max_frame_bytes,
+            })
+            .with_holders(route::Holders {
+                socket,
+                host_bytes: Box::new(move || {
+                    let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+                    let bytes = lock(&tap).stream_bytes(id);
+                    Ok(bytes)
+                }),
+            })
+    }
+}
+
+/// The worker of `session` as the stored row on the host of `tap` names it at each call (`route_fill`): the worker can come
+/// after the attach, while the session starts.
+fn session_worker(
+    tap: Weak<Mutex<Tap<RealEdges>>>,
+    session: SessionId,
+) -> Box<dyn Fn() -> Result<ProcessIdentity, String>> {
+    Box::new(move || {
+        let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+        let bytes = lock(&tap)
+            .stored_row(&row_key(&session))
+            .ok_or_else(|| format!("the route's session {} has no stored row", session.0))?;
+        let row = Row::decode(&session, &bytes)
+            .ok_or_else(|| format!("the row of the session {} does not decode", session.0))?;
+        row.worker
+            .map(|worker| worker.identity())
+            .ok_or_else(|| format!("the session {} has no worker process yet", session.0))
+    })
 }
 
 /// Whether the recorded process `identity` lives: it still matches its pid and start time (the inner edge's AD-6 check),
@@ -1379,12 +1532,16 @@ mod slow_controls {
             "withhold_control_link",
             "signals_received",
             "registry_row",
+            "hold_start",
+            "release_start",
             "hold_start_at",
             "release_start_at",
             "start_held",
             "route_reports",
             "fail_next",
             "fail_handoff",
+            "hold_handoff",
+            "release_handoff",
             "oracle_resume",
             "oracle_query_reply",
             "oracle_screen",
@@ -1586,7 +1743,8 @@ mod slow_controls {
             )
             .expect("attached");
         assert!(route.has_control("pty_input"));
-        assert!(!route.has_control("route_fill"));
+        assert!(route.has_control("route_fill"));
+        assert!(!route.has_control("fail_writes"));
         assert_eq!(
             route.control("pty_input", &Value::Null),
             Ok(json!({"bytes": {"$bytes_hex": ""}, "segments": []})),
@@ -2532,12 +2690,16 @@ mod slow_tests {
             "withhold_control_link",
             "signals_received",
             "registry_row",
+            "hold_start",
+            "release_start",
             "hold_start_at",
             "release_start_at",
             "start_held",
             "route_reports",
             "fail_next",
             "fail_handoff",
+            "hold_handoff",
+            "release_handoff",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
@@ -2578,6 +2740,19 @@ mod slow_tests {
         );
         let result = tapped.control("h", "edges_quiet", &json!({}));
         assert!(matches!(result, Err(ControlError::Bad(_))), "{result:?}");
+        // The start and hand-over holds (plans 23bf, 23bg) are served: a handle that is not open is a bad argument.
+        for (op, args) in [
+            ("hold_start", json!({"session": "s1"})),
+            ("release_start", json!({"session": "s1"})),
+            ("hold_handoff", json!({})),
+            ("release_handoff", json!({})),
+        ] {
+            let result = tapped.control("h", op, &args);
+            assert!(
+                matches!(result, Err(ControlError::Bad(_))),
+                "{op}: {result:?}"
+            );
+        }
     }
 
     /// Core TH-1: the harness answers for the facade's `Core` only what the runner told it at compile time.
@@ -2642,6 +2817,34 @@ mod slow_tests {
         );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+    }
+
+    /// A route of an open handle serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf); a route of a
+    /// handle that is not open serves neither. Here the handle's host is gone, so each control fails at the host.
+    #[test]
+    fn only_a_route_of_an_open_handle_serves_the_fill_and_the_holders() {
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        harness.handles.insert(
+            "h".into(),
+            Handle {
+                data_dir: PathBuf::from("/nonexistent/d/h"),
+                tap: Weak::new(),
+                resume: Weak::new(),
+                crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
+                wake: OwnedFd::from(UnixStream::pair().unwrap().0),
+            },
+        );
+        let session = SessionId("s1".into());
+        for (handle, served) in [("h", true), ("other", false)] {
+            let (worker_end, client_end) = UnixStream::pair().unwrap();
+            let socket = holders::socket(worker_end.as_fd()).unwrap();
+            let route = route::RealRoute::new(client_end).unwrap();
+            let mut route = harness.tapped_route(handle, route, &session, 1, 1, socket);
+            for op in ["route_stream_holders", "route_fill"] {
+                let error = route.control(op, &json!({})).unwrap_err();
+                assert_eq!(error.contains("tapped"), !served, "{handle} {op}: {error}");
+            }
+        }
     }
 
     /// Steward ruling R-68 on Core TM-6: `wake_fd` gives the handle's own wake descriptor. A call that leaves runnable work
