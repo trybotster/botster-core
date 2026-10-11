@@ -673,3 +673,8 @@ The owner reports a submodule failure in the before worktree and a replacement t
 The before must remain exact base 0c5ac80e. Sol accepts no future table result, new minimum count, or status removal here.
 The source CLEAN remains valid for this head. Merge completion remains held for the pending acceptance items.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+Sol reads the complete published package Round 170 addition in `09b07639d95797d227cdbff0dd6544616cc01e91`.
+Sol verifies publication on fetched stage1/review-p3. It agrees on this exact head, base, gate outcomes, and remaining acceptance items.
+Receipt `msg_plugin-w_1791722219_02b87d` confirms the package reviewer reads Sol's complete gate addendum and matches its hash and mutation multisets.
+The package completion artifact is now read. A5-4 classifications and final body record remain pending.
