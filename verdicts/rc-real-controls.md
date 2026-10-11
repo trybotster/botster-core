@@ -1088,3 +1088,50 @@ The real-pending entry remains justified by the valid timeout; this finding does
 
 VERDICT: NOT CLEAN (4 open). All four findings remain open.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — round 2
+
+VERDICT: CLEAN
+Source head: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Gate comparison base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Branch ancestor remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tier: HIGH. Open findings: 0.
+The reviewer read the complete delta and current PR body. This verdict supersedes round 1 NOT CLEAN.
+
+RC-TK-1 is closed. The test uses Core's `ReadScreen` result instead of the private unread counter.
+After refusal, the screen contains no `x`. After acceptance, it contains `x`. The public mode check remains.
+RC-TK-2 is closed. The socket test fails on premature EOF or two consecutive reads with no available bytes.
+A successful read resets the no-progress check. The test drives its two local socket ends without sleeps or external waits.
+RC-TK-3 is closed. The body marks the old evidence invalid, records the reported B13 cause, and states the replacement's clean-build provenance.
+The reviewer read the new three-trial Mac log. Each trial times out at seed 0, step 9.
+The body and real-pending comment now cite three logged trials; the body separately identifies the earlier valid trial.
+The three-trial log names the earlier head with local test edits. It is supplemental evidence, not an exact-head gate.
+RC-TK-4 is closed. The historical gate record now states eight PASS results, `mutants FAIL`, and `fuzz NOT RUN`.
+The later green gate remains distinct.
+
+The original control review still applies. R-76 permits the single ignored `scripted` field.
+The real `input_blocked` form observes socket readiness and unsent client bytes. It models no worker decision.
+The named real-tier conformance trials prove the parser behavior for the five removed IDs.
+The socket test proves the real stream observation. The testkit test checks the stream bound and ordered delivery after release.
+The reviewer checked the old Core control-name prior art. No comparable testkit control was found.
+The PR gives the prior-art decision and explains its control implementations.
+The mutation configuration has no delta. All inherited exclusions remain as reviewed; none covers the changed control decisions.
+
+### Exact-head evidence for Core #285 round 2
+
+Gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-6363d559-pool-20261011-123453-16073.log`.
+The header names the exact source and comparison base above. All ten steps pass. The wrapper exits 0 after 252 seconds.
+The step total is 243.3 seconds. These totals measure different intervals.
+All six mutants are caught: two in the default tier and four in stage 2. No miss, timeout, or unviable mutant remains.
+The stage-2 baseline passes. Both tiers' `input_blocked` arm deletions are caught by their behavior tests.
+The five removed IDs pass on both tiers. The no-recheck ID retains its documented real-pending limit.
+The bytes-and-text minimum ID remains pending until #284 supplies its barrier behavior.
+The withdrawn `114153` log supplies no accepted proof.
+
+Integration CLEAN remains required on this exact head.
+The branch still lacks the two xtask test fixes on the comparison base. The final import must retain them.
+The lead's final-gate slot rule applies. Import review or check and a final exact-head gate remain due after SLOT.
+This verdict accepts no later source, pending removal, pin, or gate result.
+The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
