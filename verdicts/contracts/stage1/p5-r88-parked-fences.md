@@ -15,7 +15,7 @@ Checks:
 - **The `e3_1` title fences (R-57).** Index 17's `pty_output` `78` gets an OSC 2 sentinel as its last bytes, ended by ST:
   - `carried_transition`: `r88-e3-carried`;
   - `eventless_effect`: `r88-e3-eventless`;
-  - `runnable_silent`: a distinct title.
+  - `runnable_silent`: `r88-e3-silent`.
 
   The new index 18 is `await_title s1`. It has no poll and no clock step. The `await_quiet` and the `drain` that follow it remove the `TitleChanged` event before the queue is filled. The three R-57 exception lines are removed (shrink-only).
 - **Whose work is parked (`carried_transition`).** `e31-whose-parked-probe.log` (sha256 prefix `1163bb63`, recomputed) has three sections of 32 seeds each:
@@ -38,3 +38,7 @@ At #68 I wrote that the three `e3_1` ids need no `parked_work` fence, because th
 
 - Main is now `a66bed839aec9b26388e261df59936c0eebcc8c6`. Since `5a83c853`, main changed `core-fence-exceptions.txt`, the `in_9_kitty` and `ad_3` transcripts, `BUILD.md` and the rulings. The exception file is a path of this PR, so the merge needs a delta review (Q7).
 - Then one gate on the exact merged head.
+
+### 016c's round 1 on the same head (package scope; recorded, not repeated)
+
+- LOW (body): the prior-art section says that the `st_6_pages` R-57 title fence is in #67. It landed in #54; #67 adds the CSI push/pop lint self-tests. P5 corrects the PR number. My round 1 missed this. I check the corrected body at the final step.
