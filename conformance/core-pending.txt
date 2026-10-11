@@ -357,7 +357,6 @@ conf::in_9_mouse_each_tracking_mode
 conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
 conf::lc_12_stop_all_target_set
-conf::lc_2_data_dir_is_exclusive
 conf::lc_6_signal_reaches_group
 conf::ou_10_no_authorization_in_core
 conf::ou_11_transport_ownership_is_defined
