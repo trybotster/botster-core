@@ -538,6 +538,10 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         &real_only,
         &transcripts,
     ));
+    // A real-only id leaves core-pending.txt only with its named real-process proof (plan section 5; lead, 2026-10-11).
+    let proofs = pending::parse_real_proofs(&read(crate::real_proofs::FILE)?)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", crate::real_proofs::FILE))?;
+    problems.extend(pending::real_proof_problems(&proofs, &real_only, &pending));
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 
