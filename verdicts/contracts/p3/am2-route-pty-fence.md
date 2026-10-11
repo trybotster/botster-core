@@ -154,3 +154,4 @@ VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration rev
 - Header: head `a85f62afebd2e61209da32b753dccf9b3662b150`, base `138173e410b0281a9b481669ffce7cfebab9f374` (BOTSTER_CI_BASE_REF), Linux pool.
 - Result (read by me): all 10 steps PASS, with the corpus test and the five new R-83 self-tests; `botster-gate: exit 0 after 280 s on msa1`. The mutants step has nothing to mutate (the lint is under `tests/`). The self-tests and the hand mutants cover the lint.
 - The gate base is the main tip. Main's only change after the PR's merge base `63128469ce1d57cbef00f2b6549f699a27d058fc` that the earlier gate base did not have is `docs/steward-rulings.md` (R-83, R-84), and `git merge-tree` of the head with `138173e410b0281a9b481669ffce7cfebab9f374` is clean.
+- 016c ACCEPT on the same head (`.review-verdicts/r83-route-pty-a85f62af-accept.md`).
