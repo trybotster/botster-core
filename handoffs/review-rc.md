@@ -810,3 +810,44 @@ The integration reviewer checked the completed gate, all 29 catches and citation
 Both required source reviews are now CLEAN at this exact head and base.
 The final-slot procedure remains due. Neither source verdict accepts a future import or final gate.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — final-slot delta review
+
+VERDICT: NOT CLEAN (1 open).
+Source head: `dfc38b478b018d63f7bb0851397b2a00a0dd4561`.
+Reviewed source before the import: `8d56987ec2d7983bdeebd2101cca751f1d2c92ee`.
+New base: `23550811fb84c3c2cb066019716987575d7aecb2`.
+Messages: `msg_plugin-w_1791753538_2cfb57` and `msg_plugin-w_1791753610_d0fe69`.
+
+The canonical base-merge-check fails for both `716f07b05cb1a331eb2fc6a18800417789b1be9c` and the new source head.
+Its log is `gates/botster-core-rc-paste-base-merge-check-dfc38b47-20261011-141941.log` under `~/botster-sessions`.
+The merge has no conflict. The non-list overlap is `crates/botster-core-testkit/src/program.rs`.
+The changed pending files also fail the line-set conditions. Both reviewers must review the delta.
+The reviewer checked that the other eight files in the reviewed own diff remain byte-identical at the merge commit.
+The imported kernel queue and the ENOSPC change occupy separate hunks; the ENOSPC behavior remains intact.
+The mutation exclusion file is unchanged.
+
+RC-PASTE-DELTA-1 — MED — Imported tests assert private state.
+In `program.rs`, `ProgramControl::queued` returns `self.lock().queued.len()` at line 124.
+The imported tests directly assert that accessor at lines 680, 687, 689, 722, 726, and 1257.
+`ScriptedProgram::unread` returns the internal output length at line 418.
+The imported script test asserts that length at lines 706 and 708.
+The imported chunk test also asserts `waits_for_next_step` at lines 1252 through 1276.
+That accessor returns the stored `step_refused` flag at line 163.
+These accessors expose private state. The user forbids private-state assertions in every test.
+The tests in `pty_controls/tests.rs` that call the defined `pty_queued` control observe public control behavior and remain allowed.
+Required change: replace the new direct state assertions with public control results, program reads and writes, or public Core behavior.
+For the script test, read the emitted bytes before and after release instead of asserting the output length.
+For the chunk test, observe progress and completion through the control and Core interfaces.
+Shared testkit code remains HIGH and requires both reviews.
+
+The reviewer read the complete canonical check and final-slot body section.
+The retained real-tier log shows the reported step-15 failure for the newly moved paste ID.
+The list comment preserves its undiagnosed cause and RC owner; it claims no real PASS.
+The local check log on `5ab38e0b560fb490aab62cc99d31589d8225dfce` shows 395 testkit tests and 192 worker tests passing.
+Its strict pending check reports 223 passes and one failure because the passing paste ID remains pending.
+RC reports a repeated strict check on the new head with 224 passes; the supplied log does not retain that repeat.
+RC reports a target clean at 14:13:56 and no other worktree build after it. The reviewer claims no independent clean verification.
+The final gate remains running. This verdict accepts no future gate result or final body update.
+The reviewer ran no test, build, or gate.
