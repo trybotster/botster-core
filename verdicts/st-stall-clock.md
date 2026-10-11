@@ -1,6 +1,42 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (3 open)
+VERDICT: NOT CLEAN (1 open)
+
+## Revision 2 review
+
+Reviewed artifact: `shared/core-stage1/handoffs/st-stall-clock-design.md`, revision 2.
+Artifact SHA-256: `42f1222eb18c204323f82305ea4daa50a4a9bf656f346a5ced3caeb11a54bf65`.
+Reviewed Core base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Review scope: design only. The reviewer ran no build or test.
+
+- ST-D1: CLOSED for design. Section 2 flushes held progress before every later report.
+  The revised bound allows one additional progress report per route before each other report.
+  The specified proof covers the earlier unwritten `waiting: false` report under link backpressure.
+  The implementation review will check both flush paths and the bound proof.
+- ST-D3: CLOSED. Section 7b identifies old code, current reuse, rejected mechanisms, library alternatives and vault decisions.
+  It states that no old code is copied. The reviewer checked the cited old write-attempt bound and close reason.
+- ST-D2: OPEN pending Q4's scope decision. The proposed snapshot now identifies state, waiting, mark and applied limits.
+  Its restoration rule distinguishes adoption from a new stall transition and specifies the required adoption proof.
+  However, section 3 offers two delivery paths and does not select one.
+
+The reviewer confirmed that DP-8 route adoption is absent at the reviewed base (`botster-core-host/DESIGN.md:167`).
+The current adoption report has no route records. Thus, the proposed snapshot depends on work outside the existing adoption path.
+The snapshot design resolves the original data gap, but the design cannot claim restoration until the delivery path is selected.
+
+Required change for ST-D2: record the lead's Q4 decision in the design note.
+If this PR builds DP-8 route adoption, name its files, identity mapping, clauses and proofs.
+DP-8 and ID-2 require a new host `RouteId` for each surviving route.
+If a later PR builds adoption, name that dependency and state this PR's adoption limit explicitly.
+Keep the restoration design and proof requirement with that dependency. Do not claim that this PR restores adopted route clocks.
+
+Section 7a correctly separates mandatory queue room from the later pump's event budget.
+It also states all four Q1 conditions and the approved Q2 and Q3 rules.
+The applied per-route `stall_deadline` correction follows OU-1.
+No new logic finding is added in this round.
+
+The sections below retain the first review and its evidence. Their original status is superseded by this revision 2 review.
+
+## First review record
 
 Reviewed artifact: `shared/core-stage1/handoffs/st-stall-clock-design.md`.
 Artifact SHA-256: `ac4ac6e239efd9f9b9c8654252b95cf5e12b42e6382033c4e019991538c05353`.
