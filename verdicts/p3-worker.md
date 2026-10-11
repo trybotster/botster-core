@@ -12258,3 +12258,90 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All earlier rounds remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 173 — #267 correction and supplied evidence, 2026-10-11
+
+Exact head: `599cff43d0bdfd360f1042aa2cdcd60da74c5cc5`.
+Exact base: `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+READY receipt: `msg_plugin-w_1791727029_e62083`.
+Risk tier: HIGH under BUILD.md rules 1, 3, and 5.
+The initial verified body is `/private/tmp/review-p3-pr267-599cff43.json`.
+The final verified body is `/private/tmp/review-p3-pr267-599cff43-f128-fixed.json`.
+The reviewer reads the correction, the whole four-path own change, and both completed exact-head records.
+
+### Source correction and finding closure
+
+Correction `b5d73c88d70d70f67a9405a9cc1e7ee845c3a998` removes the `||` operator from Driver::run.
+Driver::run now passes `event.is_read_closed()` as the closed argument to Routes::event.
+Routes still sets readability from readable, read-closed, or error events.
+A kqueue write-filter EOF alone no longer makes a route readable. The write direction still uses writable and error events.
+This changes production behavior on macOS. The complete body states that change and abandons the earlier equivalence claim.
+The inspected mio epoll predicates establish the Linux limit: write-close implies either read-close or error, so Linux readability is unchanged.
+The read filter independently reports available bytes and read EOF on macOS.
+The driver retains existing readiness until WouldBlock; the correction adds no new wait or production hook.
+
+**F126 CLOSED.** The operator and the broad exclusion are removed. No Driver::run entry remains.
+**F127 CLOSED.** The correction removes the cause and treats it as a macOS behavior change, rather than accepting an equivalence claim.
+All four functions now have no exclusion. Nineteen mutants remain; the two Default bodies retain their unviable classification.
+The new candidate and full-link tests retain their accepted event fences and cleanup scope from Round 172.
+
+Read-only Git comparisons confirm the merge parents and the disjoint three-path #263 import.
+All four own blobs equal the correction blobs. All three imported blobs equal the exact base blobs.
+The own diff is byte-identical before and after that import under the reviewer's Git invocation.
+The reviewer runs no executable merge-check job. The imported #263 code retains its separate accepted review scope.
+
+### Supplied exact-head evidence and its limits
+
+Full Linux gate: `gates/botster-core-stage1-p3-mutants-narrow-599cff43-pool-20261011-065231-56338.log`.
+Its header names this exact head and base. All ten steps report PASS.
+The default suite reports 1688 passed. The slow suite reports 518 passed.
+The mutation diff selects one mutant: the Driver::run body. The changed call contains no operator mutant.
+The default stage misses the body mutant. The slow stage catches it through `slow_driver::a_client_close_ends_its_real_route`.
+The final mutation result is one caught, zero missed, zero timeout, and zero unviable. No FLAKY record appears.
+Jobq exits zero after 193 seconds; botster-gate exits zero after 194 seconds.
+This gate does not run all four Driver::run mutants or all nineteen now-eligible mutants.
+The unchanged historical selected Linux job supplies the other catches. Its old `||` survivor no longer exists at this head.
+
+Focused Mac job: `gates/botster-core-stage1-p3-mutants-narrow-599cff43-pool-20261011-065612-60929.log`.
+Its header names this exact head and base and selects the Mac pool.
+It prebuilds the worker, then runs the worker slow tier under the slow profile.
+All 104 tests pass; 31 are skipped. Jobq and botster-gate exit zero after 22 seconds.
+Both fixtures pass the input round trip, large output, full-route queue, client close, and new candidate adoption tests.
+This is a focused Mac proof job, not a second full gate.
+
+The named real-process results establish ordinary route input delivery, output progress, and client EOF at this changed head on both operating systems.
+No supplied test forces a kqueue write-filter EOF alone. The body states that limit; the reviewer accepts no proof of that isolated event.
+The code and mio predicates support the stated removal. No further execution or reproduction is requested for that scope.
+The tests use real sockets and existing process ownership. Their marked deadlines and event waits retain the accepted BUILD.md scope.
+Four inherited unbounded waits remain the lead's separate follow-up. No pending list or minimum count changes in this PR.
+
+### Body finding and correction
+
+**F128 LOW — the initial body assigns route-read proof to output tests. CLOSED.**
+The real-process proof section says the large-output and full-route-queue tests prove reads resume after WouldBlock.
+Those tests send no client input. They prove route write progress and PTY backpressure, not the worker's route reads after WouldBlock.
+The input round-trip test proves delivery, but does not fence a preceding route-read WouldBlock.
+Limit the claimed route-read proof to input delivery and EOF. State the actual output-test scope.
+The historical evidence paragraph also says that this diff changes no production line.
+Change that sentence to identify the earlier diff through b3fa5d5b. The present diff changes Driver::run.
+This finding requires a body correction only. No source edit, new execution, or repeat gate is requested.
+
+Finding receipts: P3 `msg_plugin-w_1791727116_f62102`; Sol `msg_plugin-w_1791727116_b310a9`.
+P3 publishes the correction during this same round, before the reviewer commits a verdict.
+Correction receipt: `msg_plugin-w_1791727138_7dea7f`. The exact source head and base remain unchanged.
+The reviewer reads the complete initial body and every changed line in the final body.
+The final body limits route-read proof to input delivery and EOF. It explicitly excludes a prior route-read WouldBlock fence.
+It states that the output tests send no client input and prove route write progress and PTY backpressure.
+It identifies the historical no-production-line statement as the earlier diff through b3fa5d5b.
+The rest of the complete body is byte-identical. F128 closes without a source edit or repeat gate.
+Sol receipt `msg_plugin-w_1791727161_ad250a` independently agrees with this source and evidence scope.
+F126, F127, and F128 are CLOSED. No package finding remains open for #267.
+The source, supplied exact-head gate, focused Mac evidence, and final published body are CLEAN at this exact head.
+Formal integration acceptance of the final body remains separate. The lead owns the merge decision.
+The prior NOT CLEAN round and complete source history remain preserved.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
