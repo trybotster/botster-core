@@ -7,9 +7,9 @@ use rustix::process::Pid;
 /// How a wait for a process's exit came out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Waited {
-    /// Its exit event came.
+    /// Its exit event came, or it had exited before the wait began and is a zombie.
     Exited,
-    /// It was gone before the wait began.
+    /// It was reaped before the wait began: no process has its pid.
     Gone,
     /// The deadline came first.
     Deadline,

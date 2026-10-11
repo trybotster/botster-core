@@ -217,6 +217,30 @@ fn a_running_child_is_a_live_child_and_an_ended_one_is_not() {
     assert!(!is_live_child(), "a reaped child is gone");
 }
 
+/// `await_end` of a process that ended before the wait began: a zombie is `Exited` on both OSes (macOS refuses the exit
+/// watch of a zombie, and a probe with no signal still finds its pid), and a reaped process is `Gone`.
+#[test]
+fn a_zombie_has_exited_and_a_reaped_process_is_gone() {
+    let mut child = OwnedChild::spawn(Command::new("/bin/sh").args(["-c", "exit 3"])).unwrap();
+    let child_pid = pid(child.id()).unwrap();
+    let status = await_status(child_pid, Deadline::after(CLEANUP))
+        .unwrap()
+        .expect("the child exits");
+    assert_eq!(status.code(), Some(3));
+    assert!(peek(child_pid).unwrap().is_some(), "unreaped: a zombie");
+    assert_eq!(
+        await_end(child_pid, Deadline::after(CLEANUP)).unwrap(),
+        Waited::Exited,
+        "a zombie has exited"
+    );
+    assert_eq!(child.status().code(), Some(3));
+    assert_eq!(
+        await_end(child_pid, Deadline::after(CLEANUP)).unwrap(),
+        Waited::Gone,
+        "a reaped process is gone"
+    );
+}
+
 /// The owner hands out the child's stdin: what the test writes there comes back through the child.
 #[test]
 fn a_child_reads_what_the_test_writes_to_its_stdin() {
