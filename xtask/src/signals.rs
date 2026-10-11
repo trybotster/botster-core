@@ -379,20 +379,40 @@ mod tests {
         assert!(verdict(&files).is_err());
     }
 
-    /// The repo has no violation: the scan that the gate runs passes on this tree. The walk needs no git, so the test
-    /// also runs in the cargo-mutants copy.
+    /// The shape of the repo scan on a small tree: the guard may make the raw calls, and the same call in any other file
+    /// fails the step and names that file.
     #[test]
-    fn the_repo_has_no_raw_signal_call() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-        let files: Vec<(String, String)> = crate::fsutil::walk_files(&root)
-            .into_iter()
-            .filter_map(|f| Some((f.clone(), std::fs::read_to_string(root.join(&f)).ok()?)))
-            .collect();
-        let (scanned, violations) = scan_files(&files);
-        assert!(scanned > 100, "{scanned}");
-        assert!(violations.is_empty(), "{violations:?}");
-        assert!(files.iter().any(|(f, _)| f == GUARD));
+    fn a_tree_passes_with_raw_calls_in_the_guard_only() {
+        let raw =
+            "pub fn signal(p: Pid) { rustix::process::kill_process(p, Signal::TERM).unwrap(); }\n";
+        let mut files = vec![
+            (GUARD.to_string(), raw.to_string()),
+            ("crates/a/src/lib.rs".to_string(), "fn f() {}\n".to_string()),
+            ("README.md".to_string(), "kill_process\n".to_string()),
+        ];
+        assert_eq!(scan_files(&files), (2, vec![]));
         verdict(&files).unwrap();
-        assert!(command(&root, &["x".to_string()]).is_err());
+        files.push(("crates/b/src/lib.rs".to_string(), raw.to_string()));
+        let (scanned, violations) = scan_files(&files);
+        assert_eq!(scanned, 3);
+        assert_eq!(
+            violations
+                .iter()
+                .map(|(f, l, _)| (f.as_str(), *l))
+                .collect::<Vec<_>>(),
+            [("crates/b/src/lib.rs", 1)]
+        );
+        assert!(verdict(&files).is_err());
+    }
+
+    /// The scan of the whole repo runs once, in the gate's `taint` step (`ci::taint_job` calls [`command`]); a default-tier test
+    /// that lexed every Rust file grew with the repo against the 2 s test budget. The default tier keeps the cheap facts: the
+    /// guard that the scan exempts is a file of the repo, and the step refuses an argument before it reads a file.
+    #[test]
+    fn the_guard_is_a_repo_file_and_the_step_takes_no_argument() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        assert!(root.join(GUARD).is_file(), "{GUARD}");
+        let error = command(&root, &["x".to_string()]).unwrap_err();
+        assert_eq!(error.to_string(), "unknown argument 'x'");
     }
 }

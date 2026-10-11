@@ -3,9 +3,11 @@
 //! the client sees the worker's own writes, its close and the kernel's backpressure, and nothing else.
 //!
 //! A read waits on the stream only after the handoff. Core hands the transport off in a pump, and the conformance driver
-//! pumps once at the first read of a route that finds nothing ("one pump per route"). So the first empty read returns at
-//! once, and every later read waits for bytes until the step deadline. A read that waited before the handoff would hold
-//! the only thread that pumps Core.
+//! pumps after a read of a route that finds nothing. So the first empty read returns at once, and a later read waits for
+//! bytes until its deadline. A read that waited before the handoff would hold the only thread that pumps Core. The
+//! driver's route wait (steward ruling R-68) reads with a deadline that has passed, which is one attempt that does not
+//! wait, and it waits itself on [`RouteClient::readiness`] (this stream) and the host's wake together, so that a pump
+//! runs when the host has work: the end of a route reaches the client only after a host pump (R-65).
 
 use super::holders::{self, Socket};
 use super::program::{Inputs, Requests};
@@ -20,6 +22,7 @@ use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Mutex, Weak};
 use std::time::Duration;
@@ -28,6 +31,7 @@ use std::time::Duration;
 pub(super) const CONTROLS: &[&str] = &[
     "client_close",
     "route_gate",
+    "input_blocked",
     "route_accept",
     "drop_transport",
     "route_fill",
@@ -460,6 +464,26 @@ impl RouteClient for RealRoute {
                 };
                 Ok(json!({ "bytes": self.received + held }))
             }
+            // Core DP-5: whether the stream takes no more bytes from the client now (the worker has stopped reading the
+            // route): client bytes still wait for room, or the kernel reports the client's end not writable. The worker
+            // process reads on its own, so this is the stream boundary at the moment of the call, and nothing about the
+            // clause.
+            "input_blocked" => {
+                self.flush();
+                let end = self
+                    .end
+                    .as_ref()
+                    .ok_or("input_blocked: the client's end is closed")?;
+                let mut fds = [rustix::event::PollFd::new(
+                    end,
+                    rustix::event::PollFlags::OUT,
+                )];
+                // One descriptor: its `revents` alone says whether the end is writable (the count adds nothing).
+                rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO)))
+                    .map_err(|e| format!("input_blocked: poll: {e}"))?;
+                let writable = fds[0].revents().contains(rustix::event::PollFlags::OUT);
+                Ok(json!({"blocked": !self.unsent.is_empty() || !writable}))
+            }
             // Core OU-1, DP-4: the input that reached the PTY of the route's session.
             "pty_input" => match &self.input {
                 Some(input) => input.log(),
@@ -471,6 +495,16 @@ impl RouteClient for RealRoute {
 
     fn has_control(&self, op: &str) -> bool {
         CONTROLS.contains(&op) || (op == "pty_input" && self.input.is_some())
+    }
+
+    /// The client's end of the stream itself, so the driver waits on it and on the host's wake together (steward ruling
+    /// R-68). `None` while gated: a gated end reads nothing on purpose. `None` after `client_close`: a read gives the end
+    /// at once.
+    fn readiness(&self) -> Option<BorrowedFd<'_>> {
+        if self.gated {
+            return None;
+        }
+        self.end.as_ref().map(AsFd::as_fd)
     }
 }
 
@@ -861,7 +895,93 @@ mod slow_tests {
         }
     }
 
+    /// Steward ruling R-68: the readiness descriptor is the client's end itself, so a write of the worker makes it
+    /// readable. A gated end and a closed end give none. After the handoff, a read with a deadline that has passed is one
+    /// attempt that does not wait.
+    #[test]
+    fn the_readiness_is_the_clients_end_and_a_read_with_a_passed_deadline_does_not_wait() {
+        let readable = |route: &RealRoute| {
+            let fd = route.readiness().expect("an open end that is not gated");
+            let mut fds = [rustix::event::PollFd::new(
+                &fd,
+                rustix::event::PollFlags::IN,
+            )];
+            rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO))).unwrap() > 0
+        };
+        let (mut route, mut worker) = pair();
+        // The first empty read is the handoff: later reads with time left wait.
+        assert_eq!(route.read(64, &deadline(Duration::ZERO)), RouteRead::Empty);
+        assert!(!readable(&route));
+        let started = Instant::now();
+        assert_eq!(route.read(64, &deadline(Duration::ZERO)), RouteRead::Empty);
+        assert!(started.elapsed() < LONG / 2, "{:?}", started.elapsed());
+        worker.write_all(b"x").unwrap();
+        assert!(readable(&route));
+        assert_eq!(route.control("route_gate", &json!({})), Ok(json!({})));
+        assert!(
+            route.readiness().is_none(),
+            "a gated end reads nothing on purpose"
+        );
+        assert_eq!(
+            route.control("route_gate", &json!({"on": false})),
+            Ok(json!({}))
+        );
+        assert_eq!(
+            route.read(64, &deadline(Duration::ZERO)),
+            RouteRead::Bytes(b"x".to_vec())
+        );
+        assert_eq!(route.control("client_close", &json!({})), Ok(json!({})));
+        assert!(
+            route.readiness().is_none(),
+            "a closed end gives its end at once"
+        );
+    }
+
     /// The route serves only its own controls; any other is `unsupported_control`.
+    /// `input_blocked` (Core DP-5): while the worker's end reads nothing, the client's bytes fill the stream, and the route
+    /// reports blocked. When the worker's end reads everything, the route sends the waiting bytes first and reports not
+    /// blocked. No byte is lost. A closed client end is an error.
+    #[test]
+    fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
+        /// Far more than a Unix stream's socket buffers on macOS and Linux.
+        const VOLUME: usize = 4 * 1024 * 1024;
+        let (mut route, mut worker) = pair();
+        let blocked = |route: &mut RealRoute| route.control("input_blocked", &json!({}));
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+        let sent: Vec<u8> = (0..VOLUME).map(|i| (i % 251) as u8).collect();
+        route.write(&sent);
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": true})));
+        worker.set_nonblocking(true).unwrap();
+        let mut got = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        // A `WouldBlock` read means the worker's end is empty; `input_blocked` then sends the waiting bytes, and a Unix stream
+        // makes written bytes readable at once. So a second `WouldBlock` in a row is a route that makes no progress.
+        let mut empty_before = false;
+        while got.len() < VOLUME {
+            match worker.read(&mut buf) {
+                Ok(0) => panic!("the stream ended after {} of {VOLUME} bytes", got.len()),
+                Ok(n) => {
+                    got.extend_from_slice(&buf[..n]);
+                    empty_before = false;
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(
+                        !empty_before,
+                        "no progress after {} of {VOLUME} bytes",
+                        got.len()
+                    );
+                    empty_before = true;
+                    route.control("input_blocked", &json!({})).unwrap();
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert_eq!(got, sent, "every byte, in order");
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+        route.control("client_close", &json!({})).unwrap();
+        assert!(blocked(&mut route).is_err());
+    }
+
     #[test]
     fn the_route_serves_only_its_own_controls() {
         let (mut route, _worker) = pair();
