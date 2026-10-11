@@ -348,7 +348,7 @@ Head: `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`.
 Gate base: `56fae5826f766b408abca06f99376e0506982bf9`.
 Risk: HIGH.
 
-**VERDICT: NOT CLEAN (2 open)**
+**VERDICT: NOT CLEAN (3 open)**
 
 The reviewer read the complete ten-file change against the gate base.
 GitHub confirms this source head. Its current PR base is later: `c942593697e856017572977af0405b17de0124e2`.
@@ -409,6 +409,15 @@ Remove assertions of private maps, sets, and counters. Do not add an accessor th
 Private writes that inject a missing-field fault are distinct from assertions of private state.
 The negative comparison proofs may keep that fault injection and assert the control's result.
 The pure `known_output_history` decision tests are not private-state assertions by themselves.
+
+### RC-OR-3 — LOW — The prior-art note omits the reasons for the new custom code
+
+The PR's prior-art note states only that old Core has no resume oracle, comparator, or harness.
+It does not explain why the new comparator and capture layer require custom code.
+Pair-common requires a reason for every custom component and prefers maintained libraries.
+The integration reviewer identified this omission in `msg_plugin-w_1791729665_f5eab7`.
+Required change: update the PR body with the existing library facilities considered and the reason for each custom component.
+Describe the final R-69 capture form. Do not keep a rationale for the rejected held-event form.
 
 ### Other source and evidence checks
 
