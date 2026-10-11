@@ -99,6 +99,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
+use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -122,6 +123,9 @@ struct Handle {
     tap: Weak<Mutex<Tap<RealEdges>>>,
     /// The crash slot of the handle's Core (`host_crash`, R-55 (1)).
     crash: CrashHandle,
+    /// A duplicate of the poll descriptor of the handle's wake (`RealEdges::wake_descriptor`): `wake_fd` gives a
+    /// duplicate of it while the Core is in its slot (steward ruling R-68).
+    wake: OwnedFd,
 }
 
 /// The unrelated process of a `reuse_pid` (R-55 (2), (3)): the harness's own child, the leader of its own group, unreaped
@@ -968,6 +972,9 @@ impl CoreHarness for RealCoreHarness {
                 .install_stand_ins(&data_dir)
                 .map_err(RealCoreHarness::harness_failed)?;
             let (cfg, edges) = botster_core::open_parts(config)?;
+            let wake = edges
+                .wake_descriptor()
+                .map_err(RealCoreHarness::harness_failed)?;
             // A probe's read gives Core no wake, and `await_pty` waits on this handle. The plain harness serves no control, so
             // it needs none.
             self.programs.watch(&edges.wake());
@@ -988,6 +995,7 @@ impl CoreHarness for RealCoreHarness {
                     data_dir,
                     tap,
                     crash,
+                    wake,
                 },
             );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
@@ -1039,6 +1047,17 @@ impl CoreHarness for RealCoreHarness {
     /// directory's rows stay.
     fn drop_handle(&mut self, handle: &str) {
         self.handles.remove(handle);
+    }
+
+    /// A duplicate of the poll descriptor of the wake of the Core now open under `handle`: the epoll or kqueue instance of
+    /// its `WakeHandle::fd`, so a pump's clear of the level signal shows on it (steward ruling R-68). `None` for the plain
+    /// harness, after a `host_crash`, and after the driver dropped the handle.
+    fn wake_fd(&self, handle: &str) -> Option<OwnedFd> {
+        let open = self.handles.get(handle)?;
+        if !open.crash.is_live() {
+            return None;
+        }
+        open.wake.try_clone().ok()
     }
 
     fn has_control(&self, op: &str) -> bool {
@@ -2423,6 +2442,7 @@ mod slow_tests {
                 data_dir: PathBuf::from("/nonexistent/d/h"),
                 tap: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
+                wake: OwnedFd::from(UnixStream::pair().unwrap().0),
             },
         );
         assert_eq!(
@@ -2431,6 +2451,81 @@ mod slow_tests {
         );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+    }
+
+    /// Steward ruling R-68 on Core TM-6: `wake_fd` gives the handle's own wake descriptor. A call that leaves runnable work
+    /// makes it readable, and a pump that leaves none clears it. A crashed or dropped handle has none.
+    #[test]
+    fn the_wake_descriptor_is_readable_after_a_call_that_leaves_work_and_not_after_a_pump_that_leaves_none(
+    ) {
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        let data_dir = harness.data_dir("d");
+        let mut core = harness
+            .open(&OpenSpec {
+                handle: "h".into(),
+                data_dir,
+                worker: harness.worker(WorkerBuild::Current),
+                limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+            })
+            .expect("open");
+        // One poll that does not wait: the descriptor is readable now, or it is not.
+        let readable = |harness: &RealCoreHarness| {
+            let fd = harness.wake_fd("h").expect("the wake of an open handle");
+            let mut fds = [rustix::event::PollFd::new(
+                &fd,
+                rustix::event::PollFlags::IN,
+            )];
+            let now = rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            rustix::event::poll(&mut fds, Some(&now)).unwrap() > 0
+        };
+        let pump = |core: &mut Box<dyn CoreApi>| {
+            while core
+                .pump(Now {
+                    monotonic: std::time::Instant::now(),
+                    unix: 1_000_000,
+                })
+                .more
+            {}
+        };
+        pump(&mut core);
+        assert!(!readable(&harness), "TM-6: the pump left no work");
+        // A Create starts no worker: the work that it leaves is the host's own.
+        core.begin(Op::Create {
+            session: SessionId("s1".into()),
+            request: SpawnRequest {
+                argv: vec!["/bin/true".into()],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: Size {
+                    rows: 24,
+                    cols: 80,
+                    cell_px: None,
+                },
+                labels: BTreeMap::new(),
+                color_profile: None,
+                notification_policy: None,
+                size_policy: None,
+            },
+        })
+        .unwrap();
+        assert!(readable(&harness), "TM-6: the call left work");
+        pump(&mut core);
+        assert!(!readable(&harness), "TM-6: the pump left no work");
+
+        assert!(harness.handles["h"].crash.crash());
+        assert!(
+            harness.wake_fd("h").is_none(),
+            "a crashed handle has no wake"
+        );
+        drop(core);
+        harness.drop_handle("h");
+        assert!(
+            harness.wake_fd("h").is_none(),
+            "a dropped handle has no wake"
+        );
     }
 
     /// Core E1-1: a worker may have any file name, the probe's too (#220 RH-F1). The role selects the binary, and the

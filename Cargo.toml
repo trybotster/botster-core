@@ -34,13 +34,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-56e5b744" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "scratch-p5-r68-89ec10d1" }
 
 anyhow = "1"
 data-encoding = "2"

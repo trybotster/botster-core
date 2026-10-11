@@ -412,6 +412,16 @@ pub struct RealEdges {
 }
 
 impl RealEdges {
+    /// A duplicate of the wake's poll descriptor, for a host or a harness that polls the wake together with other
+    /// descriptors (steward ruling R-68). It is the same epoll or kqueue instance that `WakeHandle::fd` gives, not a
+    /// separate notifier, so the clear of the level signal in a pump (`settle_wake`) shows on it too.
+    ///
+    /// # Errors
+    /// The duplicate failed.
+    pub fn wake_descriptor(&self) -> io::Result<OwnedFd> {
+        self.wake.registry.as_fd().try_clone_to_owned()
+    }
+
     /// Opens the edges of a host over an open data directory. The directory's lock and registry move into the edges.
     pub(crate) fn new(data: DataDir, data_dir: &Path) -> io::Result<(RealEdges, u64)> {
         let (lock, storage, epoch) = data.into_storage();
