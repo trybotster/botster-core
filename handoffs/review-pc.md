@@ -3,19 +3,20 @@
 - Reviewer session: `sess-1791628588-0179-00ea1772a61c0bf6e231e7ea3a1176e7`.
 - Implementer session: `sess-1791628587-0178-4476c8a4ce35c7df2dc295defd77dda5`.
 - Reviewer branch: `stage1/review-pc`.
-- Scope: the 32 program-control IDs in `conformance/core-real-pending.txt` at PR #220.
+- Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.77739f96.md`, revision 23ab.
-- Verified plan SHA-256: `969711aafa5e79cd617b3a6b9777ac6042c2116c038b9fc8a20b5ca6572dc682`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.247f8e96.md`, revision 23ah.
+- Verified plan SHA-256: `b9c1871ce3ad595502a3716fc7490c9b4b9fd2f4ca5caa96b73e7b12b90c1daa`.
 - Required contracts pin: `contracts-v0.1.27`, commit `b161db8`. The PC pair owns the pin move.
-- Review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Initial implementation base reported: `c19ad938bd87c60331bd002c0117102d8756b1ae` on `v1`. No program-controls implementation head has arrived for review.
+- Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
+- Current reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
+- Current reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: PR #231 is CLEAN on `4521237e8200768a36ab4c8a27f268f3914a88ab`. The program controls still await an implementation review head.
+- Status: package CLEAN for PR #233 at `fce17f78b96009cb560fb3896a6f957840ec2c43`. Integration review and the final exact-head gate remain required.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
-- The contracts crate-catchup reviewer owned that PR's review. The PC Core review waits for its pin move.
+- The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
 - Tests: none. Reviews check logic. Tests run only to prove a finding.
 
 The reviewer sent its session UUID to the implementer first.
@@ -113,3 +114,119 @@ Send the implementer the verdict line and verdict commit.
 Send the lead only QUESTION, BLOCKED, or CLEAN, with the exact reviewed head.
 Update this handoff after every push or verdict.
 Never poll.
+
+Push record: verdict commit `392a290cb563fc9718e61f31478a71b0af30f258` is on `origin/stage1/review-pc`.
+The reviewer worktree is clean. The program-controls implementation review remains pending.
+
+Integration update: Sol reported CLEAN for PR #231 at `4521237e8200768a36ab4c8a27f268f3914a88ab`.
+Integration verdict commit: `737efd716ed1f8af686228bb9bce124a737103b1`, file `verdicts/stage1/pc-pin-v0.1.27.md`.
+Message: `msg_plugin-w_1791670544_54135f`. Sol read the package verdict and sent the integration verdict to the lead.
+Both reviews cover the pin move only. The program-controls implementation still needs separate review.
+
+Implementation status update: `msg_plugin-w_1791678907_de080d`.
+PR #233 source head: `e75ba5f71c6187697383fd9b7f298548c5ac8008`.
+The source head merges `v1` at `b028a269383b8d2af9ac349b395765a47f1b8f1d`.
+That base merged #222. The conditional scope extension for `conf::ev_5_full_queue_defers_transition_not_output` now applies.
+The original 32 IDs plus this ID make 33. The five IDs from #227 remain conditional on its merge.
+The source removes 16 real-pending IDs, including three minimum IDs. The expanded group has 17 IDs still pending.
+The implementation is not READY. No green gate exists on the source head.
+The lead holds Core gates until P6's mutation-output fix merges and the lead sends MERGED.
+The previous gate on `a21fcbd3` ended with exit code 124 after the second mutation stage produced no output for more than 20 minutes.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-a21fcbd3-pool-20261010-164623-57687.log`.
+The reviewer started no gate and issued no implementation verdict.
+
+The implementer's handoff names plan `stage1-plan.b895ad49.md`, revision 23ae.
+The reviewer verified SHA-256 `db0522ad7a0ca5f0ede3e7b236049f11be504161d6cfa9ee9c65638d46c4ac3b`.
+The reviewer read the changes from revision 23ab.
+Revision 23ac changes P3's SIGPIPE proof to a safe recording handler with a control proof.
+Revision 23ad requires decisions at receipt for worker client frames.
+Revision 23ae changes the descriptor rule to frame starts, with kernel proofs for each operating system.
+These revisions change P3's work. The PC controls retain their scope and contracts pin.
+Next: wait for the implementer's READY, exact head, and green gate evidence.
+
+Early source inspection: PR #233 at `e75ba5f71c6187697383fd9b7f298548c5ac8008`, base `b028a269383b8d2af9ac349b395765a47f1b8f1d`.
+The reviewer read all five changed files and the pinned probe control implementation.
+The five control dispatches match P3's mapping. The probe applies requests before their acknowledgements.
+The harness preserves the input report order. The input observer signals host wakes without adding an input or changing `edges_quiet`.
+The group has 33 IDs at the base, 16 removals, 17 remaining IDs, and no additions in the PR's own diff.
+`ev_5_full_queue_defers_transition_not_output` remains pending. It is not a seventeenth flip.
+All six IDs that need steward approval remain pending.
+The three minimum removals are `ad_3`, `tm_3_due_deadline_fires_in_pump`, and `tm_3_next_deadline_is_host_armed`.
+The four minimum route IDs remain pending.
+
+Sol sent three early source concerns in `msg_plugin-w_1791679175_da53fa` and sent them directly to the implementer.
+1. `request` uses a blocking `write_all` while it holds the state lock. Its deadline starts after that write.
+2. Exit watchers are detached and do not check `closing`. Some tests watch the test process itself.
+3. The PID cache skips later identity checks. `connected` accepts an existing probe before it checks `exited`.
+Sol will save the source evidence. These concerns require review of the implementer's response at READY.
+The reviewer ran no tests or gate. No implementation review round or verdict is complete.
+The GitHub MCP read failed. The CLI fallback could not connect during this early inspection.
+The reviewer must read the current PR body, including Prior art and the observer-wake limit, at READY.
+Next: wait for the implementer's response or READY doorbell. Do not poll.
+
+Sol pushed the early source record at commit `51fc656599b496cbe7b2ca50e8917ba8f1ef48a3`.
+File: `verdicts/stage1/pc-program-controls.md`. Message: `msg_plugin-w_1791679256_f49571`.
+The package reviewer read that record.
+SI-1 is HIGH: the blocking request write has no deadline and holds the state lock.
+SI-2 is MEDIUM: exit watchers survive harness cleanup.
+SI-3 is MEDIUM: cached probe state bypasses the complete process identity.
+All three findings are open in the integration record. The source inspection completes no round and grants no CLEAN verdict.
+Sol confirms that the PR body states the observer-wake exception and its `no_spurious_wakes` limit.
+Sol read the three minimum transcripts and their retained fences.
+Next: wait for the implementer's response or READY doorbell.
+
+Early correction inspection: message `msg_plugin-w_1791683021_c8fe87`.
+Source head: `ebac3c692bcd317b6e4f53fb98c976cafc24edf0`.
+This head merges `v1` at `0a564513e50930ce25f2e4a175f45cffbef7119d` (#237 and #234).
+The package reviewer read the program.rs changes from `e75ba5f7`.
+The source removes the detached exit watchers and their state tables.
+The source keys probes by the complete `ProcessIdentity` and adds a mismatched-start-time proof with an existing connection.
+The request writer uses a non-blocking socket and releases the state lock before its write.
+Sol reported two SI-1 points that remain:
+1. The report-progress proof must read real request bytes before it sends Input. Otherwise the report can finish before the control starts.
+2. `send_line` must check its deadline before each write. The current code checks only after WouldBlock or Interrupted.
+The never-draining-peer proof must establish Bad at the existing cleanup bound.
+These are source corrections, not completed finding closures. The READY head, green gate, and formal review remain pending.
+The reviewer ran no execution job. Next: wait for the implementer's response or READY doorbell.
+
+Sol pushed correction record `ddcb26991e60ab0f607b2603a850c3a4016f6dc2` in `verdicts/stage1/pc-program-controls.md`.
+Message: `msg_plugin-w_1791683081_54196d`.
+Sol closes SI-2 and SI-3 in source at `ebac3c692bcd317b6e4f53fb98c976cafc24edf0`.
+SI-1 HIGH remains open for the write deadline check and socket-proof ordering.
+Sol reports that the automatic merge tree matches the source head.
+The gate, READY, and same-head package verdict remain pending. The source inspection completes no round.
+
+SI-1 follow-up: message `msg_plugin-w_1791683187_5c2e87`.
+Source head: `686300e2b1e6cbaded29761dc8963483b4ac03bc`.
+Integration record commit: `a6d942576800883da25c7bc8a37ebd4207eb2e32`, file `verdicts/stage1/pc-program-controls.md`.
+The package reviewer read the complete program.rs delta and the integration follow-up record.
+`send_line` checks the shared deadline before every write.
+The report-progress proof waits for request readiness at the socket before it sends Input. It leaves the request unread until the report arrives.
+The never-draining-peer proof requires Bad from the write deadline path.
+Sol closes SI-1 in source. SI-2 and SI-3 remain closed in source.
+The implementer's retained lock-held-write reversal log must accompany READY.
+All three source findings are closed in source. The exact-head green gate and formal package verdict remain pending.
+The source inspection completes no round. The reviewer ran no execution job.
+Next: wait for READY with the exact head, gate log, reversal log, and current plan pin.
+
+Package review Round 1: PR #233 READY in `msg_plugin-w_1791698170_09192c`.
+Reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
+Reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Verdict: CLEAN, zero open findings. File: `verdicts/pc-program-controls.md`.
+The reviewer read all five own-diff files, the corrections, the merge resolutions, the three minimum transcripts, and the gate and reversal evidence.
+The source closes SI-1, SI-2, and SI-3. No new source finding exists.
+The group now has 38 IDs. Sixteen IDs leave real-pending; 22 remain.
+The five added #227 IDs are `in_10_both_guards_are_checked_atomically_with_ordering`, `in_10_guard_refuses_when_client_frame_received_before_start`, `in_10_lagging_host_view_gets_stale_not_a_wrong_write`, `in_4_input_rev_client_advances_on_receipt`, and `ou_1_view_only_route_ignores_input`.
+Their merge SHA is `cf3bcaa93faa240b418fa2248884a96581fd82c3`.
+All five remain pending and also need `route_send`.
+All six steward-review IDs, `ev_5_full_queue`, and the four minimum route IDs remain pending.
+The lead permits the two Linux-passing race-sensitive IDs to remain pending under ruling (A), `msg_plugin-w_1791698173_6bb0a3`.
+The lead's pool rule, `msg_plugin-w_1791697703_733a2c`, permits review after the pre-review gate and requires one final gate after both CLEAN reviews.
+The implementer supplied both rules verbatim in `msg_plugin-w_1791698260_ea0cc8`.
+The pre-review gate passed on `7a4ab70bf08ff28344e9e47cad09d923ff3ae1d4`; it does not establish CI on the reviewed head.
+The program module is byte-identical on those two heads. The reviewer read the conflicting merge changes separately.
+The SI-1 reversal failed with the state lock held and passed on the unmodified head. Its log accompanies READY.
+The reviewer ran no execution job.
+Next: push the verdict and send its commit to the implementer, Sol, and lead.
+Then wait for the integration verdict and final-gate doorbells.
+The PC group is not complete. Do not start the extended assertion audit until the seven minimum IDs are done.
