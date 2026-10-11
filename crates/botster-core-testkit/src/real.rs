@@ -186,11 +186,13 @@ pub struct RealCoreHarness {
 /// long, and with it Core refused each data directory of the real tier (`InvalidConfig { field: "data_dir" }`).
 const SHORT_ROOT: &str = "/tmp";
 
-/// A new root directory of a harness under [`SHORT_ROOT`], owner-only (`tempfile` makes it with mode `0700`). It is
-/// removed when the harness drops.
+/// A new root directory of a harness under [`SHORT_ROOT`], owner-only: `tempfile` makes it with mode `0700` (by default
+/// it takes `0777` minus the umask, so others could read it). It is removed when the harness drops.
 fn short_root() -> io::Result<tempfile::TempDir> {
+    use std::os::unix::fs::PermissionsExt as _;
     tempfile::Builder::new()
         .prefix("bc-")
+        .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir_in(SHORT_ROOT)
 }
 
