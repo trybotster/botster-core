@@ -37,6 +37,7 @@
 //!   reordered, dropped or changed. Core's write interest on the held link does not reach the inner edge, so no readiness
 //!   wakes the host for it. The release gives the inner edge that interest, and Core's next flush sends the bytes.
 
+use crate::route_reports::{RouteReports, Seen};
 use crate::stand_in::StandIn;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -250,6 +251,9 @@ pub struct Tap<E> {
     holds: BTreeMap<InstanceId, Hold>,
     /// The next hand-over of a route's stream endpoint fails, once (`fail_handoff`, Core DP-2).
     fail_handoff: bool,
+    /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
+    /// and the bytes that they gave count, never the tap's take-ahead.
+    reports: RouteReports,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -306,6 +310,13 @@ impl<E: HostEdges> Tap<E> {
         !self.accepts.is_empty()
             || !self.exits.is_empty()
             || self.links.values().any(LinkTap::holds_anything)
+    }
+
+    /// What the driver consumed of the reports of `route` from the worker of `instance` (`route_reports`, R-66). While a report
+    /// that the driver received waits for its next call, the wake edge signals, so that the host pumps and consumes it.
+    pub fn route_reports(&self, instance: &InstanceId, route: RouteId) -> Seen {
+        let wake = self.inner.wake();
+        self.reports.answer(instance, route, || wake.signal())
     }
 
     /// Whether a tap of this data directory met the worker of `instance` ([`Heard`]).
@@ -535,6 +546,7 @@ impl<E: HostEdges> EdgeTap<E> {
             stand_ins: Vec::new(),
             holds: BTreeMap::new(),
             fail_handoff: false,
+            reports: RouteReports::default(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -626,27 +638,32 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
             links,
             launches,
             heard,
+            reports,
             ..
         } = &mut *tap;
-        let Some(state) = links.get_mut(&link) else {
-            return inner.link_recv(link, buf);
+        // R-66: the driver's call consumes what it received before; it receives the bytes that the call gives.
+        reports.call(link);
+        let n = match links.get_mut(&link) {
+            None => inner.link_recv(link, buf)?,
+            Some(state) if !state.held.is_empty() => {
+                let n = buf.len().min(state.held.len());
+                for (slot, byte) in buf.iter_mut().zip(state.held.drain(..n)) {
+                    *slot = byte;
+                }
+                n
+            }
+            Some(state) => match state.end.take() {
+                Some(End::Closed) => 0,
+                Some(End::Failed(kind)) => return Err(kind.into()),
+                None => {
+                    let n = inner.link_recv(link, buf)?;
+                    state.observe(&buf[..n], launches, heard);
+                    n
+                }
+            },
         };
-        if !state.held.is_empty() {
-            let n = buf.len().min(state.held.len());
-            for (slot, byte) in buf.iter_mut().zip(state.held.drain(..n)) {
-                *slot = byte;
-            }
-            return Ok(n);
-        }
-        match state.end.take() {
-            Some(End::Closed) => Ok(0),
-            Some(End::Failed(kind)) => Err(kind.into()),
-            None => {
-                let n = inner.link_recv(link, buf)?;
-                state.observe(&buf[..n], launches, heard);
-                Ok(n)
-            }
-        }
+        reports.received(link, &buf[..n]);
+        Ok(n)
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
@@ -666,6 +683,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     fn link_close(&mut self, link: LinkId) {
         let mut tap = self.tap();
         tap.links.remove(&link);
+        tap.reports.closed(link);
         tap.inner.link_close(link);
     }
 
