@@ -157,6 +157,9 @@ struct LinkState {
     /// R-65): its `RouteReceived`, or a `RouteClosed` of the route, closes the copy. A copy in flight is not the worker's
     /// own: a socket in flight with no other reference can lose its receive side (macOS).
     sent: BTreeMap<RouteId, StreamEndpoint>,
+    /// A send failed: nothing more is written, and the link is read to its end of file (R-78 item 4). The worker's frames
+    /// that wait in the socket are still handled.
+    write_closed: bool,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -395,7 +398,7 @@ impl<E: HostEdges> HostDriver<E> {
             limits,
         }
         .encode(&mut payload);
-        let Some(state) = self.links.get_mut(&link) else {
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             self.failed_handoffs
                 .push_back(Input::HandoffFailed { route });
             return;
@@ -425,7 +428,8 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn send_frame(&mut self, link: LinkId, kind: FrameType, payload: &[u8]) {
-        let Some(state) = self.links.get_mut(&link) else {
+        // A link whose write side failed queues nothing (R-78 item 4).
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             return;
         };
         if let Err(error) = encode_frame(kind, payload, self.frame_bound, &mut state.out) {
@@ -477,7 +481,7 @@ impl<E: HostEdges> HostDriver<E> {
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => {
-                        self.close_link_because(link, &error);
+                        self.close_write(link, &error);
                         return;
                     }
                 }
@@ -491,12 +495,33 @@ impl<E: HostEdges> HostDriver<E> {
         self.edges.set_write_interest(link, wanted);
     }
 
-    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics).
+    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics). A link whose write side failed keeps
+    /// that first reason.
     fn close_link_because(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
-        if self.links.contains_key(&link) {
+        if self.links.get(&link).is_some_and(|s| !s.write_closed) {
             self.engine.record_link_close(link, why);
         }
         self.close_link(link);
+    }
+
+    /// Closes the write side of a link whose send failed, and records why (R-78 item 4). The link is read on, so the frames
+    /// that the worker wrote before it ended are still handled; its end of file or a read error closes it (`close_link`).
+    /// The streams in the outbound bytes never left: their routes close `HandoffLost` now. The streams that left stay with
+    /// the link until their `RouteReceived` or its close.
+    fn close_write(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        let Some(state) = self.links.get_mut(&link) else {
+            return;
+        };
+        state.write_closed = true;
+        state.out.clear();
+        let marks = std::mem::take(&mut state.marks);
+        self.engine.record_link_close(link, why);
+        for mark in marks {
+            self.failed_handoffs
+                .push_back(Input::HandoffLost { route: mark.route });
+        }
+        self.edges.set_write_interest(link, false);
+        self.feed(Input::LinkWriteFailed { link });
     }
 
     fn close_link(&mut self, link: LinkId) {
@@ -530,6 +555,7 @@ impl<E: HostEdges> HostDriver<E> {
                 pending: Vec::new(),
                 held: None,
                 sent: BTreeMap::new(),
+                write_closed: false,
             },
         );
     }

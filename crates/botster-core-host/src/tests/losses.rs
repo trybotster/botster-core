@@ -402,7 +402,7 @@ fn a_lost_session_closes_its_routes_session_lost_after_its_state() {
     settle(&mut w);
     let (one, two) = (attach(&mut w), attach(&mut w));
     settle(&mut w);
-    w.exited("s1");
+    w.worker_ends("s1");
     let events = settle(&mut w);
     let lost = events
         .iter()

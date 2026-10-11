@@ -286,7 +286,8 @@ impl HostEngine {
     /// payload leader unreaped and ends the group itself (P3), and it keeps the final model (LC-5).
     fn kill_payload(&mut self, id: &SessionId) {
         let sent = self.send_msg(id, HostMsg::Kill);
-        if !sent {
+        let gone = self.sessions.get(id).is_some_and(|s| s.worker.gone);
+        if !sent && !gone {
             if let Some(identity) = self.identity_of(id) {
                 self.act(Action::SignalGroup {
                     identity,
@@ -304,6 +305,13 @@ impl HostEngine {
         if broken {
             let worker = self.sessions.get(id).map(|s| s.worker);
             match worker {
+                // R-78 item 4: a gone worker whose link can still be read keeps its drain. Its `Exited` or `Done` frames may
+                // wait in the link; the end of file classifies (`on_link_closed`).
+                Some(WorkerHandle {
+                    gone: true,
+                    link: Some(_),
+                    ..
+                }) => {}
                 // R-78 item 3: the exit watch of a spawned worker may still hold its reaped exit (a deadline runs at the pump
                 // bound, the exits wait for budget), so the reason does not depend on that order. The identity check, which
                 // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step.
@@ -342,11 +350,20 @@ impl HostEngine {
         if let Some(f) = self.stop_flow(&id) {
             f.probing = false;
         }
-        let reason = match state {
-            IdentityState::Matches => LostReason::WorkerUnreachable,
-            IdentityState::Absent | IdentityState::Reused => LostReason::WorkerGone,
-        };
-        self.begin_end_flow(&id, End::Lost(reason));
+        match state {
+            IdentityState::Matches => {
+                self.begin_end_flow(&id, End::Lost(LostReason::WorkerUnreachable));
+            }
+            IdentityState::Absent | IdentityState::Reused => {
+                let s = self.sessions.get_mut(&id).expect("found above");
+                s.worker.gone = true;
+                // R-78 item 4: a link whose read side is open is drained first; its end of file classifies
+                // (`on_link_closed`).
+                if s.worker.link.is_none() {
+                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
+                }
+            }
+        }
     }
 
     pub(crate) fn row_of(&self, id: &SessionId, state: SessionState) -> Row {
@@ -514,7 +531,7 @@ impl HostEngine {
                 s.shown,
                 s.worker.link,
                 s.terminal.is_some(),
-                s.worker.link_failed,
+                s.worker.link_failed || s.worker.write_failed,
                 matches!(s.flow, Flow::Start(_)) || s.admit == Admit::Starting,
             )
         };

@@ -670,6 +670,16 @@ impl World {
             status: ExitStatus::Code(0),
         });
     }
+
+    /// The worker of `session` ends, with no word on its link: the exit watch reports it, then its link gives the end of
+    /// file. A link that is open when the exit comes is read to its end first (R-78 item 4).
+    pub fn worker_ends(&mut self, session: &str) {
+        let link = self.engine.sessions[&sid(session)].worker.link;
+        self.exited(session);
+        if let Some(link) = link {
+            self.feed(Input::LinkClosed { link });
+        }
+    }
 }
 
 fn msg_name(msg: &HostMsg) -> &'static str {
