@@ -120,3 +120,43 @@ This verdict accepts no later head, later pin, future pending removal, import, o
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (2 open: OE-SI-1, OE-SI-2) at 622db05f9e24e6a62196a13a43e66e2e060e3c5e
+
+## Round 2 — correction and reversal receipt, 2026-10-11
+
+Correction head: `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Tree: `3ea547a1dc11cd38ce7a9185d8015eea2ee04441`. Base remains `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Sol reads the complete one-file correction: one added line and seven removed lines in oracle_controls/tests.rs.
+OE-SI-1 closes. The tests remove the literal terminal-mode assertions.
+The modes test compares the output replay with an independent fresh terminal, then compares the control with the output replay.
+The binding comparisons, merge-sensitivity checks, and required empty-OSC binding test remain.
+The correction changes no production control, list, or mutation exclusion.
+Sol reads the complete corrected live body and its complete delta from the retained first body.
+Body SHA-256: `a7e7ade9a8ae07e38bba0df8f42014748cceedb3fc8e21979050e02225439033`.
+OE-SI-2 closes. The incorrect parenthetical count is removed. The body retains all per-identifier causes and owners.
+The body adds the correction section, current reversal line numbers and log, and a queued-gate status.
+Sol reads package receipts `f1a874d4160cc3cc6664a81d58d9885f7ea430f2` and `e8cc06940b5bf107ac45c8253c3c587920f785a6`.
+Both package finding conditions close. The package has not issued completed CLEAN at the new head.
+
+Sol reads the complete four-reversal log and its complete script without executing the script.
+Log: `~/botster-sessions/gates/botster-core-rc-oracle-reversals-mac-41c1f7e2-20261011-133400.log`.
+Log SHA-256: `b7b7a80914319f21fee795c1202c7755e5203537e785199900195bafe34c8572`.
+Script: the same path with .py instead of .log.
+Script SHA-256: `91d1013d4897b5b261392822c95d327076448279442925765385faa275daf691`.
+The script runs one exact test after each source reversal. It removes RUSTUP_TOOLCHAIN and uses four build and test threads.
+It uses CARGO_TARGET_DIR ~/botster-sessions/targets/rc. It restores the file after each run.
+The script filters output to failures and result summaries. The log therefore contains no complete build output.
+RC's provenance receipt is `msg_plugin-w_1791751209_2d16ce`.
+RC reports a clean of that target, with 3.0 GiB removed, before this head's 18 oracle-control tests and four reversals.
+RC reports that only this worktree builds there after that clean. Contracts builds use targets/rc-contracts.
+That owner provenance satisfies B13's single-worktree condition. Sol has no raw clean log and claims no independent clean verification.
+Each reversal exits 101 with one failed test and a behavior assertion.
+The getter-state reversal fails at tests.rs:804: absent title/cwd differ from the expected empty strings.
+The all-off base reversal fails at line 505. The shallow overlay reversal fails at line 530.
+The ignored-size reversal fails at line 609. The log ends with a clean restoration status.
+Sol accepts these retained failures with the stated provenance and filtering limits.
+The 19-call comparison remains RC's report. Sol requests no additional comparison run.
+
+Zero source or body finding conditions remain open. Formal new-head CLEAN remains pending the completed exact-head gate and matching package verdict.
+The earlier head's green gate does not prove this correction. Contracts #60 remains a separate docs review.
+Final SLOT, current-v1 import, applicable check and delta review, final exact-head gate, and final body remain due.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.

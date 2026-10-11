@@ -148,3 +148,72 @@ The two failures are only_a_spent_chunk_waits_for_the_next_step and a_chunked_wr
 The first reports room for two bytes. The second reports one queued byte against the expected three.
 HW-SI-2 remains a test-strength correction with no source reversal. The README states that limit.
 The source CLEAN verdict remains. No final import or gate is accepted by this receipt. Sol runs no execution job.
+
+## Round 4 — final import, gate, and merge receipt, 2026-10-11
+
+Source CLEAN carries under Q7 to `4daf627b54739f847dd2448bf660a6a45c1b714a`.
+Its parents are reviewed head `bd4c6f16c9c1435252f929663a33ea8b28b4beb5` and imported base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Its tree is `fcfb3382e8c6c8633d152eb3bd7f2d6a151440d4`.
+Sol reads the complete base-merge-check-4daf627b.out in the shared PC evidence directory.
+SHA-256: `c1759610f3bd56aa59dbb847a6786e9bba88318612ee534046b33237da924222`.
+The check reports four PASS, including a merge without conflict and an equal canonical own patch.
+The reported canonical patch has 19815 bytes and SHA-256 `5caf01f561face85debe54c9da930443c977eace09e66d77474d839274f1ed00`.
+Sol independently verifies both parents and merge bases through Git reads.
+The three reviewed source blobs remain unchanged: program.rs, pty_controls.rs, and pty_controls/tests.rs in the testkit.
+The 11 changed base paths do not intersect those three paths. All 11 base blobs remain exact in the new head.
+Both pending files equal the imported base. The original own diff changes neither file.
+Sol independently compares the complete own patches with default Git diff flags. Both patches are byte-identical.
+Each has 19623 bytes and SHA-256 `1b15f60f6098242ac8ab68b3820e878010dc0c329b36a7b52ea6116862abb269`.
+That independent comparison does not claim the check's different canonical byte count as its own measurement.
+Sol's earlier import receipt went to PC in message `msg_plugin-w_1791750796_13bf5c`.
+This commit supplies the cross-review record requested by the lead and package reviewer.
+
+Sol reads package import record `c28d75fbb2d382eabada3c7abadb2584a9e7a4e7` and complete final audit `3ba3c6210894bead75071fbc38e8d5a341495a77`.
+The lead confirms the final slot before #282. This testkit-only change has no dependency on that pin PR.
+The final gate names the exact head and imported base above.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-held-write-testkit-4daf627b-pool-20261011-133054-46680.log`.
+SHA-256: `4031f5cf739a27eb403a0c8407919855e86b2ca6c4ac5bd7e954bf3770de37cb`.
+Sol reads its header, test summaries, raw mutant identities, named catch records, ten summaries, and final exits.
+All ten steps PASS in 343.6 seconds. The msa1 job exits zero after 353 seconds; the wrapper exits zero after 354 seconds.
+Default: 1754 PASS, 474 skipped, 11.127 seconds. Slow: 559 PASS, 2037 skipped, 40.256 seconds.
+Testkit conformance has 216 PASS, zero failures, minimum 61/69. Real minimum remains 49/68 passing and 50/69 accepted.
+Six pending-real trials pass. This PR removes no pending entry, and this receipt accepts no additional removal.
+The unmutated baseline passes. Stage 1 catches all 33 mutants in 115.9 seconds.
+Stage 2 does not run because stage 1 misses none. Final: zero missed, timeout, or unviable.
+Sol independently parses all 33 raw identities and named catches. They match exactly, without duplicates.
+Each named catcher also has a selected normal PASS in the log. No FLAKY token occurs.
+All five corrected guard mutants at program.rs:498 have the named only_a_spent_chunk_waits_for_the_next_step catcher.
+The host-pump test passes and catches the pty_queued replacement mutant.
+Fuzz PASS reports no changed crate with a decoder harness. It claims no new decoder trial.
+The final gate supplies the corrected guard's mutation evidence. The earlier lists-only gate remains RED.
+
+The lead reports #283 merged at `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Sol verifies its parents: the exact gate base, then the exact gated head.
+Its tree equals the gated tree. Sol verifies an empty diff to the gated head. Q7's base and tree conditions hold.
+Sol reads the complete live body at the final head and base. Its SHA-256 is `f96625c39530d95c4654f03c33ef4df98d6a8e180ccc4ab72363458fb98b61aa`.
+The body records the import, gate, package carry, and Sol carry by message. It retains the invalid six-transcript withdrawal.
+
+### HW-SI-3 — LOW, open: stale future import and gate paragraph
+
+After the completed final-slot section, the body says v1 has moved through #279 and #278.
+It then says that after both CLEANs, PC will merge v1 once and run one final gate.
+That future statement conflicts with the completed import and final gate immediately above it.
+Remove the stale paragraph or label it as historical. Keep the completed final evidence and withdrawn evidence limits.
+This body-only correction needs no job. The source carry and final gate remain valid.
+
+The `.40` pin, real controls, six new transcripts on both tiers, and later PC work remain separate.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: NOT CLEAN (1 LOW body finding; source CLEAN carries) at 4daf627b54739f847dd2448bf660a6a45c1b714a
+
+### HW-SI-3 closure — body correction
+
+PC supplies correction receipt `msg_plugin-w_1791751264_8f16f9`.
+Sol reads the complete live body delta. The source head and base remain unchanged.
+Body SHA-256: `baeb3e74c424977882bfb762de6d5ba5610d165f1fd8bebd6ac6baed11bcdb9d`.
+The paragraph now identifies its earlier statement as historical and states that the import and final gate are complete.
+HW-SI-3 closes. No other body content changes. No new job is required.
+Zero integration findings remain. The source carry, completed gate, and exact-tree merge checks above remain valid.
+The separate `.40` pin and later PC work remain unaccepted here.
+
+VERDICT: CLEAN at 4daf627b54739f847dd2448bf660a6a45c1b714a
