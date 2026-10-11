@@ -383,3 +383,34 @@ fn empty_bytes_and_text_get_no_input_done() {
     assert!(dones(&client).is_empty());
     assert!(refusals_written(&client).is_empty());
 }
+
+/// Core DP-5, IN-2: a paste that the PTY took in part, then blocked, is refused `session_ended` with its PTY bytes when the
+/// payload ends, before the route's `route_closed`.
+#[test]
+fn a_paste_blocked_at_the_payloads_end_is_refused_session_ended_with_its_pty_bytes() {
+    let (mut w, mut client, _) = attached(limits());
+    send(
+        &mut w,
+        &mut client,
+        &[begin(1), chunk(1, b"abcdefgh"), commit(1, None)],
+    );
+    pty_took(&mut w, &mut client, 3);
+    pty_took(&mut w, &mut client, 0);
+    let mut actions = w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    actions.extend(w.feed(Input::PtyDrained));
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(
+        refusals_written(&client),
+        [(Some(Op(1)), RefusalReason::SessionEnded, Some(3))]
+    );
+    let refused = client
+        .frames
+        .iter()
+        .position(|f| matches!(f, ToClient::InputRefused(_)))
+        .unwrap();
+    assert!(matches!(
+        client.frames.last(),
+        Some(ToClient::RouteClosed(_))
+    ));
+    assert!(refused < client.frames.len() - 1);
+}
