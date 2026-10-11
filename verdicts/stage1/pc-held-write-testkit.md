@@ -65,3 +65,42 @@ PC reports correction `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`, with a guard r
 That correction's source, package closure, and exact-head gate remain unread and unaccepted in this round.
 PC must close both findings at one exact head. Both source CLEANs must precede the final SLOT, import, check, and gate.
 Sol ran no execution job or executable base check. Wait for the doorbell. Never poll.
+
+## Round 2 — source correction, 2026-10-11
+
+Verdict: source CLEAN (0 open) at `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+Parent: `646ebe7321cc5a5de46f15d9aa6b61028ffec1e5`.
+Own-diff and PR base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+Package source CLEAN: `123f0fe495f8550a7ef2c4dfcf9bbf6bbc7f74e1`, Round 2.
+Sol reads the complete package correction section, complete two-file source delta, corrected body, and affected helper call sites.
+Sol also reads the program controls, write and readiness paths, worker readiness path, and host pump path.
+The source correction changes no contracts pin, pending list, production worker, timeout, or gate rule.
+
+HW-SI-1 closes; it equals package finding HW-TK-1.
+The next-step guard now permits `!controls.blocked || controls.kernel_room > 0`.
+The guard still requires an unspent accept limit, an active chunk cap, and a spent per-step allowance.
+Thus a spent chunk cap retains future work while the blocked kernel queue has room.
+A full queue or spent accept limit does not retain that marker.
+`Workers::has_ready` reads the marker. The host pump keeps `more` true and signals its wake while that work remains.
+The program-edge test covers the queue with room, the full queue, and the spent accept limit.
+The new host-pump test uses chunk 1, kernel capacity 3, and a five-byte write.
+It pumps to idle and requires three queued bytes with no matching completion in the retained events.
+Release then requires Written 5 and the exact ordered five-byte input log.
+The old guard stops after the first queued byte, so the new queue-count assertion covers the original defect.
+
+HW-SI-2 closes; it equals package finding HW-TK-2.
+`settle` now returns events from each poll, including the poll after the final idle pump.
+The held-write test checks that complete returned interval for a matching `Completed`.
+The new chunked-write test checks its returned interval as well.
+Other call sites discard the returned vector and keep their previous event-drain behavior.
+The helper keeps its pump bound and clock. It adds no sleep or event re-injection.
+These held intervals contain one write and no payload output; the existing poll bound covers their events.
+
+PC reports 394 testkit tests passing, 212 conformance tests passing, and two failures after reverting the guard.
+Sol traces the reported reversal to the next-step and host queue-count assertions.
+No separate raw reversal log accompanies the correction receipt; those execution counts remain PC's reports.
+The earlier green gate covers only parent `646ebe73`, not this correction.
+The new exact-head gate remains pending. This source verdict accepts no running gate result.
+After both source CLEANs, PC needs the lead's SLOT, one current-v1 import, applicable base check, and final exact-head gate.
+The live body must name the completed evidence. No later import or `.40` transcript result is accepted here.
+Sol ran no build, test, gate, reversal, mutant, measurement, or executable base check. Never poll.
