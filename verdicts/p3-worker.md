@@ -13084,3 +13084,29 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 183 — #279 incorrect operation comments, 2026-10-11
+
+Exact head: `6161c5c2122e43b4721497ad787814b108f22169`.
+Exact PR and supplied gate base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Risk: HIGH under BUILD rule 3, unchanged. LOW findings must close before CLEAN.
+Integration receipt: `msg_plugin-w_1791740546_ab13cc`.
+This round supersedes Round 182's package CLEAN at this same head while the following finding remains open.
+
+**F138 LOW — the boundary-test comments confuse unknown attribution with an absent operation identifier. OPEN.**
+This finding adopts integration RI-SI-1.
+crates/botster-core-testkit/tests/route_pty_log.rs line 13 says ou_1 sends 78 without an op.
+Line 50 says the route byte had no op. It also says the label is no op.
+The reviewer reads both exact-head comments and the pinned contracts-v0.1.36 ou_1 transcript.
+The transcript's route_send frame carries bytes 78 and op "1".
+The log has no known operation attribution. This differs from a frame with no operation identifier.
+A segment with op null would falsely match written_without_op. The non-null label prevents that false match.
+Correct both comments to state these facts. No product or test behavior change is needed.
+
+F135, F136, and F137 remain CLOSED. No source behavior, gate, import, or evidence conclusion from Round 182 changes.
+The separate ST-6 flake diagnosis remains assigned to P5. It contributes no mutation catch.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+
+VERDICT: NOT CLEAN
