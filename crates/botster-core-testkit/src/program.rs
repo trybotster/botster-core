@@ -677,17 +677,18 @@ mod tests {
         control.block_with_kernel(3);
         assert!(p.is_writable(), "the queue has room");
         assert_eq!(p.write(b"abcde").unwrap(), 3);
-        assert_eq!(control.queued(), 3);
         assert_eq!(control.input_log(), b"", "the program read none of them");
         assert!(!p.is_writable(), "the queue is full");
         assert_eq!(
             p.write(b"de").unwrap_err().kind(),
             io::ErrorKind::WouldBlock
         );
-        assert_eq!(control.queued(), 3);
         control.set_blocked(false);
-        assert_eq!(control.queued(), 0);
-        assert_eq!(control.input_log(), b"abc");
+        assert_eq!(
+            control.input_log(),
+            b"abc",
+            "the release delivers the three"
+        );
         assert_eq!(p.write(b"de").unwrap(), 2);
         assert_eq!(control.input_log(), b"abcde");
     }
@@ -703,9 +704,13 @@ mod tests {
         let control = p.control();
         control.block_with_kernel(2);
         assert_eq!(p.write(b"ab").unwrap(), 2);
-        assert_eq!(p.unread(), 0, "the program has not read the bytes");
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "the program has not read the bytes, so it printed nothing"
+        );
         control.set_blocked(false);
-        assert_eq!(p.unread(), 2, "the program read them and printed");
+        assert_eq!(read_all(&mut p), b"ok", "the program read them and printed");
     }
 
     /// A block without `kernel_bytes` takes nothing, also after a block that had a queue; a queue of 0 bytes is a plain block.
@@ -719,12 +724,16 @@ mod tests {
         assert_eq!(p.write(b"a").unwrap_err().kind(), io::ErrorKind::WouldBlock);
         control.block_with_kernel(0);
         assert_eq!(p.write(b"a").unwrap_err().kind(), io::ErrorKind::WouldBlock);
-        assert_eq!(control.queued(), 0);
         control.set_blocked(false);
+        assert_eq!(
+            control.input_log(),
+            b"",
+            "the release has nothing to deliver"
+        );
         assert_eq!(p.write(b"a").unwrap(), 1);
         assert_eq!(
-            control.queued(),
-            0,
+            control.input_log(),
+            b"a",
             "an unblocked write is read, not queued"
         );
     }
@@ -1239,42 +1248,6 @@ mod tests {
         assert!(
             !control.waits_for_next_step(),
             "pty_accept refuses after the step too"
-        );
-
-        // R-74 (#283 HW-TK-1): a block whose kernel queue has room takes the rest of the write in later steps, so a spent cap
-        // waits for the next step; a full queue, or a spent accept limit, waits for no step.
-        let mut k = program(json!({"program": [{"hold": {}}]}), true, 0);
-        let control = k.control();
-        control.input_chunk(Some(1));
-        control.block_with_kernel(3);
-        assert_eq!(k.write(b"abcd").unwrap(), 1);
-        assert!(would_block(k.write(b"bcd")));
-        assert!(control.waits_for_next_step(), "the queue has room for 2");
-        for queued in [2, 3] {
-            control.new_step();
-            assert!(!control.waits_for_next_step());
-            assert_eq!(k.write(b"bcd").unwrap(), 1);
-            assert_eq!(control.queued(), queued);
-        }
-        assert!(would_block(k.write(b"d")));
-        assert!(
-            !control.waits_for_next_step(),
-            "the queue is full: the release continues it"
-        );
-        control.new_step();
-        assert!(would_block(k.write(b"d")), "a full queue takes nothing");
-        assert!(!control.waits_for_next_step());
-
-        let mut a = program(json!({"program": [{"hold": {}}]}), true, 0);
-        let control = a.control();
-        control.input_chunk(Some(1));
-        control.block_with_kernel(3);
-        control.accept_at_most(1);
-        assert_eq!(a.write(b"ab").unwrap(), 1);
-        assert!(would_block(a.write(b"b")));
-        assert!(
-            !control.waits_for_next_step(),
-            "pty_accept refuses with the cap spent and room in the queue"
         );
     }
 

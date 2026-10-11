@@ -644,6 +644,36 @@ fn a_chunked_write_fills_the_kernel_queue_before_the_host_settles() {
     assert_eq!(input(&mut harness), json!("6162636465"));
 }
 
+/// R-74 with `pty_chunk` and `pty_accept` (#283 HW-TK-1): a spent accept limit refuses the write although the kernel queue
+/// has room, so the rest is not work for a later step: the host settles with the one accepted byte queued, and the write
+/// is held.
+#[test]
+fn a_spent_accept_limit_with_room_in_the_kernel_queue_lets_the_host_settle() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    for (op, args) in [
+        ("pty_chunk", json!({"session": "s1", "bytes": 1})),
+        (
+            "pty_blocked",
+            json!({"session": "s1", "on": true, "kernel_bytes": 3}),
+        ),
+        ("pty_accept", json!({"session": "s1", "bytes": 1})),
+    ] {
+        assert_eq!(harness.control("a", op, &args), Ok(Value::Null), "{op}");
+    }
+    let op = write(core.as_mut(), b"ab");
+    let events = settle(core.as_mut(), at);
+    assert_eq!(queued(&mut harness), json!({"bytes": 1}));
+    assert_eq!(input(&mut harness), json!(""), "the program read none");
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, Event::Completed { op: o, .. } if *o == op)),
+        "the write is held"
+    );
+}
+
 /// `kernel_bytes` goes with a block only, and `pty_queued` takes a session only: anything else is `Bad`.
 #[test]
 fn kernel_bytes_and_pty_queued_refuse_what_they_cannot_do() {
