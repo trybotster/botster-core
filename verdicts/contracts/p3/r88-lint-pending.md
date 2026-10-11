@@ -24,3 +24,16 @@ When the PR's branch is known, this file moves to `verdicts/contracts/<branch>.m
 - Commit 1 (R-80 list growth) is P5's in R-88 "unless the lead reassigns". The body states the lead's reassignment.
 
 Checks for the READY head: all of the above, plus the self-tests in the design (one case per class, red on today's am_4 s24).
+
+### Correction (R-88 on main `c0c2abc09f208fea39896972373da53cb90dd830`)
+
+I based two of my early answers on the draft, not on main. On main:
+- **Added pairs.** Line 39 says: "P3 may add a pair that the sweep did not name; the reviewers check each addition against a transcript." So no steward ruling is needed. For each added pair (`Signal`, `Remove`, `Detach`, `call cancel`), I check the exact cause, the report and the read in a transcript, with the clause.
+- **Commit 1 owner.** Line 49 assigns the R-80 list growth to P3. My "P5 unless the lead reassigns" answer is withdrawn.
+
+016c's design findings to P3 (recorded, not repeated):
+- do not list missed valid fences;
+- keep the report's identity by route, op and handle: a `route_reports` of r1 does not clear a `route_send` on r2 of the same session;
+- a held-state precondition is not report consumption;
+- fence matchers must prove their predicates, and report-made states are explicit;
+- the `control.op` selector collides with the argument name of `op_posted`.
