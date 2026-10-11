@@ -19,6 +19,12 @@ GS-KF-R2-2 is source-fixed and CLOSED. The fixture now selects the slow-only sha
 
 I asked the lead to settle the first-failure rule or replan before round four. The exact-head gate is reported running; no new execution evidence is accepted yet.
 
+The lead settles the rule: only the first final failure can catch. A listed first failure is MISSED; no later cancelled-run failure receives credit.
+
+Round four covers that rule and two fixture cases: listed-first plus cancellation gives MISSED; unlisted-first gives a catch.
+
+Other new findings go to follow-up PRs unless HIGH, under the lead's direction.
+
 The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
 
 The earlier gate passes all ten steps, but stage 2 does not run. The new head's full gate has not been supplied. I ran no gate, build, or test.

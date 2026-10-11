@@ -841,3 +841,13 @@ The PR body now describes the removed tier and the verdict rule. The slow step a
 The delta adds no timeout change or mutation exclusion. I ran no gate, build, or test.
 
 This is the third NOT CLEAN package round. I asked the lead to settle the first-failure rule or replan before round four, as section 8 requires.
+
+### Lead settlement for round four
+
+The lead settles the point without a replan. Only the first final failure under `--max-fail 1:immediate` can be the catch.
+
+If that identity is known-flaky, the mutant is MISSED. No later failure in that cancelled run receives credit.
+
+Round four covers this rule and two cases: listed first failure followed by cancellation gives MISSED; unlisted first failure gives a catch.
+
+The lead directs other new findings to follow-up PRs unless they are HIGH. I will apply that scope to the next review.
