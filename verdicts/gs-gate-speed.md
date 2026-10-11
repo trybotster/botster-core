@@ -1304,3 +1304,66 @@ The exact-head full gate and focused failure evidence remain valid. No source co
 This verdict covers Core PR #266 only. It does not review or approve the separate contracts copy.
 
 The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+
+
+## Contracts PR #44: Docker data-root disk floor
+
+- Repository: `trybotster/botster-contracts`.
+- Head: `7176d02b577c9043c72ca4eda3b293104aad6961`.
+- Base: `3c74af18f0d8b8eba437db133ae5372083e8d97f`.
+- Risk tier: STANDARD, confirmed.
+- VERDICT: NOT CLEAN (1 LOW open).
+
+I read the complete script, the one-file source diff, the live PR body, and the exact-head gate log. The base is an ancestor of the head.
+
+The changes decide gate start and cache eviction. They do not change step commands, mounts, status propagation, or artifacts.
+
+The disk decision block matches Core head `11a9533f8e3929b528b7d4a762f0019e4e18734d` byte for byte. All added and removed patch lines also match.
+
+Each decision measurement checks status and numeric output. An unknown data root or failed measurement exits the job shell with 75.
+
+The final comparison uses the same checked value. The project-directory measurement is diagnostic only. The thresholds and eviction order remain unchanged.
+
+Outside the settings block, the scripts differ only in the existing stage-2 artifact description and artifact-copy list. Contracts has no stage-2 references in `ci` or `xtask`.
+
+Those existing differences do not affect the changed decision block. The body records the drift and the steward's separate shared-source plan.
+
+### Exit-75 propagation
+
+The script's EXIT cleanup saves the exit status and exits with that status. The pool wrapper uses `exec` to start this script.
+
+I read the installed `pool-run`, `jobq`, and shared `botster-gate` sources. Each preserves a completed command's nonzero status.
+
+`pool-run` can replace the status with 124 or 137 for silence or an out-of-memory failure. Neither status is green.
+
+`jobq` reads the completed allocation's exit code. It records a cached pass only for status zero. The gate invocation supplies no cache option.
+
+`botster-gate` preserves the `jobq` status. Its output checks can change zero to 4; they cannot change 75 to zero.
+
+Thus, a completed disk rejection with exit 75 cannot produce a green result through the reviewed status path. This is source evidence; I ran no failure probe.
+
+### Supplied evidence
+
+The exact-head Contracts gate passes all ten steps in 237.2 seconds. It records the exact head and base above.
+
+It reports 341 GiB at `/pool/docker` and 456 GiB at the project directory. The mutation step reports no changed Rust source.
+
+Log: `~/botster-sessions/gates/botster-contracts-stage1-gs-disk-floor-7176d02b-pool-20261011-061636-61682.log`.
+
+The Core failure evidence covers the identical decision block. All nine current-head scenarios pass; failed and invalid reads exit 75 before container start.
+
+Evidence: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-11a9533f-pool-20261011-061246-53541.log`.
+
+The current source changes no test selection, mutation scope, binary build, mutation configuration, or test verdict. I found no new path that accepts a failed test or mutant.
+
+The existing candidate-binary limitation remains outside this change. This review does not approve that limitation.
+
+### GS-CD-44-1 LOW: OPEN — the body overstates the patch comparison
+
+The body says the `job.sh` diff is byte-identical to Core #266. The raw Git diffs differ in blob identifiers, hunk positions, and surrounding artifact text.
+
+The added and removed lines are identical. The new disk decision block is byte-identical. These narrower statements are verified.
+
+Required change: replace the raw-diff claim with one of those verified statements. This is a body-only correction; the source needs no change.
+
+No other finding remains. No repeat gate is needed for this body-only correction. I ran no gate, build, or test.
