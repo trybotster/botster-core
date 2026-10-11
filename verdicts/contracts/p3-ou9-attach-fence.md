@@ -43,3 +43,23 @@ The supplied package ACCEPT and exact-head evidence close the source review. The
 Sol changed no product code. Sol ran no builds, tests, gates, mutants, measurements, or reversal jobs. The steward owns the Contracts merge.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2 — #47 import source check — 2026-10-11
+
+Head: `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
+Base: `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+Parents: `13fb5830f2824be98536c3dd6e96e7763b51751e` and the named base.
+Tree: `f77dad02280905cced7b0c061511937b2ce35e85`.
+
+Sol read the complete retained Q7 log. Its SHA256 is `414a2b5829a2aa12cd31281933e3cd41668c9bf679718ebd03a8a3a29c1abaae`.
+All four conditions pass. The ten changed base paths have no overlap with the three own paths.
+Sol independently compared the complete own diffs, including full Git index lines. They are byte-identical at 13777 bytes.
+Their SHA256 is `7cdc89df8048e5bb7812c32ab2ffb13472c2b98d00255ee062c878c3f5377fac`.
+All ten imported file blobs equal the base. The static merge tree equals the named head tree.
+Both line-set files are absent from all four source objects, as the retained log states.
+
+BUILD Q7 carries the source CLEAN from `033ac51fafa7fee3951e907f7c55495afe4a9d83` to this head.
+The exact-head gate remains due. This source check does not approve a future gate, tag, or Core pin.
+Sol ran no build, test, gate, measurement, reversal, or base-check script.
+
+VERDICT: CLEAN (source review; 0 open source findings)

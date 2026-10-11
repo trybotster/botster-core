@@ -46,3 +46,34 @@ Both package records accept this exact head. All package findings are closed. So
 Sol changed no product code. Sol ran no builds, tests, gates, mutants, measurements, or reversal jobs.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2 — #47 import delta — 2026-10-11
+
+Head: `efbb30636b29d506ab04acdb9f7f90031601c674`.
+Base: `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+Parents: `338008cbeea0bc1e675680e2d1c2935bf4702383` and the named base.
+Tree: `01a280eb3082d937b86b85e110051f27fba21ec8`.
+Package source CLEAN: `8ad6e6328fad1f0364a4fe451ab03ddff50b82e3`, `verdicts/gs-gate-speed.md`.
+
+Sol read the complete retained base-check log. Its SHA256 is `f2c768caa55cc4c7051059855ee7656f11c3ecc62bb745bd55d66f7e9610b135`.
+Conditions 1, 2, and 3 fail. Condition 4 passes. The driver conflicts, and the control documentation overlaps.
+Both reviewers must review this delta. Sol read the complete package source verdict and the complete current PR body.
+
+Sol compared both complete own diffs. The old full-index diff has 60894 bytes and SHA256 `25d7c2fe75c4da6c95a8c76e7801196b3fbced249b980aa8d1a2d1df1f2b4766`.
+The new full-index diff has 61061 bytes and SHA256 `eb6782c17e03d8e2a91f3f32e68c5a52bf8c373318e7e6d8193a6a09573d6134`.
+After removal of index and hunk-position lines, the differences are the wake access and one imported documentation context line.
+All other sixteen own file blobs equal the previously reviewed head.
+
+Sol read the complete driver delta. The moved wait obtains its owned wake handle through `core.borrow_mut().wake_handle()`.
+The temporary mutable borrow ends at that statement, before either thread waits. The removed old-position branch has the same base access.
+The thread selection, timeout, expected value, and failure mapping remain unchanged.
+The strict-wait scan and its shared dispatch predicate remain unchanged. The #47 route loop remains in the base.
+The imported documentation context adds R-69 to `oracle_resume`. The own `no_spurious_wakes` row remains unchanged.
+
+Both prior findings remain closed. Sol adds no finding.
+The body retains the historical `338008cb` gate. It supplies no gate on this import head.
+The lead requires the #49 import and one final gate after that import. The later head needs its applicable base check and reviews.
+This verdict accepts the source delta only. It does not declare merge readiness or approve a future gate, tag, or Core pin.
+Sol ran no build, test, gate, measurement, reversal, or base-check script.
+
+VERDICT: CLEAN (source delta review; 0 open source findings)
