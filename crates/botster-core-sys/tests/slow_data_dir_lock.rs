@@ -19,6 +19,7 @@ use rustix::fs::FlockOperation;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -67,35 +68,52 @@ fn held_for_another_process(path: &Path) -> bool {
     }
 }
 
-/// Threads that start children (`true`) in a loop until the value is dropped, as other ids of a test process and Core's
-/// own spawns do. Each fork copies the descriptors of this process into the child until its exec.
+/// Threads that start children (`true`) one after another, as other ids of a test process and Core's own spawns do, until
+/// the value is dropped or each thread started `MAX_SPAWNS`. Each fork copies the descriptors of this process into the
+/// child until its exec. The drop stops and joins the threads, and a thread's failure fails the test there.
 struct Spawners {
     stop: Arc<AtomicBool>,
     spawned: Arc<AtomicU64>,
     threads: Vec<std::thread::JoinHandle<()>>,
 }
 
+/// The children that one spawner thread starts at most: the bound of its work.
+const MAX_SPAWNS: u64 = 20_000;
+
 impl Spawners {
-    fn start(count: usize) -> Spawners {
+    /// Starts `count` threads, and the receiver of one event from each thread after its first child ended.
+    fn start(count: usize) -> (Spawners, Receiver<()>) {
         let stop = Arc::new(AtomicBool::new(false));
         let spawned = Arc::new(AtomicU64::new(0));
+        let (started, first) = mpsc::channel();
         let threads = (0..count)
             .map(|_| {
-                let (stop, spawned) = (Arc::clone(&stop), Arc::clone(&spawned));
+                let (stop, spawned, started) =
+                    (Arc::clone(&stop), Arc::clone(&spawned), started.clone());
                 std::thread::spawn(move || {
-                    while !stop.load(Ordering::Relaxed) {
+                    for n in 0..MAX_SPAWNS {
+                        if stop.load(Ordering::Relaxed) {
+                            break;
+                        }
                         let mut child = OwnedChild::spawn_group(&mut Command::new("true")).unwrap();
                         assert!(child.status_by(Deadline::after(LIMIT)).success());
                         spawned.fetch_add(1, Ordering::Relaxed);
+                        if n == 0 {
+                            // The receiver is gone only when the test failed already.
+                            let _ = started.send(());
+                        }
                     }
                 })
             })
             .collect();
-        Spawners {
-            stop,
-            spawned,
-            threads,
-        }
+        (
+            Spawners {
+                stop,
+                spawned,
+                threads,
+            },
+            first,
+        )
     }
 
     fn spawned(&self) -> u64 {
@@ -109,48 +127,49 @@ impl Drop for Spawners {
         for thread in self.threads.drain(..) {
             let joined = thread.join();
             if !std::thread::panicking() {
-                joined.unwrap();
+                joined.expect("a spawner thread failed");
             }
         }
     }
 }
 
-/// id_2: while other threads start children, a dropped lock is free at once, so the next open in this process takes it,
-/// in every one of the cycles. With `flock`, a child between its fork and its exec held the dropped lock (P3's repro: 825
-/// to 1429 refused reopens in 10 s with 4 spawner threads). The cycles continue until the spawners started at least
-/// `SPAWNS` children, so the two overlap.
+/// id_2: while other threads start children, a dropped lock is free at once, so the one reopen right after the drop takes
+/// it, in each of `CYCLES` cycles. With `flock`, a child between its fork and its exec held the dropped lock, and the first
+/// refused reopen fails the test (no retry). The cycles start after a spawner's first child ended, and some child must
+/// start during them, or they prove nothing. With v1's `flock`, 95 of 3671 cycles (Mac) and 51 of 7945 cycles (Linux) were
+/// refused, so 2000 cycles miss a reverted fix with a probability below 1e-5 (2.5e-6 on Linux).
 #[test]
 fn a_dropped_lock_is_free_at_once_while_other_threads_start_children() {
     const CYCLES: u64 = 2000;
-    const SPAWNS: u64 = 200;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("lock");
-    let spawners = Spawners::start(4);
+    let (spawners, first) = Spawners::start(4);
+    // timer: deadline — bounds the wait for the first child of a spawner thread
+    if let Err(error) = first.recv_timeout(LIMIT) {
+        drop(spawners);
+        panic!("no spawner thread ended a first child within {LIMIT:?}: {error}");
+    }
+    let before = spawners.spawned();
     let mut held = LockFile::try_exclusive(&path).unwrap();
-    let (mut cycles, mut refused) = (0u64, Vec::new());
-    while cycles < CYCLES || spawners.spawned() < SPAWNS {
+    for cycle in 1..=CYCLES {
         drop(held);
-        cycles += 1;
-        let deadline = Deadline::after(LIMIT);
-        held = loop {
-            match LockFile::try_exclusive(&path) {
-                Ok(lock) => break lock,
-                Err(LockError::Held) if !deadline.expired() => {
-                    if refused.last() != Some(&cycles) {
-                        refused.push(cycles);
-                    }
-                }
-                Err(error) => panic!("cycle {cycles}: {error}"),
+        held = match LockFile::try_exclusive(&path) {
+            Ok(lock) => lock,
+            Err(error) => {
+                let spawned = spawners.spawned() - before;
+                drop(spawners);
+                panic!(
+                    "cycle {cycle} of {CYCLES}: the reopen right after the drop failed ({error}) while {spawned} \
+                     children started"
+                );
             }
         };
     }
-    let spawned = spawners.spawned();
+    let during = spawners.spawned() - before;
     drop(spawners);
     assert!(
-        refused.is_empty(),
-        "{} of {cycles} reopens were refused while {spawned} children started; first cycles: {:?}",
-        refused.len(),
-        &refused[..refused.len().min(10)]
+        during > 0,
+        "no child started during the {CYCLES} cycles, so they prove nothing"
     );
     assert!(held_for_another_process(&path));
     drop(held);
