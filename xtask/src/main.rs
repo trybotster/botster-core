@@ -8,6 +8,7 @@ mod gate_decisions;
 mod high_tier;
 mod lists;
 mod mutants_cited;
+mod mutants_stale;
 mod platform_code;
 mod prebuild;
 mod process_check;
@@ -34,6 +35,7 @@ commands:
   process-check                      real-process test code outside botster-test-process (waits, reads, sleeps)
   gate-decisions                     an xtask exclusion covers only a whole body and cites its tested decision function
   mutants-cited                      every name that a .cargo/mutants.toml reason cites is real; each cited test runs in a tier
+  mutants-stale                      every mutation exclusion still matches a mutant of the tree
   signals                            raw signal calls and kill programs outside botster_core_sys::signal
   high-tier                          every entry of ci/high-tier-paths.txt matches a tracked file
   lists                              check core-ledger-ids, core-pending and core-deferred
@@ -65,6 +67,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("process-check", process_check::command, None),
     ("gate-decisions", gate_decisions::command, None),
     ("mutants-cited", mutants_cited::command, None),
+    ("mutants-stale", mutants_stale::command, None),
     ("signals", signals::command, None),
     ("high-tier", high_tier::command, None),
     ("lists", lists::command, None),
@@ -137,6 +140,7 @@ mod tests {
             ("process-check", process_check::command, given.clone()),
             ("gate-decisions", gate_decisions::command, given.clone()),
             ("mutants-cited", mutants_cited::command, given.clone()),
+            ("mutants-stale", mutants_stale::command, given.clone()),
             ("signals", signals::command, given.clone()),
             ("high-tier", high_tier::command, given.clone()),
             ("lists", lists::command, given.clone()),
