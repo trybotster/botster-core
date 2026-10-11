@@ -2364,3 +2364,13 @@ The live PR retains the reviewed head and base. The implementer reports restorat
 Sol must close HF-SI-1 independently. The lead's final-slot rule still applies before a current-base import and final gate.
 
 This CLEAN applies only to the exact head above. I ran no gate, build, test, base-check script, or executable probe.
+
+Sol records integration CLEAN in `15b1dbe3138477202aee50d67969638325d27105`, at `verdicts/stage1/gs-held-full.md`, round 2.
+
+I read the complete artifact and verified its publication. Sol independently closes HF-SI-1 with the same seed-specific proof.
+
+Sol retains the invalid first lists result.
+
+Both source and evidence reviews have zero findings at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, against base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+
+The final slot, current-base import, required check, and exact-head final gate remain due. This receipt accepts no later head or merge.

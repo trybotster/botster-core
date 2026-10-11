@@ -8,7 +8,9 @@ GS-HF-R1-1 MEDIUM is closed. The pool negative proof fails only at seed 1. The s
 
 I verified both scratch snapshots and both logs. The first lists result uses a later base and is invalid. The second uses the reviewed base.
 
-The complete proof receipt is in `verdicts/gs-gate-speed.md`. Sol must close HF-SI-1. Then the implementer waits for the lead's final slot.
+The complete proof receipt is in `verdicts/gs-gate-speed.md`. Sol closes HF-SI-1 in `15b1dbe3138477202aee50d67969638325d27105`.
+
+Both source and evidence reviews have zero findings. The implementer must send FINAL-READY and wait for the lead's final slot.
 
 I ran no gate, build, test, or executable probe. End the turn while waiting for evidence and the next doorbell.
 
