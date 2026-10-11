@@ -11174,3 +11174,81 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 161 — PR #240, package round 3 — 2026-10-10
+
+Head: `4b437b442a32d5b601afe4507fdb6d36d597cbcc`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Replacement READY: msg_plugin-w_1791698812_483e62; P3 confirmation: msg_plugin-w_1791698954_37a359.
+The reviewer verifies this head and base in the complete current GitHub body.
+Body record: /private/tmp/review-p3-pr240-4b437b44.json.
+Previous artifact: round 160, 787845a50622c24a81b4e94c26db755204d6532d, NOT CLEAN at f3d6e370.
+The HIGH classification and approved PR B scope remain unchanged.
+
+### Complete correction and retained whole-change review
+
+The reviewer reads the complete correction commit at this head: three paths, 33 insertions and two deletions.
+It changes adopt in worker.rs, adds one public adoption proof, and updates worker-core DESIGN.md.
+No new source merge occurs. The base remains 11a5246a.
+The other twelve own paths retain the complete reviews from rounds 159 and 160.
+The reviewer checks the correction against the complete framing, descriptor ownership, payload exclusion, and driver fence change.
+BUILD rule 5, its real-process test rules, and the lead's Q1/Q2 and framing rulings remain binding.
+The final-gate rule remains in force: one final gate after both CLEAN reviews.
+
+### F120 MED — CLOSED
+
+adopt now resets queued_total and written_total before it sends any frame on the new link.
+It clears the old output report state, sets Ready, resets the decoder, and fences old host requests.
+input_fence removes queued old host requests and retires their active write; it sends no report.
+The worker then sends HELLO and Adopted before it calls close_unchecked.
+The cleanup therefore closes each affected descriptor or bound route after the required handshake frames.
+A bound route's HandoffFailed report follows those frames and uses the new queued_total.
+There is no later counter reset that omits those bytes.
+The driver resets its written total when AdoptLink installs the new transport, before it processes these LinkSend actions.
+Worker and driver totals therefore count the same new-link frames on the reported path.
+Cleanup still precedes processing the bytes that follow the candidate HELLO.
+
+The new proof uses a Ready worker with a complete AttachRoute and a partial following frame in one descriptor read.
+It supplies Candidate and CandidateBytes through the existing public worker inputs.
+It observes one bind and exactly one descriptor close through the bound route's RouteClose action.
+It decodes the frames after AdoptLink and requires exactly HELLO, Adopted, and the route's HandoffFailed report.
+It verifies the HELLO proof for the new epoch and checks that the new host's Stop produces SIGTERM.
+The proof exposes no private handoff table and adds no sleep, polling loop, or production test hook.
+The source ordering establishes byte accounting; the proof does not directly assert the counter values.
+F117's unchecked-read closure and checked-route retention remain unchanged.
+F118's acceptance event and F119's return after descriptor_fault remain unchanged.
+No new finding remains in this PR's reviewed scope.
+
+### Completed evidence and limits
+
+The reviewer reads the complete twelve-line f120-revert-macos.log.
+Restoring the old adoption cleanup order while retaining the new proof fails its first-frame assertion.
+The recorded frame kind is 17; the required HELLO kind is 1. One selected test fails, with 174 filtered out.
+This is a selected reversal record, not a complete gate with an exact-head header.
+
+The reviewer reads the complete seventeen-line mac-slow-4b437b44.log.
+Its header names this exact head, 2026-10-11T06:06:14Z, and Darwin 27.0.0.
+It records worker prebuild with three binaries.
+The worker slow suite passes 59 tests in 5.31 seconds.
+slow_cli passes 17 tests in 0.19 seconds; slow_session passes 35 tests in 5.22 seconds.
+The record also contains nine individual passing runs before the complete suites.
+Those runs add no distinct coverage and are not the reason for closure.
+The local worker-core 175 passes, clippy zero, fmt, xtask, and strict 206/0 results remain P3-reported results.
+The earlier whole-change gates, Mac records, reversal records, and merge records retain their exact heads and limits from rounds 159 and 160.
+No complete gate at this correction head is supplied or claimed.
+The required final gate must cover this correction and its mutants after both CLEAN reviews.
+No conformance ID moves. PR C retains real route transport, route allowances, and the PTY read budget.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #240 is CLEAN at `4b437b442a32d5b601afe4507fdb6d36d597cbcc`.
+F120 MED closes. F117, F118, and F119 remain closed for their reported paths.
+This completes #240 package round 3. No fourth-round decision is required for this CLEAN verdict.
+Integration CLEAN and the lead's final gate remain required before merge.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
