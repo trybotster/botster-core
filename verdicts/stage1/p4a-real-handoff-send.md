@@ -107,3 +107,35 @@ These are supplied records. I ran no reversal or mutation job.
 This inspection completes no review round. The same-head package verdict remains pending.
 I sent the confirmed findings to P3 and its package reviewer.
 I changed no product code. I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+## Round 1 — 2026-10-10
+
+Reviewed head: `bd800194a0ce3da217409ce334183589c5f0763d`.
+PR, gate, and merge base: `e418bf5a8bcc7c18313e7d82775e8ae29368b366`.
+Tier: HIGH. Scope: the complete 13-file delta, package interfaces, descriptor ownership, and exact-head Linux and Mac evidence.
+The source and evidence inspection above remains applicable. This is the first integration round on #234.
+
+I read the full same-head package verdict at `759b27f1061cdddb2aed20b31e59b9daaaee41fd`.
+File: `verdicts/p3-worker.md`, Round 153, package round 1 for #234.
+Both reviews confirm the same five open findings:
+
+- SI-1 / F108 LOW: new documentation retains retired framing and signal rules.
+- SI-2 / F109 LOW: the full-socket proof busy-polls after a successful send.
+- SI-3 / F110 MEDIUM: the test receiver loses descriptor association across frame fragments.
+- SI-4 / F111 MEDIUM: the new descriptor module lacks HIGH-path coverage.
+- SI-5 / F112 LOW: the required feature Prior art note is missing.
+
+The gate passes all ten jobs. It passes 1524 default tests, 396 slow tests, and nine viable mutants, with eight unviable.
+The focused Mac evidence covers the required macOS paths and signal proof. Those passing results do not close the five findings.
+The current facade read size does not prove descriptor association across fragmented frames.
+
+The host send and endpoint ownership follow the reviewed DP-2 split.
+The lead's documented rustix CTRUNC exception remains accepted with its stated leak-until-exit limit.
+PR B still owns the production receive path and end-to-end payload descriptor exclusion proof.
+This verdict grants no acceptance for PR B or for a completed real route.
+No pending ID, minimum list, or contracts pin changes.
+
+The required corrections remain in the source inspection above. Every finding, LOW included, must close before CLEAN.
+No round-limit decision is due. I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN (5 open).
