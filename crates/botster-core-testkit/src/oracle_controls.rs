@@ -172,4 +172,4 @@ fn testkit_screen(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

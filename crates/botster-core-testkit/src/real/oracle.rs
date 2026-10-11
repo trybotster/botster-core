@@ -152,30 +152,36 @@ mod slow_tests {
             );
         }
 
+        // The expected reply comes from an independent libghostty terminal (BUILD.md architecture rule 2); 82 prefix bytes
+        // wrap at 80 columns, so a terminal of another width gives another reply.
+        let request = b"\x1b[6n";
+        let prefix = [b'x'; 82];
+        let reply = crate::oracle_controls::tests::shadow(&SIZE, &prefix, request);
+        assert_eq!(reply["answerable"], json!(true), "{reply}");
+        assert_ne!(
+            reply,
+            crate::oracle_controls::tests::shadow(&Size { cols: 90, ..SIZE }, &prefix, request),
+            "the width decides the reply"
+        );
         let cpr = |h: &mut RealCoreHarness| {
             h.control(
                 "a",
                 "oracle_query_reply",
-                &json!({"session": "s1", "request_hex": "1b5b366e", "prefix_hex": hex_encode(&[b'x'; 82])}),
+                &json!({"session": "s1", "request_hex": hex_encode(request), "prefix_hex": hex_encode(&prefix)}),
             )
         };
-        assert_eq!(
-            cpr(&mut harness),
-            Ok(json!({"answerable": true, "reply_hex": hex_encode(b"\x1b[2;3R")})),
-            "82 bytes wrap once at 80 columns"
-        );
+        assert_eq!(cpr(&mut harness), Ok(reply));
 
         let payload = json!({"payload": {"$bytes_hex": hex_encode(&expected.snapshot().unwrap())}});
+        // The payload's screen is the visible screen of the terminal that made it.
         assert_eq!(
             harness.control("a", "oracle_screen_payload", &payload),
-            crate::oracle_controls::screen_payload(&payload)
+            Ok(json!({
+                "text": expected.screen_text(false).unwrap().text,
+                "rows": SIZE.rows,
+                "cols": SIZE.cols,
+            }))
         );
-        assert!(harness
-            .control("a", "oracle_screen_payload", &payload)
-            .unwrap()["text"]
-            .as_str()
-            .unwrap()
-            .contains("two"));
 
         core.begin(Op::Resize {
             session: sid("s1"),
