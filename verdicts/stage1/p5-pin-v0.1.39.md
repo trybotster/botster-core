@@ -261,3 +261,48 @@ The earlier ST-6 structural follow-up remains separate and open. This delta does
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (2 open: P282-SI-1 MEDIUM, P282-SI-2 LOW) at 017f01277f7e903154b85ba2d9316c97aa50f42a against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+
+## Round 3 — EV-5 retention delta, 2026-10-11
+
+Head: `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+Tree: `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+Base remains `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Sol reads the complete one-commit delta from 017f0127: five added lines in core-real-pending.txt only.
+It restores ev_5_poll_wakes_pending_work with the raw failure, historical passes, diagnosis owner, and record path.
+Sol verifies the final identifier sets against the base: twelve removals and zero additions.
+A textual diff shows EV-5 moved, but the set retains it. No extra id leaves pending.
+Every other source blob equals the previously reviewed head. The Round 2 import and new-test review applies unchanged.
+
+Sol reads the lead's decision in core-lead.md, line 1086.
+The lead requires this id to remain pending, a failure record, a new head, and one final gate; P5 retains SLOT.
+The lead assigns diagnosis to P5 after #282. R-43(5)'s strict Woken-after-call rule remains unchanged.
+Sol reads the complete failure record.
+Path: `shared/core-stage1/handoffs/flaky-ev-5-poll-wakes-pending-work-017f0127.md`.
+SHA-256: `caba625d9dfb70c599758a5b24d0d2070aa55a5618f25053f4d39d62a07fc122`.
+The record distinguishes FAIL from INCONCLUSIVE and identifies both unresolved causes without selecting either.
+P282-SI-1 closes for this PR's pending-removal scope under that lead decision.
+The diagnosis remains open; this retention does not prove a Core or transcript repair.
+No result from the running d893833e gate is read or accepted.
+
+Body SHA-256: `a1780691800c2544fd703d5aa32316dc38f1e4ed7ab460a22c29d0b4dc85ac0c`.
+Sol reads its complete delta from the Round 2 body and checks the retained-removal statements.
+P282-SI-2 closes: the Slot delta now correctly states three imported comment groups.
+The body adds the retention, failure record, diagnosis owner, and running-gate status.
+Package receipt msg_plugin-w_1791752477_a8fa5e confirms the exact retention and canonical record but keeps R282-D1 open.
+No completed new-head package CLEAN or final gate is accepted here.
+
+### P282-SI-3 — LOW, open: body removal statements still include retained EV-5
+
+This agrees with package R282-D1's follow-up.
+Summary still says thirteen ids leave. The table introduced as twelve removals still includes EV-5.
+Expected-change still says all four R-43(5) ids leave.
+The current source retains EV-5 and removes only twelve identifiers, including three R-43(5) ids.
+State twelve in Summary. Remove EV-5 from the removal table and state its retention separately.
+Correct the current Expected-change statement. Preserve the historical A5-4 passes.
+This body correction needs no execution.
+
+Final acceptance awaits the corrected body, completed exact-head gate, and matching package verdict.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: NOT CLEAN (1 open: P282-SI-3 LOW; final gate and package completion pending) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
