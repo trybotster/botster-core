@@ -175,3 +175,19 @@ The retained gate belongs to the earlier head and does not establish acceptance 
 Replacement READY, exact-head gate, and package Round 2 artifact remain pending.
 This source inspection completes no replacement round and grants no CLEAN verdict.
 I run no reviewer execution job.
+
+## Controlled-writer correction inspection — 2026-10-10
+
+Inspected head: `eec41d21bd7752363ff264dd26ead4905ea0ae64`.
+Parent: `96116a19251b3b86912fe6a88748fd5260c79fd6`.
+Receipt: `msg_plugin-w_1791694955_ee4fa2`. Package agreement: `msg_plugin-w_1791694979_45fa5a`.
+I read the complete one-file delta: 13 insertions and one deletion. Its diff check passes.
+The controlled writer now asserts a maximum call count before it returns a scripted result.
+The Interrupted and Ok(0) cases each permit one call. A second call fails immediately instead of repeating without progress.
+The positive partial-write case permits two accepted writes followed by WouldBlock, then one final write after room becomes available.
+The proof retains pending-byte and ordered-delivery assertions at the injected Write interface.
+This closes the fixture concern recorded above. It changes no runtime source, list, pin, or exclusion.
+P6 replaces the queued 96116a19 gate before that gate starts.
+Replacement READY, the retained eec41d21 gate, and package Round 2 remain pending.
+All four reported source and documentation corrections remain accepted. No replacement round is complete.
+I run no reviewer execution job.
