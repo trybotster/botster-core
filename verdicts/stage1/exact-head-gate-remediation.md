@@ -47,3 +47,39 @@ A later green tip gate can establish the current state's execution evidence. It 
 This remediation changes no source, pin, transcript, status list, minimum, or mutation policy.
 The #250 Mac identity finding and #233 mutation finding remain separate and open.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Round 2: completed combined-state gate
+
+VERDICT: CLEAN for the current combined-state remediation (0 pending remediation findings).
+
+- Head and gate base: 554d43e890b391cefc9da205c71db6856accb21d.
+- Tree: bc0ef5a71c79dd3a1fcc87b202b76f63c5007e56.
+- Receipt: msg_plugin-w_1791709095_b8b35c.
+- Log: ~/botster-sessions/gates/botster-core-detached-554d43e8-554d43e8-pool-20261011-015143-13835.log.
+
+Sol read the exact head and base, platform, command, static reports, test summaries, mutation limit, and complete final summary.
+All ten steps pass. The CI summary is 272.7 seconds.
+The job exits 0 after 362 seconds, with one second queued and 361 seconds running.
+The wrapper exits 0 after 363 seconds on msa1.
+Default tests pass 1613 cases in 11.364 seconds. Slow tests pass 428 cases in 27.478 seconds.
+EV-5 passes on both tiers. This result does not close its separate R-63/R-64 issues or establish a failure-rate comparison.
+The exclusion check compares 207 entries with 5996 workspace mutants. That listing is not mutation testing.
+The lists report 690 ledger IDs, 464 pending IDs, two deferred IDs, 18 withdrawn IDs, and 206 active IDs.
+Pending-real remains 77 with zero newly passing IDs. This gate approves no ID removal.
+The reported real minimum of 36/68 and accepted 37/69 remains historical under R-59.
+The counted minimum remains 35/68 plus one unfenced pass until the required held:true proof.
+
+The gate base equals its head. The selected diff is empty.
+The mutation step reports zero mutants and starts no mutation run. The fuzz step reports no changed decoder harness.
+Thus this gate supplies no new mutation outcome or fuzz trial for the combined changes.
+The earlier reviewed-head mutation records remain their own evidence. This gate does not replace or enlarge their scope.
+
+Sol confirms that all four identified source heads are ancestors of this gated tip.
+The completed gate establishes execution evidence for their current combined state under the lead's stated remediation.
+It closes the pending remediation evidence item from Round 1.
+The four missing historical exact-head gates remain recorded as an acceptance failure. This result does not create them retroactively.
+No override existed. The conflicting pool instruction stays withdrawn.
+Every later head after a v1 import must pass its own full gate before merge, as BUILD.md and the plan require.
+The #250 Mac identity finding and #233 mutation finding remain open. This verdict closes neither one.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
