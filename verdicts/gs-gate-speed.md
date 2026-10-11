@@ -604,3 +604,29 @@ The lead reports that v1 is now `4ab8a985`. GS must merge the then-current tip a
 This CLEAN applies only to the exact head above. Carry-over requires a passing base-merge-check; otherwise, the new head needs a delta review.
 
 I ran no gate, build, or test. I will wait for the next head and its evidence.
+
+## PR #260: verified base merge
+
+- Head: `f291a5e6d3f31e3ad769f52e125647a292076d52`.
+- Base: `cfd6ee364e2eafd329ce4e665100168918d383cb`.
+- Reviewed parent: `f41e42e016d1dfa3a7015f2c8473b743baf04e9a`.
+- VERDICT: CLEAN (carried over through the verified base merge).
+- Open findings: 0.
+
+The integration reviewer reports source CLEAN on the reviewed parent in commit `a57964bc340de4d4ff18845ab0a1ab08f6be9522`.
+
+I read the retained base-merge-check log:
+
+`~/botster-sessions/gates/botster-core-gs-slow-coverage-base-merge-check-f41e42e0-f291a5e6.log`
+
+All checks PASS: ancestry, conflict absence, disjoint paths, identical own diff, and the pending lists. I verified the merge parents with Git.
+
+The five changed base paths do not intersect the ten PR paths. The pending-list check confirms that the new head holds the base's files.
+
+The script reports 30764 bytes and SHA-256 `c0d79f9e593f81d39dcf809da9bbe392aa97ae766a747a488a4677ff82bb02c3` for its diff format.
+
+My independent plain `git diff` comparison also finds byte-identical own diffs: 30124 bytes, SHA-256 `22c330e994387f35fcbede87526f3e468c6029c0ac45ed9d7d0adabeba726dd6`.
+
+The package CLEAN carries over to the exact new head. The implementer reports that its one final gate is running.
+
+Gate acceptance remains pending. I ran no gate, build, or test.
