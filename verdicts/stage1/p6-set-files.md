@@ -87,3 +87,35 @@ The correction must retain those public behavior proofs.
 My preceding inspection missed this test-policy issue. Its statement that no integration source defect exists does not close this finding.
 The package reviewer is completing its evidence review. Its committed exact-head verdict remains pending.
 This inspection still issues no formal verdict. SF-R1-1 remains open for the formal round and correction.
+
+
+## Round 1 — 2026-10-11
+
+Exact head: `8f24d0eed5dcc7815cef1923ef075fb155c037b1`.
+Base: `475a442fa58cd2555c4121ce705ea3cf75470692`.
+Delta: all three PR paths against this base, including the recorded #238 merge resolution.
+Package Round 1 NOT CLEAN: `c7c17dcb71d496751f0ba34bdfef52dd247ab8a9`, `verdicts/p6-set-files.md`.
+I read the complete exact-head package round after `msg_plugin-w_1791705328_25f3e0`.
+Authority remains approved plan 23aj and BUILD.md at `56bd0a5`. Risk remains HIGH.
+
+**SF-R1-1 — LOW — the test asserts the internal SET_FILES constant.**
+
+At `xtask/src/base_merge/tests.rs:580`, the test checks `SET_FILES == [PENDING, REAL_PENDING]`.
+The user requires assertions on public behavior. This assertion checks the implementation's selection constant.
+P6 must remove the assertion and the exact-constant claim from the test comment and PR body.
+P6 must retain the repository proofs for disjoint removals, shared removals, and the non-set list failure.
+Those proofs exercise the public merge-check result and already detect selection regressions.
+The package finding and integration inspection agree. This finding remains open.
+
+The complete source and evidence inspection above applies to this exact head.
+I find no additional integration defect in the union rule, package interfaces, conformance accounting, or merge resolution.
+The one-sided byte rule, regular-file checks, ancestry checks, and conflict checks remain intact.
+Every conformance ID remains unchanged against current v1. The pin and contract assertions remain unchanged.
+The Prior-art comparison uses the binding OLD CORE pin and reuses the existing #190 checker.
+The retained exact-head Linux gate passes all ten stages and catches all ten mutants in stage 1.
+Stage 2 does not run. The retained result does not cover a future correction head.
+The historical real counts retain R-59's current limit of 35 / 68 plus one unfenced pass.
+A correction needs its exact-head package artifact and the required final-gate evidence.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (1 open)
