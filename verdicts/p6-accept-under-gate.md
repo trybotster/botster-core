@@ -144,3 +144,28 @@ GitHub names this exact head and keeps the PR open. This review accepts no futur
 I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-11: source verdict carryover after the base merge
+
+Exact head: `888a9d32880d92e49f92501671cbb987df972318`.
+Base: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+Parents: `7e3457fc53e8c78db41fa385c697448fdc410d8e` and the base above.
+Tree: `0bcf6a379cb06106e1cdad282c97332588feab45`.
+
+I read the complete retained base-check log:
+`~/botster-sessions/gates/botster-core-stage1-p6-accept-under-gate-888a9d32-pool-20261011-091605-25132.log`.
+Its reviewed head, new head, and base match this record. Both ancestry checks and all four conditions pass.
+Condition 1 reports no conflict. Condition 2 reports no overlap between 26 base paths and the three own paths.
+Condition 3 proves the complete own diff is byte-identical. Both condition-4 pending lists match the new base.
+Job and wrapper exit zero after 20 seconds, with one queued and 19 running.
+
+I independently compare both complete own diffs from Git objects: they match, with 9986 bytes.
+SHA256: `eca7e04f12bfd16693aff655b2b5ecc60c4ac6749e20773bde5d5d340df9651d`.
+All 26 imported path entries match the new base. Both pending files also match the base.
+These results satisfy the source carryover conditions. No new delta review is required.
+AG-SI-1 and AG-R1-1 remain closed. All public assertions and the reviewed correction evidence retain their stated scope.
+Zero findings remain. This record transfers the Round 3 source verdict to this exact head.
+The reported final gate result and final body remain pending. This verdict accepts no future import or gate result.
+I changed no product code and ran no execution job.
+
+VERDICT: CLEAN
