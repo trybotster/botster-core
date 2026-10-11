@@ -54,6 +54,8 @@ rand_chacha = "0.9"
 rand_core = "0.9"
 schemars = "1"
 regex = "1"
+# The xtask reads the slow tier's JUnit file as XML (real_proofs, plan 23s).
+roxmltree = "0.21"
 pty-process = "0.5.3"
 rustix = { version = "1", features = ["event", "fs", "process"] }
 serde = { version = "1", features = ["derive"] }
