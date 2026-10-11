@@ -180,3 +180,18 @@ Every imported mutation exclusion delta was checked. No exclusion covers the ora
 The exact-head full gate passes all ten steps: 40 mutants, 33 caught, 7 unviable, no miss or timeout.
 Integration CLEAN remains required. Under Q8, this gate counts for merge when both CLEANs cover this unchanged head.
 The reviewer ran no test, build, or gate. The reviewer waits for a doorbell and does not poll.
+
+
+### Integration CLEAN received for Core #275
+
+The integration reviewer reports CLEAN at `147853f8a8ea9c39ab58433d29304c3e75eb8ce5`.
+Reviewed base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Integration verdict: `aff5ce79398391b58ea88371350759d230bbb83b`, `verdicts/stage1/rc-oracle-controls.md`, round 1.
+Message: `msg_plugin-w_1791740275_9f669f`.
+The integration reviewer closes both package findings and completes the import delta review.
+The integration reviewer confirms that the static merge tree equals the source head.
+The exact-head gate has ten PASS results, 33 matched caught identities, seven unviable mutants, and no miss, timeout, or FLAKY.
+Both testkit-to-real pending moves pass on the testkit.
+Both CLEAN verdicts now cover the supplied green gate's exact head and base.
+Q8 requires no repeat for this unchanged head. A later import requires the applicable review record and exact-head gate.
+Historical Mac and retry limits remain explicit. The reviewer ran no test, build, or gate.
