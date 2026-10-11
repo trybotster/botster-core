@@ -131,3 +131,7 @@ Commits since round 1: `72eb31b` (R-80: the rule, addition (1), the fences, the 
 ### Steward's R-80 correction after round 2 (2026-10-11): one more open item
 
 - **F6 (open, by ruling):** `st_6_pages_owned_last_flag_and_range` step 8 is FENCED with an appended R-57 title sentinel, not listed in the exception file. The steward: "A sentinel works there." So the R-80 exception entry and its comment leave the list, and the transcript gets the sentinel and its `await_title`. On the next head I check the sentinel's distinctness (R-61 (a)(2)) and that no later step asserts an event that the fence consumes.
+
+### 016c's round 2 finding on the same head (package scope; recorded, not repeated)
+
+- MEDIUM: `output_fences` (`activities`) recurses through `$one_of`, so it takes an `Activity{S, Output}` in any alternative as a fence. `pump_until {"$one_of": [Activity{s1, Output}, Bell{s1}]}` can end on `Bell` with no output applied, and the lint clears s1. Alternatives that name s1 and s2 clear both. My round 2 missed it. I check the fix on the next head: an alternative of `$one_of` (or any matcher that can end the wait without it) is not a fence, with regression cases.
