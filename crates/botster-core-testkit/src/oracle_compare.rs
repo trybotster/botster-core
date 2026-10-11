@@ -23,7 +23,8 @@
 //! | `tab_stops_margins_charsets` | [`Terminal::formatter_extras`]: libghostty's formatter, not the encoder (R-62 F3a) |
 //! | `saved_cursor` | after DECRC: the cursor's position, pending wrap, style and pen, the modes (origin mode) and the charsets |
 
-use botster_terminal_ghostty::{Error, Terminal};
+use botster_core_contract::prelude::{ColorProfile, Size};
+use botster_terminal_ghostty::{Error, History, Terminal};
 use std::collections::BTreeMap;
 
 /// DECRC: restore the saved cursor.
@@ -123,11 +124,43 @@ pub(crate) fn differences(a: &mut Terminal, b: &mut Terminal) -> Result<Vec<&'st
         .collect())
 }
 
+/// O_raw (R-62): a fresh oracle terminal of the session's size and color profile that applies `output`, every output byte
+/// of the session from its start, in order and unchanged (the oracle never models the line discipline, R-62 Q3).
+///
+/// # Errors
+/// libghostty refused the size or the profile.
+pub(crate) fn raw_oracle(
+    size: &Size,
+    profile: Option<&ColorProfile>,
+    output: &[u8],
+) -> Result<Terminal, Error> {
+    let mut terminal = Terminal::new(size, History::On)?;
+    if let Some(profile) = profile {
+        terminal.set_color_profile(profile)?;
+    }
+    terminal.vt_write(output);
+    Ok(terminal)
+}
+
+/// `oracle_resume`'s answer on both tiers (R-62, R-67): true only if both comparisons hold. (1) `resumed` (O_resume: the
+/// capture's pages with every output byte after the capture's cut) equals O_raw. (2) `model` (the session's model, decoded
+/// from its own capture or snapshot into an oracle terminal) equals O_raw. `raw` makes a fresh O_raw for each comparison,
+/// because the saved-cursor reading changes the oracles that it compares.
+///
+/// # Errors
+/// `raw` or a libghostty read failed.
+pub(crate) fn resume_holds(
+    mut resumed: Terminal,
+    mut model: Terminal,
+    raw: impl Fn() -> Result<Terminal, Error>,
+) -> Result<bool, Error> {
+    Ok(differences(&mut resumed, &mut raw()?)?.is_empty()
+        && differences(&mut model, &mut raw()?)?.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use botster_core_contract::prelude::Size;
-    use botster_terminal_ghostty::History;
 
     fn terminal(bytes: &[u8]) -> Terminal {
         let mut terminal = Terminal::new(
@@ -141,6 +174,80 @@ mod tests {
         .unwrap();
         terminal.vt_write(bytes);
         terminal
+    }
+
+    /// The output of `st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut` at `contracts-v0.1.36`:
+    /// steps 6 (before the capture) and 13 (after it).
+    const BEFORE: &[u8] =
+        b"\x1b[3;5H\x1b[1;31m\x1b7\x1b[1;10H\x1bH\x1b[2;4r\x1b(0\x1b[0m\x1b]2;r62-st6b-dec-1\x1b\\";
+    const AFTER: &[u8] = b"\x1b8x\tlqk\x1bD\x1bD\x1bD\x1b(By\x1b]2;r62-st6b-dec-2\x1b\\";
+
+    fn size() -> Size {
+        Size {
+            rows: 4,
+            cols: 10,
+            cell_px: None,
+        }
+    }
+
+    /// A terminal that applied `bytes`, through its snapshot: the pages of a capture of that state.
+    fn captured(bytes: &[u8]) -> Terminal {
+        let pages = terminal(bytes).snapshot().unwrap();
+        Terminal::from_snapshot(&pages, History::On, None).unwrap()
+    }
+
+    fn raw() -> Result<Terminal, Error> {
+        raw_oracle(&size(), None, &[BEFORE, AFTER].concat())
+    }
+
+    /// R-62 evidence: a capture with one field removed (the saved cursor) gives `false` through comparison 1 and through
+    /// comparison 2; the whole capture gives `true`.
+    #[test]
+    fn a_capture_without_the_saved_cursor_fails_each_comparison() {
+        let resumed = |pages: Terminal| {
+            let mut pages = pages;
+            pages.vt_write(AFTER);
+            pages
+        };
+        // DECSC (`1b37`) occurs once in the step: the capture that loses it has no saved cursor.
+        let at = BEFORE.windows(2).position(|w| w == b"\x1b7").unwrap();
+        assert_eq!(BEFORE.windows(2).filter(|w| *w == b"\x1b7").count(), 1);
+        let without: Vec<u8> = [&BEFORE[..at], &BEFORE[at + 2..]].concat();
+        let model = || captured(&[BEFORE, AFTER].concat());
+        assert!(resume_holds(resumed(captured(BEFORE)), model(), raw).unwrap());
+        assert!(!resume_holds(resumed(captured(&without)), model(), raw).unwrap());
+        let mut without_after = without.clone();
+        without_after.extend_from_slice(AFTER);
+        assert!(!resume_holds(resumed(captured(BEFORE)), captured(&without_after), raw).unwrap());
+    }
+
+    #[test]
+    fn the_raw_oracle_takes_the_size_and_the_profile() {
+        let profile = ColorProfile {
+            foreground: botster_core_contract::prelude::Rgb { r: 1, g: 2, b: 3 },
+            background: botster_core_contract::prelude::Rgb { r: 4, g: 5, b: 6 },
+            cursor: None,
+            palette: None,
+        };
+        let mut plain = raw_oracle(&size(), None, b"x").unwrap();
+        let mut colored = raw_oracle(&size(), Some(&profile), b"x").unwrap();
+        assert_eq!(
+            differences(&mut plain, &mut colored).unwrap(),
+            vec!["colors"]
+        );
+        let mut expected = terminal(b"x");
+        assert!(
+            differences(&mut raw_oracle(&size(), None, b"x").unwrap(), &mut expected)
+                .unwrap()
+                .is_empty()
+        );
+        let wide = Size { cols: 11, ..size() };
+        assert!(differences(
+            &mut raw_oracle(&wide, None, b"x").unwrap(),
+            &mut terminal(b"x")
+        )
+        .unwrap()
+        .contains(&"size"));
     }
 
     #[test]
