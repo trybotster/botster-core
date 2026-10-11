@@ -402,9 +402,6 @@ pub struct Workers {
     impostors: Arc<Mutex<BTreeMap<InstanceKey, Impostor>>>,
     scheduler: SchedulerHandle,
     read_chunk: usize,
-    /// The kernel form of the workers' link reads with descriptors (plan 23ae). General runs use the macOS form: a draw
-    /// from the seeded stream would move every later draw of a run (A5-2). Each framing proof sets both forms.
-    descriptor_form: DescriptorForm,
 }
 
 impl std::fmt::Debug for Workers {
@@ -442,13 +439,7 @@ impl Workers {
             impostors: Arc::default(),
             scheduler,
             read_chunk,
-            descriptor_form: DescriptorForm::StopsBeforeTheSegment,
         }
-    }
-
-    /// The kernel form of the link reads of the workers that start from now (plan 23ae).
-    pub fn set_descriptor_form(&mut self, form: DescriptorForm) {
-        self.descriptor_form = form;
     }
 
     /// Runs every ready input of every worker at `now`, until none is ready.
@@ -870,7 +861,9 @@ impl Spawner for WorkerSpawner {
             read_chunk: self.workers.read_chunk,
             descriptors: BTreeMap::new(),
             next_descriptor: 0,
-            descriptor_form: self.workers.descriptor_form,
+            // General runs use the macOS form (plan 23ae): a draw from the seeded stream would move every later draw of a
+            // run (A5-2). Each framing proof sets both forms on its edges.
+            descriptor_form: DescriptorForm::StopsBeforeTheSegment,
             routes: BTreeMap::new(),
             pty_budget: None,
         };

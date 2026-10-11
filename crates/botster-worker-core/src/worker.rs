@@ -509,16 +509,24 @@ impl Worker {
         if !self.link_read_begins(descriptors) {
             return;
         }
-        let mut offset = 0;
-        while offset < bytes.len() && matches!(self.link, LinkState::AwaitHello | LinkState::Ready)
-        {
-            // The decoder holds no part of a frame, so the byte at `offset` is a frame's first byte: the frame starts in this
-            // read. `push` takes no byte past a complete frame, so a frame that ends in this read never shares a push with
-            // the next one.
+        let mut rest = bytes;
+        // Each pass takes at least one byte (the decoder hands out every complete frame before the next push), or the read
+        // ends: the bound only keeps the loop finite.
+        for _ in 0..=bytes.len() {
+            if rest.is_empty() {
+                break;
+            }
+            if !matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
+                break;
+            }
+            // The decoder holds no part of a frame, so the first byte of `rest` is a frame's first byte: the frame starts in
+            // this read. `push` takes no byte past a complete frame, so a frame that ends in this read never shares a push
+            // with the next one.
             if self.decoder.buffered() == 0 {
                 self.frame_starts();
             }
-            offset += self.decoder.push(&bytes[offset..]);
+            let took = self.decoder.push(rest);
+            rest = &rest[took..];
             loop {
                 match self.decoder.next_frame() {
                     Ok(Some(frame)) => self.on_frame(now, frame.kind, &frame.payload),

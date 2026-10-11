@@ -1,8 +1,9 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
+use botster_core_contract::prelude::RouteId;
 use botster_core_link::launch::WorkerLaunch;
 use botster_worker_core::{CandidateId, DescriptorId, Input, WorkerConfig};
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -110,6 +111,60 @@ pub fn take_candidate(next: &mut u64) -> CandidateId {
     let id = CandidateId(*next);
     *next += 1;
     id
+}
+
+/// The route streams of the control link (DP-2): each received stream under the id that the machine knows, until the
+/// machine binds it to a route or closes it, and each bound stream until its route closes. Dropping a stream closes it.
+/// `T` is the stream: `OwnedFd` in the driver.
+#[derive(Debug)]
+pub struct DescriptorTable<T> {
+    next: u64,
+    unbound: BTreeMap<DescriptorId, T>,
+    routes: BTreeMap<RouteId, T>,
+}
+
+impl<T> Default for DescriptorTable<T> {
+    fn default() -> Self {
+        DescriptorTable {
+            next: 0,
+            unbound: BTreeMap::new(),
+            routes: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T> DescriptorTable<T> {
+    /// Keeps a received stream under a new id. Ids count up from 1 and never repeat in one worker.
+    pub fn keep(&mut self, stream: T) -> DescriptorId {
+        self.next += 1;
+        let id = DescriptorId(self.next);
+        self.unbound.insert(id, stream);
+        id
+    }
+
+    /// `BindRoute`: the stream of `descriptor` becomes the route's.
+    pub fn bind(&mut self, descriptor: DescriptorId, route: RouteId) {
+        if let Some(stream) = self.unbound.remove(&descriptor) {
+            self.routes.insert(route, stream);
+        }
+    }
+
+    /// `CloseDescriptor`, or a read that the adoption fence dropped: the unbound stream closes.
+    pub fn close(&mut self, descriptor: DescriptorId) {
+        drop(self.unbound.remove(&descriptor));
+    }
+
+    /// The streams that the machine will never hear of (the adoption fence dropped their reads) close.
+    pub fn close_all(&mut self, descriptors: Vec<DescriptorId>) {
+        for descriptor in descriptors {
+            self.close(descriptor);
+        }
+    }
+
+    /// `RouteClose`: the route's stream closes.
+    pub fn close_route(&mut self, route: RouteId) {
+        drop(self.routes.remove(&route));
+    }
 }
 
 /// The endpoint waits for its next event, and the driver accepts nothing from it, while it is not readable. The readiness
@@ -470,6 +525,53 @@ mod tests {
         let ids: Vec<CandidateId> = (0..3).map(|_| take_candidate(&mut next)).collect();
         assert_eq!(ids, [CandidateId(0), CandidateId(1), CandidateId(2)]);
         assert_eq!(next, 3);
+    }
+
+    /// A stream that records its close, for the descriptor table.
+    struct Stream(u8, std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+    impl Drop for Stream {
+        fn drop(&mut self) {
+            self.1.borrow_mut().push(self.0);
+        }
+    }
+
+    /// DP-2: received streams get distinct ids that count up from 1. A bound stream lives until its route closes; an
+    /// unbound one until `CloseDescriptor` or the fence closes it. A stream closes once, and an unknown id closes nothing.
+    #[test]
+    fn the_descriptor_table_keeps_each_stream_until_its_close() {
+        let closed = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut table = DescriptorTable::default();
+        let ids: Vec<DescriptorId> = (1..=3)
+            .map(|n| table.keep(Stream(n, closed.clone())))
+            .collect();
+        assert_eq!(ids, [DescriptorId(1), DescriptorId(2), DescriptorId(3)]);
+        table.bind(ids[0], RouteId(7));
+        table.close(ids[0]);
+        assert!(closed.borrow().is_empty(), "a bound stream is the route's");
+        table.close(ids[1]);
+        assert_eq!(*closed.borrow(), [2]);
+        table.close(ids[1]);
+        table.close(DescriptorId(99));
+        table.bind(DescriptorId(99), RouteId(8));
+        table.close_route(RouteId(8));
+        assert_eq!(*closed.borrow(), [2], "unknown ids close nothing");
+        table.close_route(RouteId(7));
+        assert_eq!(*closed.borrow(), [2, 1]);
+        table.bind(ids[2], RouteId(9));
+        table.close_route(RouteId(9));
+        assert_eq!(*closed.borrow(), [2, 1, 3]);
+        let fenced = [
+            table.keep(Stream(4, closed.clone())),
+            table.keep(Stream(5, closed.clone())),
+        ];
+        assert_eq!(fenced, [DescriptorId(4), DescriptorId(5)]);
+        table.close_all(fenced.to_vec());
+        assert_eq!(
+            *closed.borrow(),
+            [2, 1, 3, 4, 5],
+            "the fence closes every dropped stream"
+        );
     }
 
     /// The endpoint and a candidate wait while they are not readable (edge-triggered readiness).
