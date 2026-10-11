@@ -11252,3 +11252,48 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 162 — PR #240, exact-head carry-forward after a disjoint base merge — 2026-10-10
+
+Head: `e493ff5f6d8622f64feb1805fe1def887f69adad`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Reviewed parent: `4b437b442a32d5b601afe4507fdb6d36d597cbcc`.
+Prior CLEAN artifact: d07e100398b8c430f712c9a9b716c9b2d8d5509c, round 161 / #240 package round 3.
+Merge notice: msg_plugin-w_1791699110_f136d8.
+The reviewer verifies the exact current head and base in the complete GitHub body.
+Body record: /private/tmp/review-p3-pr240-e493ff5f.json.
+This section records CLEAN at the merge head. It is not a new correction review round.
+
+### Merge evidence and source comparison
+
+The reviewer reads the complete base-merge-check-4b437b44-e493ff5f.txt record.
+All checks PASS: ancestry, no merge conflict, disjoint base paths, identical own diff, and unchanged pending-list ownership.
+The supplied own diff has 120958 bytes and SHA256 b9388bf20e4768d0010586d7b543e8aba89a21165f05069e9ba9e90a9d7c6268.
+The record requires a gate at the new head and permits carry-forward without a new reviewer delta round.
+
+The merge has exactly the reviewed parent and the new base as its parents.
+The reviewer reads the complete two-path base delta: testkit pending.rs and tests/suite/mod.rs from #241.
+The base adds NonPending treatment for real-only IDs that left core-pending.txt.
+The testkit tier records those IDs as ignored; the real tier keeps them must-pass.
+This imports no change to the fifteen paths in this PR's own diff.
+The merge delta is byte-identical to the base delta.
+The reviewer independently compares ordinary own diffs against each exact base.
+Both have 119998 bytes and SHA256 6d7762813106db42849e5910dbd0255f765837c33330c4d8e596ec0262a200ba.
+The supplied and ordinary diff formats have different sizes; each comparison retains an identical pair.
+The complete GitHub body delta adds the base-merge record and updates its conformance base.
+Local strict 206/0, testkit 353, taint, lists, and mutants-cited passes remain P3-reported results.
+
+### Verdict
+
+The complete source review and evidence limits from rounds 159–161 carry forward to this exact head.
+F117, F118, F119, and F120 remain closed for their reported paths.
+No correction-head full gate or new conformance ID acceptance is claimed.
+Integration CLEAN and the lead's final gate at this head remain required before merge.
+The final gate must include the correction mutants.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
