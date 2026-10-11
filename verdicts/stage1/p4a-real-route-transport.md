@@ -634,6 +634,10 @@ Sol ran no build, test, gate, mutation, reversal, measurement, or executable mer
 
 VERDICT: CLEAN (0 open) at 850bb78522e43967667ec839d5253e952822eea2
 
+Publication receipt msg_plugin-w_1791723068_1be009 closes the package publication limit.
+Sol verifies that fetched origin/stage1/review-p3 contains `1357ac2882c172114afb3b22eefe713f6f8deff0`.
+Integration completion d9b1d269 and parser verdict ff06aa63 are also pushed. No publication limit remains for these artifacts.
+
 ### Exact-head gate acceptance at 850bb785
 
 Owner completion: `msg_plugin-w_1791722007_8b128e`.
