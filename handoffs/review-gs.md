@@ -1,27 +1,23 @@
 # GS reviewer handoff
 
-## Current verdict
+## Current review result
 
-- PR: #252, run mutation stage 1 in place.
-- Head: `afc33981b70834589f93c37d25581c731efda30b`.
-- Base: `554d43e890b391cefc9da205c71db6856accb21d`.
-- Verdict: CLEAN.
-- Open findings: 0, including LOW.
+- PR: #253, reuse the slow pass as the stage-2 baseline.
+- Head: `6105272829458d691761af3b0ec1b380f80b9413`.
+- Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+- Verdict: NOT CLEAN (withdrawn).
+- Finding: GS-L2-R1-1 HIGH, unresolved in the withdrawn code.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The earlier head `c4d9c376` has a green Linux gate. Stage 1 catches all three in-diff mutants.
+The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. No package CLEAN applies to L2 or its two shell exclusions.
 
-I independently matched the copy and in-place evidence: 118 mutant outcomes and the baseline, with identical full identities and multiplicities.
+The reuse record omits permission modes. I proved that removing execute permission preserves a file's path and hash but prevents execution.
 
-GS-L1-R1-1 LOW is closed. The previous head `afd827eb` corrects the safety comment only. The PR body states the same baseline limit.
+The implementer accepted the finding. Withdrawal requires no repair to this PR. It does not establish safety.
 
-The latest head merges the new base. The base-merge-check fails because both branches changed `ci.rs`. I completed the required delta review.
+I ran no gate or build. I ran one temporary executable check to prove the finding.
 
-Every own-diff line remains identical except the index line and hunk headers. The base's stale-exclusion check does not change the mutation arguments.
-
-I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
-
-The final gate on the exact head remains required before merge.
+PR #252 remains package CLEAN at `afc33981` in `c30732d8`. Its final exact-head gate remains required before merge.
 
 PR #251 remains package CLEAN at `7b942de5` in `7b439442`.
 
@@ -35,11 +31,11 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the baseline reuse READY message. The final exact-head gate for #252 remains required before merge.
+Wait for the next review request. The implementer reports a design-only follow-up about slow-test failures that can produce false mutant catches.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
-The implementer addressed those code gaps through `4752bbb36b079d241a828410a6c25e89398b2314`. Formal review and runtime evidence remain pending. No CLEAN applies to those changes.
+The implementer addressed those code gaps through `4752bbb36b079d241a828410a6c25e89398b2314`. Formal review then found the permission-mode gap. L2 is now withdrawn.
 
 ## Branch setup
 

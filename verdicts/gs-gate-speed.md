@@ -238,3 +238,54 @@ I compared both own diffs. Every diff line is identical after removing the Git i
 The base changes in `ci.rs` add the stale-exclusion import and check. They do not change the mutation options or stage arguments. The merged file keeps both changes.
 
 No new finding is open. CLEAN now applies to `afc33981b70834589f93c37d25581c731efda30b`. The final gate on that exact head remains required.
+
+## PR #253: reuse the slow pass as the stage-2 baseline
+
+VERDICT: NOT CLEAN (withdrawn)
+
+- Reviewed head: `6105272829458d691761af3b0ec1b380f80b9413`.
+- Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+- Risk tier: HIGH.
+- Finding: GS-L2-R1-1, HIGH, unresolved in the withdrawn code.
+- Disposition: CLOSED without merge after the lead agreed to withdraw L2.
+- Review date: 2026-10-11.
+
+I verified that GitHub reports PR #253 as CLOSED with no merge. This change received no package CLEAN.
+
+### GS-L2-R1-1: file contents do not prove execution identity
+
+The record contains each candidate path and SHA-256. It contains no Unix permission mode. The same omission applies to selected test binaries.
+
+A worker that changes from mode 0755 to 0644 retains its path and hash. The reuse check therefore accepts the unchanged recorded identity.
+
+The candidate verifier can still read and hash that worker. Execution then fails. The old unmutated stage-2 baseline would reject the execution failure.
+
+Reuse can skip that rejection and allow the execution failure to count as a mutant catch. That weakens the gate.
+
+I proved the missing identity field with a temporary executable. It first exited 0. After removing execute permission, its path and hash remained equal, but execution raised PermissionError 13.
+
+Required correction, if this design returns: record execution-relevant metadata, reject unsupported file forms, and prove refusal after a permission change.
+
+The implementer accepted this finding. The lead then withdrew the design, so this PR requires no repair. Withdrawal does not prove the design safe.
+
+### Evidence and limits
+
+The exact-head gate is green:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-baseline-reuse-61052728-pool-20261011-020504-96712.log`
+
+Stage 1 reports 48 mutants: 41 caught and 7 missed. Stage 2 reuses the baseline and catches all 7 misses.
+
+I independently compared the two stage-2 runs in:
+
+`~/botster-sessions/gates/botster-core-gs-l2-old-vs-new-61052728-evidence.log`
+
+Both runs report the same 13 full mutant identities and outcomes: 11 caught and 2 unviable. The comparison includes multiplicity. Neither run reports a miss or timeout.
+
+This sample does not prove safety after an artifact permission change. It also does not prove equal behavior across nextest profiles or machine states.
+
+The closing comment cites those broader limits and a slow-test failure in another gate. I record that report as the withdrawal reason, not as my independent reproduction.
+
+The two new shell exclusions in this PR are withdrawn with the design. I approve neither exclusion through this review.
+
+I ran no gate or build. I ran only the temporary executable check described above. I will wait for the next review request.
