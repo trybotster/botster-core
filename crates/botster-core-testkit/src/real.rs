@@ -1899,8 +1899,48 @@ mod slow_controls {
         )
     }
 
-    /// Steward ruling R-55 (1), `host_crash` on real sessions:
-    /// - Condition 1: when an exit is unread, the edges are not quiet and the control is `Bad`; it acts after a pump.
+    /// Steward ruling R-55 (1) condition 1, `host_crash` on a real session: when an exit is unread, the edges are not quiet
+    /// and the control is `Bad`; after a pump it acts. Its own test, so that the ended worker's reaper is in no other test's
+    /// counts or wake (nextest runs each test in its own process).
+    #[test]
+    fn a_host_crash_waits_until_no_exit_is_unread() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let mut core = harness
+            .open(&spec_of("a", &data_dir, &harness))
+            .expect("open");
+        running(&harness, core.as_mut(), "s0");
+        let tap = harness.tap("a").unwrap();
+        assert_eq!(
+            harness.control("a", "lose_worker", &json!({ "session": "s0" })),
+            Ok(Value::Null)
+        );
+        let wake = core.wake_handle();
+        let deadline = Deadline::cleanup();
+        while lock(&tap).quiet() {
+            assert!(!deadline.expired(), "the exit of s0 never arrived");
+            // timer: deadline — the cleanup bound ends a wait for an exit that never arrives.
+            wake.wait(deadline.remaining());
+        }
+        assert!(matches!(
+            harness.control("a", "host_crash", &json!({})),
+            Err(ControlError::Bad(_))
+        ));
+        pump_until(core.as_mut(), |c| {
+            state(c, "s0") == SessionState::Lost(LostReason::WorkerGone) && lock(&tap).quiet()
+        });
+        drop(tap);
+        assert_eq!(
+            harness.control("a", "host_crash", &json!({})),
+            Ok(Value::Null)
+        );
+        drop(core);
+    }
+
+    /// Steward ruling R-55 (1), `host_crash` on real sessions, conditions 2 to 4 (condition 1 has its own test). Only the
+    /// two live workers ever run in this test, so no ended worker's reaper is in the counts or sends a late notify.
     /// - Condition 2, in the real-tier form of its follow-up (contracts `main` `d13a165`): the tap goes
     ///   with the Core, so no edge call follows. At the crash there is one reaper thread for each live worker, and the
     ///   descriptors beyond the count before the open are the wake's. One reap after the crash is a real event: the reaper's
@@ -1923,7 +1963,7 @@ mod slow_controls {
         let mut core = harness
             .open(&spec_of("a", &data_dir, &harness))
             .expect("open");
-        for session in ["s0", "s1", "s2"] {
+        for session in ["s1", "s2"] {
             running(&harness, core.as_mut(), session);
         }
         let worker = |s: &str| {
@@ -1933,27 +1973,10 @@ mod slow_controls {
                 .expect("the worker is recorded")
         };
         let (w1, w2) = (worker("s1"), worker("s2"));
-        let of = |s: &str| json!({ "session": s });
         let tap = harness.tap("a").unwrap();
-
-        assert_eq!(
-            harness.control("a", "lose_worker", &of("s0")),
-            Ok(Value::Null)
-        );
         let wake = core.wake_handle();
-        let deadline = Deadline::cleanup();
-        while lock(&tap).quiet() {
-            assert!(!deadline.expired(), "the exit of s0 never arrived");
-            // timer: deadline — the cleanup bound ends a wait for an exit that never arrives.
-            wake.wait(deadline.remaining());
-        }
-        assert!(matches!(
-            harness.control("a", "host_crash", &json!({})),
-            Err(ControlError::Bad(_))
-        ));
-        pump_until(core.as_mut(), |c| {
-            state(c, "s0") == SessionState::Lost(LostReason::WorkerGone) && lock(&tap).quiet()
-        });
+        // Ruling item 2 (a): pump until no more work, so the host drains the wake.
+        pump_until(core.as_mut(), |_| lock(&tap).quiet());
         // The test keeps the wake: after the crash, a reaper's notify on it is the event of a reap. `pump_until` pumped until
         // no more work, so the host drained the wake, and no host drains it after the crash: its next wake is a notify.
 
