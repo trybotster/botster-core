@@ -77,3 +77,42 @@ This verdict accepts the source delta only. It does not declare merge readiness 
 Sol ran no build, test, gate, measurement, reversal, or base-check script.
 
 VERDICT: CLEAN (source delta review; 0 open source findings)
+
+## Round 3 — final #49 import and gate — 2026-10-11
+
+Head: `ddce507e2c08e740f899e97dcfec566f3d2275b8`.
+Base: `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
+Parents: `efbb30636b29d506ab04acdb9f7f90031601c674` and the named base.
+Tree: `0b3c1c91c302cb55e05f1d5071f8f3f75b713196`.
+Owner receipt: `msg_plugin-w_1791739282_47355d`.
+
+Sol read the complete final Q7 log. Its SHA256 is `dfe2aca415f13ebe945871235cbecdcf9af3249eab014934089bebdc8d4b0c93`.
+All four conditions pass. The three imported paths have no overlap with the eighteen own paths.
+Sol independently compared the complete full-index own diffs. They are byte-identical at 61061 bytes.
+Their SHA256 is `eb6782c17e03d8e2a91f3f32e68c5a52bf8c373318e7e6d8193a6a09573d6134`.
+All three imported file blobs equal the base. The static merge tree equals the named head tree.
+Both line-set files remain absent from all four objects, as the retained check states.
+BUILD Q7 carries both source CLEANs from the reviewed efbb3063 head. Sol adds no source finding.
+
+Gate: `gates/botster-contracts-stage1-gs-r43-spurious-wakes-ddce507e-pool-20261011-101430-59112.log`.
+SHA256: `df5065e7ce3628995020420c7b1a47b05de4ba1636562c21b51438fe020891c5`.
+
+Sol read the exact head and base headers, all thirteen spurious-wake PASS records, both suite summaries, mutation records, and final exits.
+All ten gate steps pass in 384.4 seconds. The default suite has 2103 passes and zero skips.
+The slow suite has 33 passes and zero skips. Both Rust test budgets pass.
+The unmutated baseline passes. The mutation summary reports 22 mutants: twenty caught and two unviable, with no missed mutant.
+The retained log supplies aggregate counts without individual mutant identities or catcher records. Sol makes no independent identity-match claim.
+The complete log contains no FLAKY token. The job and wrapper exit zero after 394 seconds, with no queue wait.
+Sol makes no individual fuzz-corpus inspection claim.
+
+Sol read the complete final PR body and verified its head and base.
+The body names both imports, their checks, the source verdicts, and the final exact-head gate.
+The body retains historical reversal heads and the historical Core comparison limits.
+The body reports reviewer 016c's import disposition as no findings. Sol has not independently read that new disposition.
+Sol's earlier complete read of 016c's original ACCEPT remains as recorded in Round 1. The steward checks the additional review requirement.
+
+Both source findings remain closed. The final import and exact-head gate conditions for Sol's integration review are complete.
+The steward owns the merge. This verdict approves no future tag, Core pin, pending removal, or historical catch.
+Sol ran no build, test, gate, measurement, reversal, or base-check script.
+
+VERDICT: CLEAN (0 open)
