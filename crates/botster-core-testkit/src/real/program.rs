@@ -121,8 +121,20 @@ impl Hub {
 /// The harness's end of the probes' control sockets.
 pub(super) struct Programs {
     path: PathBuf,
-    hub: Arc<Hub>,
+    requests: Requests,
     threads: Vec<JoinHandle<()>>,
+}
+
+/// The requests to the probes, apart from the harness: a route's `route_fill` writes its session's output through it.
+#[derive(Clone)]
+pub(super) struct Requests {
+    hub: Arc<Hub>,
+}
+
+impl std::fmt::Debug for Requests {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Requests")
+    }
 }
 
 impl Programs {
@@ -140,9 +152,14 @@ impl Programs {
             .spawn(move || accept(&listener, &accepting))?;
         Ok(Programs {
             path,
-            hub,
+            requests: Requests { hub },
             threads: vec![accept],
         })
+    }
+
+    /// The requests to the probes, for a route of this harness (`route_fill`).
+    pub(super) fn requests(&self) -> Requests {
+        self.requests.clone()
     }
 
     /// The variables that the driver adds to each `Create` (`CoreHarness::probe_env`).
@@ -152,9 +169,47 @@ impl Programs {
 
     /// Signals `wake` whenever a probe reports input, while the handle that owns it lives.
     pub(super) fn watch(&self, wake: &Arc<dyn HostWake>) {
-        self.hub.lock().wakes.push(Arc::downgrade(wake));
+        self.requests.hub.lock().wakes.push(Arc::downgrade(wake));
     }
 
+    fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
+        self.requests.connected(worker)
+    }
+
+    fn request(&self, worker: ProcessIdentity, request: &Request) -> Result<(), ControlError> {
+        self.requests.request(worker, request)
+    }
+
+    /// Whether the probe of `worker` has connected (`program_ready`, R-60). It never waits.
+    fn has_connected(&self, worker: ProcessIdentity) -> bool {
+        self.requests.hub.lock().probes.contains_key(&worker)
+    }
+
+    /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
+    fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
+        let state = self.connected(worker)?;
+        Ok(state.probes[&worker].input.clone())
+    }
+
+    /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
+    pub(super) fn marks(&self) -> Marks {
+        Marks(Arc::clone(&self.requests.hub))
+    }
+
+    /// The output history of the probe of `worker`: every `pty_output` that it acknowledged, in order, with its mark. A
+    /// worker whose probe never connected has written none. It never waits.
+    pub(super) fn output(&self, worker: ProcessIdentity) -> Vec<(u64, Vec<u8>)> {
+        self.requests
+            .hub
+            .lock()
+            .probes
+            .get(&worker)
+            .map(|probe| probe.output.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl Requests {
     /// Waits until the probe of the session whose worker is `worker` connected, by the cleanup bound. A worker that is no
     /// longer the live process of its identity (it exited, or its pid was reused) fails at once, and at the bound: a worker ends
     /// with its payload, so a probe that exited (69 included: it could not connect) never connects.
@@ -185,7 +240,11 @@ impl Programs {
 
     /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it. The
     /// write and the wait for the acknowledgement share one cleanup bound; the write holds no lock.
-    fn request(&self, worker: ProcessIdentity, request: &Request) -> Result<(), ControlError> {
+    pub(super) fn request(
+        &self,
+        worker: ProcessIdentity,
+        request: &Request,
+    ) -> Result<(), ControlError> {
         let pid = worker.pid;
         let deadline = Deadline::cleanup();
         let (requests, target) = {
@@ -223,42 +282,21 @@ impl Programs {
         }
     }
 
-    /// Whether the probe of `worker` has connected (`program_ready`, R-60). It never waits.
-    fn has_connected(&self, worker: ProcessIdentity) -> bool {
-        self.hub.lock().probes.contains_key(&worker)
-    }
-
-    /// The probe of `worker` acknowledged the output `bytes` (`pty_output`): it goes to the probe's output history with the
-    /// next mark.
-    fn wrote(&self, worker: ProcessIdentity, bytes: Vec<u8>) {
+    /// The real `pty_output` path (`pty_output`, `route_fill`): the probe of `worker` writes `bytes`, and once it acknowledges
+    /// them they go to its output history with the next mark ([`super::resume`], R-62).
+    pub(super) fn write_output(
+        &self,
+        worker: ProcessIdentity,
+        bytes: Vec<u8>,
+    ) -> Result<(), ControlError> {
+        self.request(worker, &Request::Output(HexBytes(bytes.clone()).to_hex()))?;
         let mut state = self.hub.lock();
         let mark = state.marks;
         state.marks += 1;
         if let Some(probe) = state.probes.get_mut(&worker) {
             probe.output.push((mark, bytes));
         }
-    }
-
-    /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
-    pub(super) fn marks(&self) -> Marks {
-        Marks(Arc::clone(&self.hub))
-    }
-
-    /// The output history of the probe of `worker`: every `pty_output` that it acknowledged, in order, with its mark. A
-    /// worker whose probe never connected has written none. It never waits.
-    pub(super) fn output(&self, worker: ProcessIdentity) -> Vec<(u64, Vec<u8>)> {
-        self.hub
-            .lock()
-            .probes
-            .get(&worker)
-            .map(|probe| probe.output.clone())
-            .unwrap_or_default()
-    }
-
-    /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
-    fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
-        let state = self.connected(worker)?;
-        Ok(state.probes[&worker].input.clone())
+        Ok(())
     }
 }
 
@@ -278,7 +316,7 @@ impl Drop for Programs {
     /// then joins them. No other thread exists.
     fn drop(&mut self) {
         let connections = {
-            let mut state = self.hub.lock();
+            let mut state = self.requests.hub.lock();
             state.closing = true;
             std::mem::take(&mut state.connections)
         };
@@ -592,9 +630,7 @@ impl RealCoreHarness {
                     return Err(ControlError::Bad("bytes_hex: no bytes".into()));
                 }
                 let worker = self.worker_of(handle, &args.session)?;
-                self.programs
-                    .request(worker, &Request::Output(HexBytes(bytes.clone()).to_hex()))?;
-                self.programs.wrote(worker, bytes);
+                self.programs.requests().write_output(worker, bytes)?;
                 Ok(Value::Null)
             }
             "pty_input" => {

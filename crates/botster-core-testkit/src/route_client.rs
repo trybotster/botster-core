@@ -80,7 +80,7 @@ pub(crate) fn flag(args: &Value, key: &str) -> Result<bool, String> {
 }
 
 /// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
-fn fill_pattern(bytes: usize) -> Vec<u8> {
+pub(crate) fn fill_pattern(bytes: usize) -> Vec<u8> {
     const ALPHABET: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
     // Whole copies of the alphabet, cut to length: no loop condition, so no mutant of one can hang the fill.
     let mut pattern = ALPHABET.repeat(bytes.div_ceil(ALPHABET.len()));

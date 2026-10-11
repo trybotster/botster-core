@@ -1160,7 +1160,7 @@ impl CoreHarness for RealCoreHarness {
     /// harnesses serve it: the route is the client's, not the tap's.
     fn attach_stream(
         &mut self,
-        _handle: &str,
+        handle: &str,
         core: &mut dyn CoreApi,
         client: ClientId,
         session: &SessionId,
@@ -1173,6 +1173,10 @@ impl CoreHarness for RealCoreHarness {
             )
         };
         let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
+        // R-47 item 3: the worker end's send buffer, read here, before Core hands the end to the worker; the harness keeps
+        // no copy of it.
+        let worker_send_buffer = rustix::net::sockopt::socket_send_buffer_size(&worker_end)
+            .map_err(|e| stream_failed(e.into()))?;
         let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
         let result = core
             .attach(
@@ -1182,8 +1186,38 @@ impl CoreHarness for RealCoreHarness {
                 options,
             )
             .map_err(|refused| refused.error)?;
+        let tap = self.handles.get(handle).map(|h| h.tap.clone());
+        let route = match tap {
+            Some(tap) if self.tapped => route.with_fill(route::Fill {
+                requests: self.programs.requests(),
+                worker: session_worker(tap, session.clone()),
+                worker_send_buffer,
+                max_frame_bytes: usize::try_from(result.limits.max_frame_bytes)
+                    .unwrap_or(usize::MAX),
+            }),
+            _ => route,
+        };
         Ok((result, Box::new(route)))
     }
+}
+
+/// The worker of `session` as the stored row on the host of `tap` names it at each call (`route_fill`): the worker can come
+/// after the attach, while the session starts.
+fn session_worker(
+    tap: Weak<Mutex<Tap<RealEdges>>>,
+    session: SessionId,
+) -> Box<dyn Fn() -> Result<ProcessIdentity, String>> {
+    Box::new(move || {
+        let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+        let bytes = lock(&tap)
+            .stored_row(&row_key(&session))
+            .ok_or_else(|| format!("the route's session {} has no stored row", session.0))?;
+        let row = Row::decode(&session, &bytes)
+            .ok_or_else(|| format!("the row of the session {} does not decode", session.0))?;
+        row.worker
+            .map(|worker| worker.identity())
+            .ok_or_else(|| format!("the session {} has no worker process yet", session.0))
+    })
 }
 
 /// Whether the recorded process `identity` lives: it still matches its pid and start time (the inner edge's AD-6 check),
