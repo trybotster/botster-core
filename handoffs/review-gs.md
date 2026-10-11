@@ -26,7 +26,13 @@ The first gate failed on a signed-count parser mutant. The PR retains that log. 
 
 Log: `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-de819474-pool-20261011-045219-1794.log`.
 
-Integration review remains required. The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+Integration CLEAN is published in `7a7b414825cdcd4e008f99c7a2d5e8dc103c41c1` at the exact head and base above. No finding remains open.
+
+Sol independently confirmed the full gate, unchanged TOML values, all 16 catch identities, and the signed-count correction.
+
+This unchanged head requires no repeat gate under section 8. The lead owns the merge decision and current-base check.
+
+I ran no gate, build, or test.
 
 ## Previous PR #261
 
@@ -132,7 +138,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #262's integration review, merge receipt, or new head. PR #260 is merged. PR #256 source findings remain closed.
+Wait for PR #262's merge receipt or new head. PR #261 and PR #260 are merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

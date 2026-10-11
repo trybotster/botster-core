@@ -983,3 +983,13 @@ That gate missed `replace || with && in count_of` in both stages. Commit `d57dbe
 The current gate catches that exact operator mutant. The failed evidence remains visible; the change repairs the missing test before the new gate.
 
 Integration review remains required for this HIGH PR. The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+
+### Integration completion
+
+Sol published integration CLEAN in `7a7b414825cdcd4e008f99c7a2d5e8dc103c41c1` at the exact head and base above. No finding remains open.
+
+Sol read all four changed files and the complete package addition. Sol independently confirmed the unchanged TOML values and all 16 catch identities.
+
+Sol also confirmed the exact-head full gate and the signed-count correction. This unchanged head requires no repeat gate under section 8.
+
+The lead owns the merge decision and current-base check. I will wait for a merge receipt or a new head.
