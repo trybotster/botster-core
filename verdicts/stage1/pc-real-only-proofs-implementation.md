@@ -212,3 +212,50 @@ The correction needs its applicable package and integration delta review and exa
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open) at 617c14228183770b4fc32264aa875728910462de
+
+## Round 4 — final import, gate, and merge receipt, 2026-10-11
+
+Head: `2f26928054d225875b866a40d3cfdc3a83820b3b`.
+Base: `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9`.
+Tree: `8b603a9d4533360ab0ab2e89212aa4e71df45bbb`.
+Source CLEAN: `294f42cb67387cc308fb139afaca6220054bcadb` at `46094d5b504861e59b66ac8cf16b399841d7ec71`.
+Package final receipt: `34fbf8f0f98d28b03e301b3d29bc5297e469542a`.
+Owner receipts: `msg_plugin-w_1791734846_8994ad` and `msg_plugin-w_1791735157_ae36f9`.
+Package receipts: `msg_plugin-w_1791735150_fb32ab` and `msg_plugin-w_1791735167_a5e7ee`.
+
+I read the complete final package receipt at its committed SHA, the complete final PR body, and the supplied PASS check.
+The package receipt carries its source CLEAN to this exact head under BUILD's base-only import rule.
+I independently verify eighteen base paths, sixteen own paths, and no overlap.
+The own diff, with blob-index and hunk-location lines removed, is identical to the accepted source diff.
+My normalization gives 81,234 bytes and SHA256 e953209aad054559b4aabb5d2f8e48fd7f25dae72454a9fc83a776f8c2c55f6f.
+The shared check uses a different binary normalization: 85,312 bytes and SHA256 0a93c082c309db2832ab3dc5359ab75bfc2fa3fc78e0152c0803b70ddf06eb4f.
+Both pending files equal the new base. The static merge tree equals the exact head tree above.
+RP-SI-1 and RP-SI-2 remain closed. No source change requires another delta review.
+
+The history contains two base imports after source CLEAN.
+e363e24fbfbd1696c568467809f8248e03af073a first imports d582853da895688710ab97f8f1a0858599e8ba18.
+The final head imports 0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9 onto that merge.
+The body records the stopped first gate. The lead's handoff directs PC to import the new base after #272 merges.
+This receipt preserves both imports. It does not describe them as one import.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-pc-real-only-proofs-2f269280-pool-20261011-085825-53068.log`.
+SHA256: `d18ee68b43e1c5c3de937235ef24feb47f168beeeac06cd40dcc961f71601dc9`.
+I read the exact head/base headers, stage summaries, own-trial PASS, proof-check result, baseline, stage-2 records, and exits.
+A static parser matches all 81 raw caught identities to all 81 named catch identities without extra or missing records.
+It matches the three stage-1 missed identities exactly to the three stage-2 caught identities.
+All ten stages pass in 492.8 seconds. Default passes 1724 tests; slow passes 553 tests.
+AD-6's own real trial passes in 0.209 seconds. The same-run check verifies its exact identity and one named proof.
+Stage 1 has 83 mutants: 78 caught, three missed, two unviable, zero timeout, in 213.3 seconds.
+The unmutated slow baseline passes all 553 tests. Stage 2 catches all three slow_coverage::check replacements in 94.1 seconds.
+The final result is 81 caught, two unviable, zero missed, and zero timeout. The log contains no FLAKY token.
+The job exits zero after 502 seconds. The wrapper exits zero after 503 seconds.
+The minimum remains 56 / 69 testkit, 46 / 68 real-passing, and 47 / 69 real-accepted.
+Six passing pending-real identifiers remain pending. This review authorizes no pending removal.
+The earlier OU-9 structural defect remains open. A gate with no FLAKY result does not close that defect.
+
+GitHub reports #264 merged at a0adb1321bfc3deb7d16735e9a622775ba5f1a2d.
+I verify that merge's exact base/head parents and its equality to the accepted head tree.
+I also verify #272 merge 0e1f2fee with parents d582853d and 7e07b775, and accepted tree 999bd68f85420be82f0bc36e9a27cdfac80f7b10.
+I ran no execution job. The static merge calculation required permission to write Git's temporary objects; its approved retry succeeded.
+
+VERDICT: CLEAN (0 open) at 2f26928054d225875b866a40d3cfdc3a83820b3b
