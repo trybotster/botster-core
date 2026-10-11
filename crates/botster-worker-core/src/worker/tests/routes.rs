@@ -1539,6 +1539,55 @@ fn queued_route_input_at_the_payloads_end_is_refused_session_ended() {
     );
 }
 
+/// DP-5, IN-2: a client's input that starts while the payload is being stopped (after `Stop`, or after `Kill`) is refused
+/// `session_ended` with its op and no written bytes, and reaches no PTY, as a host write is `NotWritten(Stopping)`.
+#[test]
+fn route_input_during_a_stop_is_refused_session_ended() {
+    for stop in [HostMsg::Stop, HostMsg::Kill] {
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = w.send(&stop);
+        actions.extend(w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&bytes_frame(4, b"zz")),
+        }));
+        assert!(pty_writes(&actions).is_empty(), "{stop:?}");
+        client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            refusals_written(&client),
+            vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
+            "{stop:?}"
+        );
+    }
+}
+
+/// DP-5, IN-2 (PR3 F113): a client's input that waits behind a host write reaches its turn after `Stop` or `Kill`, before
+/// the payload exits: it is refused `session_ended` with its op and no written bytes, and only the host's write reaches the
+/// PTY.
+#[test]
+fn queued_route_input_that_starts_after_a_stop_is_refused_session_ended() {
+    for stop in [HostMsg::Stop, HostMsg::Kill] {
+        let (mut w, mut client, _) = attached(limits());
+        let mut actions = w.send(&write(1, b"abc", None));
+        actions.extend(w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: client_frame(&bytes_frame(4, b"zz")),
+        }));
+        actions.extend(w.send(&stop));
+        actions.extend(w.feed(Input::PtyWritten(Ok(3))));
+        assert_eq!(
+            pty_writes(&actions),
+            b"abc",
+            "{stop:?}: only the host's write"
+        );
+        client.take_all(&mut w, RouteId(1), actions);
+        assert_eq!(
+            refusals_written(&client),
+            vec![(Some(Op(4)), RefusalReason::SessionEnded, None)],
+            "{stop:?}"
+        );
+    }
+}
+
 /// DP-8, AM-2 (PR3 F90): an adoption fences the old host's requests only. A client's input that waits behind the old
 /// host's write keeps its place at the admission point and is written after that write, with no refusal.
 #[test]
