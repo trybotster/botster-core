@@ -1381,3 +1381,35 @@ The lead assigns the slot to #288 and directs RC to import that `v1` once and po
 The final gate may start only after the integration reviewer also accepts the reproduction.
 The future import requires its applicable delta review. This receipt accepts no imported source or future gate result.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — disjoint import of #294 checks
+
+Message: `msg_plugin-w_1791762717_e40b47`.
+New head: `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+New base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Tree: `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+The merge has parents `46c8c5481a3cdf11ec98949227fda32f4d0f0ee0` and the new base above.
+The reviewer read the complete canonical check, strict-log header and result, four moved-ID results, and live body.
+Canonical log: `gates/botster-core-rc-oracle-base-merge-check-09e9fbc8-20261011-165140.log` under `~/botster-sessions`.
+All conditions pass. The base changes only `xtask/src/fsutil.rs` and `xtask/src/lists.rs`.
+Neither path is in the own diff. The check reports the non-list own diff byte-identical at 42637 bytes.
+Its SHA-256 is `0b0844ddb5606e1bf9f7823152d1757b9c5b7eef90dbd0fa127925b3538123b1`.
+Both pending files remain unchanged. The reviewer independently verifies no oracle-code, pending-file, or mutation-exclusion delta from the prior head.
+No new package source delta round is required for this import. This is no final CLEAN carry: final acceptance was still pending.
+
+Strict log: `gates/botster-core-rc-oracle-strict-09e9fbc8-20261011-165122.log` under `~/botster-sessions`.
+Its header names this exact head and seeds 0-31 with pending-strict enabled.
+The record begins with a refusal because `NEXTEST_TEST_THREADS` is missing, then retains the conformance results.
+It reports 245 passes, zero failures, and normal `ok` results for all four moved IDs.
+That result supplies a retained local summary; the refused command is not a passing xtask check.
+The final exact-head gate must supply acceptance evidence with the required resource settings.
+
+This import retains contracts-v0.1.39. It does not import the .42 R-80 fence repair.
+The earlier receipt's repair-import wording describes the planned repair; it does not describe #294's two-file check import.
+The accepted controlled reproduction and lead direction remain necessary for the next gate while the cause is unchanged.
+The integration reviewer's reproduction acceptance remains due in the messages received by this reviewer.
+The final body must name this new head/base and canonical check and retain the completed reproduction and gate disposition.
+Its current final-slot section still describes the previous head; no final body is accepted yet.
+Open package source findings: 0. Final acceptance remains pending.
+The reviewer ran no test, build, gate, or diagnostic.
