@@ -2541,3 +2541,59 @@ The plan keeps #47 fixed at f303ccdb while reviewers assess R68-E1. All three re
 This CLEAN accepts the plan text. It accepts no future PR, tag, implementation, gate, or pending removal. The active Core code pin remains .36. Earlier findings remain closed. Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at f561dd4e7132c801395f190b90e5dd0ebe020ec5
+
+## Round 72 — revision 23bk, 2026-10-11
+
+Head: `00635d10bbf580efe096b5139d6816b8e3de5aea`.
+Parent: `f561dd4e7132c801395f190b90e5dd0ebe020ec5` (23bj).
+Pin: `stage1-plan.00635d10.md`, mode 0444.
+SHA256: `d90aab57ce819b2607339cfe0c92a1d5b60987db52d3b111ce1f223af6354bf6`.
+Lead receipt: `msg_plugin-w_1791736501_61effd`.
+The pin bytes equal the committed plan bytes.
+
+Sol read every inserted term. Only two section-0 additions and the appended history row change.
+Sol read the complete R-73 draft and P3's complete operation-attribution design note.
+Sol also read section 8's existing 23al and 23an conditions.
+
+### Tag order and the output fence
+
+The plan adds #49 to .39 after #47 merges. P3 must import main once, check Q7, and obtain the new head's gate.
+The source verdicts at 13fb5830 carry only if Q7 proves that the import is disjoint. Sol must confirm that result.
+The one-hour bound starts at #47's merge. After that bound, #49 uses .40.
+#50 joins .39 only with a CLEAN merged head within the same bound.
+These conditions supersede 23bj's earlier immediate-tag order. They approve no future import or gate.
+
+The #49 source review identifies the missing output fence and accepts its repair in verdict 033ac51f.
+The Core pin must still carry that repair before its propagation is complete.
+The reported #276 cause confirmation is package evidence, not a source or gate verdict from Sol.
+The re-gate permission expressly uses section 8's 23al conditions.
+Each head still needs trace evidence, the same failure on plain v1, and written confirmation that its change leaves the cause unchanged.
+The lead must record the approval and repair owner. The second gate must pass every step. No third gate is permitted.
+Historical FLAKY outcomes remain no-catch outcomes. This plan adds no exclusion or pending entry for them.
+
+### Relation parts and the observation method
+
+R-73 replaces form (B). The driver will use the transcript's own frames and the byte log on both tiers.
+The worker's private operation owner is not a client or host observation.
+The ruling rejects a test-only owner on Action::PtyWrite and rejects a testkit-only minimum proof without the required amendment.
+A transaction can require several PTY writes. The proposed run therefore represents one admitted transaction, not one write or probe read.
+
+The plan preserves each relation's position, length, and contains checks.
+The written_by_op run includes the ordered paste chunks and the markers required by the mode and require_bracketed.
+The written_without_op run is non-empty and has no accounting frame that carries an operation.
+Where R-7 prevents a stated encoding, the assertion retains only the stated observable properties.
+The input log still excludes 0d under R-61(c). The driver will stop reading segments[].op.
+FakeCore remains frozen. The plan reports three FakeCore runs for the numeric-operation defect.
+Sol did not read those run records and makes no independent execution claim for them.
+The future PR must record the defect in fake-replacement-map and prove its actual driver behavior.
+
+P3 owns one HIGH Contracts PR for .40. Both required reviewers must review its final head.
+The evidence must cover all 18 identifiers on both tiers, five or more Mac real runs for each named minimum identifier, and the split-paste negative case.
+The PR must also show no PASS-to-non-PASS change elsewhere.
+The implementation review must verify frame accounting and run boundaries without duplicating private admission logic.
+The accepted 23bd label form remains valid until Core pins .40. Unsupported paste, file, and key behavior remains separate Core work.
+
+This CLEAN accepts the plan text. It accepts no future implementation, PR, tag, pin, gate, or pending removal.
+The active Core code pin remains .36. Earlier findings remain closed. Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at 00635d10bbf580efe096b5139d6816b8e3de5aea
