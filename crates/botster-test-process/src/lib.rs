@@ -8,12 +8,14 @@
 //!   every guard (the double-forked anchor, `anchor.rs`).
 //! - [`Bounded`], [`first_line`], [`eof`]: reads of pipes, FIFOs and sockets, bounded by deadlines.
 //! - [`Blocker`]: the blocked fixture child (`/bin/cat` on a FIFO), which waits without CPU and ends when the test is gone.
+//! - [`alone`]: a test that changes state of its whole process runs alone, in a new process of its test binary.
 //! - [`Deadline`] and [`CLEANUP`]: the only timer. Every wait blocks on a real event and fails at a deadline derived from a
 //!   named limit.
 //!
 //! Outside this crate, test code does not wait for a child, read a child's pipe without a deadline, or sleep: `cargo xtask
 //! ci` checks it. Design and prior art: `DESIGN.md`.
 
+pub mod alone;
 pub mod anchor;
 mod child;
 mod deadline;
