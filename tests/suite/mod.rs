@@ -45,6 +45,7 @@ use botster_conformance::{load_dir, run_transcript, Outcome, SeedSet, Selection,
 use botster_core_conformance::{
     driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS, TESTKIT_PROVEN,
 };
+use botster_core_testkit::built_in;
 use botster_core_testkit::pending::{self, Class, NonPending};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
@@ -70,6 +71,24 @@ const REAL_ONLY: &str = include_str!("../../conformance/core-real-only.txt");
 const REAL_PROOFS: &str = include_str!("../../conformance/core-real-proofs.txt");
 /// The held ids of the strict pending run (`cargo xtask lists` checks it).
 const HELD: &str = include_str!("../../conformance/core-held.txt");
+/// The workspace crates that these binaries link, with their compile-time manifest directories (bug catalog B13). The
+/// `built-in` check of `cargo xtask ci` checks that this list names every workspace library that `botster-core` depends on.
+const LINKED: [(&str, &str); 10] = [
+    // The test binary itself: its files outside the package root are the ones that RC saw reused.
+    ("this test binary", env!("CARGO_MANIFEST_DIR")),
+    ("botster-core", botster_core::BUILT_IN),
+    ("botster-core-edges", botster_core_edges::BUILT_IN),
+    ("botster-core-host", botster_core_host::BUILT_IN),
+    ("botster-core-link", botster_core_link::BUILT_IN),
+    ("botster-core-sys", botster_core_sys::BUILT_IN),
+    ("botster-core-testkit", botster_core_testkit::BUILT_IN),
+    (
+        "botster-terminal-ghostty",
+        botster_terminal_ghostty::BUILT_IN,
+    ),
+    ("botster-test-process", botster_test_process::BUILT_IN),
+    ("botster-worker-core", botster_worker_core::BUILT_IN),
+];
 
 // Core TH-1, checked when this suite compiles: the facade's handle is `Send` and not `Sync` (no nightly feature).
 static_assertions::assert_impl_all!(botster_core::Core: Send);
@@ -289,6 +308,12 @@ fn pending_real(
 /// and prints the report under `name`. `plain` is the real tier's factory of plain `Core::open` harnesses (plan 23l): with
 /// it, the run also reads `core-real-pending.txt` and runs the pass-through test; without it, it is the testkit tier.
 pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
+    // A binary built in another worktree (a shared target directory, bug catalog B13) runs that worktree's sources and lists:
+    // it refuses before it lists or runs a trial.
+    if let Err(error) = built_in::check_here(&LINKED) {
+        eprintln!("{name}: {error}");
+        std::process::exit(101);
+    }
     let args = Arguments::from_args();
     let ledger = id_list(LEDGER_IDS);
     let pending = id_list(PENDING_IDS);
