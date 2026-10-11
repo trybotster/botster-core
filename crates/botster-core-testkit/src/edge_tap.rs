@@ -21,7 +21,15 @@
 //! - The harness's own calls of the inner edges, which the tap records as no call of Core: a stored row and its write
 //!   ([`Tap::stored_row`], [`Tap::store_row`]; `corrupt_registry_row`), the identity check ([`Tap::identity_state`];
 //!   `payload_alive`) and the identity-checked kill of a recorded process group ([`Tap::kill_group`]; `lose_worker`).
+//! - The record of Core's signals: every `signal_group` call of Core, in order, with its target identity. It is Core's only
+//!   signalling edge call (steward ruling R-49 Q1). The harness's own `kill_group` is not in it.
+//! - The stand-ins at worker endpoint paths ([`Tap::add_stand_in`]; `impostor_worker`, `withhold_control_link`,
+//!   `announce_protocol`, R-49 Q4): the tap steps them after each `connect_worker` and `link_send` of Core, so a stand-in
+//!   accepts Core's connection and answers Core's hello within that call. A stand-in ends with the tap, after the inner
+//!   edges and the data directory's lock, and then gives the path back to the real endpoint. [`Tap::signals_since_answer`]
+//!   gives the signals that Core sent from a stand-in's first answer on (`signals_received`).
 
+use crate::stand_in::StandIn;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
@@ -160,6 +168,12 @@ pub struct Tap<E> {
     /// keeps a started payload in memory and writes it to the row only at a later row write. A report that the tap has
     /// not read gives no entry, and no entry never means that no payload runs.
     launches: BTreeMap<InstanceId, ProcessIdentity>,
+    /// Every `signal_group` call of Core, in order, with its target identity (R-49 Q1).
+    signals: Vec<(ProcessIdentity, GroupSignal)>,
+    /// The stand-ins at worker endpoint paths, each with the length of `signals` at its first answer. Declared after
+    /// `inner`, so the inner edges and the data directory's lock end first, and only then do the real endpoints get their
+    /// paths back (R-49 Q4 conditions 1 and 2).
+    stand_ins: Vec<(StandIn, Option<usize>)>,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -267,6 +281,35 @@ impl<E: HostEdges> Tap<E> {
         self.inner.identity_state(identity)
     }
 
+    /// Puts `stand_in` at its endpoint path for the life of the tap. The harness installs it before Core opened the data
+    /// directory (R-49 Q4 condition 1).
+    pub fn add_stand_in(&mut self, stand_in: StandIn) {
+        self.stand_ins.push((stand_in, None));
+    }
+
+    /// Steps every stand-in, and keeps the length of the signal record at each one's first answer.
+    fn step_stand_ins(&mut self) {
+        for (stand_in, answered_at) in &mut self.stand_ins {
+            if stand_in.step() && answered_at.is_none() {
+                *answered_at = Some(self.signals.len());
+            }
+        }
+    }
+
+    /// The signals that Core sent, in order and with their targets, from the first answer of the stand-in of `session` on:
+    /// every `signal_group` call of Core, to any target (R-49 Q1). Empty before an answer. `None` when no stand-in of
+    /// `session` is in this tap. The harness puts at most one stand-in at a session's endpoint.
+    pub fn signals_since_answer(
+        &self,
+        session: &SessionId,
+    ) -> Option<Vec<(ProcessIdentity, GroupSignal)>> {
+        let (_, answered_at) = self
+            .stand_ins
+            .iter()
+            .find(|(s, _)| s.session() == session)?;
+        Some(answered_at.map_or_else(Vec::new, |from| self.signals[from..].to_vec()))
+    }
+
     /// Ends the process group of `identity` from outside Core, as a kill does (Core AD-2, IN-7): the inner edge's own
     /// identity-checked `signal_group` sends `KILL`, and only when the pid and the start time still match, so a process that
     /// reuses the pid is never signalled (Core AD-6). Then the wake edge signals, so that the host pumps and meets the end.
@@ -314,6 +357,8 @@ impl<E: HostEdges> EdgeTap<E> {
             exits: VecDeque::new(),
             rows,
             launches: BTreeMap::new(),
+            signals: Vec::new(),
+            stand_ins: Vec::new(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -357,7 +402,9 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn signal_group(&mut self, identity: ProcessIdentity, signal: GroupSignal) {
-        self.tap().inner.signal_group(identity, signal);
+        let mut tap = self.tap();
+        tap.signals.push((identity, signal));
+        tap.inner.signal_group(identity, signal);
     }
 
     fn identity_state(&self, identity: ProcessIdentity) -> IdentityState {
@@ -384,7 +431,9 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
         let mut tap = self.tap();
-        let link = tap.inner.connect_worker(instance)?;
+        let link = tap.inner.connect_worker(instance);
+        tap.step_stand_ins();
+        let link = link?;
         tap.links.insert(link, LinkTap::connected(instance));
         Some(link)
     }
@@ -423,7 +472,10 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
-        self.tap().inner.link_send(link, bytes)
+        let mut tap = self.tap();
+        let sent = tap.inner.link_send(link, bytes);
+        tap.step_stand_ins();
+        sent
     }
 
     fn link_close(&mut self, link: LinkId) {
