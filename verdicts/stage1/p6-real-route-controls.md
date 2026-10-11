@@ -92,3 +92,44 @@ This verdict does not approve PR completion, any later head, or a later import.
 Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (source and required Mac evidence only) at 2645bfc1c216cea54cd61577cae25e834e66133c
+
+## Round 2 — failed Linux gate and proposed test correction, 2026-10-11
+
+Gate head: `2645bfc1c216cea54cd61577cae25e834e66133c`.
+Gate comparison base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Owner receipt: `msg_plugin-w_1791747225_d791ab`.
+The completed gate fails. Round 1's limited source verdict does not approve this failed gate or PR completion.
+
+### RG-SI-1 — MEDIUM, open: missed held-byte mutation
+
+Both mutation stages miss `edge_tap.rs:347:9: replace Tap<E>::link_held_for_start -> bool with true`.
+This mutation lets the quiet check treat unread link bytes as bytes held for start.
+The existing test reads the bytes after the first quiet call that receives them.
+It does not call quiet again while those bytes wait for the driver.
+Add that observable quiet check and supply a completed corrected gate.
+Keep the failed gate explicit in the body. Do not present it as green.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-2645bfc1-pool-20261011-120525-8394.log`.
+SHA-256: `2922694baf31867c1e6086859c9f6882f94ed7febb58efd0c762c336fcb18f74`.
+Sol reads the header, tier and stage summaries, missed identity, final summary, and exits.
+Eight steps PASS; mutants FAIL; fuzz is NOT RUN.
+Default: 1755 PASS, 474 skipped, 11.016 seconds. Slow: 570 PASS, 2038 skipped, 40.584 seconds.
+Minimum: testkit 61/69, real-passing 49/68, real-accepted 50/69.
+Stage 1 has 164 mutants: 66 caught, 94 missed, four unviable, zero timeouts, in 318.3 seconds.
+Stage 2 has 94 mutants: 73 caught, one missed, 20 unviable, zero timeouts, in 1155.8 seconds.
+The unmutated baseline passes in 52.3 seconds.
+The step total is 1646.0 seconds. The job and wrapper exit 1 after 1654 seconds.
+The job queues for one second and runs for 1653 seconds. The complete log contains no FLAKY token.
+Sol claims no complete independent comparison of the caught identities in this failed run.
+
+Proposed correction: `27cb2cc48562334612d2d227aff8d8bb88a30d52`, tree `e02638de17d5bf1031e2a6807a07eb20ef906125`.
+Sol reads its complete two-line delta and the affected test and quiet implementation.
+The new assertion calls quiet again before the driver receives the byte.
+It observes the edge's quiet result and does not add a private-state assertion, loop, sleep, or production change.
+Sol finds no new static source defect in this delta.
+The corrected gate is running by owner report. Its result, matching package review, and corrected body remain due.
+No formal CLEAN verdict covers this proposed head yet.
+The final import, applicable check and review, final gate, and final body remain due under the slot rule.
+Sol runs no build, test, gate, mutant, reversal, or measurement. Never poll.
+
+VERDICT: NOT CLEAN (1 open evidence finding) at 2645bfc1c216cea54cd61577cae25e834e66133c
