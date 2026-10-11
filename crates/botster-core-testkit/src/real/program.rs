@@ -291,6 +291,25 @@ fn exited(worker: u32) -> ControlError {
     ))
 }
 
+/// What the accept loop does after an accept error.
+#[derive(Debug, PartialEq, Eq)]
+enum AcceptError {
+    /// No connection is queued: wait for one.
+    Wait,
+    /// A peer that reset before the accept: the next connection is accepted as usual.
+    Next,
+    /// Any other error: the listener is unusable, so no probe connects any more.
+    Stop,
+}
+
+fn after_accept(kind: io::ErrorKind) -> AcceptError {
+    match kind {
+        io::ErrorKind::WouldBlock => AcceptError::Wait,
+        io::ErrorKind::ConnectionAborted => AcceptError::Next,
+        _ => AcceptError::Stop,
+    }
+}
+
 /// The accept thread: one reader thread for each connection, until the drop.
 fn accept(listener: &UnixListener, hub: &Arc<Hub>) {
     let mut readers = vec![];
@@ -304,9 +323,12 @@ fn accept(listener: &UnixListener, hub: &Arc<Hub>) {
         if hub.lock().closing {
             break;
         }
-        let stream = match listener.accept() {
+        let stream = match listener
+            .accept()
+            .map_err(|error| after_accept(error.kind()))
+        {
             Ok((stream, _)) => stream,
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            Err(AcceptError::Wait) => {
                 let deadline = Deadline::cleanup();
                 let mut ready = [PollFd::new(listener, PollFlags::IN)];
                 let Ok(left) = Timespec::try_from(deadline.remaining()) else {
@@ -318,9 +340,8 @@ fn accept(listener: &UnixListener, hub: &Arc<Hub>) {
                     Err(_) => break,
                 }
             }
-            // A peer that reset before the accept: the next connection is accepted as usual.
-            Err(error) if error.kind() == io::ErrorKind::ConnectionAborted => continue,
-            Err(_) => break,
+            Err(AcceptError::Next) => continue,
+            Err(AcceptError::Stop) => break,
         };
         // The socket is non-blocking (macOS: inherited from the listener; Linux: set here), so a request write never blocks
         // (`send_line`). macOS ignores `MSG_DONTWAIT` on a full Unix stream socket (bug catalog B10), so the flag on the
@@ -359,7 +380,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
         reader: Bounded::new(stream),
         partial: vec![],
     };
-    let parent = match lines.next(hub).map(|line| serde_json::from_str(&line)) {
+    let parent = match lines.next().map(|line| serde_json::from_str(&line)) {
         Some(Ok(Report::Hello { parent, .. })) => parent,
         _ => return,
     };
@@ -380,7 +401,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
     hub.changed.notify_all();
     loop {
         let report = lines
-            .next(hub)
+            .next()
             .and_then(|line| serde_json::from_str::<Report>(&line).ok());
         let mut state = hub.lock();
         let probe = state.probes.get_mut(&worker).expect("registered");
@@ -419,10 +440,9 @@ struct Lines {
 }
 
 impl Lines {
-    /// The next line, or `None` at the end of the socket, at a read error, or once the harness closes. A probe may stay silent
-    /// for the whole session, so the cleanup bound of each read only re-arms it, and the drop's `closing` is checked at each
-    /// bound.
-    fn next(&mut self, hub: &Hub) -> Option<String> {
+    /// The next line, or `None` at the end of the socket or at a read error. A probe may stay silent for the whole session, so
+    /// the cleanup bound of each read only re-arms it. The drop shuts the socket down, which ends the read.
+    fn next(&mut self) -> Option<String> {
         loop {
             match self.reader.line(Deadline::cleanup()) {
                 Ok(line) => {
@@ -431,7 +451,7 @@ impl Lines {
                     whole.extend_from_slice(line.as_bytes());
                     return Some(String::from_utf8_lossy(&whole).into_owned());
                 }
-                Err(ReadError::Deadline { partial, .. }) if !hub.lock().closing => {
+                Err(ReadError::Deadline { partial, .. }) => {
                     self.partial.extend_from_slice(&partial);
                 }
                 Err(_) => return None,
@@ -725,6 +745,55 @@ mod slow_tests {
         assert_eq!(wake.signals.load(Ordering::SeqCst), 2);
     }
 
+    /// A probe may stay silent for longer than the cleanup bound, even inside a line: the reader re-arms its bound, keeps the
+    /// start of the line, and still serves the probe.
+    #[test]
+    fn a_probe_silent_past_the_cleanup_bound_is_still_served() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        let mut line = serde_json::to_vec(&Report::Input("61".into())).unwrap();
+        line.push(b'\n');
+        let (start, end) = line.split_at(line.len() / 2);
+        probe.stream.write_all(start).unwrap();
+        // The silence outlasts the reader's cleanup bound; the harness sends no request meanwhile.
+        assert!(matches!(
+            probe
+                .lines
+                .line(Deadline::after(CLEANUP + Duration::from_secs(1))),
+            Err(ReadError::Deadline { .. })
+        ));
+        probe.stream.write_all(end).unwrap();
+        std::thread::scope(|s| {
+            let control = s.spawn(|| programs.request(me, &Request::Chunk(1)));
+            assert_eq!(probe.next_request(), Request::Chunk(1));
+            probe.report(&Report::Ack {});
+            control.join().unwrap().unwrap();
+        });
+        assert_eq!(programs.input(me).unwrap(), b"a");
+    }
+
+    /// The accept loop waits when no connection is queued, skips a peer that reset before the accept, and stops at any
+    /// other error.
+    #[test]
+    fn an_accept_error_waits_skips_or_stops() {
+        assert_eq!(after_accept(io::ErrorKind::WouldBlock), AcceptError::Wait);
+        assert_eq!(
+            after_accept(io::ErrorKind::ConnectionAborted),
+            AcceptError::Next
+        );
+        assert_eq!(after_accept(io::ErrorKind::InvalidInput), AcceptError::Stop);
+    }
+
+    /// `pty_blocked` with no `on` blocks the probe's reads.
+    #[test]
+    fn pty_blocked_is_on_by_default() {
+        let args: PtyBlocked = parse(&json!({"session": "s1"})).unwrap();
+        assert!(args.on);
+        let args: PtyBlocked = parse(&json!({"session": "s1", "on": false})).unwrap();
+        assert!(!args.on);
+    }
+
     /// A recorded worker that no longer runs gives `Bad` at once: its probe can never connect, and a reused pid is never
     /// awaited (R-46).
     #[test]
@@ -868,11 +937,19 @@ mod slow_tests {
             matches!(&result, Err(ControlError::Bad(why)) if why.contains("cap of 0")),
             "{result:?}"
         );
-        // With valid arguments, the handle is the next check.
-        let result = harness.control("h", "pty_chunk", &json!({"session": "s1", "bytes": 1}));
-        assert!(
-            matches!(&result, Err(ControlError::Bad(why)) if why.contains("not open")),
-            "{result:?}"
-        );
+        // With valid arguments, every control is served, and the handle is the next check.
+        for (op, args) in [
+            ("pty_output", json!({"session": "s1", "bytes_hex": "61"})),
+            ("pty_input", json!({"session": "s1"})),
+            ("pty_blocked", json!({"session": "s1"})),
+            ("pty_accept", json!({"session": "s1", "bytes": 1})),
+            ("pty_chunk", json!({"session": "s1", "bytes": 1})),
+        ] {
+            let result = harness.control("h", op, &args);
+            assert!(
+                matches!(&result, Err(ControlError::Bad(why)) if why.contains("not open")),
+                "{op}: {result:?}"
+            );
+        }
     }
 }
