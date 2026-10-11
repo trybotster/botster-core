@@ -4,6 +4,7 @@ use botster_core_conformance::{
 };
 use botster_core_contract::prelude::*;
 use botster_route_codec::prelude::{hex_encode, MouseEncoding, MouseTracking};
+use botster_terminal_ghostty::MAX_BUFFERED_EVENTS;
 use std::time::Instant;
 
 /// The most pumps that a test gives Core to reach an event: far above what these sessions need.
@@ -305,7 +306,10 @@ fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
         };
         let screen = json!({"session": "s1", "history": false});
         let resume = json!({"session": "s1", "capture": capture.capture});
+        let session = json!({"session": "s1"});
         assert!(harness.control("a", "oracle_screen", &screen).is_ok());
+        assert!(harness.control("a", "oracle_modes", &session).is_ok());
+        assert!(harness.control("a", "oracle_state", &session).is_ok());
         assert_eq!(
             harness.control("a", "oracle_resume", &resume),
             Ok(json!({"equal": true}))
@@ -324,6 +328,13 @@ fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
             changed(),
             "{change:?}"
         );
+        for control in ["oracle_modes", "oracle_state"] {
+            assert_eq!(
+                harness.control("a", control, &session),
+                changed(),
+                "{control} {change:?}"
+            );
+        }
         assert!(
             harness
                 .control(
@@ -602,4 +613,126 @@ fn oracle_encode_refuses_a_missing_modes_and_bad_arguments() {
     assert!(bad(encoded(&mut harness, "key", repeated, json!({}))).contains("repeat"));
     assert!(bad(encoded(&mut harness, "mouse", arrow_up(), json!({}))).contains("mouse input"));
     assert!(bad(encoded(&mut harness, "scroll", arrow_up(), json!({}))).contains("scroll"));
+}
+
+/// The binding fact that R-84 (5) needs: libghostty reports an explicitly empty title or cwd as an event, with the BEL and
+/// the ST terminator. Its getters give `""` both before and after, so only the event tells the two apart.
+#[test]
+fn libghostty_reports_an_empty_title_or_cwd_as_an_event() {
+    let mut terminal = Terminal::new(&SIZE, History::Off).unwrap();
+    let title = |text: &str| TerminalEvent::Title(text.into());
+    let cwd = |text: &str| TerminalEvent::Cwd(text.into());
+    assert_eq!(terminal.drain_events().events, vec![]);
+    assert_eq!(
+        (terminal.title(), terminal.cwd()),
+        (String::new(), String::new()),
+        "unset"
+    );
+    for (bytes, event) in [
+        (&b"\x1b]2;abc\x07"[..], title("abc")),
+        (b"\x1b]2;\x07", title("")),
+        (b"\x1b]0;abc\x1b\\", title("abc")),
+        (b"\x1b]0;\x1b\\", title("")),
+        (b"\x1b]2;\x1b\\", title("")),
+        (b"\x1b]7;file://h/x\x07", cwd("file://h/x")),
+        (b"\x1b]7;\x07", cwd("")),
+        (b"\x1b]7;\x1b\\", cwd("")),
+    ] {
+        terminal.vt_write(bytes);
+        assert_eq!(
+            terminal.drain_events().events,
+            vec![event],
+            "{}",
+            String::from_utf8_lossy(bytes)
+        );
+    }
+    assert_eq!(
+        (terminal.title(), terminal.cwd()),
+        (String::new(), String::new()),
+        "empty"
+    );
+}
+
+/// The modes of O_raw (note (1)), with each mode that the output set, and the `{flags}` form.
+#[test]
+fn oracle_modes_are_the_raw_oracles() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    let modes = |h: &mut TestkitHarness| h.control("a", "oracle_modes", &json!({"session": "s1"}));
+    assert_eq!(
+        modes(&mut harness),
+        Ok(json!({"flags": applied(b"").modes()}))
+    );
+    let bytes = b"\x1b[?2004h\x1b[?1h\x1b[?25l\x1b[?1004h";
+    output(&mut harness, core.as_mut(), at, bytes);
+    let expected = applied(bytes).modes();
+    assert!(
+        expected.bracketed_paste && expected.application_cursor_keys && expected.focus_reporting
+    );
+    assert!(!expected.cursor_visible);
+    assert_eq!(modes(&mut harness), Ok(json!({"flags": expected})));
+    assert!(bad(harness.control("a", "oracle_modes", &json!({"session": "s2"}))).contains("s2"));
+}
+
+/// R-84 (5): `oracle_state` keeps the last `Title` and `Cwd` events of the O_raw replay. A field is absent until an event
+/// comes; an empty value that the program set is `""` (the ST-4 reading), equal to Core's `terminal_state`.
+#[test]
+fn oracle_state_keeps_the_last_title_and_cwd_events_of_the_raw_replay() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    let state = |h: &mut TestkitHarness| {
+        h.control("a", "oracle_state", &json!({"session": "s1"}))
+            .unwrap()
+    };
+    let core_state = |core: &dyn CoreApi| {
+        let TerminalState {
+            title, cwd, modes, ..
+        } = core.terminal_state(&sid()).unwrap();
+        (title, cwd, modes)
+    };
+    assert_eq!(
+        state(&mut harness),
+        json!({"modes": applied(b"").modes()}),
+        "no event: absent"
+    );
+    assert_eq!(core_state(core.as_ref()).0, None);
+
+    let first = b"\x1b]2;one\x07\x1b]2;two\x07\x1b]7;file://h/x\x07\x1b[?2004h";
+    output(&mut harness, core.as_mut(), at, first);
+    let expected = json!({"modes": applied(first).modes(), "title": "two", "cwd": "file://h/x"});
+    assert_eq!(state(&mut harness), expected, "the last title wins");
+
+    let all = [&first[..], b"\x1b]2;\x07\x1b]7;\x1b\\"].concat();
+    output(&mut harness, core.as_mut(), at, b"\x1b]2;\x07\x1b]7;\x1b\\");
+    let state = state(&mut harness);
+    assert_eq!(
+        state,
+        json!({"modes": applied(&all).modes(), "title": "", "cwd": ""}),
+        "set empty: \"\""
+    );
+    // The oracle and Core keep the last event independently (R-84 (5)); they agree here.
+    let (title, cwd, modes) = core_state(core.as_ref());
+    assert_eq!(
+        json!({"modes": modes, "title": title, "cwd": cwd}),
+        state,
+        "Core's terminal_state"
+    );
+}
+
+/// A replay that dropped events can have dropped the last title, so `oracle_state` is `Bad`, never a wrong value.
+#[test]
+fn oracle_state_refuses_a_replay_that_dropped_events() {
+    let mut terminal = Terminal::new(&SIZE, History::Off).unwrap();
+    terminal.vt_write(&vec![0x07; MAX_BUFFERED_EVENTS]);
+    terminal.vt_write(b"\x1b]2;lost\x07");
+    assert!(bad(state(&mut terminal)).contains("dropped 1 events"));
+
+    let mut terminal = Terminal::new(&SIZE, History::Off).unwrap();
+    terminal.vt_write(&vec![0x07; MAX_BUFFERED_EVENTS - 1]);
+    terminal.vt_write(b"\x1b]2;kept\x07");
+    assert_eq!(
+        state(&mut terminal).unwrap()["title"],
+        json!("kept"),
+        "a full buffer, nothing dropped"
+    );
 }
