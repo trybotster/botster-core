@@ -89,3 +89,22 @@ Gate: `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-6c22bc91
 - On the next head I check two things:
   - every `Pending` return of `next_event` and `idle_wait` is behind an expiry check (or the check is at the start of `next_event`, after the queued-event pop);
   - regression cases (a repeating future deadline under a jumping clock, and a spurious `Woken`) end INCONCLUSIVE `step_timeout`, and are red on revert.
+
+## Round 2: no open finding on 2efda094b1fa2eeed5f7cb8ba4ac3a0eb952ae13 (final CLEAN after the main merge and its gate)
+
+Delta against `6c22bc91`: `5a49fc4` (F2) and `2efda09` (016c's MEDIUM). It changes `driver.rs`, `harness.rs` and `driver_steps.rs`.
+
+- **016c's MEDIUM closed.** One helper, `pending(deadline)`, gives `TimedOut` once the deadline has passed. Every `Pending` of `next_event` and `idle_wait` goes through it: the `more`/posted path, the clock jump (line 674), and `Wake::Woken`. The last `Pending` arm of `idle_wait` comes after its `deadline.expired()` arm. A queued event is still taken first.
+  - The self-test has four sources (`core_more`, `busy_client`, `deadline_ahead`, `always_woken`), each through `pump_until` and `pump_collect`.
+  - The test `Harness` has an injected clock with injected progress, so `clock.jumps` is true (driver line 550). So `deadline_ahead` takes the jump path on every pass: each `next_deadline` is one hour after the one before.
+  - The body states red on revert for each of the three paths, at the watchdog.
+- **F2 closed (option b).** The trait doc and the two driver comments now say "true when it moved a byte". The reason is in the doc. I checked it against Core v1 `crates/botster-core-testkit/src/worker.rs` `TestkitCore::pump`: `workers.run(now)`, then `driver.pump(now)`, then `more = true` and a wake signal while `workers.has_ready()`. The driver calls that pump right after `progress()` in the same pass, so ready work that moved no byte is still run and reported.
+- **F1 closed.** The rule-9 record is `~/botster-sessions/gates/rc-r86-dp5-index42-rule9-record.md`.
+  - It covers: the event (Mac, the first run after a build, seed 2 of the default seeds 0-7); the retained output, which has only the INCONCLUSIVE line; and a source analysis showing that `progress()` cannot keep `more` true while index 41 reads `blocked: true`. The event is a bounded timeout, not a hang.
+  - It is classified FLAKY, cause not determined, with the next step named (a tap trace) if it recurs.
+  - The Linux pool run: `~/botster-sessions/gates/botster-core-detached-5e953398-5e953398-pool-20261011-152757-22340.log` (sha256 `d58550acba05657cda36fed9a056f84fbfd7f3da3677abe0051cbdf38236d14f`). Core v1 `5e953398925351c12e463a7b0a946b79d9841edc` (#285, #284) + the R-86 impls, contracts `.39` + the port of #66 with R-89 and F2. `BOTSTER_SEEDS=0-31` is in the command. Real tier PASS (8.96 s), testkit PASS (7.64 s), msa1, exit 0.
+  - The port does not include `2efda09`, which changes only `idle_wait`, and `await_quiet` does not use `idle_wait`.
+
+Still to do:
+- **The main merge is not disjoint.** Main `c0c2abc09f208fea39896972373da53cb90dd830` includes #61, which changes `crates/botster-core-conformance/src/driver.rs` (the R-85 check) and `tests/driver_steps.rs`. #66 changes the same two files. So the merge needs a delta review (Q7), not only the base-merge check. I review how the resolution keeps both R-85's check and R-86/R-89's wait-loop changes.
+- One gate on the exact merged head.
