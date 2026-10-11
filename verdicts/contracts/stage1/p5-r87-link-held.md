@@ -74,3 +74,27 @@ Checks for the revised head:
 - each strict 0 ms `Woken` is unchanged;
 - no `wait_wake` with a timeout is added;
 - the 32-seed testkit log and the real-tier log for both ids, each with the Core revision and the contracts head in its header.
+
+## Round 2 (R-87 corrected: `parked_work`): CLEAN on df66aafa80c9d55b00664c0c2a279c96c12156c1
+
+The head has two commits since `006ccf22`.
+- `895a5cc92d3096bf022fbb33eb5d48dd0f7130d7` merges main `7c4004a0` (docs only). The recomputed tree `8013cdbfa31f79b5f703bef154edc6a72d92fe82` equals the commit's tree, so the merge is automatic.
+- `df66aafa` is the own delta: 4 files.
+
+Checks:
+- **Control row.** `parked_work {session}` gives `{parked}`. It is true for a link frame read but not accepted (EV-5b), or for an engine transition parked on mandatory-queue room. It is false for work that is runnable now, or that waits for anything else. It is read-only, and both harnesses answer it. It replaces `link_held`, and it states the difference from `held_reports`. This matches the corrected R-87.
+- **Vocabulary.** `CONTROL_ARGS` and `CONTROLS` rename the control. The only `link_held` left in the tree is the row's note that `parked_work` "replaces the withdrawn `link_held`".
+- **Fences.**
+  - `ev_5_poll_wakes_pending_work`: index 9 is `parked_work {s1}` `parked: true`, directly after `payload_alive {s1}` `alive: false`.
+  - `tm_6_poll_room_unparks_and_wakes`: the new index 9 is `parked_work {s2}` `parked: true`, directly after `payload_alive {s2}` `alive: true`. `requires.controls` adds the control.
+  - In both ids, the strict 0 ms `wait_wake` → `Woken` is at index 14 and is unchanged. Index 11 (`$one_of`, 0 ms) is unchanged. No `wait_wake` with a timeout is added.
+  - `await_control` pumps and never polls (driver line 3029, unchanged).
+- **016c's LOW.** The body now uses 0-based indices.
+- **Evidence** (`~/botster-sessions/shared/core-stage1/evidence/p5-r87/`; I recomputed the sha256 prefixes):
+  - `parked-work-testkit-per-seed.log` (`b1eb1358...`): one seed per run, seeds 0-31, both ids. 64 PASS, 0 INCONCLUSIVE. The run used Core `f5e6a2be` with the uncommitted `parked_work` code, and contracts `895a5cc` with the 4 changed files uncommitted.
+  - `parked-work-tiers-mac.log` (`87c4da32...`): Core `9e5f165a6a3d6389e965a0af082dffb55a086183` (clean), and contracts `.39` plus only the two transcripts. Their blobs `fc56213b` and `84e922be` equal `df66aafa`'s blobs. Both ids PASS on the testkit and on the real tier.
+  - `parked-work-forms-revert.log` (`c0005efa...`): one form removed at a time. Without the engine form, `ev_5` passes 22 of 32. Without the frame form, `ev_5` passes 10 of 32 and `tm_6` 0 of 32. All 64 failures are INCONCLUSIVE at index 9. So each form is needed, and the fence detects each one.
+- **Gate.** `...-df66aafa-pool-20261011-150744-98930.log` (sha256 `b1dbe170491541d3244db138f40e36cec0d60085559b82e3ce14b85855c9b6b5`). The header names head `df66aafa...` and base `7c4004a0`. msa1, allocation `90f0b3c3`. Ten steps PASS. Exit 0.
+- **Tier.** HIGH (a new control). The body states the prior art.
+
+No finding. Still to do: main is now `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7` (#67, `fence_lint.rs` only, disjoint from this PR). P5 merges it once (Q7), and the gate runs on that exact head.
