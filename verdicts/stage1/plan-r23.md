@@ -2894,3 +2894,63 @@ Zero plan findings remain. No implementation, gate, tag, pin, or pending removal
 Sol runs no execution job.
 
 VERDICT: CLEAN (0 open) at 4268404115f706a890c6fadbf27110f15df3f7da
+
+## Round 79 — revisions 23bz through 23cb, 2026-10-11
+
+Head: `aa449593e3d61594b7d58204fe341cc397b0287b`.
+Prior reviewed head: `4268404115f706a890c6fadbf27110f15df3f7da`.
+Intermediate heads: `87f7817b00e9a427b2263bd2f46f850bffbd8a76` and `84d1f6774f70f8d756fea8ea19431af07607039a`.
+Sol reads every inserted term and history row across all three revisions.
+Only docs/stage1-plan.md changes. Sections 5, 6.3, and 8 retain their reviewed rules.
+All three pins equal their committed plan bytes and have mode 0444.
+Pin SHA-256, 23bz: `44bff8b55e93bbfb5c099efeab45388b77b8a92b556d7d4aab20ed31361dd58f`.
+Pin SHA-256, 23ca: `3c4d45608c96c54be92223c536821873c3bfec71b022def647c0dd89d5574762`.
+Pin SHA-256, 23cb: `4f9e4aea6d445930706167f50be6d25c6b8e6393daa4da76d4a08359f5ae6d02`.
+
+### PF-SI-1 — MEDIUM, open
+
+The 23cb class-B text gives a DP-5b file op as an example of a different written_bytes meaning.
+It states: "file content, but the PTY bytes are the pasted path".
+The frozen DP-5b at contracts-v0.1.40 states the opposite: written_bytes counts encoded PTY bytes of the path paste.
+That count includes the path, trailing space, and markers. It explicitly never counts uploaded file content.
+TS-5b and TS-5f agree. Sol reads the complete DP-5b row and TS-5f definition.
+The held R-83 class-B draft also uses a file op as its example, but it does not state the plan's file-content count.
+This error can make the fence derive a second count from an already valid PTY count.
+Correct the plan's file-op example. Make the held R-83 explanation consistent with the existing file count.
+Keep the three class-B conditions. No contract change is needed to correct this example.
+If a different op needs an explicit derivation, name its clause and count meaning.
+The lead owns any steward clarification. Sol does not infer a new count or rewrite the contract.
+
+### Other reviewed terms and limits
+
+23bz records the .40 tag and its source PRs. Sol verifies tag `59d513ba8d70f2ae58c7d44ea73e6cbbe58bb695`.
+Its target is `d93956987db0aa8c6e46ac415c2179c2a9024b82`; .39 is an ancestor.
+The lead records 016c ACCEPT, 017f CLEAN, and the exact-head gate. Sol does not repeat Contracts integration acceptance.
+The docs-only rulings commit is `8d5565fdd3669253367402b81db62531179b6771`.
+R-82 matches its published text and the reviewed #284 errno table. Sol publishes #284 source CLEAN in de6dc571.
+The final slot order remains #282, #283, #284, then PC's .40 pin.
+The target-directory rule matches pair-common: clean above 8 GiB before a local build; use dev locally; run release, mutants, and fuzz on the pool.
+
+Sol reads R-75 q3 and the complete erratum-6 candidate at `63128469ce1d57cbef00f2b6549f699a27d058fc`.
+The candidate changes the wrong-route refusal to wrong_route. It adds its test only after the freeze.
+R-75 governs before the freeze. This plan review does not freeze the candidate or change the active ledger.
+RC owns the oracle_state/oracle_encode gap and the later live route modes frame. Each remains future work with a design first.
+
+23ca extends the R-56 fence lint to route_expect_pty.
+The lint uses a floor: hex bytes, known relation bytes, otherwise one byte, zero for var, and the shortest one_of sequence.
+An empty sequence is an absence check. No R-61(b) write may occur between the same-session fence and the read.
+The reviewer must check the full written count; the lint does not prove it.
+All 31 reported findings belong to one HIGH P3 contracts PR, reviewed by 016c and 017f, for .41.
+The R-81 rewrite controls the one full-input-queue exception and its removal order.
+Sol accepts the scope as the steward's reported scan count; Sol does not repeat that scan here.
+
+23cb adds class A for literal totals and class B for earlier matcher-bound PTY counts on the same session.
+Class C uses oracle_encode and a let sum for encoder-owned bytes. A hand-written encoder count remains forbidden.
+A passing class-C identifier keeps its form until the control exists. The named temporary exception prevents PASS-to-non-PASS changes.
+This later class-C exception qualifies the earlier no-starting-list rule. It does not authorize unrelated exceptions.
+The separate oracle_encode PR after #285 remains a lead proposal, not accepted source.
+
+The active Core pin remains .36. No implementation, tag gate, pin move, or pending removal is accepted by this plan verdict.
+PF-SI-1 remains open. Sol runs no execution job. Never poll.
+
+VERDICT: NOT CLEAN (1 open) at aa449593e3d61594b7d58204fe341cc397b0287b
