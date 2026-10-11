@@ -1568,3 +1568,19 @@ Design verdict CLEAN applies only to this hash. No repaired source head, executa
 Both original source findings remain open on 79f31be3 until the repaired-head source review establishes closure.
 The retained reversals, revised both-OS facade proof, new-head gate, both source reviews, and matching design receipt remain due.
 No execution job runs. Wait for the repaired-head READY doorbell. Never poll.
+
+Revised R-78 revision 4 design CLEAN pushed: bbf3ad90dfe221dd5ca391f7d264912284a3662c.
+The worktree is clean. Design hash cf3914bc is accepted; repaired source and evidence remain due. Wait for the doorbell. Never poll.
+
+## #291 revision 4 implementation note: design CLEAN without drain_due
+
+PC receipt msg_plugin-w_1791761534_b4152f updates the design hash to bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2e811f8d4f.
+The reviewer reads the full delta and checks the scoped flag removal and relevant read paths at reported local head 2bc8b247bb83b85c8280b5dbae2aa9b6ea617e46.
+For an ended peer, a read closes the link, holds a frame, or sets more_input at a pump bound.
+Thus peer_ended && held.is_none() preserves the accepted scheduling rule without the separate drain_due flag.
+R78-D5 stays closed at design level. No full source head is approved.
+The reviewer reads the full-queue, budget, and settle-time exit tests. Their completed new-head evidence remains due.
+Reversal log 1ff76822 records R1–R5 failures and a restored 319/319 PASS; it predates the later budget test.
+The source-path analysis establishes the flag's equivalence. No direct reversal of drain_due is claimed from that log.
+Both original source findings remain open on 79f31be3 until the repaired-head source review establishes closure.
+No execution job runs. Wait for the repaired-head READY. Never poll.

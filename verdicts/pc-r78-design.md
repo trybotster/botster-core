@@ -293,3 +293,34 @@ The repaired-head READY, retained reversal proofs, revised both-OS facade proof,
 Both original source findings remain open on the old READY head until the source review establishes their closure.
 Sol's matching revised-design verdict is not yet read here.
 No execution job runs. The reviewer waits for the doorbell and does not poll.
+
+## Revision 4 implementation note: design CLEAN without drain_due
+
+VERDICT: CLEAN. No open design finding.
+
+PC receipt: `msg_plugin-w_1791761534_b4152f`.
+The reviewer reads the complete updated design delta and verifies SHA-256:
+`bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2e811f8d4f`.
+This hash supersedes `cf3914bc` for the revision 4 delta.
+The reviewer checks the scoped `1ff76822fe8d239d9b8cffb63fa096001e59f9b7` change and the relevant read paths at reported local head `2bc8b247bb83b85c8280b5dbae2aa9b6ea617e46`.
+This is a design delta review. It is not a full source verdict on that local head.
+
+The removal of `drain_due` preserves the accepted design.
+`peer_ended && held.is_none()` covers the first required read after the process exit.
+For an ended peer, a read either closes the link, holds a frame, or stops at a pump bound.
+The bound sets `more_input`; would-block closes the ended link.
+Thus an open ended link without a held frame remains runnable, and the separate flag adds no scheduling decision.
+An unaccepted held frame still prevents this link from contributing `more` through `draining`.
+R78-D5 stays closed at design level.
+
+The reviewer reads the full-queue, pump-bound, and settle-time exit tests named in the receipt.
+The full-queue test checks no spin, the wake after polling, the later exit, and the final close.
+The pump-bound test carries the drain across pumps; the settle-time test checks the first pending drain.
+The source READY must provide completed execution evidence for the repaired head.
+
+The retained reversal log names R1–R5 failures and a restored 319/319 PASS at `1ff76822`.
+Its SHA-256 is `38429e1dbef8a776ef803a21fcf69945f647c2cb784f7d0a2d5c95e82cd71f98`.
+This older local log does not prove the later pump-bound test or a completed new-head gate.
+The equivalence conclusion above follows the source paths, not a claim that this log directly reverses `drain_due`.
+The full source review, retained evidence, revised both-OS facade proof, gate, and matching design receipt remain due.
+No original source finding closes through this design verdict. No execution job runs. Never poll.
