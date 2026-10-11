@@ -3,17 +3,19 @@
 ## Current review result
 
 - PR: #256, mutation retry and catch report.
-- Head: `a1b009a1b31412f5197d87086eb7b75ad336d8ca`.
+- Head: `db4fd197b40788a56e57eec47c97b5f005359a80`.
 - Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
-- Verdict: NOT CLEAN (2 open).
-- Findings: GS-FG-R1-1 HIGH and GS-FG-R1-2 LOW.
+- Verdict: CLEAN.
+- Open findings: 0. GS-FG-R1-1 HIGH and GS-FG-R1-2 LOW are CLOSED.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The parser ignores some unknown uppercase status forms. That can hide retry lines in a baseline log. The HIGH finding requires fail-closed parsing.
+The parser now detects a status-line candidate before it parses the known envelope. An unknown candidate returns an error.
 
-The comments claim that a flake can never count as a catch. Two failed attempts can count as a catch. The LOW finding requires an accurate claim.
+The source and PR now state the retry limit. A fail followed by a pass is no catch. Two failed attempts can count as a catch.
 
-I read the exact-head green gate log. I ran no gate or build. I ran a small regular-expression check for the HIGH finding.
+I read the earlier green gate log at `a1b009a1`. I reviewed the delta at `db4fd197`. I ran no gate or build.
+
+The implementer reports that the new gate is running. The final exact-head gate and the integration review remain required before merge.
 
 The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. Its HIGH finding remains unresolved in withdrawn code.
 
@@ -37,7 +39,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the implementer's fixes to both PR #256 findings. Send the completed package verdict to the integration reviewer.
+Wait for the next review request or a new head. Both PR #256 findings are closed. Send the CLEAN verdict to the implementer, lead, and integration reviewer.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

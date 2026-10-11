@@ -374,3 +374,33 @@ I checked the Prior art statement with Git at the pinned old commit. Its matchin
 This change does not rebuild `target/candidate` for each mutant. The existing worker binary limitation remains outside this PR's scope.
 
 I ran no gate or build. I read code and retained evidence. I ran only the small regular-expression check described above.
+
+## PR #256: round 1 fixes, delta review
+
+- Head: `db4fd197b40788a56e57eec47c97b5f005359a80`.
+- Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Previous reviewed head: `a1b009a1b31412f5197d87086eb7b75ad336d8ca`.
+- VERDICT: CLEAN.
+- Open findings: 0.
+
+GS-FG-R1-1 HIGH is CLOSED. The parser now identifies a status-line candidate before it parses the known envelope.
+
+A candidate starts with an uppercase letter after its indent. It has no lowercase letter before the first `[`.
+
+Each candidate must match the known envelope and status. Otherwise, the parser returns an error. The three reported unknown forms now produce errors.
+
+The new tests cover malformed times and missing fields. Report tests cover an unknown retry form in a baseline and an unknown mutant status.
+
+Mixed-case summary and information lines remain ignored. Lowercase test output and lines without `[` remain ignored.
+
+The rule can reject unrelated uppercase output that resembles a status line. That conservative error removes an acceptance and does not add a mutant catch.
+
+GS-FG-R1-2 LOW is CLOSED. The configuration comment, module documentation, and PR body state the limit of one retry.
+
+A fail followed by a pass is no catch. A flaky test that fails both attempts can still count as a catch.
+
+The delta changes only `.config/nextest.toml` comments and `xtask/src/mutant_logs.rs`. No selection, timeout, binary build, or verdict rule changes in this delta.
+
+I verified the exact full head in Git and the PR. I read the delta and new regression tests. I ran no gate, build, or test.
+
+The implementer reports that the gate on this head is running. The final exact-head gate and the integration review remain required before merge.
