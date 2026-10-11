@@ -1874,3 +1874,31 @@ Its independent code, four identifier-set, and fence-exception checks agree with
 It preserves the incomplete local strict record as an owner report.
 One final acceptance condition remains: completed exact-head gate, removal evidence, final body, and completed package verdict.
 The reviewer accepts no result from the running gate. The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — failed final gate
+
+Head: `46c8c5481a3cdf11ec98949227fda32f4d0f0ee0`.
+Base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Message: `msg_plugin-w_1791762337_dda900`.
+Log: `gates/botster-core-stage1-rc-oracle-encode-46c8c548-pool-20261011-163127-84246.log` under `~/botster-sessions`.
+The reviewer read the exact header, failing baseline record, stage summary, step summary, and final exit.
+The first eight steps pass. Mutants fails in its unmutated stage-2 baseline; fuzz does not run.
+Stage 1 reports 32 mutants: 18 caught, twelve missed, two unviable, no timeout.
+Stage 2 tests no mutant because its baseline fails. No combined mutation PASS is accepted.
+The step total is 658.2 seconds; the wrapper exits 1 after 771 seconds on Linux.
+
+The failing ID is `conf::st_6_capture_is_frozen_at_model_rev`, seed 0, step 17.
+Its expected relation is `{"ne":[1,1]}`; the relation does not hold.
+The same ID passes on the testkit and in the earlier slow step.
+The reviewer read the complete pinned .39 transcript.
+The second `pty_output` writes hex `42`; `await_quiet` precedes ReadScreen and the revision comparison without a model-read fence.
+The own #288 delta changes no worker model feed or program-control path. The transcript calls no oracle control.
+These facts support non-interference with the proposed unfenced model-read mechanism.
+They do not prove that mechanism caused the failed gate or that the failure reproduces on plain `v1`.
+
+RC reports that it stopped and ran no re-gate. RC proposes one controlled timing reproduction on plain base `f6025aed` through the lead.
+The reviewer awaits the completed evidence and the applicable lead decision under plan 23al and 23bl.
+No re-gate is accepted before both reviewers accept the exact-signature evidence and the lead approves the case.
+Source and body findings remain closed. Final acceptance remains pending valid final evidence.
+The reviewer ran no test, build, gate, or diagnostic.
