@@ -353,18 +353,19 @@ mod tests {
     use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
 
-    /// R-87: `parked_of` gives the record that the handle's refusal layer keeps, so the `parked_work` control reads what
+    /// R-87, R-88: `record_of` gives the record that the handle's refusal layer keeps, so the `parked_work` and `op_posted`
+    /// controls read what
     /// the Core behind that layer reported.
     #[test]
-    fn parked_of_is_the_record_of_the_handles_layer() {
+    fn record_of_is_the_record_of_the_handles_layer() {
         let mut harness = TestkitHarness::new(0);
-        assert!(harness.parked_of("a").is_none(), "no layer yet");
+        assert!(harness.record_of("a").is_none(), "no layer yet");
         let (behind, _reached) = crate::refusal::tests::behind();
         let diagnostics = behind.diagnostics_slot();
         let mut core = harness.with_refusals("a", Box::new(behind));
         let s1 = SessionId("s1".into());
         assert!(!harness
-            .parked_of("a")
+            .record_of("a")
             .expect("the layer's record")
             .parked(&s1));
         *diagnostics.lock().unwrap() = json!({"parked_work": ["s1"]});
@@ -373,7 +374,7 @@ mod tests {
             unix: 0,
         });
         assert!(harness
-            .parked_of("a")
+            .record_of("a")
             .expect("the layer's record")
             .parked(&s1));
     }

@@ -1764,29 +1764,44 @@ pub(crate) mod tests {
         assert!(!script.is_empty());
     }
 
-    /// R-87: after each call that it passes on, the layer records the sessions that the Core behind it reports as
-    /// `parked_work` in its `diagnostics`, and `parked` answers from that record at once.
+    /// R-87, R-88: after each call that it passes on, the layer records what the Core behind it reports in its `diagnostics`,
+    /// and the record answers from it at once: `parked` from `parked_work`, and `op_posted` from `next_op` and
+    /// `unposted_ops`.
     #[test]
-    fn the_layer_records_the_parked_work_that_the_core_reports_after_each_call() {
+    fn the_layer_records_what_the_core_reports_after_each_call() {
         let (behind, _reached) = behind();
         let diagnostics = behind.diagnostics_slot();
-        let parked = ParkedWork::default();
-        let mut layer = RefusalLayer::new(Box::new(behind), RefusalHandle::new(), parked.clone());
+        let record = CoreRecord::default();
+        let mut layer = RefusalLayer::new(Box::new(behind), RefusalHandle::new(), record.clone());
         let (s1, s2) = (SessionId("s1".into()), SessionId("s2".into()));
         assert!(
-            !parked.parked(&s1),
+            !record.parked(&s1),
             "a report without parked_work names no session"
         );
-        *diagnostics.lock().unwrap() = json!({"parked_work": ["s1"]});
+        assert!(
+            !record.op_posted(OpId(1)),
+            "a report without next_op minted no op"
+        );
+        *diagnostics.lock().unwrap() =
+            json!({"parked_work": ["s1"], "next_op": 5, "unposted_ops": [3]});
         layer.pump(Now {
             monotonic: Instant::now(),
             unix: 0,
         });
-        assert!(parked.parked(&s1), "the pump's report names s1");
-        assert!(!parked.parked(&s2));
-        *diagnostics.lock().unwrap() = json!({"parked_work": []});
+        assert!(record.parked(&s1), "the pump's report names s1");
+        assert!(!record.parked(&s2));
+        assert!(record.op_posted(OpId(2)), "op 2 is minted and not unposted");
+        assert!(record.op_posted(OpId(4)), "op 4 is the last minted op");
+        assert!(!record.op_posted(OpId(3)), "op 3 waits for its completion");
+        assert!(!record.op_posted(OpId(5)), "op 5 is not minted yet");
+        assert!(!record.op_posted(OpId(0)), "Core never mints op 0");
+        *diagnostics.lock().unwrap() = json!({"parked_work": [], "next_op": 5, "unposted_ops": []});
         layer.poll_events(1);
-        assert!(!parked.parked(&s1), "the poll's report names no session");
+        assert!(!record.parked(&s1), "the poll's report names no session");
+        assert!(
+            record.op_posted(OpId(3)),
+            "the poll's report has op 3 posted"
+        );
     }
 
     /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.
