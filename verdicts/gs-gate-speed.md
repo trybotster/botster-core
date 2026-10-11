@@ -2115,3 +2115,51 @@ I read pair-common, the current GS brief, and plan revision 23bk, section 8. Sol
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
+
+## Core PR #281: Git failure fixture
+
+- Head: `1f0ab3eb5e8f19b43fed1e34468e86bced9a244b`.
+- Base: `b6fd4b98e5f95aba4a6a1dc13efb609036be36f2`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+The complete diff changes one test fixture in `xtask/src/mutants_cited/tests.rs`. It changes no production code, environment variable, timeout, mutation exclusion, or verdict.
+
+The old negative fixture relied on a temporary directory having no repository ancestor. The Mac pool placed temporary directories inside a checkout.
+
+The new fixture writes `.git` with a reference to a missing directory inside its owned temporary directory. Git encounters that invalid reference before ancestor discovery.
+
+The referenced directory does not exist. The test does not create it. The owned temporary directory removes the fixture when the test ends.
+
+The test retains its positive assertion: the file collector returns exactly `a/b.rs` and `c.toml` from a staged repository.
+
+The test also retains its negative assertion: the collector returns an error when Git cannot list tracked files. The fixture makes that condition independent of the parent directory.
+
+`tracked_with_submodules` still runs `git ls-files -z --recurse-submodules` and passes the result through the existing failed-command check.
+
+The repair neither removes that check nor changes its error requirement. It therefore does not permit a gate failure or mutant that the previous assertion would reject.
+
+### Evidence
+
+I read the retained Mac failure at the original negative assertion. That log also retains the separate signal-scan and base-merge timeouts.
+
+Failure: `~/botster-sessions/gates/botster-core-stage1-p5-lc2-real-proof-cb7eb0f7-pool-20261011-101307-53515.log`.
+
+The live body reports local before-and-after evidence with `TMPDIR` inside a repository. I did not reproduce or independently inspect that local run.
+
+The exact-head Linux gate passes all ten steps in 291.1 seconds. The repaired test passes in 0.006 seconds.
+
+The default tier passes 1729 tests. The slow tier passes 555 tests. The test-only diff has no listed mutant.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-1f0ab3eb-pool-20261011-102558-30553.log`.
+
+The body identifies the independent pool fix and retains the Mac cost as separate work. This review accepts no timeout change or unrelated retry.
+
+I checked the prior-art claim at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`. It supplies no corresponding `mutants_cited` check.
+
+The lead's handoff confirms this test-only assignment under plan revision 23bp. Sol must complete the HIGH integration review.
+
+This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
+
+I ran no gate, build, test, or executable probe.

@@ -329,6 +329,10 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Core #281 is package CLEAN at `1f0ab3eb5e8f19b43fed1e34468e86bced9a244b`, with zero open findings.
+
+Its invalid `.git` fixture keeps the positive file-list assertion and the negative Git-error assertion. Sol's HIGH integration review remains pending.
+
 Contracts #50 is package CLEAN at final head `ddce507e2c08e740f899e97dcfec566f3d2275b8`, base `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
 
 The canonical base check passes every condition. The final gate passes ten steps with 20 caught and 2 unviable mutants.
