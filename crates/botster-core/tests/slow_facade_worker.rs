@@ -27,6 +27,19 @@ use std::process::Command;
 use std::sync::mpsc;
 use std::time::Duration;
 
+/// What the stand-in worker saw of one `AttachRoute` frame: its route, the descriptors of the read that held its start, and
+/// the number of reads that the frame took.
+#[derive(Debug, PartialEq, Eq)]
+struct Handoff {
+    route: RouteId,
+    fds: usize,
+    reads: usize,
+}
+
+/// The read size of the stand-in worker in the facade test: smaller than a frame header (`HEADER_LEN`, 5 bytes), so every
+/// frame takes more than one read, and the `AttachRoute` frame ends in a later read than the one with its descriptor.
+const SMALL_READ: usize = 3;
+
 fn sid(name: &str) -> SessionId {
     SessionId(name.into())
 }
@@ -44,13 +57,15 @@ fn say(stream: &mut UnixStream, msg: &WorkerMsg) {
 }
 
 /// The worker side of the link: the hello with the token proof, `Launched`, and a one-page capture for each
-/// `CaptureSnapshot`. For each `AttachRoute`, it sends to `handed` the route and the number of descriptors of the read
-/// that held the frame's start (DP-2: a read with descriptors holds the start of exactly one `AttachRoute` frame). It ends
-/// when the link closes.
+/// `CaptureSnapshot`. It reads at most `read_size` bytes at a time. For each `AttachRoute`, it sends to `handed` the route,
+/// the number of descriptors of the read that held the frame's start, and the number of reads that the frame took (DP-2,
+/// plan 23ae: a read with descriptors holds the start of exactly one `AttachRoute` frame, and the descriptors belong to
+/// that frame, also when the frame ends in a later read). It ends when the link closes.
 fn stand_in_worker(
     mut stream: UnixStream,
     launch: WorkerLaunch,
-    handed: mpsc::Sender<(RouteId, usize)>,
+    read_size: usize,
+    handed: mpsc::Sender<Handoff>,
 ) {
     let hello = Hello {
         protocol: 1,
@@ -62,21 +77,31 @@ fn stand_in_worker(
     hello.encode(&mut payload).unwrap();
     send(&mut stream, FrameType::HELLO, &payload);
     let mut decoder = FrameDecoder::new(1 << 22);
-    let mut buf = [0u8; 4096];
+    let mut buf = vec![0u8; read_size];
+    // The descriptor count of the read that holds the start of the frame in the decoder, and the reads of that frame.
+    let mut started = (0, 0);
     loop {
         let read = match fd_pass::recv_with_fds(&stream, &mut buf) {
             Ok(read) if read.len > 0 => read,
             _ => return,
         };
-        let mut fds = Some(read.fds.len());
         let mut rest = &buf[..read.len];
         while !rest.is_empty() {
+            // An empty decoder means that a frame starts with this push (`push` takes no byte past a complete frame).
+            if decoder.buffered() == 0 {
+                started = (read.fds.len(), 0);
+            }
+            started.1 += 1;
             let took = decoder.push(rest);
             rest = &rest[took..];
             while let Ok(Some(frame)) = decoder.next_frame() {
                 match HostMsg::decode(&frame.payload) {
                     Ok(HostMsg::AttachRoute { route, .. }) => {
-                        let _ = handed.send((route, fds.take().unwrap_or(0)));
+                        let _ = handed.send(Handoff {
+                            route,
+                            fds: started.0,
+                            reads: started.1,
+                        });
                     }
                     Ok(HostMsg::Launch(_)) => say(
                         &mut stream,
@@ -254,7 +279,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let stream = UnixStream::connect(&parsed.control).expect("the host listens");
     let link = stream.try_clone().unwrap();
     let (handed, handoffs) = mpsc::channel();
-    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed, handed));
+    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed, SMALL_READ, handed));
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert!(
         matches!(completed(&events, start), Some(OpResult::Ok(_))),
@@ -289,10 +314,13 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     pump_until(&mut core, |_| true);
     let handoff = handoffs
         // timer: deadline — a host that never sends the route must fail the test, not hang
-        .recv_timeout(Duration::from_secs(30));
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the host sends the route");
+    // The frame ends in a later read than its start, which held its one descriptor (plan 23ae).
+    assert!(handoff.reads > 1, "{handoff:?}");
     assert_eq!(
-        handoff,
-        Ok((route, 1)),
+        (handoff.route, handoff.fds),
+        (route, 1),
         "the route's stream rides on its frame"
     );
 
@@ -498,7 +526,7 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     {
         let parsed = parsed.clone();
         std::thread::spawn(move || {
-            stand_in_worker(stream, parsed, mpsc::channel().0);
+            stand_in_worker(stream, parsed, 4096, mpsc::channel().0);
             let _ = ended.send(());
         });
     }

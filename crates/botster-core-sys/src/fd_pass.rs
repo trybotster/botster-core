@@ -103,8 +103,10 @@ fn emsgsize_waits(len: usize, send_buffer: usize) -> bool {
     len <= send_buffer
 }
 
-/// One read of [`recv_with_fds`]: the bytes read into the buffer, and the descriptors that came with the first of them, each
-/// with `FD_CLOEXEC` set.
+/// One read of [`recv_with_fds`]: the bytes read into the buffer, and the descriptors that came with them, each with
+/// `FD_CLOEXEC` set. The read holds at most one segment with descriptors: at its start on macOS, at its end on Linux (see
+/// the module's text). So the descriptors belong to the one `AttachRoute` frame that starts in this read (plan 23ae), not
+/// to a byte position.
 #[derive(Debug)]
 pub struct Received {
     pub len: usize,

@@ -167,15 +167,10 @@ fn a_full_socket_takes_neither_the_bytes_nor_the_descriptor() {
         drained += received.len;
     }
     assert_eq!(drained, filled);
-    // With room again, the same send goes, with its descriptor.
+    // With room again, the same send goes, with its descriptor. The send has returned, so its bytes are in the reader's
+    // queue, and one read takes them.
     assert_eq!(send_with_fd(&a, b"attach", passed.as_fd()).unwrap(), 6);
-    let attach = loop {
-        match recv_with_fds(&b, &mut buf) {
-            Ok(received) => break received,
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
-            Err(e) => panic!("{e}"),
-        }
-    };
+    let attach = recv_with_fds(&b, &mut buf).unwrap();
     assert_eq!((attach.len, attach.fds.len()), (6, 1));
 }
 
@@ -248,7 +243,8 @@ fn the_kernel_refuses_a_message_with_more_descriptors_than_the_control_space_hol
 }
 
 /// A send to a socket whose reader is gone is `BrokenPipe` (`EPIPE`). The test binary ignores `SIGPIPE` (the Rust runtime
-/// does), so this test shows the error only; the real-process test with the default disposition shows that no signal comes.
+/// does), so this test shows the error only. `tests/no_sigpipe.rs` shows that no signal comes: a recording handler, and a
+/// control write that raises `SIGPIPE` (plan 23ac).
 #[test]
 fn a_send_to_a_gone_reader_is_a_broken_pipe() {
     let (a, b, passed, _peer) = pairs();
