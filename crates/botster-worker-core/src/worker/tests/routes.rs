@@ -2009,7 +2009,11 @@ fn input_received_before_live_stays_not_ready_when_it_waits_for_room() {
         bytes: batch,
     });
     assert_eq!(received(&mut w, &read), 50, "each frame on its read");
-    assert_eq!(allowance(&read, RouteId(1)), Some(0), "refusals wait for room");
+    assert_eq!(
+        allowance(&read, RouteId(1)),
+        Some(0),
+        "refusals wait for room"
+    );
     let all = client.take_all(&mut w, RouteId(1), [bind, read].concat());
     assert!(
         client.frames.iter().any(|f| matches!(f, ToClient::Live)),
