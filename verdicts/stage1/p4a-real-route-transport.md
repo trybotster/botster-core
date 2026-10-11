@@ -633,3 +633,43 @@ This CLEAN covers source only. It accepts no gate, merge, new minimum result, fu
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 850bb78522e43967667ec839d5253e952822eea2
+
+### Exact-head gate acceptance at 850bb785
+
+Owner completion: `msg_plugin-w_1791722007_8b128e`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p4a-real-route-transport-850bb785-pool-20261011-052234-63419.log`.
+SHA256: `8b4a20337b580c4bb92b7f4c4a36c15ebddae2b9e06ba8cf082fca0f45645995`.
+The header names exact head 850bb78522e43967667ec839d5253e952822eea2 and base 0c5ac80e512f986edd2ec1455012552a41c7f855.
+
+Sol reads the header, check results, relevant named proofs, summaries, baseline, every raw mutation identity, catch reports, fuzz results, and exit.
+All ten steps pass in 555.7 seconds. Jobq exits zero after 565 seconds. The wrapper exits zero after 566 seconds.
+Default reports 1680 PASS, 481 skipped, and 12.766 seconds. Slow reports 494 PASS, 2009 skipped, and 42.067 seconds.
+Slow coverage checks 1026 slow-only tests. Conformance reports 209 passed and zero failed.
+EV-5 and the applicable in_10 tests report PASS in both supplied tiers within their current selection.
+The host driver ownership test and worker's once-only RouteReceived test report PASS in default.
+The public real-link receipt proof reports PASS in slow, in 0.007 seconds.
+The public DP-2 no-host-byte proof reports PASS in slow, in 0.006 seconds.
+The real driver and real session route proofs also report PASS. No private engine state establishes those real-link results.
+
+Stage 1 reports 167 distinct identities: 145 caught, one missed, 21 unviable, and zero timeout, in 172.7 seconds.
+The only missed identity is `crates/botster-worker/src/main.rs:401:9: replace Driver::bind_route with ()`.
+The unmutated stage-2 baseline passes 494 tests, ten slow, with 2693 skipped. Its complete step takes 45.1 seconds.
+Stage 2 tests exactly that missed identity and catches it, with zero missed, timeout, or unviable, in 60.2 seconds.
+Its named catcher is `botster-worker::bin/botster-worker slow_driver::a_real_route_carries_the_attach_the_input_and_the_output`.
+Sol independently parses all 168 raw records and matches the complete stage-2 multiset to the stage-1 miss multiset.
+Sol independently matches all 145 stage-1 catches and the stage-2 catch to their named reports.
+The final result is 146 caught, 21 unviable, zero missed, and zero timeout. The mutation step takes 283.0 seconds.
+The removed redundant engine arm appears in no outcome. Its failed parent record remains preserved above.
+
+Fuzz runs the link_decoder and msg_decoder targets for sixty seconds each.
+Their records finish 7,413,003 and 3,846,952 runs respectively, each in 61 seconds. Fuzz reports PASS in 162.5 seconds.
+The gate reports testkit-passing 55/69, real-passing 40/68, real-accepted 41/69, and 58 pending-real IDs.
+Thirty-three pending-real trials pass under ignored selection. Their passing results do not authorize a pending removal or additional minimum count.
+DP-2 remains pending until the separately reviewed named-proof mechanism accepts its public proof result.
+
+This addendum accepts the supplied exact-head gate evidence. The unchanged head needs no repeat gate under section 8.
+The A5-4 before/after table and classifications, package completion artifact, and final body record remain pending.
+The owner reports a submodule failure in the before worktree and a replacement table job; Sol has not read its results.
+The before must remain exact base 0c5ac80e. Sol accepts no future table result, new minimum count, or status removal here.
+The source CLEAN remains valid for this head. Merge completion remains held for the pending acceptance items.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
