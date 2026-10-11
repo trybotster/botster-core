@@ -62,6 +62,8 @@ conf::ou_3_progressing_reader_lossless
 # no_spurious_wakes on the real tier: waits for the contracts no_spurious_wakes PR (real form), P6.
 conf::ev_5_poll_wakes_pending_work
 conf::tm_3_wake_handle_ignores_deadlines
+# R-43(5): no_spurious_wakes, GS's .39 transcript (lead, plan 23aw); it passes on the testkit since the TM-6 wake fix.
+conf::tm_6_begin_and_attach_signal_wake
 conf::tm_6_create_without_worker_input_wakes
 conf::tm_6_poll_room_unparks_and_wakes
 

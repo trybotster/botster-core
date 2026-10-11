@@ -620,6 +620,63 @@ fn the_wake_follows_runnable_work_and_the_pump_settles_before_it_clears() {
     assert!(!rig.wake_set());
 }
 
+/// The cancel messages that the host wrote on a link.
+fn sent_cancels(rig: &Rig, link: LinkId) -> usize {
+    rig.host_frames(link)
+        .iter()
+        .filter(|(k, p)| {
+            *k == FrameType::HOST_MSG
+                && matches!(
+                    botster_core_link::msg::HostMsg::decode(p),
+                    Ok(botster_core_link::msg::HostMsg::Cancel { .. })
+                )
+        })
+        .count()
+}
+
+/// TM-6, IN-6 (lead ruling, plan 23aw): a cancel of a write that the worker has queues the message to the worker and signals
+/// the wake; the next pump sends it.
+#[test]
+fn a_cancel_of_a_forwarded_write_signals_the_wake_and_the_pump_sends_it() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    let write = rig
+        .driver
+        .begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: InputPayload::Text { text: "a".into() },
+            guard: None,
+        })
+        .unwrap();
+    rig.settle();
+    assert!(!rig.wake_set(), "the forwarded write leaves no local work");
+    assert_eq!(rig.driver.cancel(write), CancelResult::Admitted);
+    assert!(rig.wake_set(), "TM-6: the cancel signals");
+    assert_eq!(
+        sent_cancels(&rig, LinkId(1)),
+        0,
+        "only pump sends it (OR-1)"
+    );
+    rig.pump();
+    assert_eq!(sent_cancels(&rig, LinkId(1)), 1);
+}
+
+/// TM-6, EV-5b: parked work is not runnable, so a call that leaves no other work does not signal the wake.
+#[test]
+fn parked_work_alone_does_not_signal_the_wake() {
+    let mut rig = Rig::new(limits(|l| l.mandatory_events = 3));
+    start_session(&mut rig, "s1", LinkId(1));
+    // `Created`, `Starting`, `Running` fill the queue of three; the route event waits for room on its link.
+    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    let report = rig.pump();
+    assert!(!report.more, "parked work does not set more");
+    assert!(!rig.wake_set());
+    // A call that leaves no work and queues nothing. (Not a cancel: the steward allows a spurious wake after a cancel that
+    // leaves no work, TH-2.)
+    let _ = rig.driver.set_silence_threshold(&sid("s1"), None);
+    assert!(!rig.wake_set(), "parked work alone does not signal");
+}
+
 /// Plan section 3, LC-10: a frame over the bound ends the link, and a first frame that is not a hello does too; the engine
 /// learns of both as a closed link, and `diagnostics()` keeps why.
 #[test]
