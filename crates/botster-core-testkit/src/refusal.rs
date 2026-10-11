@@ -725,6 +725,12 @@ fn fail_next(
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
+    arm_refusal(&harness.refusal_script(handle), args)
+}
+
+/// Arms the refusal of `fail_next` in `script`, on both tiers (Core A5-3): the layer in front of the handle's Core returns
+/// it without calling Core.
+pub(crate) fn arm_refusal(script: &RefusalHandle, args: &Value) -> Result<Value, ControlError> {
     let bad = |why: String| ControlError::Bad(why);
     let target = args
         .get("target")
@@ -740,7 +746,6 @@ fn fail_next(
             .and_then(|n| usize::try_from(n).ok())
             .ok_or_else(|| bad("'occurrence' is a number".into()))?,
     };
-    let script = harness.refusal_script(handle);
     match script.arm(target, occurrence, error) {
         Ok(()) => Ok(Value::Null),
         Err(ScriptError::NotInSyncColumn { call, code }) => Err(ControlError::Refused(
