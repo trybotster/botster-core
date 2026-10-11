@@ -86,6 +86,7 @@
 //! Every other control gives `unsupported_control`, which is never a pass.
 
 mod holders;
+mod oracle;
 mod program;
 mod resume;
 
@@ -1194,6 +1195,7 @@ impl CoreHarness for RealCoreHarness {
                     | "reuse_pid"
                     | "bystander_alive"
             ) || program::CONTROLS.contains(&op)
+                || crate::oracle_controls::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
 
@@ -1226,6 +1228,9 @@ impl CoreHarness for RealCoreHarness {
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
             "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
+            "oracle_query_reply" if self.tapped => self.oracle_query_reply(handle, args),
+            "oracle_screen" if self.tapped => self.oracle_screen(handle, args),
+            "oracle_screen_payload" if self.tapped => crate::oracle_controls::screen_payload(args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
             "bystander_alive" if self.tapped => self.bystander_alive(args),
@@ -1484,6 +1489,9 @@ mod slow_controls {
             "hold_handoff",
             "release_handoff",
             "oracle_resume",
+            "oracle_query_reply",
+            "oracle_screen",
+            "oracle_screen_payload",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
@@ -2560,6 +2568,7 @@ mod slow_tests {
         ]
         .into_iter()
         .chain(program::CONTROLS.iter().copied())
+        .chain(crate::oracle_controls::CONTROLS.iter().copied())
         {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
