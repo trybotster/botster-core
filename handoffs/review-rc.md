@@ -604,3 +604,18 @@ RC-TK-1, RC-TK-2, and RC-TK-4 remain closed. No source changed for these body co
 The recorded exact-head green gate still applies; a body correction requires no repeat execution.
 Integration CLEAN remains required on this exact head. The final slot, import review or check, and exact-head gate remain due.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — B13 verification limit
+
+Lead message: `msg_plugin-w_1791747824_ddf3c9`.
+The lead confirms that the existing log shows no wrong result and contains no #284 run before a clean.
+The lead asks RC for a separate sequence: clean, #285 FAIL, #284 without a clean, clean, then #284 PASS.
+The lead expects a stale FAIL from the unclean #284 run; that expectation is not an accepted result.
+The B13 catalog entry and pair-common rule remain precautions until the completing log exists.
+The reviewer accepts no proved cargo mechanism from the current record.
+The #285 source CLEAN concerns the corrected body and reviewed source. It claims no B13 reproduction.
+
+Integration message `msg_plugin-w_1791747846_0da91b` confirms that both body findings can close at the unchanged head.
+The integration closure commit remains pending. The reviewer sent package closure `71c1dc82a0461a65c1877807f3ed1deea6212ebe`.
+The reviewer ran no test, build, or gate.
