@@ -257,7 +257,10 @@ fn a_link_closing_before_the_launch_fails_the_start_at_the_deadline_and_after_it
     settle(&mut w);
     w.feed(Input::LinkClosed { link });
     let quiet = settle(&mut w);
-    assert!(quiet.is_empty(), "nothing is posted for the end of file: {quiet:?}");
+    assert!(
+        quiet.is_empty(),
+        "nothing is posted for the end of file: {quiet:?}"
+    );
     assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,
         SessionState::Starting
@@ -282,7 +285,11 @@ fn a_link_closing_before_the_launch_fails_the_start_at_the_deadline_and_after_it
             cause: ExitCause::Other,
         })
     );
-    assert!(w.signals.is_empty(), "the worker is not signalled: {:?}", w.signals);
+    assert!(
+        w.signals.is_empty(),
+        "the worker is not signalled: {:?}",
+        w.signals
+    );
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -444,7 +451,10 @@ fn a_worker_death_before_running_is_lost_whichever_edge_reports_it_first() {
         if eof_first {
             w.feed(Input::LinkClosed { link });
             let quiet = settle(&mut w);
-            assert!(quiet.is_empty(), "nothing is posted for the end of file: {quiet:?}");
+            assert!(
+                quiet.is_empty(),
+                "nothing is posted for the end of file: {quiet:?}"
+            );
             assert_eq!(
                 w.engine.get(&sid("s1")).unwrap().state,
                 SessionState::Starting
@@ -457,10 +467,7 @@ fn a_worker_death_before_running_is_lost_whichever_edge_reports_it_first() {
         let events = settle(&mut w);
         assert_eq!(
             states(&events),
-            vec![(
-                "s1".to_string(),
-                SessionState::Lost(LostReason::WorkerGone)
-            )],
+            vec![("s1".to_string(), SessionState::Lost(LostReason::WorkerGone))],
             "eof first: {eof_first}"
         );
         let lost = events
@@ -471,12 +478,14 @@ fn a_worker_death_before_running_is_lost_whichever_edge_reports_it_first() {
             .iter()
             .enumerate()
             .filter_map(|(i, e)| match e {
-                Event::RouteClosed { route: r, reason, .. } if *r == route => Some((i, reason.clone())),
+                Event::RouteClosed {
+                    route: r, reason, ..
+                } if *r == route => Some((i, *reason)),
                 _ => None,
             })
             .collect();
         assert_eq!(
-            closes.iter().map(|c| c.1.clone()).collect::<Vec<_>>(),
+            closes.iter().map(|c| c.1).collect::<Vec<_>>(),
             vec![RouteCloseReason::SessionLost],
             "eof first: {eof_first}"
         );
