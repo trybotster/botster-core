@@ -314,3 +314,55 @@ The integration reviewer reports the finding and holds further review under the 
 The reviewer makes no verdict on the pending R-82 delta.
 A new source head requires a delta review and the applicable exact-head gate.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — R-82 delta, round 2
+
+VERDICT: CLEAN
+Source head: `8d56987ec2d7983bdeebd2101cca751f1d2c92ee`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Tier: HIGH. Open findings: 0.
+This verdict supersedes the record hold at `e062de537d534b89336ef276b2ddd3e1694abc52`.
+
+RC-PASTE-1 is closed. The reviewer read the current PR body. Its summary now says 14 `queue_overflow` IDs.
+The summary matches the 34-row table. The body records the R-82 delta and both intervening red gates.
+
+The reviewer read every delta path, including the imported shared testkit code and xtask tests.
+The review uses R-82 from `shared/steward/drafts/pending-rulings-edits.md` and the lead's governing instruction in `core-lead.md`.
+The named `PROGRAM_SIDE_GONE` table identifies EIO on Linux and macOS, and EPIPE on the testkit edge.
+The Mac measurement reports EIO after the program exits and while a live program has closed its terminal.
+The error classification no longer depends on whether `PayloadExited` arrived first.
+Other errors remain `Failed`. The existing completion path preserves exact counts and converts a certain zero to `NotWritten(SessionEnded)`.
+The route tests cover EIO, EPIPE, and ENOSPC in both event orders. Host tests cover partial writes and certain zero.
+These tests observe PTY actions, route frames, and host results. They assert no private state.
+The historical reversal fails both new tests at `21318131` with the earlier input code restored.
+The transcript remains unchanged, as R-82 requires.
+
+The shared `pty_fail_after` control now injects ENOSPC. Its definition requires an OS write error with a `Failed` outcome.
+ENOSPC preserves that definition after R-82. The change adds no model of a real control.
+The imported route log reads bytes from the scripted program or the real probe, with an unattributed label.
+The log does not invent an op attribution. The real route checks its attached session instance and holds its host tap weakly.
+The imported xtask tests retain the scan decisions and leave the complete repository scan in the gate.
+The mutation configuration has no delta. The inherited exclusions remain as reviewed; none covers the R-82 decision.
+
+### Exact-head evidence for Core #284 round 2
+
+Gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-paste-8d56987e-pool-20261011-115009-66983.log`.
+Its header names the exact source and reviewed base above. All ten steps pass. The gate exits 0.
+It reports 58 mutants: 55 caught, three unviable, no miss, and no timeout.
+Both constant replacements of `PROGRAM_SIDE_GONE.contains(&errno)` are caught by behavior tests.
+The three unviable mutants replace paste decisions with `Some(Default::default())`.
+The real route-log proof passes. All four named real-only proofs pass.
+
+The lane-full and route-op namespace IDs pass on both tiers and leave testkit pending.
+The invalid-UTF8 ID passes on the testkit and on Linux's pending-real trial.
+It retains its real-pending entry because the Mac evidence shows four failures at the unfenced PTY-log read.
+The lead assigns the R-56 fence work to P3. This PR claims no Mac completion for that ID.
+The imported pending removals remain separate from the three own removals.
+The earlier query budget hold and other real-tier limits remain explicit.
+
+Integration CLEAN remains required on this exact head and base.
+Under Q8, this green gate can serve as the merge gate when both verdicts cover this unchanged head and base.
+A later head requires the applicable review record and exact-head gate.
+The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
