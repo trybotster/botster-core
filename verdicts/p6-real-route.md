@@ -250,3 +250,77 @@ This is a CLEAN review of the exact final head. Its final gate remains the imple
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: CLEAN
+
+## Round 3 — Route control declarations
+
+Exact head: `5921340d4f90d94ab7864b740820c0d5fb88ad03`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Parent: `8474e449f19b848f0bfe6e6174316f027b815c4e`.
+Risk tier: HIGH. The change affects the shared testkit and the runner's capability check.
+
+### Source review
+
+The reviewer read the complete one-file delta from the parent, the affected method and test, and the published body.
+The reviewer also read the pinned runner's preflight check and route dispatch interfaces.
+The delta has 8 additions and 2 deletions in `crates/botster-core-testkit/src/real.rs`.
+
+The runner checks every `requires.controls` entry through the driver's `has_control` before setup or step 0.
+The Core driver forwards that check to the harness.
+Previously, the real harness omitted `client_close` and `route_gate`, although RealRoute implements both.
+The correction adds the existing `route::CONTROLS` to the tapped harness's declared controls.
+The plain harness still declares no controls, as its existing mode requires.
+The route subject checks the attached route's controls and dispatches route controls to that route.
+The correction adds no call to the harness's separate `control` method for these operations.
+The declaration therefore permits preflight; the existing route implementation still performs each operation.
+
+The reviewer read P3's retained evidence:
+`~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/real-pending-minimum-ids-238-240-prc-macos.log`.
+`conf::ou_5_peer_fault_closes_only_that_route` stops with UnsupportedControl(client_close).
+`conf::ou_7_exit_after_tail_queued_then_close` stops with UnsupportedControl(route_gate).
+This evidence comes from P3's local combined tree, not the exact head of this round.
+The pinned preflight source confirms the cause: both checks occur before any step can use the route.
+
+The existing public capability proof now checks each route control on both harness modes.
+It expects true for the tapped harness and false for the plain harness.
+The proof calls `CoreHarness::has_control`; it adds no assertion on a private field.
+The existing route proofs still cover client close, gate release, and control dispatch.
+The correction reuses the route's declared control list and the existing capability proof.
+It adds no custom I/O mechanism.
+
+The delta changes no route I/O, deadline, timer, flush loop, process owner, cleanup, or production reaper.
+It changes no transcript, contract assertion, contract pin, mutation exclusion, or pending list.
+Both named IDs remain pending-real. The reviewer does not claim this declaration makes their complete transcripts pass.
+The four Round 1 corrections remain intact. There is no new package finding.
+
+### Accepted base import and retained evidence
+
+The parent merges the Round 2 head with accepted #241.
+That import changes only `crates/botster-core-testkit/src/pending.rs` and `tests/suite/mod.rs`.
+The reviewer read its merge parents, imported path summary, and supplied merge-check output:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-8474e449-pool-20261010-231238-48492.log`.
+All ancestry and four merge conditions pass.
+The own diff remains byte-identical outside line-set files: 28219 bytes, SHA-256 `2ab66880f1c71fdf665c191fe2e8f9fae6f1c9f45e8677839500c5d99845ab0b`.
+The check exits 0. The job takes 7 seconds; the wrapper takes 8 seconds.
+
+The reviewer also read the completed parent gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-8474e449-pool-20261010-231252-49132.log`.
+All ten jobs pass. Job and wrapper exit 0 after 2499 seconds, with zero queued seconds.
+Default: 1604 passed in 11.186 seconds. Slow: 427 passed in 106.861 seconds.
+Conformance: 206 passed. Strict pending: 373/394, with 21 real-only IDs not run and 2 held.
+Minimum counts: testkit 55/69, real-passing 36/68, real-accepted 37/69.
+Pending-real: 77, with zero newly passing IDs.
+Stage 1 misses all 30 slow-only mutants in 104.2 seconds.
+The slow baseline passes in 103.6 seconds.
+Stage 2: 30 total, 25 caught, 0 missed, 0 timeout, and 5 unviable, in 2097.5 seconds.
+These results belong to the parent. They do not prove execution of the new capability test assertions.
+
+The reviewer read the header of the implementer's new gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-5921340d-pool-20261010-235507-54316.log`.
+It names the exact head and base of this round. That gate is still running; its completed result remains required.
+The lead's ~02:50 entry orders this delta review and one new gate.
+This verdict completes the source review. It does not claim the new gate has passed.
+
+Open findings: 0. All prior findings remain closed.
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
