@@ -1069,10 +1069,20 @@ mod slow_controls {
 
     /// Creates the session `session`, whose payload is the probe program that holds.
     fn created(harness: &RealCoreHarness, core: &mut dyn CoreApi, session: &str) {
+        created_with(harness, core, session, BTreeMap::new());
+    }
+
+    /// As [`created`], with the payload's environment `env`.
+    fn created_with(
+        harness: &RealCoreHarness,
+        core: &mut dyn CoreApi,
+        session: &str,
+        env: BTreeMap<String, String>,
+    ) {
         let hold = json!({ "program": [{ "hold": {} }] }).to_string();
         let request = SpawnRequest {
             argv: vec![harness.probe_binary(), hold],
-            env: BTreeMap::new(),
+            env,
             cwd: "/".into(),
             size: Size {
                 rows: 24,
@@ -1090,6 +1100,37 @@ mod slow_controls {
         })
         .expect("create");
         pump_until(core, |c| c.get(&sid(session)).is_ok());
+    }
+
+    /// R-60, on a real session: `program_ready` is false for a created session, because its payload has not started, so no
+    /// probe has connected. It is true once the started session's probe has connected; the hello wakes the host, so the pump
+    /// ends. A session with no row is `Bad`.
+    #[test]
+    fn program_ready_is_true_once_the_sessions_probe_has_connected() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        // The probe connects to the socket that the environment names.
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        let ready =
+            |h: &mut RealCoreHarness| h.control("a", "program_ready", &json!({ "session": "s1" }));
+        assert_eq!(ready(&mut harness), Ok(json!({ "ready": false })));
+        assert!(matches!(
+            harness.control("a", "program_ready", &json!({ "session": "s9" })),
+            Err(ControlError::Bad(_))
+        ));
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |_| {
+            ready(&mut harness) == Ok(json!({ "ready": true }))
+        });
+        drop(core);
     }
 
     /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
