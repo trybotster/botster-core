@@ -1967,3 +1967,15 @@ I checked the prior-art claim against old Core `72b2e3354ffc291e39f9a5d7eb2f9c5f
 Sol and reviewer 016c must complete their required reviews. The steward owns merge approval. A future base merge is not covered by this exact-head verdict.
 
 I ran no gate, build, test, or executable probe.
+
+### Contracts PR #50: integration completion
+
+Sol publishes integration CLEAN at exact head `338008cbeea0bc1e675680e2d1c2935bf4702383` in `6f98c3cefeceda0e7e28447cd43323517b53138f`.
+
+I read the complete artifact, `verdicts/contracts/gs-r43-spurious-wakes.md`, and verified that `origin/stage1/integration-review-sol` contains the commit.
+
+Sol confirms that all package findings are closed. Sol also records reviewer 016c's exact-head ACCEPT and adds no finding.
+
+The mutation log supplies aggregate counts without individual mutant identities. Neither review claims independent mutant identity matching.
+
+The later #47 import, its exact-head gate, and the Core pin remain separate. I ran no gate, build, test, or executable probe.
