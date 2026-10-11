@@ -86,8 +86,6 @@ struct Controls {
     inject: VecDeque<(Vec<u8>, bool)>,
     /// Every byte of input that the program took (the log behind `pty_input`).
     input_log: Vec<u8>,
-    /// Output bytes that the worker has not read: the program's queue and the injected bytes (`pty_output_unread`).
-    unread: usize,
 }
 
 /// A handle on the controls of a [`ScriptedProgram`]. It outlives the move of the program into a worker.
@@ -165,17 +163,13 @@ impl ProgramControl {
 
     /// `program_write_once`: the program writes these bytes as one write, so the worker reads them in one piece (Core A5-2, E2-3).
     pub fn write_once(&self, bytes: &[u8]) {
-        let mut controls = self.lock();
-        controls.unread += bytes.len();
-        controls.inject.push_back((bytes.to_vec(), true));
+        self.lock().inject.push_back((bytes.to_vec(), true));
     }
 
     /// `pty_output`: the program writes these bytes to the terminal as plain output, like its own `print`, so the scheduler
     /// chooses where the worker's reads end within them (Core ST-1, OU-7).
     pub fn write(&self, bytes: &[u8]) {
-        let mut controls = self.lock();
-        controls.unread += bytes.len();
-        controls.inject.push_back((bytes.to_vec(), false));
+        self.lock().inject.push_back((bytes.to_vec(), false));
     }
 
     /// `uncarriable_sequence`: the program writes the start of an OSC or DCS string and more than `limit` bytes of it, with no
@@ -186,19 +180,12 @@ impl ProgramControl {
             UnterminatedKind::Dcs => b"\x1bP1$r".to_vec(),
         };
         bytes.extend(std::iter::repeat_n(b'a', limit + 1));
-        let mut controls = self.lock();
-        controls.unread += bytes.len();
-        controls.inject.push_back((bytes, false));
+        self.lock().inject.push_back((bytes, false));
     }
 
     /// Every byte of input that the program took, in order.
     pub fn input_log(&self) -> Vec<u8> {
         self.lock().input_log.clone()
-    }
-
-    /// `pty_output_unread`: the output bytes that the worker has not read.
-    pub fn output_unread(&self) -> usize {
-        self.lock().unread
     }
 }
 
@@ -434,7 +421,6 @@ impl ScriptedProgram {
         // The script's output that can run now comes first; the bytes that a control injected follow it.
         self.run_steps();
         self.take_injected();
-        self.controls.lock().unread = self.output.len();
     }
 
     fn run_steps(&mut self) {
@@ -548,7 +534,6 @@ impl Program for ScriptedProgram {
             Some(cap) => fits.min(cap).max(1),
             None => scheduler.with(|s| s.program_write_size(fits)),
         });
-        self.controls.lock().unread = self.output.len();
         Ok(n)
     }
 
