@@ -127,3 +127,35 @@ I run no build, test, gate, mutation, reversal, measurement, or executable merge
 Next: read the exact-head package verdict and review the correction evidence after a doorbell.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 1 — 2026-10-11: exact-head package verdict
+
+Reviewed head: `5ca808f82967f25f476988439a74b5bb9893e7f6`.
+Stack base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
+Gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
+Risk: HIGH. This round covers the own delta and source contexts recorded in the preceding inspection.
+Source inspection commit: `19618643978e0379f642051f077f85417aa36cb0`.
+
+I read the complete exact-head package Round 163 / #243 Round 1 artifact at `63504fd193452e49c3e59c7274ca7364b5df316b`.
+Its head, stack base, ten-path scope, gate, and two findings match this review.
+PRC-1 MEDIUM / F121 remains OPEN: the real PTY budget path needs a named real-process proof.
+PRC-2 LOW / F122 remains OPEN: a nonempty zero write can resume on a readable-only event.
+The source inspection preserves each finding's evidence and required correction. Both findings must close before CLEAN.
+The package reviewer reports no observed budget-path failure and no observed UnixStream failure for F122.
+I preserve those limits. The passing gate does not close either finding.
+
+I read the lead's R-59 tally ruling in the current handoff, at about 03:42 PT.
+The gate's real minimum counts above are its historical reports, before this ruling.
+AD-7 remains in its current list but does not count toward the real minimum until its fenced form passes with `held:true`.
+The lead reports the current `v1` real tally as 35 / 68 counted plus one that passes unfenced under R-59.
+This PR adds no AD-7 fence and establishes no fenced AD-7 acceptance.
+The later contracts and Core work remain separate from this review.
+
+The lead also assigns the stale READ_CHUNK exclusion and the exclusion-match check to GS outside this PR.
+That assignment does not waive the new real budget proof or the zero-write correction.
+The stack remains reviewable under the lead's ruling. It cannot merge before #240 and the final merge conditions are met.
+No conformance ID moves. No additional integration finding appears in the package artifact.
+The next review must name the corrected head and retain both finding closures.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (2 open)
