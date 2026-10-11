@@ -70,3 +70,25 @@ Stage 1: 165 mutants, 65 caught, 96 missed, four unviable, zero timeouts, 348.6 
 Stage 2: final total 141 caught, including 76 in stage 2; 24 unviable, zero missed, zero timeouts.
 The original gate does not cover the later source corrections. The new Linux gate remains running by owner report.
 Sol runs no build, test, gate, mutant, reversal, or measurement. Never poll.
+
+## Round 1 — source and required Mac evidence, 2026-10-11
+
+Exact head: `2645bfc1c216cea54cd61577cae25e834e66133c`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `a733adc62438eb1b07d7ca795596a261f60f3ab2`.
+Sol reads the complete package Round 4 at `b64bc6368dcea89176ec877ad7822ac7a43aae18`.
+It closes RC-R1-4 using the 63 passing Mac library tests. No package finding remains.
+The source and tree retain the complete static review recorded above. No integration source finding remains.
+The focused library filters include the required holder and written-count tests.
+The log gives the group summary, not each test name. Sol makes no claim that individual names appear in that log.
+The exact-head Mac evidence satisfies the per-OS condition for this source verdict.
+
+The mixed transcript results and masked aggregate command failures remain as recorded above.
+No failed run supplies pending-removal evidence. This verdict accepts no pending removal.
+The historical Linux gate applies only to 722b415a. It does not prove the later source corrections passed a full gate.
+The completed new Linux gate and updated PR body remain due.
+The current-v1 import, applicable check and delta review, final gate, and final body remain due under the slot rule.
+This verdict does not approve PR completion, any later head, or a later import.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (source and required Mac evidence only) at 2645bfc1c216cea54cd61577cae25e834e66133c
