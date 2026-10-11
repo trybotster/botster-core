@@ -17,7 +17,7 @@ The fixture checks listed-first plus cancellation as MISSED and unlisted-first a
 
 GS-KF-R2-2 is source-fixed and CLOSED. The fixture now selects the slow-only shared-binary identity and asserts before/after execution.
 
-I asked the lead to settle the first-failure rule or replan before round four. The exact-head gate is reported running; no new execution evidence is accepted yet.
+I asked the lead to settle the first-failure rule or replan before round four. The final exact-head gate now passes all ten steps.
 
 The lead settles the rule: only the first final failure can catch. A listed first failure is MISSED; no later cancelled-run failure receives credit.
 
@@ -27,7 +27,19 @@ Other new findings go to follow-up PRs unless HIGH, under the lead's direction.
 
 The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
 
-The new head's full gate is reported running and has not been supplied. Source CLEAN does not accept superseded gates. I ran no gate, build, or test.
+I read the final gate log at this exact head and base. All ten steps PASS in 446.3 seconds.
+
+Stage 1 has 46 caught, seven missed, and 13 unviable mutants. Stage 2 catches all seven missed identities after its baseline passes.
+
+The final result has 53 caught, zero missed, zero timeout, and 13 unviable mutants. All 53 catch report identities match the raw catches.
+
+The required unit and real-tool fixtures pass. EV-5 runs in the unchanged slow step and stage-2 baseline. The mutation-stage exclusion is reported.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-flaky-list-727a1c50-pool-20261011-044118-44498.log`.
+
+Integration source CLEAN is published in `7245cd1c9df36c9193646fe30750220b3ffbfe8c`. Integration execution review remains pending.
+
+The lead owns the merge decision and current-base check. I ran no gate, build, or test.
 
 ## Previous PR #260
 
@@ -123,7 +135,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #261's exact-head gate receipt or a new head. PR #260 is merged. PR #256 source findings remain closed.
+Wait for PR #261's integration execution review, merge receipt, or new head. PR #260 is merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

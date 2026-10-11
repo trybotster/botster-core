@@ -899,3 +899,27 @@ Sol published integration CLEAN in `7245cd1c9df36c9193646fe30750220b3ffbfe8c` fo
 Sol confirmed that package verdict `4be62171` is published. No source finding remains within the lead's settled scope.
 
 The exact-head full gate and execution evidence remain pending. Neither source verdict accepts a gate or permits merge.
+
+### Final exact-head gate
+
+I read the final gate log for `727a1c5043ad007f5b2d0a3353be657cf240e403`, with base `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-flaky-list-727a1c50-pool-20261011-044118-44498.log`.
+
+All ten steps PASS. The total is 446.3 seconds. The job and gate both exit 0.
+
+Stage 1 reports 66 mutants: 46 caught, seven missed, zero timeout, and 13 unviable. Its unmutated baseline passes.
+
+The stage-2 baseline passes in 46.0 seconds. Stage 2 reports the exact listed EV-5 identity as excluded from the mutation run.
+
+Stage 2 catches all seven stage-1 missed identities. I compared the raw identities; the two sets match exactly.
+
+The final result is 53 caught, zero missed, zero timeout, and 13 unviable. All 53 catch report identities match the raw catches.
+
+The first-failure unit tests pass. The real-tool fixtures for shared-binary scoping, workspace-list absence, and flaky-catch reclassification also pass.
+
+EV-5 passes in the unchanged slow step and the standalone stage-2 baseline. The coverage check examines 1014 slow-only tests.
+
+Package CLEAN remains valid on this exact head, with zero open findings. This receipt replaces no failed gate evidence.
+
+Integration execution review remains pending. The lead owns the merge decision and current-base check. I ran no gate, build, or test.
