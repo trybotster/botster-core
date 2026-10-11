@@ -180,16 +180,25 @@ botster_projects=$(dirname "$projdir")
 locks_dir=$botster_projects/botster-locks
 # Free space in bytes (df -BG rounds up), and the comparison with a threshold in GiB. The target volumes live in Docker's
 # data root, which can be on another filesystem than $projdir (the pool's Linux nodes keep it on /pool), so the floor and
-# the fail check measure the filesystem of the data root. A data root that cannot be found or measured stops the gate
-# (exit 75), because the checks cannot hold without it.
-free_on() { df -B1 --output=avail -- "$1" | tail -n 1 | tr -dc '0-9'; }
+# the fail check measure the filesystem of the data root. Every measurement that decides goes through `measure`, which
+# runs in the job's shell: a data root that cannot be found, a failed df, or an answer that is not a number stops the gate
+# (exit 75) before any container starts, because the checks cannot hold without it. A measurement in $(...) or in a
+# condition would turn a failure into "not below" instead.
+free_on() { df -B1 --output=avail -- "$1" | tail -n 1; }
 docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null) || docker_root=
-if [ -z "$docker_root" ] || [ -z "$(free_on "$docker_root" 2>/dev/null)" ]; then
-  echo "job.sh: the free space of Docker's data root (${docker_root:-not found by docker info}) cannot be measured; the gate does not start." >&2
-  exit 75
-fi
-free_bytes() { free_on "$docker_root"; }
-below() { (( $(free_bytes) < $1 * 1024 * 1024 * 1024 )); }
+# Sets free_now to the free bytes of the data root, or ends the job with 75.
+measure() {
+  local answer=
+  [ -z "$docker_root" ] || answer=$(free_on "$docker_root" 2>/dev/null) || answer=
+  answer=${answer//[[:space:]]/}
+  if ! [[ $answer =~ ^[0-9]+$ ]]; then
+    echo "job.sh: the free space of Docker's data root (${docker_root:-not found by docker info}) cannot be measured (df: '${answer}'); the gate does not start." >&2
+    exit 75
+  fi
+  free_now=$answer
+}
+below() { measure; (( free_now < $1 * 1024 * 1024 * 1024 )); }
+measure
 # Removes the volume of a stamp file, unless a job holds it (its in-use lock) or a container mounts it.
 evict() {
   local volume use
@@ -227,8 +236,9 @@ if below "$floor_gb"; then
     evict "$stamp" "Docker's data root is below $floor_gb GB free" || true
   done < <(evictable "$botster_projects"/botster-*/targets/botster-*-target-*)
 fi
-free=$(( $(free_bytes) / 1024 / 1024 / 1024 ))
-if below "$fail_gb"; then
+measure
+free=$(( free_now / 1024 / 1024 / 1024 ))
+if (( free_now < fail_gb * 1024 * 1024 * 1024 )); then
   echo "job.sh: Docker's data root $docker_root has $free GiB free, below $fail_gb GiB, after trimming Botster target volumes; the gate does not start. Free space on the host (other projects' volumes, docker build cache)." >&2
   exit 75
 fi
@@ -241,7 +251,10 @@ for volume in "$cargo_volume" "$target_volume" "$npm_volume" "${extra_volumes[@]
   fi
 done
 exec {volumes_lock}>&-
-echo "gate job: $free GiB free on Docker's data root $docker_root (the target volumes); $(( $(free_on "$projdir") / 1024 / 1024 / 1024 )) GiB free on $projdir"
+project_free=$(free_on "$projdir" 2>/dev/null) || project_free=
+project_free=${project_free//[[:space:]]/}
+[[ $project_free =~ ^[0-9]+$ ]] && project_free="$(( project_free / 1024 / 1024 / 1024 )) GiB" || project_free="an unknown amount"
+echo "gate job: $free GiB free on Docker's data root $docker_root (the target volumes); $project_free free on $projdir"
 
 mounts=(-v "$dir:/work" -v "$target_volume:/work/target" -v "$cargo_volume:/cargo" -v "$npm_volume:/npm")
 for volume in "${extra_volumes[@]}"; do mounts+=(-v "$project-${volume%%:*}:${volume#*:}"); done
