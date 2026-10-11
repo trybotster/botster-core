@@ -1176,6 +1176,8 @@ mod held_starts {
             );
         }
         assert!(!rig.with(|t| t.quiet()), "the bytes came");
+        // The link holds bytes for the driver, and its start is not held: the edges stay busy until the driver reads them.
+        assert!(!rig.with(|t| t.quiet()), "held bytes wait for the driver");
         assert_eq!(rig.recv(A, 16).unwrap(), b"z");
     }
 
