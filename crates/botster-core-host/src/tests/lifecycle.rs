@@ -170,6 +170,60 @@ fn a_hello_before_the_identity_row_waits_for_it() {
     assert_eq!(w.hellos.len(), 1, "the host answers the hello (AD-6)");
 }
 
+/// Core R-72, R-50: a link that ends after an early hello, while the identity row is written, leaves the launch with no
+/// link. The start waits as for any end of file before `Running`, and the worker's exit ends it `Lost(WorkerGone)`.
+#[test]
+fn a_link_lost_before_the_identity_row_is_durable_waits_for_the_worker() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    for _ in 0..20 {
+        if w.trace.iter().any(|t| t == "spawn") {
+            break;
+        }
+        w.feed(Input::Run(crate::io::Work::Session(sid("s1"))));
+    }
+    let instance = w.instance_of("s1");
+    let token = w.token_of("s1");
+    w.feed(Input::LinkHello {
+        link: LinkId(1),
+        hello: Hello {
+            protocol: HELLO_PROTOCOL,
+            instance: instance.clone(),
+            proof: token_proof(&token, &instance, 7),
+            host_epoch: 7,
+        },
+    });
+    w.feed(Input::LinkClosed { link: LinkId(1) });
+    w.pump();
+    w.engine.poll_events(64);
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Starting
+    );
+    assert!(
+        !w.trace.iter().any(|t| t == "send launch"),
+        "no launch without a link"
+    );
+    w.exited("s1");
+    let result = w.complete(start);
+    assert!(
+        matches!(
+            result,
+            OpResult::Err(CoreError {
+                code: ErrorCode::StartFailed(StartFailReason::WorkerFailed),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+}
+
 /// Core LC-4: a start that fails completes with `StartFailed`, and the session is `Exited`, never `Starting`.
 #[test]
 fn a_failed_launch_is_a_typed_failure_after_the_exited_state() {
