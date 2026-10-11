@@ -12083,3 +12083,104 @@ The reviewer runs no test, build, gate, measurement, mutant, reversal, or execut
 The reviewer changes no product code. All earlier verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 171 — PR #243, A5-4 table and final body — 2026-10-11
+
+Head: `850bb78522e43967667ec839d5253e952822eea2`.
+Before/base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+P3 table receipt: msg_plugin-w_1791722393_de0f9e.
+P3 correction receipt: msg_plugin-w_1791722571_f187b6.
+The complete GitHub responses verify this unchanged head and base.
+Initial body: /private/tmp/review-p3-pr243-850bb785-a54.json.
+Corrected body: /private/tmp/review-p3-pr243-850bb785-a54-fixed.json.
+Independent read-only comparison record: /private/tmp/review-p3-a54-independent.json.
+The HIGH classification and complete source/gate reviews in Rounds 166 through 170 remain applicable.
+Source package CLEAN is dc43e90040dfdfb848ec04be856396228dd1ecab; gate package CLEAN is 09b07639d95797d227cdbff0dd6544616cc01e91.
+Published integration source/gate artifacts 92f66908 and 316872cb retain their exact-head scopes.
+No product change or new source delta occurs in this round.
+
+### F124 LOW — CLOSED
+
+The initial 'Every id' table has 599 IDs, while each must-pass runner record has 690.
+The table parser accepts only pending and pending-real markers.
+It omits seventy pending-without-transcript IDs, eighteen withdrawn IDs, two deferred IDs, and one testkit-proven ID.
+The reviewer sends this reporting finding directly to P3 and Sol.
+P3 corrects the parser and body without a product commit or new execution job.
+The corrected table has all 690 distinct IDs. Each omitted category now keeps its exact reported marker and reason.
+The reviewer independently compares all 1380 before/after cells with the supplied job records. No mismatch or absent ID remains.
+The 48 changed IDs remain unchanged by this correction and exactly equal the independently computed changed set.
+F124 is CLOSED. No ignored status is converted to a passing result.
+
+### F125 LOW — CLOSED
+
+The initial failure classification names P6 as the lock-race owner.
+The lead has moved that fix to GS as #265. The reviewer sends this reporting finding directly to P3 and Sol.
+The corrected body names GS, #265, and the lead's reassignment from P6.
+The reviewer checks the correction against the lead handoff. F125 is CLOSED.
+These two findings have no product-code remedy or repeat-gate requirement.
+Finding receipts: P3 msg_plugin-w_1791722519_3d7455; Sol msg_plugin-w_1791722519_7736b9.
+
+### Before/after evidence
+
+Job: gates/botster-core-stage1-p4a-real-route-transport-850bb785-pool-20261011-053328-3935.log.
+Evidence copy: shared/core-stage1/evidence/p3-route-transport/a54-850bb785-before-0c5ac80e.log.
+The reviewer verifies that the two files are byte-identical.
+SHA256: f914abfadceb512838cfa2f6dd8e2e0830069886292e0fbc0de4c8b3a9282b0d.
+The reviewer reads the job command, exact printed before/after heads, named failures, result summaries, table classifications, changed rows, and exit.
+The independent parser accounts for every reported ID and compares the complete corrected table.
+The job creates a detached before worktree at the exact base above and runs the accepted head as after.
+Each tree has a separate target-a54 directory and prebuilds its worker before running must-pass and ignored conformance.
+The script checks identical ghostty tree entries before copying the snapshot's vendor tree into the before worktree.
+The reviewer verifies both Git entries are 39a68e822e505685d1e7fa9c6abeff21125b489c.
+The reported platform is Linux 6.12.111+deb13-amd64.
+This review executes no comparison job, tests, measurements, or script from the evidence directory.
+
+Before must-pass: 141 passed, six failed, 543 ignored, 147 run, 3.11 seconds.
+After must-pass: 145 passed, five failed, 540 ignored, 150 run, 2.86 seconds.
+The ignored runs report zero ordinary passes and zero ordinary failures, with 543 and 540 ignored respectively.
+Their pending-real reasons report zero passing IDs before and 33 after.
+The reviewer independently matches those 33 IDs exactly to the full gate's printed PASSED identities.
+The remaining after pending-real results are nine FAIL, four INCONCLUSIVE, and twelve UNSUPPORTED_CONTROL.
+Every result remains recorded. No passing ID moves to a pending state.
+The three reviewed in_10 IDs change from testkit-pending before to must-pass PASS after.
+EV-5 repeated attach/detach passes as must-pass in both trees. EV-5 route-key retirement remains pending-real.
+DP-2 remains pending for the separately reviewed named-proof mapping.
+The job and wrapper exit zero after 226 seconds. The script continues after recorded test failures.
+That exit does not make the failed must-pass results green. It establishes completion of this evidence job only.
+The separate exact-head full gate remains the accepted green gate from Round 170.
+
+### Failure classification and lead decision
+
+Four before failures and all five after failures report DataDirInUse on reopen after a drop.
+The reviewer reads the complete existing lock-race README and the lead's transfer and merge rulings.
+The README retains its Mac diagnostic and selected-reversal limits. This review performs no independent Linux root-cause reproduction.
+The lead classifies the existing lock race under GS #265. The body lists every affected ID in each tree.
+The two other failures are before-only st_6_capture_is_frozen_at_model_rev and lc_9_update_metadata_is_durable.
+The capture record reports seed 6, step 17, equal revisions where the relation requires inequality.
+The lc_9 record reports FAILED; the job filter preserves no detail. Its cause remains unspecified in this evidence.
+Both IDs pass after. The body preserves these limits and does not claim a new independent diagnosis.
+The exact before tree contains none of this PR's commits.
+The reviewer accepts the classification under the lead's explicit 10:30 PT ruling, not as a claim that all table tests pass.
+
+That ruling keeps #243 at this exact head without pending-real removals.
+The 33 passing pending-real IDs go to a removal-only follow-up after #265 removes the lock race.
+The corrected body records that decision and the future PR's own gate requirement.
+The current base-to-head diff changes no core-real-pending entry. The three earlier core-pending removals retain their reviewed exact-head PASS results.
+No new minimum count or status removal is accepted in this round. All remaining nonpasses keep Stage 1 open.
+
+### Final body and verdict
+
+The final body names this exact head and base, all three final corrections, the green full gate, and four earlier red gates with their corrections.
+It retains the earlier Mac head identity, release-confirmation condition, real-process evidence limits, and the complete A5-4 table.
+All 690 IDs and all 48 changed results agree with the job records. The corrected owner and no-removal decision agree with the lead.
+PR #243 is CLEAN at `850bb78522e43967667ec839d5253e952822eea2` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+F121, F122, F123, F124, and F125 are CLOSED. No package finding remains open.
+The package source, exact-head gate, A5-4 reporting and classification, and final body review are complete for this unchanged head.
+Formal integration acceptance of the final corrected table/body remains separate. The lead retains the merge decision.
+This verdict accepts no future status removal, base import, new minimum count, or follow-up gate result.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code. All prior verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
