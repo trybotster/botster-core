@@ -470,6 +470,66 @@ fn the_host_keeps_its_copy_of_a_route_stream_until_the_worker_reports_it_receive
     stop_over_a_broken_link(running);
 }
 
+/// Core DP-2 (`conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`, real-only `slow:fd-handoff`): from a
+/// successful `attach` the route's stream belongs to Core, the worker gets its own copy, and the host never reads, writes or
+/// relays a route byte. The client writes its bytes and ends its writing before the host hands the stream over. The worker
+/// reads exactly those bytes, up to EOF, from its own copy, so the host read none of them. Then the worker writes its bytes, and the client reads exactly
+/// those bytes first, so the host wrote none before them. The host's copy and its close are the R-65 test above.
+#[test]
+fn the_worker_owns_the_route_stream_and_the_host_moves_no_byte_of_it() {
+    const FROM_CLIENT: &[u8] = b"client bytes before the handoff";
+    // One line, so that the client reads it with `first_line`.
+    const FROM_WORKER: &str = "worker bytes\n";
+    let tmp = tempfile::tempdir().unwrap();
+    let (heard, worker_heard) = mpsc::channel();
+    let mut running = running(tmp.path(), move |link, handoff, mut descriptors| {
+        assert_eq!(descriptors.len(), 1, "{handoff:?}");
+        let mut own = Bounded::new(UnixStream::from(descriptors.remove(0)));
+        let read = own.to_eof(Deadline::cleanup()).map_err(|e| e.to_string());
+        say(
+            link,
+            &WorkerMsg::RouteReceived {
+                route: handoff.route,
+            },
+        );
+        own.into_inner().write_all(FROM_WORKER.as_bytes()).unwrap();
+        let _ = heard.send((handoff, read));
+    });
+    let core = &mut running.core;
+    let (ours, mut client) = UnixStream::pair().unwrap();
+    let route = core
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(ours)),
+            route_options(tmp.path()),
+        )
+        .expect("the route is registered")
+        .route;
+    // The host holds the stream now, and has not handed it over: the host pumps only below. The client's end of writing
+    // makes the worker's read end at EOF, after the client's last byte.
+    client.write_all(FROM_CLIENT).unwrap();
+    client.shutdown(std::net::Shutdown::Write).unwrap();
+    pump_until(core, |_| true);
+    let (handoff, read) = worker_heard
+        // timer: deadline — a host that never sends the route must fail the test, not hang
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the host sends the route");
+    assert_eq!((handoff.route, handoff.fds), (route, 1));
+    assert_eq!(
+        read.as_deref(),
+        Ok(FROM_CLIENT),
+        "the worker's own copy has every byte of the client"
+    );
+    let (_, line) = botster_test_process::first_line(client);
+    assert_eq!(
+        line, FROM_WORKER,
+        "the client's first bytes are the worker's"
+    );
+
+    stop_over_a_broken_link(running);
+}
+
 /// A FIFO in `dir` that a fixture script writes and the test reads by deadlines. The test holds it open for reading and
 /// writing, so the script's open for writing does not wait. Close-on-exec: no child inherits it.
 fn marker_fifo(dir: &Path, name: &str) -> (Bounded<std::fs::File>, PathBuf) {
