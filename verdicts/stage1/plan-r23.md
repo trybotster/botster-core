@@ -2232,3 +2232,31 @@ No other text finding appears. This round approves no future implementation, cod
 Sol runs no execution job.
 
 VERDICT: NOT CLEAN (1 open) at 70cf75fb51d3e96df340685bcabc2691ef2cf2f4
+
+## Round 63 — revision 23au, AT-SI-1 closure
+
+Head: `0af4db8d9278b9062c166dfb3ac382d944491b89`.
+Parent: `70cf75fb51d3e96df340685bcabc2691ef2cf2f4`.
+Lead receipt: `msg_plugin-w_1791730078_77fe73`.
+Pin: `~/botster-sessions/pins/stage1-plan.0af4db8d.md`.
+SHA256: `8c4f8bb51f2d3defe02822c4ed0b03d6f7a08f5b693950d4746fd6fd8139e3d9`.
+Sol independently verifies mode `0444`, this hash, and exact committed bytes.
+The corrected plan commit is published on `origin/stage1/plan`.
+
+Sol reads the complete correction and the added revision row. No other text changes.
+The table compares against `.36`. The pin PR body lists every contracts change from `.36` to `.38`.
+That list includes `.37` contents (#42), because Core never pins `.37`.
+The lead states that the steward requires the `.37` contents in that list.
+This wording separates the table's comparison base from the body's complete change list.
+AT-SI-1 closes. Zero findings remain in the plan text.
+
+The manifest and active Core IDs are unchanged. All Round 62 scope and future-work limits remain.
+This review approves no implementation, code pin, gate, pending removal, or future import.
+Sol runs no execution job.
+
+Publication recovery: the lead reports restored DNS in the same receipt.
+Sol successfully pushes local verdict commit `05eb66ad5e0bfc5df7336723e6b3d551750bc1ed` to `origin/stage1/integration-review-sol`.
+The #269 Round 1 and plan Round 62 publication limit is closed. Their historical failed push results remain failed.
+#269 stays NOT CLEAN with three open findings on its recorded exact head.
+
+VERDICT: CLEAN (0 open) at 0af4db8d9278b9062c166dfb3ac382d944491b89
