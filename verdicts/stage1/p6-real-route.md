@@ -364,3 +364,45 @@ That gate covers the parent. It does not cover the new capability declaration.
 The implementer reports a running replacement gate. Replacement READY and the exact-head package artifact remain pending.
 This source inspection completes no delta round and grants no CLEAN verdict at `5921340d`.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 3 — 2026-10-11: route-control declaration
+
+Exact head: `5921340d4f90d94ab7864b740820c0d5fb88ad03`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Parent: `8474e449f19b848f0bfe6e6174316f027b815c4e`.
+Delta request: `msg_plugin-w_1791701707_7188c6`.
+Package Round 3 CLEAN: `cf060b989e8446cb6bf574d4b495e1c2f9cdba55`, `verdicts/p6-real-route.md`.
+I read that complete exact-head round after `msg_plugin-w_1791701883_d48f1b`.
+Authority: approved plan 23aj at `6dbe1c43d55e31cba038cee1008098bc0ba41ef0` and BUILD.md at `56bd0a5`.
+The HIGH classification remains correct for shared testkit capability selection.
+
+The complete source inspection above covers the one-file correction and its package interfaces.
+The runner checks required controls before setup. CoreDriver forwards that check to the harness.
+The tapped harness now declares the two controls that RealRoute implements: client_close and route_gate.
+The plain harness still declares none. The actual operations still run through the route's existing dispatch.
+The public capability proof checks both modes and retains its other positive and negative cases.
+The correction reuses the existing route control list. It adds no custom I/O or private-state assertion.
+
+I read P3's relevant retained records from the combined local tree, `e967a5f5`, on Darwin 27.0.0.
+OU-5 stops with UnsupportedControl(client_close). OU-7 tail-queued stops with UnsupportedControl(route_gate).
+These are combined-tree records, not exact-head acceptance proofs. The pinned preflight source establishes the reported cause.
+The correction closes that declaration defect in source. Both IDs remain real-pending.
+The four Round 1 findings remain closed. No new integration finding remains.
+
+The preceding #241 import passes both ancestry checks and all four base-check conditions.
+Its source merge tree and identical own diff remain verified in the preceding inspection.
+The retained parent gate passes all ten stages and catches 25 slow-stage mutants, with five unviable and zero missed or timeout.
+Its reports and complete thirty-outcome identity multisets remain recorded above.
+Those results cover the parent. They do not establish execution of the new capability assertions.
+The earlier focused Mac route evidence retains its exact head and limits from Round 2.
+This new declaration changes no operating-system behavior, so its own delta requires no additional focused Mac run.
+
+The final diff check passes. GitHub and origin/v1 still name this reviewed head and base at the final check.
+The source changes no transcript, pending list, contract pin, deadline, cleanup, route I/O, or mutation exclusion.
+I read only the header of the replacement gate, `~/botster-sessions/gates/botster-core-stage1-p6-real-route-5921340d-pool-20261010-235507-54316.log`.
+That header names this exact head and base. The completed result remains pending.
+The lead's approximately 02:50 ruling requires this delta review and one replacement gate.
+This CLEAN verdict completes the source review. It does not claim the replacement gate passed or authorize merge before that result.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
