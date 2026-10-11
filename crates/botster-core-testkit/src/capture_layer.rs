@@ -14,6 +14,7 @@
 //! Only the real harness composes it. It is outside that module so that its tests run in the default tier too: a layer that
 //! drops a call would otherwise stall every real transcript before a test could fail.
 
+use crate::oracle_controls::Changed;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::*;
 use serde_json::Value;
@@ -59,7 +60,7 @@ pub(crate) struct Shared {
     /// The transcript's completed captures. Only a test's fault injection writes them from outside.
     pub(crate) captures: BTreeMap<CaptureId, Recorded>,
     /// The sessions that a `Resize` or a `SetColorProfile` reached (condition 3).
-    changed: BTreeSet<SessionId>,
+    changed: Changed,
     /// The pages that replace the next second capture: the negative proof through comparison 2.
     #[cfg(test)]
     pub(crate) second: Option<Vec<u8>>,
@@ -109,18 +110,22 @@ impl Shared {
         }
     }
 
+    /// Condition 3 for `session` ([`Changed::check`]): `oracle_resume` and `oracle_screen`.
+    pub(crate) fn check(&self, session: &SessionId) -> Result<(), ControlError> {
+        self.changed.check(session)
+    }
+
     /// The transcript's capture `capture` of `session`, with its mark and pages, and a second capture of `session` taken now
-    /// ([`Shared::capture_now`]). A session that a `Resize` or a `SetColorProfile` reached gives plain `unsupported_control`
-    /// (R-62 condition 3); a capture that is not a completed capture of `session` gives `Bad`.
+    /// ([`Shared::capture_now`]). A session that a `Resize` or a `SetColorProfile` reached gives `unsupported_control`
+    /// `size_or_profile_changed` (R-62 condition 3, [`Shared::check`]); a capture that is not a completed capture of
+    /// `session` gives `Bad`.
     pub(crate) fn resume(
         &mut self,
         session: &SessionId,
         capture: CaptureId,
         bound: Duration,
     ) -> Result<Resumed, ControlError> {
-        if self.changed.contains(session) {
-            return Err(ControlError::Unsupported);
-        }
+        self.check(session)?;
         let recorded = self
             .captures
             .get(&capture)
@@ -218,7 +223,7 @@ impl CaptureLayer {
             now: None,
             begun: BTreeMap::new(),
             captures: BTreeMap::new(),
-            changed: BTreeSet::new(),
+            changed: Changed::default(),
             #[cfg(test)]
             second: None,
         }));
@@ -237,8 +242,8 @@ impl CoreApi for CaptureLayer {
         let mark = (shared.marks)();
         let capture = match &op {
             Op::CaptureSnapshot { session, .. } => Some(session.clone()),
-            Op::Resize { session, .. } | Op::SetColorProfile { session, .. } => {
-                shared.changed.insert(session.clone());
+            Op::Resize { .. } | Op::SetColorProfile { .. } => {
+                shared.changed.begun(&op);
                 None
             }
             _ => None,
@@ -694,7 +699,9 @@ mod tests {
             assert_eq!(layer.poll_events(8), vec![other(id)]);
             assert_eq!(
                 lock(&shared).resume(&sid(session), capture, bound),
-                Err(ControlError::Unsupported)
+                Err(ControlError::UnsupportedFor(
+                    "size_or_profile_changed".into()
+                ))
             );
         }
         assert!(
