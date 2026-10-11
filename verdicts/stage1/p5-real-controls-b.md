@@ -323,3 +323,89 @@ P5 reports that its parent merges #234 into #228. That replacement is not yet pu
 P5 will supply its own gate and READY. The aa1eb5c4 gate does not cover that new head.
 No completed round or CLEAN verdict follows from this source-only scope clarification.
 I changed no product code and ran no execution job.
+
+### Replacement source and gate inspection — 2026-10-10 — Package verdict pending
+
+READY head: `004fbd2a0c48a63f7d345ee22245fba8e6640622`.
+PR and gate base: `0a564513e50930ce25f2e4a175f45cffbef7119d`.
+Previously inspected exclusion: `aa1eb5c45082e668119ca0dc5dec26f90efecad6`.
+The replacement merges #234 and changes only the exclusion comment after that merge.
+This inspection completes no round before the same-head package verdict arrives.
+
+The three Round 1 source corrections remain present.
+R1-1 / RC-B-F3 removes the private link, stream, and signal-vector assertions.
+The retained EOF proof observes closure through the socket. The signal proofs use `signals_since_answer`.
+The mistaken claim that EOF proves the reset guard remains withdrawn.
+The lead-approved exact-name exclusion settles that separate mutation question within the declared harness scope.
+
+R1-2 / RC-B-F1 makes `worker_alive` require both matching identity and a running process.
+`lives` checks AD-6 identity; `runs` requires a live member of the process's own group and excludes zombies.
+Observation errors become Bad. A missing recorded worker returns false.
+The real proof retains live, reused, and matching unreaped-ended process cases.
+Shared `OwnedChild` guards own those test children. They observe exit within the cleanup deadline without reaping before the assertion.
+Core retains ownership of its worker reaper.
+The exact-head gate passes that proof and the live, ended, and unknown-session control proof.
+
+R1-3 / RC-B-F2 keeps each worker and payload description above its corresponding method.
+The PR body now names base `0a564513` and describes matching identity plus a running process for `worker_alive`.
+I read those description corrections and confirmed the unchanged PR head and base.
+
+The final exclusion comment now states the permitted stand-in path.
+It names the failed handshake checks and the absence of descriptor sends to those stand-ins.
+The prior source inspection and retained Linux and Mac reset measurements support that scoped reason.
+The reason establishes no generic AF_UNIX error guarantee.
+Static TOML parsing shows that the complete mutation configuration equals `aa1eb5c4` after the comment change and #234 import.
+The own delta over v1 adds exactly one exclusion pattern.
+It matches the named guard-to-true mutant. It does not match guard-to-false, equality-to-inequality, or a changed column.
+The EOF proof remains. Stand-ins still read each accepted answer link on every step without a readiness-edge wait.
+The nonblocking accept allowance retains its prior reviewed scope.
+
+### Source merges and coverage
+
+All eight source merges after the previously checked `5586e0ee` match their automatic trees:
+
+- `2c998bcc`: `472aa8ce4daf47b9ec48fd69ab530945ae280ad0`.
+- `ff792fd1`: `d21a8d3bcc911964dff535e9ff0f46bf5ce38d70`.
+- `273fb9ac`: `7ed1ac3ba7086dcacafabfb4dbe8de87140a1fe1`.
+- `2cc01d21`: `a20be489b87720d88ecd2a7e1054ef47e2e83b1b`.
+- `00365c57`: `8026148c73489e7e79a6fc49ca6529e1d1222a7a`.
+- `01643ca3`: `8026148c73489e7e79a6fc49ca6529e1d1222a7a`.
+- `b7e6817b`: `a69761cdae7f1efebc6e0b1a6f881ea7738661c1`.
+- `54a8e526`: `bc2f8033a1cf4ff039b4e71d039b48784b85070e`.
+
+All testkit and real-pending bytes equal the inspected `b7e6817b` bytes.
+The only testkit change from `5586e0ee` to that head imports the reviewed status change.
+The replacement retains #222's final accepted source and evidence, the accepted gate changes, and #234.
+#222 merged first at `b028a269`. Its separate native Mac finding is closed in the #222 Round 3 verdict.
+The #228 own diff adds no platform-only code. This replacement adds no separate native Mac gate requirement.
+
+The same ten IDs recorded in Round 1 leave real-pending, with no additions: 81 becomes 71.
+I found every removed ID in the exact-head real conformance PASS output.
+The four minimum removals raise real-passing from 31/68 to 35/68 and real-accepted from 31/69 to 35/69.
+Core pending, minimum lists, held IDs, real-only maps, and other coverage lists have no own change.
+`ad_2_lost_row_keeps_id_and_allows_retry` remains pending for its separately planned exit notification.
+`git diff --check` passes. The PR head and base match the supplied gate.
+
+### Supplied exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-b-004fbd2a-pool-20261010-190048-7409.log`.
+Its header names the exact head and base. The command is plain `cargo xtask ci` through the pool.
+All ten jobs pass. Total CI time is 2012.6 seconds.
+Default: 1536 passing tests, 12.682 seconds. Slow: 408 passing tests, 117.356 seconds.
+Both testkit reports show 193 passed and zero failed. Strict pending runs 386/407, with 21 real-only IDs and two held IDs.
+The reports list 70 IDs without transcripts, two deferred IDs, and 18 withdrawn IDs.
+Minimum counts are testkit 50/69, real 35/68, and real-accepted 35/69.
+Real-pending is 71, with zero passing IDs in that list.
+
+Stage 1 has 76 mutants: 35 caught, 32 missed, nine unviable, zero timeout, in 191.0 seconds.
+The unmutated stage-2 baseline passes in 100.7 seconds, with 408 tests passing.
+Stage 2 has 32 mutants: 29 caught, three unviable, zero missed, zero timeout, in 1484.0 seconds.
+Static parsing of every printed outcome confirms that the stage-2 exact-name multiset equals all 32 stage-1 misses.
+There are no duplicate stage-2 names. Total: 76 mutants, 64 caught and 12 unviable, with zero missed or timeout.
+The mutation job takes 1778.3 seconds.
+The job exits zero after 3347 seconds, including 1319 queued seconds. The wrapper takes 3348 seconds.
+Queue time is not a source blocker.
+
+I found no open source finding in this replacement. The exact-head package verdict remains pending.
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+The tree comparisons use Git source objects only. All execution results above come from supplied evidence.
