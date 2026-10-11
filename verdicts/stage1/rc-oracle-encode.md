@@ -418,3 +418,15 @@ Sol reads no running output and runs no execution job. Never poll.
 
 SOURCE CARRY: CLEAN at 09e9fbc8b26456be592ce99d9814fcea4695536e against base 3aacc58d086e55a6b186165ccf9001e2618e2869.
 VERDICT: NOT CLEAN (1 open final acceptance condition: completed exact-head gate, final body, and final package verdict) at that head/base; no final merge acceptance
+
+### Strict-log worker provenance clarification
+
+Package receipt: `cfc5f6db909b0420dc3134600585add2eaf1a23d`, read completely through its new section.
+The package relays RC message `msg_plugin-w_1791762810_31028a`.
+RC identifies the refused invocation as prebuild-worker, before it builds anything.
+RC reports that the later strict run uses the candidate prebuilt at `78aa05416af2c61ef8c316076ab3a5d7c9fd27c2`.
+Sol independently verifies no crates/ path changes from that head to 09e9fbc8.
+That source comparison supports the candidate's unchanged source scope. It does not make the refused prebuild PASS.
+The clarification is an owner statement relayed in the published package record; the strict log still lacks the complete command sequence.
+The final body must retain that provenance and the refused invocation if it cites this local run.
+The final exact-head gate, final body, and final package verdict remain due. Sol runs no execution job. Never poll.
