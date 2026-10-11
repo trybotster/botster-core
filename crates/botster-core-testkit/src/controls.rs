@@ -89,9 +89,40 @@ pub(crate) fn session_row(
     })
 }
 
+/// The damage of `corrupt_registry_row` (Core A10-2, AD-2): the first half of the bytes that Core's own encoder wrote. Both
+/// tiers damage a row the same way: the testkit's storage edge and the real tier's storage edge.
+pub(crate) fn damaged(bytes: &[u8]) -> Vec<u8> {
+    bytes[..bytes.len() / 2].to_vec()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Core A10-2: the damaged row is the first half of the stored bytes, and Core's own decoder rejects it.
+    #[test]
+    fn a_damaged_row_is_the_first_half_of_its_bytes_and_does_not_decode() {
+        assert_eq!(damaged(b"abcdefg"), b"abc");
+        assert_eq!(damaged(b"abcdef"), b"abc");
+        assert_eq!(damaged(b""), b"");
+        let id = SessionId("s1".into());
+        let row = serde_json::to_vec(&Row {
+            version: botster_core_host::session::ROW_VERSION,
+            id: id.clone(),
+            instance: botster_core_contract::prelude::InstanceId("1-1".into()),
+            state: botster_core_contract::prelude::SessionState::Created,
+            request: botster_core_host::session::unknown_request(),
+            labels: BTreeMap::new(),
+            token: None,
+            worker: None,
+            payload: None,
+            worker_protocol: None,
+            worker_features: None,
+        })
+        .unwrap();
+        assert!(Row::decode(&id, &row).is_some(), "the whole row decodes");
+        assert!(Row::decode(&id, &damaged(&row)).is_none());
+    }
 
     fn seed(
         harness: &mut TestkitHarness,
