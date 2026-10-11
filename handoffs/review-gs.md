@@ -3,17 +3,18 @@
 ## Current review result
 
 - PR: #266, Docker data-root disk floor.
-- Head: `a1bcbd7fb791e5a1a212a0e709b860d200178c88`.
+- Head: `11a9533f8e3929b528b7d4a762f0019e4e18734d`.
 - Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
 - Scope: CI script; the lead requires package review and a pool gate.
 - Verdict: NOT CLEAN (1 open).
-- GS-DF-R1-1 MEDIUM: a later failed measurement can return false from `below` and skip the disk rejection.
+- GS-DF-R1-1 MEDIUM: CLOSED. Every decision measurement now checks status and numeric output and exits the job shell with 75 on failure.
+- GS-DF-R2-1 LOW: OPEN. The PR body names the removed `free_bytes()` function in its current fix description.
 
-The first measurement is checked. Later decision measurements need explicit status and numeric checks, with exit 75 from the job shell on failure.
+All nine supplied script scenarios pass. Failed and invalid reads exit 75 with zero container starts. The earlier script fails three required exit-code cases.
 
-The exact-head pool gate passes all ten steps. It exercises successful measurement, not the failure path.
+The exact-head full gate passes all ten steps in 118.7 seconds. The source has no open finding.
 
-Wait for the correction and focused failure evidence. I ran no gate, build, or test.
+Wait for the body-only correction. The exact head and evidence need no change for it. I ran no gate, build, or test.
 
 PR #265 is merged at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`. Its reviewed and gated tree is verified.
 

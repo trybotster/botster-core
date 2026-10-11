@@ -1249,3 +1249,40 @@ Log: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-a1bcbd7f-pool-2
 This gate proves the successful measurement path. The PR states that the exit-75 measurement path was not exercised; it does not close this finding.
 
 The Rust mutation step reports zero mutants because this diff changes no Rust source. I ran no gate, build, or test.
+
+
+## PR #266: round 2, checked measurements
+
+- Head: `11a9533f8e3929b528b7d4a762f0019e4e18734d`.
+- Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- VERDICT: NOT CLEAN (1 open).
+
+GS-DF-R1-1 MEDIUM is CLOSED. Every decision measurement now calls `measure` in the job shell.
+
+The assignment checks the pipeline status. The numeric check rejects empty or invalid output. Failure exits the job shell with 75, including inside `below`.
+
+The final measurement and threshold comparison use the same checked value. The project-directory measurement is diagnostic only and can report an unknown amount.
+
+Thresholds, locks, eviction order, and the gate command remain unchanged. I read the complete source delta and the evidence script without executing it.
+
+The evidence runs the real script with fake Docker and df commands. All nine current-head scenarios pass.
+
+Failed first, floor, final, and eviction-loop reads each exit 75 with zero container starts. Invalid final output and a missing data root do the same.
+
+The low-space case exits 75. The two successful cases exit 0. The below-floor case evicts the old target before proceeding.
+
+The three earlier-head scenarios fail the required exit-75 result. Their actual exit is 1, so the evidence proves the changed failure handling.
+
+Evidence: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-11a9533f-pool-20261011-061246-53541.log`.
+
+The exact-head full gate passes all ten steps in 118.7 seconds, with the exact base above. It reports 346 GiB at the Docker root and 460 GiB at the project directory.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-11a9533f-pool-20261011-061402-57367.log`.
+
+### GS-DF-R2-1 LOW: OPEN — the current fix description names a removed function
+
+The live PR body's first fix bullet says that `free_bytes()` measures Docker's data root. The current source removes that function.
+
+Required change: describe `measure()` and `free_on()` as implemented, or describe the measured filesystem without naming a function.
+
+This is a body-only correction. The source and exact-head evidence require no change for this finding. I ran no gate, build, or test.
