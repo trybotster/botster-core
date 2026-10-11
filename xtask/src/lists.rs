@@ -31,6 +31,9 @@ const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
 pub const CONTRACTS_DEFERRED_COPY: &str = "conformance/contracts-deferred.txt";
 pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt";
+/// The byte copy of the contracts' shared gate job at the pinned tag (`ci/remote/job-common.sh`; steward drift ruling (b),
+/// 2026-10-11). botster-contracts owns the file; `ci/remote/job.sh` holds only Core's settings and sources the copy.
+pub const JOB_COMMON_COPY: &str = "ci/remote/job-common.sh";
 /// The real-only Core ids with their named real-process proofs (`id<TAB>proof`), derived from the pinned replacement map
 /// (`slow:*` proofs). The suite reads it to count a minimum id that left core-pending.txt by its named proof (plan 23s).
 pub const REAL_ONLY_FILE: &str = "conformance/core-real-only.txt";
@@ -500,6 +503,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let ledger = core_ids_of_ledger(&ledger_json)?;
     let ledger_all = all_ids_of_ledger(&ledger_json)?;
     let source = status_sources(&meta.contracts_root)?;
+    let job_common = pinned_job_common(&meta.contracts_root)?;
     let (contract_deferred, cases) =
         status::parse_deferred(&source.deferred).map_err(anyhow::Error::msg)?;
     let withdrawn: BTreeSet<String> = status::parse_withdrawn(&source.withdrawn)
@@ -521,6 +525,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             &read(CONTRACTS_WITHDRAWN_COPY)?,
             &source.withdrawn,
         ),
+        (JOB_COMMON_COPY, &read(JOB_COMMON_COPY)?, &job_common),
     ]);
     let ledger_file = parse_ids(&read(LEDGER_FILE)?).map_err(anyhow::Error::msg)?;
     let pending = parse_ids(&read(PENDING_FILE)?).map_err(anyhow::Error::msg)?;
@@ -684,6 +689,12 @@ pub fn status_sources(contracts_root: &Path) -> Result<StatusSources> {
     })
 }
 
+/// The text of the contracts' shared gate job at the pinned tag.
+fn pinned_job_common(contracts_root: &Path) -> Result<String> {
+    std::fs::read_to_string(contracts_root.join(JOB_COMMON_COPY))
+        .with_context(|| format!("read the pinned {JOB_COMMON_COPY}"))
+}
+
 /// One problem for each checked-in copy that is not the pinned source: `(path, copy, source)`.
 fn copy_problems(copies: &[(&str, &str, &str)]) -> Vec<String> {
     copies
@@ -722,6 +733,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
         (CONTRACTS_DEFERRED_COPY, source.deferred),
         (CONTRACTS_WITHDRAWN_COPY, source.withdrawn),
         (REAL_ONLY_FILE, real_only_text(&map, &ledger)?),
+        (JOB_COMMON_COPY, pinned_job_common(&meta.contracts_root)?),
     ];
     if write {
         for (path, text) in &files {
