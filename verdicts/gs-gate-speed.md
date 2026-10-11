@@ -2230,6 +2230,24 @@ The canonical check carries both source CLEANs. The implementer reports a runnin
 
 The final exact-head gate remains pending. This record accepts no result before completion. I ran no gate, build, test, or base-check script.
 
+### Core PR #281: final gate completion
+
+VERDICT: CLEAN at `d7abc589391ed492e27413c05c8489c262377f36`, base `23bb03a113218a5af24b44d31635dacad43c5981`. Open findings: 0.
+
+I read the final gate header, summaries, repaired-test record, and final exits. All ten steps pass; their summary total is 412.8 seconds.
+
+The job runs for 520 seconds and queues for 8 seconds. The job and wrapper exit zero after 528 seconds.
+
+The repaired test passes in 0.008 seconds. The default tier passes 1748 tests, and the slow tier passes 559 tests.
+
+The test-only own diff lists no mutant and changes no decoder crate. The log contains no FLAKY token.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-d7abc589-pool-20261011-112304-56033.log`.
+
+The live head and base remain unchanged. The final body contains the canonical check and this gate. The lead owns merge approval.
+
+The final gate completes the pending evidence condition. I ran no gate, build, test, or base-check script.
+
 This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
 
 I ran no gate, build, test, or executable probe.
