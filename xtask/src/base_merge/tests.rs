@@ -304,6 +304,7 @@ fn a_git_failure_fails_the_check() {
 }
 
 const PENDING: &str = "conformance/core-pending.txt";
+const REAL_PENDING: &str = "conformance/core-real-pending.txt";
 const OLD: &str = "# comment\nconf::a\nconf::b\nconf::c\nconf::d\n";
 
 /// Disjoint removals pass, and the merged file is the same in either order of the two sides.
@@ -314,22 +315,22 @@ fn disjoint_removals_of_id_lines_merge_in_either_order() {
         "# comment\nconf::a\nconf::b\nconf::c\n",
         "# comment\nconf::a\nconf::c\n",
     );
-    assert_eq!(set_merge(OLD, pr, base, merged), Ok((1, 1)));
-    assert_eq!(set_merge(OLD, base, pr, merged), Ok((1, 1)));
+    assert_eq!(set_merge(OLD, pr, base, merged), Ok((1, 1, 0)));
+    assert_eq!(set_merge(OLD, base, pr, merged), Ok((1, 1, 0)));
     assert_eq!(
         set_merge(OLD, OLD, OLD, OLD),
-        Ok((0, 0)),
+        Ok((0, 0, 0)),
         "no change on either side"
     );
     assert_eq!(
         set_merge(OLD, pr, OLD, pr),
-        Ok((1, 0)),
+        Ok((1, 0, 0)),
         "a base that leaves the file alone"
     );
 }
 
 #[test]
-fn only_a_pure_disjoint_removal_with_the_right_merge_passes() {
+fn only_a_pure_removal_with_the_right_merge_passes() {
     let fail =
         |reviewed: &str, base: &str, new: &str| set_merge(OLD, reviewed, base, new).unwrap_err();
     let added = "# comment\nconf::a\nconf::b\nconf::c\nconf::d\nconf::e\n";
@@ -351,21 +352,62 @@ fn only_a_pure_disjoint_removal_with_the_right_merge_passes() {
         "a reorder is an edit"
     );
     let without_b = "# comment\nconf::a\nconf::c\nconf::d\n";
-    assert_eq!(
-        fail(without_b, without_b, without_b),
-        "both sides remove conf::b"
-    );
     let without_d = "# comment\nconf::a\nconf::b\nconf::c\n";
     for wrong in [
         without_b,
         without_d,
         "# comment\nconf::c\nconf::a\n",
         "# comment\nconf::a\nconf::c",
+        "# comment\nconf::a\nconf::c\nconf::c\n",
     ] {
         assert_eq!(
             fail(without_b, without_d, wrong),
             "the new head's file is not the old file without both removed sets",
             "{wrong:?}"
+        );
+    }
+}
+
+/// Lead, 2026-10-10: an id that both sides remove leaves once, with or without other removals; the merge must still be
+/// the old file without both sets.
+#[test]
+fn an_id_that_both_sides_remove_leaves_once() {
+    let without_b = "# comment\nconf::a\nconf::c\nconf::d\n";
+    assert_eq!(
+        set_merge(OLD, without_b, without_b, without_b),
+        Ok((1, 1, 1))
+    );
+    let without_bd = "# comment\nconf::a\nconf::c\n";
+    let without_ab = "# comment\nconf::c\nconf::d\n";
+    assert_eq!(
+        set_merge(OLD, without_bd, without_ab, "# comment\nconf::c\n"),
+        Ok((2, 2, 1))
+    );
+    assert_eq!(
+        set_merge(OLD, without_b, without_b, OLD),
+        Err("the new head's file is not the old file without both removed sets".into()),
+        "a merge that brings the id back"
+    );
+}
+
+/// An id that one side adds while the other side removes it, or another id, is not a pure removal on the adding side.
+#[test]
+fn an_addition_on_one_side_fails_against_a_removal_on_the_other() {
+    let without_b = "# comment\nconf::a\nconf::c\nconf::d\n";
+    let with_e = "# comment\nconf::a\nconf::b\nconf::c\nconf::d\nconf::e\n";
+    let readds_b = "# comment\nconf::a\nconf::c\nconf::d\nconf::b\n";
+    for (pr, base, side, line) in [
+        (with_e, without_b, "pull request", "conf::e"),
+        (without_b, with_e, "base", "conf::e"),
+        (without_b, readds_b, "base", "conf::b"),
+    ] {
+        let merged = "# comment\nconf::a\nconf::c\nconf::d\nconf::e\n";
+        assert_eq!(
+            judge_set(&blob(OLD), &blob(pr), &blob(base), &blob(merged)),
+            Err(format!(
+                "the {side} is not a pure removal of id lines: it adds or edits the line {line:?}"
+            )),
+            "{side} adds {line}"
         );
     }
 }
@@ -380,7 +422,7 @@ fn an_old_file_that_repeats_an_id_line_fails() {
     // A repeated non-id line is not ambiguous for a removal of id lines.
     assert_eq!(
         set_merge("\n\nconf::a\n", "\n\n", "\n\nconf::a\n", "\n\n"),
-        Ok((1, 0))
+        Ok((1, 0, 0))
     );
 }
 
@@ -506,19 +548,24 @@ fn a_one_sided_change_needs_only_the_other_sides_file() {
 /// Two flips: the pull request and the base each remove another id from the pending file. Only the line-set rule lets the
 /// merge pass: with an empty `SET_FILES` the shared path fails condition 2 (red on revert).
 fn two_flips(pr_removes: &str, base_removes: &str) -> (Repo, String, String) {
+    flips_in(PENDING, pr_removes, base_removes)
+}
+
+/// Two flips in the list `path`, as [`two_flips`].
+fn flips_in(path: &str, pr_removes: &str, base_removes: &str) -> (Repo, String, String) {
     let repo = Repo(tempfile::tempdir().unwrap());
     let without = |id: &str| OLD.replace(&format!("{id}\n"), "");
     repo.git(&["init", "-q", "-b", "v1"]);
     std::fs::create_dir(repo.0.path().join("conformance")).unwrap();
-    repo.stage(PENDING, OLD);
+    repo.stage(path, OLD);
     repo.stage("a.txt", "a\n");
     repo.commit("base");
     repo.git(&["checkout", "-q", "-b", "pr"]);
-    repo.stage(PENDING, &without(pr_removes));
+    repo.stage(path, &without(pr_removes));
     repo.stage("a.txt", "a2\n");
     let reviewed = repo.commit("the reviewed flip");
     repo.git(&["checkout", "-q", "v1"]);
-    repo.stage(PENDING, &without(base_removes));
+    repo.stage(path, &without(base_removes));
     repo.commit("another flip on v1");
     repo.git(&["checkout", "-q", "pr"]);
     repo.git(&["merge", "-q", "--no-edit", "v1"]);
@@ -526,12 +573,46 @@ fn two_flips(pr_removes: &str, base_removes: &str) -> (Repo, String, String) {
     (repo, reviewed, new)
 }
 
+/// Lead, 2026-10-10: the real-tier pending list is a line set too; the two lists named here are the whole of `SET_FILES`.
+#[test]
+fn the_real_tier_pending_list_is_a_line_set_file() {
+    assert_eq!(SET_FILES, [PENDING, REAL_PENDING]);
+    for (pr, base) in [("conf::b", "conf::d"), ("conf::b", "conf::b")] {
+        let (repo, reviewed, new) = flips_in(REAL_PENDING, pr, base);
+        let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
+        assert!(
+            report.contains(&format!(
+                "PASS (4) the line-set file {REAL_PENDING}: the pull request removes 1 id lines"
+            )),
+            "{pr} {base}: {report}"
+        );
+    }
+}
+
+/// A list that is not a line-set file keeps the byte rule: two disjoint removals in it fail condition 2, so the merge
+/// needs a delta round.
+#[test]
+fn a_shared_list_that_is_not_a_line_set_file_needs_the_delta_round() {
+    let (repo, reviewed, new) = flips_in("conformance/core-real-only.txt", "conf::b", "conf::d");
+    let report = check(repo.0.path(), &reviewed, &new, "v1")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        report.contains("FAIL (2) none of the 1 paths that changed on the base is in the pull request's own diff (2 paths; a line-set file has (4)): conformance/core-real-only.txt"),
+        "{report}"
+    );
+    assert!(
+        report.ends_with("result: FAIL (the merge needs delta rounds from both reviewers)"),
+        "{report}"
+    );
+}
+
 #[test]
 fn a_real_merge_of_two_disjoint_flips_passes() {
     let (repo, reviewed, new) = two_flips("conf::b", "conf::d");
     let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
     assert!(report.contains("PASS (2) none of the 1 paths that changed on the base is in the pull request's own diff (2 paths; a line-set file has (4))\n"), "{report}");
-    assert!(report.contains(&format!("PASS (4) the line-set file {PENDING}: the pull request removes 1 id lines and the base removes 1 others")), "{report}");
+    assert!(report.contains(&format!("PASS (4) the line-set file {PENDING}: the pull request removes 1 id lines and the base removes 1, 0 of them on both sides")), "{report}");
     assert!(report.ends_with("result: PASS (no reviewer delta round is needed; the gate still runs on the new head)\n"), "{report}");
 }
 
@@ -562,17 +643,10 @@ fn an_unreviewed_change_after_the_merge_still_fails() {
 }
 
 #[test]
-fn a_real_merge_of_two_flips_of_one_id_fails() {
+fn a_real_merge_of_two_flips_of_one_id_passes() {
     let (repo, reviewed, new) = two_flips("conf::b", "conf::b");
-    let report = check(repo.0.path(), &reviewed, &new, "v1")
-        .unwrap_err()
-        .to_string();
-    assert!(
-        report.contains(&format!(
-            "FAIL (4) the line-set file {PENDING}: both sides remove conf::b"
-        )),
-        "{report}"
-    );
+    let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
+    assert!(report.contains(&format!("PASS (4) the line-set file {PENDING}: the pull request removes 1 id lines and the base removes 1, 1 of them on both sides")), "{report}");
 }
 
 /// #190 review F60: an unreviewed mode change of the pending file after a passing merge fails condition 4.
