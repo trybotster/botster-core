@@ -1043,6 +1043,7 @@ mod slow_controls {
             "start_held",
             "fail_next",
             "fail_handoff",
+            "oracle_resume",
         ] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
@@ -1054,12 +1055,12 @@ mod slow_controls {
         }
     }
 
-    fn sid(name: &str) -> SessionId {
+    pub(super) fn sid(name: &str) -> SessionId {
         SessionId(name.into())
     }
 
     /// Pumps `core` until `done` holds, by the cleanup deadline. The host pumps after a wake (TM-6).
-    fn pump_until(core: &mut dyn CoreApi, done: impl FnMut(&mut dyn CoreApi) -> bool) {
+    pub(super) fn pump_until(core: &mut dyn CoreApi, done: impl FnMut(&mut dyn CoreApi) -> bool) {
         pump_until_at(core, Duration::ZERO, done);
     }
 
@@ -1091,7 +1092,7 @@ mod slow_controls {
         }
     }
 
-    fn state(core: &dyn CoreApi, session: &str) -> SessionState {
+    pub(super) fn state(core: &dyn CoreApi, session: &str) -> SessionState {
         core.get(&sid(session)).expect("the session").state
     }
 
@@ -1108,7 +1109,7 @@ mod slow_controls {
     }
 
     /// As [`created`], with the payload's environment `env`.
-    fn created_with(
+    pub(super) fn created_with(
         harness: &RealCoreHarness,
         core: &mut dyn CoreApi,
         session: &str,
