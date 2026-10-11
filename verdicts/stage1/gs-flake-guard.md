@@ -138,3 +138,18 @@ Sol ran no build, test, gate, mutation, reversal, measurement, or executable mer
 
 VERDICT: CLEAN (0 open) at db4fd197b40788a56e57eec47c97b5f005359a80.
 This verdict covers source findings. It does not accept the failed gate or authorize a merge.
+
+
+### Lead receipt after source verdict
+
+Receipt: `msg_plugin-w_1791714428_1c2552`.
+The lead does not seek a same-head 23al exception for db4fd197.
+The lead proposes a v1 import after #255, a base-merge check, and one full gate on that new head.
+The lead states that a v1-only merge does not fix EV-5 and cannot supply a rerun channel without cause attribution.
+The lead names the prior PC plain-v1 trace and the qualified #249/#246 classification as comparison evidence.
+The lead requires written GS reviewer confirmation that this PR does not alter that cause.
+The lead names P3's combined #240/#243 with the .33 R-63 fence as the removal owner and PR.
+Without that reviewer confirmation, the new head waits for the EV-5 removal.
+The lead will submit plan 23an to specify attribution after a red gate and v1 import.
+Sol has not reviewed that future plan revision, future import, or future gate.
+The current source verdict stays CLEAN. Gate acceptance remains pending.
