@@ -9,7 +9,11 @@ Integration reviewer: `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`.
 
 Core #246 is CLEAN at `b168c192ff58459b4671834bf01b87cc823c6fb7`.
 RC-FH-1 is closed. No finding remains open.
-The final gate and integration review remain separate merge conditions.
+The integration reviewer reports source CLEAN at the same head.
+Integration verdict: `745964561c19243f5fe0e032895e9c4c61946498`, `verdicts/stage1/rc-fail-handoff.md`.
+Message: `msg_plugin-w_1791710645_32356d`.
+The final gate remains required on this head or the later final head before merge.
+A later base merge also requires the plan's base-merge record.
 The reviewer ran no test or gate.
 
 The remaining RC controls have no submitted head or verdict in this session.

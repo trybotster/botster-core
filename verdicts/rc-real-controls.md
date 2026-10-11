@@ -107,3 +107,11 @@ The green gate cited in round 1 ran on `a8d9a156`, not this head.
 The final gate must pass on the final head before merge. The required integration review remains separate.
 Any further implementation change requires a delta review. A qualifying base merge follows the plan's base-merge rule.
 The reviewer ran no test or gate.
+
+### Integration review received
+
+The integration reviewer reports source CLEAN at `b168c192ff58459b4671834bf01b87cc823c6fb7`.
+Integration verdict: `745964561c19243f5fe0e032895e9c4c61946498`, `verdicts/stage1/rc-fail-handoff.md`.
+The report arrived in `msg_plugin-w_1791710645_32356d`.
+The integration reviewer confirms the comment correction and the focused Mac source equivalence.
+The final exact-head gate remains required before merge.
