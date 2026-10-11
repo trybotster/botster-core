@@ -109,3 +109,57 @@ Integration raised this evidence gap. I confirmed it and sent the finding direct
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-11
+
+Exact head: `2603483b518cab83d505ac6a0688b52afaccbf60`.
+Base: `c942593697e856017572977af0405b17de0124e2`.
+Parents: `f63daf224c3feb9e2f4e35ae3de5bd4cdc414e22` and the base above.
+Tree: `309bfb121fda55dfa4864d5552e45a0c9a53debe`.
+
+I read the full updated body, complete seven-file own delta, combined merge diff, and relevant imported source changes.
+The merge resolves the core-sys dev-dependency comment. Both parents already name the same dependency.
+The resolution keeps one entry and both reasons. The lockfile now equals the base's lockfile.
+The helper, signal wrapper, both xtask wrappers, and their assertions retain their exact Round 1 blobs.
+The storage file imports only the base's lock documentation. Its migrated test body and all contract assertions remain intact.
+The shared child owner, reader, deadline, and group cleanup also retain their exact Round 1 blobs.
+The imported platform change distinguishes an exiting or zombie process from a reaped process on macOS.
+It changes no ownership or reap in this PR. The new exact-head Mac proof exercises the helper with that imported implementation.
+The current own delta adds no runtime change, conformance list change, contract pin change, or mutation exclusion.
+The Round 1 source review and Prior-art comparison remain applicable.
+
+### Required focused Mac proof
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-alone-tests-2603483b-pool-20261011-074431-75584.log`.
+I read the complete retained log. Its header and checkout identify the exact head and base above.
+The checkout prints the matching tree and zero tracked changes before the tests.
+The pool runs on the Mac node with kernel 27.0.0 and two build jobs.
+Three plain core-sys cargo-test runs pass all 68 tests in 0.93, 0.83, and 0.79 seconds.
+Each run explicitly reports the resource-limit test and SIGURG test as passing.
+The three helper tests pass. Both selected xtask tests pass.
+The job and wrapper exit zero after 38 seconds, with one second queued and 37 running.
+This exact-head pool record supplies the required Mac source identity and focused proof under plan 23ai.
+AL-R2-1 is closed. The earlier uncommitted-tree records remain historical and do not supply this acceptance proof.
+
+### Completed Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-alone-tests-2603483b-pool-20261011-074537-78621.log`.
+I read its exact-head header, reports, relevant test results, summary, and all six mutation outcomes and catching-test records.
+All ten stages pass in 269.1 seconds. Job and wrapper exit zero after 353 seconds, with one second queued and 352 running.
+Default: 1693 passed, 481 skipped, in 11.794 seconds. Slow: 546 passed, 1993 skipped, in 41.304 seconds.
+All three helper tests and four migrated tests pass in their required tiers.
+Stage 1 catches all six mutants in 4.8 seconds, with zero missed, timeout, or unviable. Stage 2 does not run.
+The three name-check mutants are caught by the child-environment proof.
+The empty runner is caught by the nonexistent-name proof. Both verdict mutants are caught by the pure verdict proof.
+Fuzz reports no changed decoder harness.
+Conformance passes 209. Strict pending runs 370/390, with 20 real-only IDs not run and two held IDs.
+The testkit minimum is 56/69. The gate reports real-passing 46/68 and real-accepted 47/69.
+Six of 30 pending-real IDs pass. This branch changes no conformance list.
+The lead's approximately 16:30 ruling keeps those IDs pending until P5's contracts .38 pin PR.
+This verdict records the gate's counts and that ruling. It does not approve a pending-list removal.
+
+GitHub names this exact head and base. The PR remains open.
+Zero findings remain at this head. The Round 1 withdrawal remains on record for the earlier evidence gap.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN
