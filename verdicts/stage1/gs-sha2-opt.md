@@ -83,3 +83,12 @@ The GS brief requires a final gate after both CLEANs. This verdict claims only t
 No integration finding remains. I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+### Prior art correction, 2026-10-11
+
+The earlier statement that OLD CORE had neither corresponding mechanism was too broad. Sol withdraws that statement.
+OLD CORE `72b2e335` verifies a worker binary for each WorkerHarness::new in `core_harness_test.rs`.
+That constructor calls `real_worker::WorkerBinary::from_env`, which checks manifest size, SHA-256, and a nonempty source revision.
+Sol read those source paths during #248 review. OLD CORE has no corresponding sha2 profile override in its root manifest.
+The #247 change reuses current #223's profile form. It changes no provenance check and needs no old verification-code port.
+This correction changes the Prior art record. The #247 source CLEAN remains applicable to the same eleven-line profile change.

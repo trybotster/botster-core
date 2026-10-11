@@ -1,8 +1,8 @@
 # Integration review: #249, payload_alive worker evidence
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN (0 open)
 
-## Round 1
+## Round 1: NOT CLEAN (1 open)
 
 - Head: `c0694c7e295c9132d4b607fa8caee53e41a0466c`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
@@ -95,3 +95,38 @@ Scratch debug runs report 30/30 for the hold test and AD-7. Their debug output c
 
 The final gate on the corrected reviewed head remains required after both CLEANs.
 This verdict grants no merge approval. It does not close the separate findings or final gates for #233, #240, or #243.
+
+## Round 2: source CLEAN
+
+- Head: `0309469729459788da3a369bcab3443debc7a359`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Parent: `c0694c7e295c9132d4b607fa8caee53e41a0466c`.
+- Package CLEAN: `62a26786932cffb661b52c324cb685ed8b195629`, read in full, including both rounds.
+- Open findings: zero, including LOW.
+
+AH-F1 closes. Sol read the complete one-file correction and checked the source for the record lookup.
+The predicate checks launch_held first. It checks heard before it reads children.
+The test then asserts heard and no child after the wait. It retains the initial negative hold observation and the release proof.
+The record lookup locks Rows and does not lock Tap again. The added Tap lock creates no recursive lock in this path.
+The correction changes no production control, OS process operation, timeout, pending list, or transcript.
+All imported source and the prior review checks remain applicable.
+
+Focused log: `~/botster-sessions/gates/botster-core-stage1-p5-alive-after-hello-03094697-pool-20261011-012153-14347.log`.
+Sol read the complete log. Its header names the reviewed head and base.
+Prebuild passes. Testkit clippy with slow and all targets passes with `-D warnings`.
+The hold and shell regression tests run together twenty times; the result is pass=20, fail=0.
+The job exits 0 after forty seconds. The wrapper exits 0 after forty-one seconds.
+The explicit tally establishes the test result. The wrapper does not enforce a zero failure count.
+
+P5 also supplies a selected reversal at `872b8aaf1724ffdfb2a6a70d4f371c67e3d5733d`.
+Its only source change lets every nonempty buffer pass through sendable, including Launch.
+Log: `~/botster-sessions/gates/botster-core-scratch-p5-hold-leak-03094697-872b8aaf-pool-20261011-012416-33205.log`.
+Sol read the source diff, exact header, five failures, tally, and exit records.
+All five runs fail with one child and `the Launch passed the hold`. The result is pass=0, fail=5.
+The job and wrapper exit 0 after printing that tally. Their exit codes do not indicate passing tests.
+This reversal shows that the corrected proof detects a leaking hold.
+
+Sol checked the published replacement and retained evidence. No reviewer execution job ran.
+The final gate on this head remains required after both CLEANs under the lead's pool rule.
+This source CLEAN closes no separate finding or final gate for #233, #240, #243, or P6's short data root.
+R-59 still leaves AD-7 unfenced and outside the counted real minimum.
