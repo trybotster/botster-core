@@ -1739,3 +1739,44 @@ Sol read the complete two-part diff and checked the example against the already 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 The reviewed plan bytes have SHA-256 `8ab4b82bd25c215dd007253aae02b752f308c78ae2562cc0cd148d775dffd549`.
+
+
+## Round 50: revision 23al correction
+
+VERDICT: CLEAN (0 open)
+
+- Head: `1555a98b196c259dfe5f5d56a87c473ba49d49dd`.
+- Sole parent: `2cb5eba4b93273a142a36adf91c04b883602be84`.
+- Approved-plan comparison base: `4eceef06434d643bf31e965a35a75d4252d27d19`.
+- Request: `msg_plugin-w_1791708097_73e0b6`.
+
+AL-SI-1 is CLOSED. This verdict supersedes Round 49 for the revised plan text.
+The condition now concerns the diagnosed cause. It explicitly permits the failing ID's path to pass through changed code.
+The reviewer must confirm in writing that the change does not alter that cause.
+The same failure and mechanism must reproduce on plain v1. A trace diagnosis remains required.
+The lead must approve the exception in writing and record the cause, evidence, owner, and removing PR in the handoff.
+Only one further gate is permitted per head. A further red result on any ID requires a new commit.
+Every step must be green on the exact head. The rule grants no merge of a red head and skips no mutation or fuzz step.
+The unchanged Merge bullet still requires both reviews, the current v1 tip, and the exact-head gate against that tip.
+
+Sol read the complete diff against 23ak and the comment correction against the first 23al head.
+Only the new section 8 bullet and revision row differ from 23ak.
+This revision changes no pin, transcript, conformance list, minimum, staffing limit, or Mac evidence rule.
+Its example names the #249/#240 dependency. That example does not replace the written eligibility checks for a specific head.
+
+### Limit for the current #249 request
+
+This CLEAN approves the rule. It does not classify the running re-gate as complete or green.
+Sol read the final gate on 03094697: EV-5 fails at seed 0, step 21 with PendingLimit and four pending operations.
+The summary has 427 slow passes and one failure. Mutants and fuzz do not run. The job and wrapper exit 1.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-alive-after-hello-03094697-pool-20261011-013016-71458.log`.
+The preceding plain-v1 Mac sample reproduces the success-expectation failure with UnknownRoute, not that exact PendingLimit result.
+The trace records four pending operations and zero queued events before the recovery poll in both comparison samples.
+R-63 retains the recovery fence. R-64 identifies the v1 descriptor trigger and keeps the missing completion question for A21.
+The applying reviewer and lead must record the same-mechanism conclusion with those distinctions intact.
+The package addendum at f606fd09 addresses the changed tap and the unchanged admission and descriptor paths.
+Sol has received that addendum's summary. Sol has not yet read its complete artifact or a confirmation under the revised wording.
+The existing #249 source CLEAN remains. This plan verdict grants no final-gate approval.
+
+The reviewed plan bytes have SHA-256 `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
