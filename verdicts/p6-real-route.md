@@ -324,3 +324,45 @@ Open findings: 0. All prior findings remain closed.
 The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
 
 VERDICT: CLEAN
+
+## Round 4 — Completed gate and accepted #242 base merge
+
+Exact head: `af5d51386c1d7dec6d6633f4d3a5dfa9503c2e10`.
+Base: `910c0a9adcbec718e52abaea1c568065d2241dd0`.
+Reviewed and gated parent: `5921340d4f90d94ab7864b740820c0d5fb88ad03`.
+Risk tier: HIGH.
+
+The reviewer read the completed gate for the Round 3 head:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-5921340d-pool-20261010-235507-54316.log`.
+Its header names the full Round 3 head and base.
+All ten jobs pass. Job and wrapper exit 0 after 2659 seconds, with 1 second queued and 2658 seconds running.
+Default: 1604 passed in 11.942 seconds. Slow: 427 passed in 104.636 seconds.
+The capability proof passes in both the slow step and the mutation baseline.
+Conformance: 206 passed. Strict pending: 373/394, with 21 real-only IDs not run and 2 held.
+Minimum counts: testkit 55/69, real-passing 36/68, real-accepted 37/69.
+Pending-real: 77, with zero newly passing IDs.
+Stage 1 misses all 34 slow-only mutants in 112.7 seconds.
+The slow baseline passes in 109.7 seconds.
+Stage 2: 34 total, 29 caught, 0 missed, 0 timeout, and 5 unviable, in 2237.5 seconds.
+The reviewer read all 34 stage-2 outcomes.
+Both whole-body capability replacements and both boolean-operator replacements are caught.
+This completed gate supplies the evidence that remained pending in Round 3.
+
+The exact head above merges that gated parent with accepted #242.
+The reviewer read the merge parents, path summary, published body, and supplied merge-check output:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-af5d5138-pool-20261011-003944-36495.log`.
+Both ancestry checks and all four conditions pass. The check reports no conflict and no shared own path.
+The own diff remains byte-identical outside line-set files: 29504 bytes, SHA-256 `4a7fcc9e381585c2b9c5fb1b29ce43d73de6109b9d2b14065efc4253ad28c44e`.
+The job and wrapper exit 0 after 137 seconds, with 1 second queued and 136 seconds running.
+The base adds only `crates/botster-core-host/src/tests/driver/observations.rs`, an accepted test path outside this PR's own delta.
+The own six-path delta remains unchanged. The real.rs blob is `0add8992333b792206f6694423650b05dc38aa0f` at both heads.
+The route code, capability correction, contract assertions, pending list, deadlines, and ownership remain unchanged.
+The passing check requires no additional source delta round.
+
+The gate belongs to parent `5921340d`; the final merged head has the passing base check, not a separate full gate.
+The published body applies the lead's pool-saving rule to that disjoint base import.
+GitHub reports PR #238 as MERGED at the exact source head above.
+All prior findings remain closed. Open findings: 0.
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
