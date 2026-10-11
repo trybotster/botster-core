@@ -1121,6 +1121,7 @@ mod slow_tests {
             ("pty_output", json!({"session": "s1", "bytes_hex": "61"})),
             ("pty_input", json!({"session": "s1"})),
             ("pty_blocked", json!({"session": "s1"})),
+            ("pty_queued", json!({"session": "s1"})),
             ("pty_accept", json!({"session": "s1", "bytes": 1})),
             ("pty_chunk", json!({"session": "s1", "bytes": 1})),
         ] {
