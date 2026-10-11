@@ -1970,3 +1970,41 @@ This verdict accepts the plan only. It accepts no future source, exclusion, pin,
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 3a5b20697967ca7c794f4ee54b988e7f4a74f5aa
+
+## Round 56: revision 23aq, tagged fence changes and the combined .35 pin
+
+- Head: `d4f67d0980bb66727f2a439ea7c7fe5b01bb5039`.
+- Base and sole parent: `3a5b20697967ca7c794f4ee54b988e7f4a74f5aa`.
+- Request: `msg_plugin-w_1791716584_208881`.
+- Plan SHA-256: `b83ed050290e2b3a75a0b57ccdaa7ea8c4e3da3bb3cfac8bf5c49e589fe826b9`.
+
+Sol checked the complete net delta. Only docs/stage1-plan.md changes: two added lines and one deleted line.
+Section 0 adds the tagged .34/.35 facts and changes the combined #240/#243 target to .35.
+The revision table adds 23aq. No other operative rule changes.
+
+Sol fetches and checks both exact tags:
+- contracts-v0.1.34: `26326b26c71d4848ef5f94266107e7a26c4ebbb7`.
+- contracts-v0.1.35: `e3180652a3447caef7595e76640a0f383b018729`.
+
+The .34 tag contains the four program_ready fences already checked in Round 54.
+The .35 tag contains .34 as an ancestor. Its transcript delta adds only one await_pty with min_bytes:6 to each of three IN-10 IDs.
+Those three IDs remain real-pending on current v1. The plan claims no pending removal or passing result for them.
+The fence lint's declared scope is R-57, R-60, R-61, and R-62 Q3. Its exception file has 127 entries.
+All four corrected echo IDs are absent from that file. The second-merge exception cleanup required by 23ao is present.
+The steward and lead split all R-56 lint work into later B2. This plan preserves that split and requires no separate Core pin PR for B1.
+
+The tag also records the approved OSC 0 sentinel reading and R-55 reaper proof form.
+Sol checked that R-55 text against the previously read accepted draft.
+That published ruling does not correct #257's old source or supply replacement evidence. Its four findings remain open on 96f6f387.
+The plan's .35 target does not approve any future host_crash or reuse_pid implementation.
+
+No frozen contract, ledger, deferred file, withdrawn file, or BUILD.md changes from .33 to .35.
+The current code pin remains .32. The combined merge still requires its source review, full real-tier before/after table, and exact-head full gate.
+An ID leaves pending only on a PASS in that PR's gate. Manifest, active IDs, minimum list, and completion criteria remain.
+The lead records the steward's confirmation that .34 remains valid. The later 23aq entry sets .35 as the combined merge's target.
+
+This verdict accepts the plan only. It does not replace the contracts reviewer or steward's review of B1's implementation.
+It accepts no future combined source, code pin, gate, mutation exclusion, R-56 lint, or pending removal.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at d4f67d0980bb66727f2a439ea7c7fe5b01bb5039
