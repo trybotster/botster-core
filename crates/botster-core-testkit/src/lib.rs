@@ -19,6 +19,7 @@ pub mod harness;
 pub mod net;
 pub mod oracle;
 pub mod oracle_compare;
+pub mod oracle_controls;
 pub mod pending;
 pub mod process_controls;
 pub mod process_group;
