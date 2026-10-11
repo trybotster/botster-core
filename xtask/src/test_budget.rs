@@ -193,18 +193,20 @@ fn selection(options: &Options, meta: &Meta) -> Vec<String> {
     if !options.slow {
         return vec!["--workspace".into()];
     }
-    let mut args = Vec::new();
-    for package in &meta.slow_packages {
-        args.push("-p".to_string());
-        args.push(package.clone());
-    }
-    let features: Vec<String> = meta
-        .slow_packages
-        .iter()
-        .map(|p| format!("{p}/slow"))
-        .collect();
-    args.push("--features".into());
-    args.push(features.join(","));
+    slow_selection(&meta.slow_packages)
+}
+
+/// The selection of the slow tier: the tests of the workspace with the `slow` feature of each package of
+/// `slow_packages`, and the slow filter. The stage-2 baseline of the mutation step runs the same selection (GS L2), so
+/// that a passed slow tier is its baseline when the builds and the tests are the same (`slow_record`). Every member is
+/// selected, so a member's `<member>/slow` is valid and the build is the build of stage 2 (`--test-workspace true`).
+pub fn slow_selection(slow_packages: &[String]) -> Vec<String> {
+    let features: Vec<String> = slow_packages.iter().map(|p| format!("{p}/slow")).collect();
+    let mut args = vec![
+        "--workspace".to_string(),
+        "--features".to_string(),
+        features.join(","),
+    ];
     // A slow test is an integration-test target named `slow` or `slow_*`, or a unit test of any target in a module named
     // `slow_*` at any depth (nextest matches the whole module path): the real-disk storage of a library, or the real
     // driver of a binary, which only its own unit tests reach.
@@ -568,6 +570,19 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     }
 
     if failures.is_empty() {
+        if options.slow {
+            // The record of the pass, which the stage-2 baseline of this run reuses when the tree and its tests are
+            // the same (`slow_record`).
+            // With no record the baseline runs, so a failed write does not fail the tier.
+            if let Err(error) = crate::slow_record::write(
+                root,
+                &meta.target_dir,
+                &selection(&options, &meta),
+                &tier_env(true),
+            ) {
+                println!("test-budget: no record of the pass for the stage-2 baseline: {error:#}");
+            }
+        }
         println!("test-budget: ok");
         return Ok(());
     }
@@ -802,15 +817,12 @@ mod tests {
     }
 
     #[test]
-    fn the_slow_tier_runs_the_slow_packages_with_their_feature_and_the_slow_binaries() {
+    fn the_slow_tier_runs_the_workspace_with_the_slow_features_and_the_slow_binaries() {
         let args = selection(&opts(true), &meta(&["a", "b"]));
         assert_eq!(
             args,
             [
-                "-p",
-                "a",
-                "-p",
-                "b",
+                "--workspace",
                 "--features",
                 "a/slow,b/slow",
                 "-E",

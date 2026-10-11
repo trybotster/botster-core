@@ -7,7 +7,7 @@
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
     caps, fsutil, gate_decisions, high_tier, lists, mutants_cited, platform_code, prebuild,
-    process_check, public_api, signals, taint, test_budget, timers, unsafe_exception,
+    process_check, public_api, signals, slow_record, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -503,7 +503,7 @@ fn mutants_job(root: &Path) -> Result<()> {
     let stage1_dir = target.clone();
     let stage2_dir = target.join("mutants-stage2");
     let meta = fsutil::metadata(root)?;
-    let slow_packages = meta.slow_packages;
+    let slow_packages = meta.slow_packages.clone();
     let baseline_pids = meta
         .target_dir
         .join("nextest")
@@ -529,6 +529,25 @@ fn mutants_job(root: &Path) -> Result<()> {
             })
         },
         || {
+            // GS L2: the slow step of this run passed the same tests from the same builds on this tree (`slow_record`),
+            // so it is the baseline. Otherwise, or when the record cannot be made, the baseline runs, with the reason.
+            let reuse = slow_record::check(
+                root,
+                &meta.target_dir,
+                &test_budget::slow_selection(&slow_packages),
+                &test_budget::tier_env(true),
+            )
+            .unwrap_or_else(|error| Err(format!("{error:#}")));
+            match reuse {
+                Ok(tests) => {
+                    println!(
+                        "mutants: stage 2 baseline: the slow step of this run passed the same {tests} tests from the same \
+                         test binaries on this unchanged tree, so it is not run again"
+                    );
+                    return Ok((true, Duration::ZERO));
+                }
+                Err(why) => println!("mutants: stage 2 baseline: it runs, because {why}"),
+            }
             // The slow tier's bounds (#225 MS-R1-1): the `mutants` profile never ends a test, so the deadline and the
             // leftover check of the slow tier hold the run.
             let mut cmd = cargo(root);
@@ -1071,28 +1090,11 @@ fn stage2_args(
 /// The arguments of stage 2's baseline after `cargo`: the slow tier unmutated, as stage 2 runs it for each mutant (the
 /// workspace with the slow features of `slow_packages`, the `mutants` profile and the slow filter).
 fn stage2_baseline_args(slow_packages: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = ["nextest", "run", "--workspace", "--features"]
+    let mut args: Vec<String> = ["nextest", "run", "--profile", "mutants", "--no-tests=pass"]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    args.push(
-        slow_packages
-            .iter()
-            .map(|p| format!("{p}/slow"))
-            .collect::<Vec<_>>()
-            .join(","),
-    );
-    args.extend(
-        [
-            "--profile",
-            "mutants",
-            "--no-tests=pass",
-            "-E",
-            test_budget::SLOW_FILTER,
-        ]
-        .iter()
-        .map(|s| s.to_string()),
-    );
+    args.extend(test_budget::slow_selection(slow_packages));
     args
 }
 
@@ -1212,6 +1214,8 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     }
     // Plan section 8: the xtask refuses to start a step without the parallelism cap.
     caps::require()?;
+    // GS L2: only the slow step of this run can leave the record that the stage-2 baseline reuses (`slow_record`).
+    slow_record::clear(&fsutil::metadata(root)?.target_dir)?;
     let (rows, failed) = run_steps(
         root,
         JOBS,
@@ -2321,12 +2325,12 @@ mod tests {
         let baseline: Vec<String> = [
             "nextest",
             "run",
-            "--workspace",
-            "--features",
-            "p/slow,q/slow",
             "--profile",
             "mutants",
             "--no-tests=pass",
+            "--workspace",
+            "--features",
+            "p/slow,q/slow",
             "-E",
             "binary(/^slow/) | test(/(^|::)slow_/)",
         ]

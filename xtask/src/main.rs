@@ -15,6 +15,7 @@ mod public_api;
 #[cfg(test)]
 mod signal_bans;
 mod signals;
+mod slow_record;
 mod taint;
 mod test_budget;
 mod timers;
