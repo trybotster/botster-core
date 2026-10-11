@@ -782,7 +782,11 @@ fn a_worker_lost_while_stopping_ends_worker_gone() {
         pump_until(&mut core, |_| true);
         assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Stopping);
         let pid = _worker.pid().expect("the worker recorded its pid");
-        rustix::process::kill_process(pid, rustix::process::Signal::KILL).unwrap();
+        botster_core_sys::signal::signal_process(
+            pid.as_raw_nonzero().get().unsigned_abs(),
+            rustix::process::Signal::KILL,
+        )
+        .unwrap();
         // Core's reaper reaps the worker: its pid is gone, and the reaper's notifier woke the host.
         let began = common::real_now();
         while rustix::process::test_kill_process(pid).is_ok() {
