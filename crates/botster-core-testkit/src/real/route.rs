@@ -8,8 +8,9 @@
 //! the only thread that pumps Core.
 
 use super::program::Inputs;
-use super::SharedTap;
+use crate::edge_tap::Tap;
 use botster_conformance::Deadline;
+use botster_core::RealEdges;
 use botster_core_conformance::RouteClient;
 use botster_core_contract::prelude::{InstanceId, SessionId};
 use botster_core_host::session::{row_key, Row};
@@ -18,6 +19,7 @@ use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
+use std::sync::{Mutex, Weak};
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
@@ -40,7 +42,9 @@ pub(super) struct RealRoute {
 /// What `pty_input` on a route reads: the tap of the route's handle (its stored rows), the route's session and the session's
 /// instance at the attach, and the probes' input logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
 pub(super) struct SessionInput {
-    pub(super) tap: SharedTap,
+    /// Weak, as the harness's handle holds it: a route that outlives its host must not keep the host's edges, and with them its
+    /// claim of the data directory (Core LC-2, LC-12).
+    pub(super) tap: Weak<Mutex<Tap<RealEdges>>>,
     pub(super) session: SessionId,
     /// The session's instance when the route attached (`None`: the session had no stored row then).
     pub(super) instance: Option<InstanceId>,
@@ -52,8 +56,11 @@ impl SessionInput {
     /// session that was removed, or created again with a new instance, is no longer the route's: the route has no input log
     /// then. The record of the session's processes outlives `Remove`, so the stored row decides.
     fn log(&self) -> Result<Value, String> {
-        let row = self
+        let tap = self
             .tap
+            .upgrade()
+            .ok_or_else(|| format!("the host of the route of {} is gone", self.session.0))?;
+        let row = tap
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .stored_row(&row_key(&self.session))

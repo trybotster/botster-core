@@ -1198,7 +1198,7 @@ impl CoreHarness for RealCoreHarness {
                 .and_then(|bytes| Row::decode(session, &bytes))
                 .map(|row| row.instance);
             route = route.with_input(route::SessionInput {
-                tap,
+                tap: Arc::downgrade(&tap),
                 session: session.clone(),
                 instance,
                 inputs: self.programs.inputs(),
