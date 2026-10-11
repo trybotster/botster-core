@@ -1127,6 +1127,28 @@ mod held_starts {
         );
     }
 
+    /// A held hand-over and a held start on one link: the release of the hand-over keeps Core's write interest from the
+    /// inner edge while the start is still held, and the release of the start then gives it.
+    #[test]
+    fn a_hand_over_release_keeps_the_interest_of_a_link_whose_start_is_held() {
+        let mut rig = linked(Fake {
+            take_descriptors: true,
+            ..Fake::default()
+        });
+        rig.with(|t| t.hold_handoff());
+        let blocked = rig
+            .edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8));
+        assert!(matches!(blocked, Err((_, DescriptorSendError::Blocked))));
+        rig.with(|t| t.hold_launch(instance()));
+        rig.edges.link_send(A, &launch()).unwrap_err();
+        rig.edges.set_write_interest(A, true);
+        rig.with(|t| t.release_handoff());
+        assert_eq!(calls(&rig), ["write 1 false", "write 1 false"]);
+        rig.with(|t| t.release_launch(&instance()));
+        assert_eq!(calls(&rig).last().unwrap(), "write 1 true");
+    }
+
     /// A hold set before the link exists holds nothing until the `Launch`; the bytes that the inner edge takes in part keep
     /// the tap's reading in step, so the hold begins exactly at the `Launch`.
     #[test]
@@ -1418,6 +1440,45 @@ fn a_held_start_keeps_the_workers_link_from_the_driver_until_the_release() {
     });
     assert_eq!(rig.edges.accept_link(), None);
     assert!(rig.with(|t| t.link_held(&four)));
+}
+
+/// While a start hold is armed, the tap reads a new link only to the end of its hello: an interrupted read is read again,
+/// and the bytes after the hello stay with the inner edge. A link whose read fails goes to the driver, which sees the
+/// failure. A second link of the held instance goes to the driver too: the hold keeps the first, and the release gives it.
+#[test]
+fn an_armed_start_hold_reads_each_new_link_only_to_its_hello() {
+    const C: LinkId = LinkId(3);
+    let mut fake = Fake::default();
+    fake.accepts.extend([A, B, C]);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Interrupted,
+            Read::Data(hello_frame("1-1")),
+            Read::Data(b"after".to_vec()),
+        ]
+        .into(),
+    );
+    fake.reads
+        .insert(B, vec![Read::Fail(io::ErrorKind::ConnectionReset)].into());
+    fake.reads
+        .insert(C, vec![Read::Data(hello_frame("1-1"))].into());
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    rig.with(|t| t.hold_link(one.clone()));
+    // A hold that stays armed, so the tap reads every new link of this test.
+    rig.with(|t| t.hold_link(InstanceId("9-9".into())));
+    assert_eq!(rig.edges.accept_link(), Some(B), "the failed link");
+    assert!(rig.with(|t| t.link_held(&one)));
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        1,
+        "no read past the hello"
+    );
+    assert_eq!(rig.edges.accept_link(), Some(C), "the second link");
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.release_link(&one)));
+    assert_eq!(rig.edges.accept_link(), Some(A));
 }
 
 /// `route_stream_holders` (plan 23bf): the tap counts the bytes that Core gives `close_route_stream` for a stream, by the

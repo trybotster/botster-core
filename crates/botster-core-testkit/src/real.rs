@@ -1290,9 +1290,10 @@ impl CoreHarness for RealCoreHarness {
                 options,
             )
             .map_err(|refused| refused.error)?;
+        // Only the tapped harness keeps handles (`open`), so a route of the plain harness gets no fill and no holders.
         let tap = self.handles.get(handle).map(|h| h.tap.clone());
         let route = match tap {
-            Some(tap) if self.tapped => route
+            Some(tap) => route
                 .with_fill(route::Fill {
                     requests: self.programs.requests(),
                     worker: session_worker(tap.clone(), session.clone()),
@@ -2591,6 +2592,19 @@ mod slow_tests {
         );
         let result = tapped.control("h", "edges_quiet", &json!({}));
         assert!(matches!(result, Err(ControlError::Bad(_))), "{result:?}");
+        // The start and hand-over holds (plans 23bf, 23bg) are served: a handle that is not open is a bad argument.
+        for (op, args) in [
+            ("hold_start", json!({"session": "s1"})),
+            ("release_start", json!({"session": "s1"})),
+            ("hold_handoff", json!({})),
+            ("release_handoff", json!({})),
+        ] {
+            let result = tapped.control("h", op, &args);
+            assert!(
+                matches!(result, Err(ControlError::Bad(_))),
+                "{op}: {result:?}"
+            );
+        }
     }
 
     /// Core TH-1: the harness answers for the facade's `Core` only what the runner told it at compile time.
