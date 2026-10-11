@@ -370,3 +370,49 @@ Sol requests no extra local run. Sol runs no build, test, gate, mutation, revers
 Never poll. Wait for the doorbell.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
+
+## Round 5 — red final gate and retry attribution, 2026-10-11
+
+Head and base remain `3cf460714016af6683ea6c60f1753dfc0055c660` and `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+The source review and TC-SI-6 closure remain unchanged. TC-SI-FINAL-1 stays open.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-3cf46071-pool-20261011-144458-14865.log`.
+SHA-256: `b0b4f23f65cfef7cc7267e109fb7aff551934dc54a3699a203c149a41ec69206`.
+Sol reads the exact header, suite summaries, raw baseline failure, mutation-stage result, and final exits.
+Eight steps PASS. Mutants FAIL. Fuzz does not run.
+The step total is 263.0 seconds. The job queues for one second and runs for 284 seconds.
+The job and wrapper exit one after 285 seconds on msa1.
+Default: 1788 PASS, 460 skipped, 12.420 seconds. Slow: 584 PASS, 2019 skipped, 42.050 seconds.
+Mutation stage 1 reports six mutants: two caught, four missed, zero timeout, zero unviable, 35.9 seconds.
+The unmutated stage-2 baseline reports 583 PASS and one failure, with 2725 skipped tests, in 42.634 seconds.
+Its baseline interval is 57.5 seconds. Stage 2 tests no mutant because that baseline fails.
+
+The failing identifier is `conf::ev_5_route_closed_retires_route_keyed_events`, seed 0, raw step 28.
+It expects `activity_before_close: true, closed: true`. It receives `activity_before_close: false, closed: true`.
+The same real test has normal PASS in the earlier slow step. This is not a caught mutant or a green final gate.
+
+Sol reads the complete .39 transcript. Raw step 24 sends one byte on r2; step 25 calls `await_quiet`; step 26 begins Detach.
+Step 27 waits for the close report. Step 28 checks that the client activity preceded the close.
+No step fences the worker's receipt of that byte before Detach.
+Static source establishes an unfenced window already present on the imported base.
+The PR changes no worker, host, `route_reports`, or transcript behavior on this path.
+The real stream's write and flush remain unchanged. The transcript calls neither new control.
+Sol confirms this non-interference. The source supports the proposed pre-existing cause but does not prove an executed plain-v1 reproduction.
+
+RC reports conditional lead approval for one same-head re-gate in `msg_plugin-w_1791755842_f1ace6`.
+The lead handoff records the approval, P5 ownership of the rule-9 record, and a stop if the re-gate is red.
+Plan 23al, section 8, still requires trace evidence and the exact failure on plain v1.
+Plan 23bl permits an accepted controlled reproduction of the same identifier, step, and symptom.
+The named gate runs on #285. No current plain-v1 or accepted controlled reproduction has been supplied.
+Sol requests the existing reproduction record or an explicit decision on this missing condition.
+Sol does not attest to a reproduction that it has not read.
+
+Sol also reads the older P3 README, complete scratch patch, and complete five-run raw trace in `evidence/p3-ev5-route-closed/`.
+That record uses .36 on `850bb785`, with local diagnostic instrumentation, and reports leaked Activity before retirement.
+Its symptom differs from the current .39 `activity_before_close: false` failure.
+It supports the limits of `await_quiet` but does not satisfy this retry's exact-signature condition.
+Raw trace SHA-256: `78842f3507919ac722fa77ed7eaa815f901d11c6fc735994d7c9b60a1622aff8`.
+Sol accepts no same-head retry result until the applicable attribution conditions are resolved.
+Sol runs no build, test, gate, mutation, reversal, measurement, or diagnostic. Never poll.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
