@@ -12011,3 +12011,75 @@ The reviewer runs no test, build, gate, measurement, mutant, reversal, or execut
 The reviewer changes no product code. All earlier verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 170 — PR #243, completed exact-head gate — 2026-10-11
+
+Head: `850bb78522e43967667ec839d5253e952822eea2`.
+Base v1: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+Gate receipt: msg_plugin-w_1791722007_15525c.
+Source package CLEAN: dc43e90040dfdfb848ec04be856396228dd1ecab, Round 169.
+Integration source CLEAN: 92f669089d3b2a38cce0b990614d65a5a5ff916e, already read and verified as published.
+The complete GitHub response verifies this unchanged head and base.
+Body record: /private/tmp/review-p3-pr243-850bb785-gate-body.json. The body has not yet appended the completed gate.
+The HIGH classification and preceding binding rules and source reviews remain applicable.
+No source delta or new package finding occurs in this round.
+
+### Exact-head Linux gate
+
+Log: gates/botster-core-stage1-p4a-real-route-transport-850bb785-pool-20261011-052234-63419.log.
+The reviewer reads the exact head/base header, tier summaries, named public proof outcomes, every individual mutation outcome, fuzz completions, CI summary, and exit.
+The header names this exact head, this exact base, Linux pool execution, and cargo xtask ci.
+All ten CI steps pass: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+Default tests pass 1680 with 481 skipped in 12.766 seconds.
+Slow tests pass 494 with 2009 skipped in 42.067 seconds.
+The stage-2 unmutated baseline passes 494, ten marked slow, with 2693 skipped in 39.059 seconds.
+The baseline step reports 45.1 seconds and PASS.
+The CI total is 555.7 seconds. Jobq exits zero after 565 seconds; botster-gate exits zero after 566 seconds.
+
+The actual repository-list test reports PASS by exact name.
+The real receipt and no-host-byte proofs report PASS by exact name in the slow tier and the unmutated baseline.
+The real full-route budget proof reports PASS in both slow_driver and slow_session, in the slow tier and baseline.
+The three in_10 IDs removed from core-pending report PASS in default conformance and slow conformance, including the baseline.
+The EV-5 repeated attach/detach ID also reports PASS in both tiers and the baseline.
+This establishes named outcomes at the reviewed Linux head. It does not authorize a future pending-ID removal by itself.
+The separate A5-4 table remains required for the full before/after classification.
+
+### Mutation acceptance
+
+Stage 1 tests 167 mutants: 145 caught, one missed, zero timeout, and 21 unviable in 172.7 seconds.
+The reviewer reads all 145 printed catch identities and their named catching tests, in three bounded groups.
+The reviewer reads all 21 unviable identities. They are reported as build failures, not accepted catches.
+Their printed replacements include Default values, interest bitwise operators, and constant arithmetic.
+The gate reports those build outcomes. This round does not independently inspect their separate compiler logs.
+The sole stage-1 miss is main.rs:401:9, replace Driver::bind_route with ().
+Stage 2 excludes the 166 prior caught or unviable outcomes, runs the passed unmutated baseline, and tests that remaining mutant.
+It catches bind_route through slow_driver::a_real_route_carries_the_attach_the_input_and_the_output.
+Stage 2 reports one caught, zero missed, zero timeout, and zero unviable in 60.2 seconds.
+The combined result is 167 mutants: 146 caught, one by stage 2, zero missed, zero timeout, and 21 unviable.
+The redundant RouteReceived arm is absent from this head. No equivalent-arm deletion remains missed.
+F123 stays CLOSED. The earlier parent gate remains RED; this replacement supplies its own PASS.
+No final missed mutant, mutation timeout, reported flaky catch, or failed baseline appears in the inspected outcomes.
+The gate adds no new exclusion or retry waiver. The preceding exclusion review retains its exact scopes.
+
+Both fuzz targets complete: link_decoder reports 7,413,003 runs, and msg_decoder reports 3,846,952 runs.
+Each completion reports 61 seconds. The final fuzz step reports PASS in 162.5 seconds.
+These bounded fuzz records supply no claim about untested inputs or another platform.
+The earlier focused Mac record retains its exact 3cf27c1b identity and stated unchanged-source limits.
+
+### Verdict and remaining acceptance
+
+PR #243 remains CLEAN at `850bb78522e43967667ec839d5253e952822eea2` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+The completed exact-head gate, named proofs, and individual mutation outcomes satisfy this package's gate review.
+F121, F122, and F123 remain CLOSED. No open package finding remains.
+P3 reports that A5-4 is rerunning after a before-worktree submodule-fetch failure. No completed table or attempt log is supplied here.
+The reviewer accepts neither that attempt nor its stated pin-copy correction from the report alone.
+The A5-4 before must be the exact base above. Its reviewed after must match the accepted source.
+Every failure and pending result requires classification before merge. The final PR body must record the completed gate and table.
+The integration acceptance review of those final records remains separate.
+This verdict approves no merge, future status removal, base import, new minimum count, or unreviewed table result.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code. All earlier verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
