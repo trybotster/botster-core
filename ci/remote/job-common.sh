@@ -107,10 +107,19 @@ limits=(--cpus "$cpus" --cpu-shares "$shares" --memory "$(( cpus * 2 + 4 + tmp_g
 
 # --init: tini is PID 1 and reaps orphans, as launchd does on the Mac. Without it, a test's reparented child stays a zombie
 # and the leftover-process check fails.
-container() {
-  docker run --rm --init --label "testq.job=$name" "${limits[@]}" --user "$(id -u):$(id -g)" -e HOME=/tmp "$@" &
+# Network: a container on Docker's default bridge adds a veth to the host at its start and removes it at its end, and the
+# host's browsers abort their requests in flight at each such network change (net::ERR_NETWORK_CHANGED in other projects'
+# suites on the pool hosts). `--network none` adds no veth. So `container` runs with no network, and only a step that
+# downloads runs through `online`.
+run_container() {
+  local network=$1
+  shift
+  docker run --rm --init --network "$network" --label "testq.job=$name" "${limits[@]}" --user "$(id -u):$(id -g)" \
+    -e HOME=/tmp "$@" &
   wait $!
 }
+container() { run_container none "$@"; }
+online() { run_container bridge "$@"; }
 
 echo "gate job: $project $(git -C "$dir" rev-parse HEAD) on $(hostname), $cpus CPUs, image $image, target $target_volume"
 
@@ -211,7 +220,7 @@ for volume in "$cargo_volume" "$target_volume" "$npm_volume" "${extra_volumes[@]
   volume=${volume%%:*}
   if ! docker volume inspect "$volume" >/dev/null 2>&1; then
     docker volume create "$volume" >/dev/null
-    docker run --rm --label "testq.job=$name" -v "$volume:/v" "$image" chown "$(id -u):$(id -g)" /v &
+    docker run --rm --network none --label "testq.job=$name" -v "$volume:/v" "$image" chown "$(id -u):$(id -g)" /v &
     wait $!
   fi
 done
@@ -223,7 +232,9 @@ echo "gate job: $free GiB free on Docker's data root $docker_root (the target vo
 
 mounts=(-v "$dir:/work" -v "$target_volume:/work/target" -v "$cargo_volume:/cargo" -v "$npm_volume:/npm")
 for volume in "${extra_volumes[@]}"; do mounts+=(-v "$project-${volume%%:*}:${volume#*:}"); done
-network=()
+# A project with no fetch step (private_git_deps=0) downloads in the gate itself (cargo's crates, `npm ci`), so its gate
+# runs online; after a fetch step, the gate runs with no network.
+gate=online offline=()
 gate_env=(-e TZ=UTC)
 [ -n "$base" ] && gate_env+=(-e "BOTSTER_CI_BASE_REF=$base")
 for variable in "${extra_env[@]}"; do gate_env+=(-e "$variable"); done
@@ -235,7 +246,7 @@ if (( private_git_deps )); then
   secrets=$(mktemp -d)
   chmod 700 "$secrets"
   (umask 077; printf '%s' "$(gh auth token)" > "$secrets/github-token")
-  container --name "$name-fetch" "${gate_env[@]}" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
+  online --name "$name-fetch" "${gate_env[@]}" "${mounts[@]}" -v "$secrets:/run/testq-secrets:ro" -w /work \
     -e GIT_TERMINAL_PROMPT=0 -e GIT_CONFIG_COUNT=1 \
     -e GIT_CONFIG_KEY_0=credential.https://github.com.helper \
     -e 'GIT_CONFIG_VALUE_0=!f() { cat >/dev/null; [ "$1" = get ] || exit 0; echo username=x-access-token; printf "password=%s\n" "$(cat /run/testq-secrets/github-token)"; }; f' \
@@ -245,9 +256,9 @@ if (( private_git_deps )); then
   # Public sources that are built or unpacked from third-party code (ci/remote/fetch-public.sh: submodules, Zig packages)
   # come in a second container with network and without the token.
   if [ -f "$dir/ci/remote/fetch-public.sh" ]; then
-    container --name "$name-fetch-public" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" bash ci/remote/fetch-public.sh
+    online --name "$name-fetch-public" "${gate_env[@]}" "${mounts[@]}" -w /work "$image" bash ci/remote/fetch-public.sh
   fi
-  network=(--network none -e CARGO_NET_OFFLINE=true)
+  gate=container offline=(-e CARGO_NET_OFFLINE=true)
 fi
 
 status=0
@@ -255,7 +266,7 @@ status=0
 # temp roots (git repositories, small files) stalled for seconds while rustc or another test wrote gigabytes in the same
 # container (measured: git init/add/commit 6 ms quiet, 566 ms median and 1.8 s max under such a writer, 13 ms on tmpfs).
 # cargo-mutants keeps its large build copies on the target volume (the image's cargo-mutants shim).
-container --name "$name" "${network[@]}" "${gate_env[@]}" "${mounts[@]}" --tmpfs "/tmp:rw,exec,mode=1777,size=${tmp_gb}g" \
+"$gate" --name "$name" "${offline[@]}" "${gate_env[@]}" "${mounts[@]}" --tmpfs "/tmp:rw,exec,mode=1777,size=${tmp_gb}g" \
   -w /work "$image" "$@" || status=$?
 
 # The mutation reports ($artifact_paths of the settings): botster-contracts writes them in the tree, botster-core in the
