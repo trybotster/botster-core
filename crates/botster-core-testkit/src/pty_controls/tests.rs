@@ -10,6 +10,10 @@ use std::time::{Duration, Instant};
 const PUMPS: usize = 50;
 
 fn spec(handle: &str) -> OpenSpec {
+    spec_with(handle, json!({}))
+}
+
+fn spec_with(handle: &str, limits: Value) -> OpenSpec {
     OpenSpec {
         handle: handle.into(),
         data_dir: DataDirRef("d".into()),
@@ -17,7 +21,7 @@ fn spec(handle: &str) -> OpenSpec {
             build: WorkerBuild::Current,
             file_name: None,
         }),
-        limits: json!({}),
+        limits,
     }
 }
 
@@ -60,7 +64,17 @@ fn session_of(
     start: bool,
     program: &Value,
 ) -> (Box<dyn CoreApi>, Instant) {
-    let mut core = harness.open(&spec("a")).expect("open");
+    session_in(harness, &spec("a"), start, program)
+}
+
+/// [`session_of`] on a Core opened with `spec`.
+fn session_in(
+    harness: &mut TestkitHarness,
+    spec: &OpenSpec,
+    start: bool,
+    program: &Value,
+) -> (Box<dyn CoreApi>, Instant) {
+    let mut core = harness.open(spec).expect("open");
     let mut at = Instant::now();
     let mut create = json!({"Create": {"session": "s1", "request": {"program": program}}});
     normalize_op(&mut create, &harness.probe_binary());
@@ -678,4 +692,82 @@ fn route_fill_after_an_attach_before_the_first_row_belongs_to_that_instance() {
             "seed {seed}: the new payload gets no byte from the old route"
         );
     }
+}
+
+/// DP-5 (#227 F99), the worker with the testkit binding: the binding spends each read allowance read by read. A view-only
+/// route's client sends refused frames one at a time, many more bytes than the route's first allowance, and reads the
+/// refusal of each before it sends the next. So each read takes one whole frame and the route holds nothing after it: the
+/// worker's own value of the allowance does not change, and it still sends a new one when the binding's rest is lower.
+/// Every frame is refused, in order, and none stalls in the stream. (The binding's reads are seeded and most end inside a
+/// frame, which changes the worker's value and sends a new allowance anyway; the worker test
+/// `a_driver_that_spends_its_allowance_on_refused_frames_gets_a_new_one` reads whole frames and so fails without the fix.)
+#[test]
+fn a_route_reads_past_its_first_allowance_while_its_frames_are_refused() {
+    use botster_hub_conformance::route::RouteRead;
+    use botster_route_codec::prelude::{
+        stream_wrap, Decoded, FrameBounds, Op as WireOp, StreamReader, ToClient, ToWorker,
+    };
+    const QUEUE: u64 = 2048;
+    const FRAMES: u64 = 600;
+    let mut harness = TestkitHarness::new(0);
+    let spec = spec_with("a", json!({"route_input_queue_bytes": QUEUE}));
+    let (mut core, at) = session_in(&mut harness, &spec, true, &json!([{"hold": {}}]));
+    let options: AttachOptions = serde_json::from_value(json!({
+        "file_directory": "/tmp",
+        "answers_queries": false,
+        "input": false,
+        "route_limits": {"max_frame_bytes": 1024},
+    }))
+    .unwrap();
+    let (_, mut route) = harness
+        .attach_stream(
+            "a",
+            core.as_mut(),
+            ClientId("c".into()),
+            &sid("s1"),
+            options,
+        )
+        .expect("attached");
+    settle(core.as_mut(), at);
+    let frame = |k: u64| {
+        stream_wrap(
+            &ToWorker::Bytes {
+                op: WireOp(k),
+                bytes: b"x".to_vec().into(),
+            }
+            .encode(),
+        )
+    };
+    assert!(FRAMES * frame(1).len() as u64 > 4 * QUEUE);
+    let bounds = FrameBounds {
+        max_frame: 1024,
+        max_screen: u64::MAX,
+        max_history: u64::MAX,
+    };
+    let (mut reader, mut ops) = (StreamReader::default(), Vec::new());
+    for k in 1..=FRAMES {
+        route.write(&frame(k));
+        let mut idle = 0;
+        while ops.last() != Some(&k) && idle < 4 {
+            match route.read(64 * 1024, &botster_conformance::Deadline::none()) {
+                RouteRead::Bytes(bytes) => {
+                    reader.push(&bytes);
+                    while let Some(frame) = reader.next_frame(&bounds).unwrap() {
+                        if let Decoded::Frame(ToClient::InputRefused(r)) =
+                            ToClient::decode(&frame, &bounds).unwrap()
+                        {
+                            ops.push(r.op.expect("each frame has its op").0);
+                        }
+                    }
+                }
+                _ => idle += 1,
+            }
+        }
+        assert_eq!(ops.last(), Some(&k), "frame {k} stalled in the stream");
+    }
+    assert_eq!(
+        ops,
+        (1..=FRAMES).collect::<Vec<_>>(),
+        "every frame is refused"
+    );
 }
