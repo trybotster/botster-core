@@ -256,7 +256,7 @@ checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 [[package]]
 name = "botster-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "base64",
  "include_dir",
@@ -299,7 +299,7 @@ dependencies = [
 [[package]]
 name = "botster-core-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "botster-conformance",
  "botster-core-contract",
@@ -315,7 +315,7 @@ dependencies = [
 [[package]]
 name = "botster-core-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "botster-route-codec",
  "schemars",
@@ -414,7 +414,7 @@ dependencies = [
 [[package]]
 name = "botster-hub-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "botster-conformance",
  "botster-hub-contract",
@@ -428,7 +428,7 @@ dependencies = [
 [[package]]
 name = "botster-hub-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "botster-route-codec",
  "botster-ui-contract",
@@ -441,7 +441,7 @@ dependencies = [
 [[package]]
 name = "botster-probe-script"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "botster-route-codec",
  "schemars",
@@ -452,7 +452,7 @@ dependencies = [
 [[package]]
 name = "botster-route-codec"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "bytes",
  "miniz_oxide",
@@ -489,12 +489,12 @@ dependencies = [
 [[package]]
 name = "botster-test-support"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 
 [[package]]
 name = "botster-ui-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-9d4e2811#9d4e28118e03c89bbd9f0d3132a4d65be29c40ec"
+source = "git+https://github.com/trybotster/botster-contracts?tag=scratch-p5-r68-2f1749ee#2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190"
 dependencies = [
  "include_dir",
  "ryu-js",
