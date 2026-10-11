@@ -684,7 +684,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         let mut tap = self.tap();
         if tap.hold_on(link).is_some() {
             return Err((endpoint, DescriptorSendError::Blocked));
@@ -693,8 +693,8 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
             return Err((endpoint, DescriptorSendError::Failed));
         }
         let sent = tap.inner.link_send_descriptor(link, bytes, endpoint);
-        if let Ok(n) = sent {
-            tap.sent(link, &bytes[..n]);
+        if let Ok((n, _)) = &sent {
+            tap.sent(link, &bytes[..*n]);
         }
         sent
     }

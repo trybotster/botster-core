@@ -28,6 +28,8 @@ crates/botster-worker-core/src/drain.rs  # PTY: the drain at the payload's exit;
 # Descriptor handoff.
 crates/botster-core-sys/src/fd_pass.rs  # fd handoff and signals: SCM_RIGHTS sendmsg and recvmsg, close-on-exec, CTRUNC, no SIGPIPE (DP-2, A49)
 crates/botster-core-sys/src/fd_pass/**  # fd handoff: the proofs of the framing rule per OS, CTRUNC and the send buffer (DP-2)
+crates/botster-worker/src/route_io.rs  # route transport: the worker's reads and writes of the handed-off route streams, read allowances (DP-2, DP-5, OU-3)
+crates/botster-worker/src/route_io/**  # route transport: its proofs
 
 # Adoption and restart.
 crates/botster-core-host/src/adopt.rs  # adoption: identity probe, endpoint connect, proof and epoch (AD-1, AD-2, AD-6)

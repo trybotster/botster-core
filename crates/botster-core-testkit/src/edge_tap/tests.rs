@@ -193,11 +193,11 @@ impl HostEdges for Fake {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         self.calls.push(format!("descriptor {} {bytes:?}", link.0));
         if self.take_descriptors {
             self.sent.push((link, bytes.to_vec()));
-            return Ok(bytes.len());
+            return Ok((bytes.len(), None));
         }
         Err((endpoint, DescriptorSendError::Failed))
     }
@@ -1164,7 +1164,8 @@ mod held_starts {
         assert_eq!(
             rig.edges
                 .link_send_descriptor(A, first, StreamEndpoint::new(5u8))
-                .unwrap(),
+                .unwrap()
+                .0,
             first.len()
         );
         let bytes = [rest.to_vec(), launch()].concat();
@@ -1257,7 +1258,8 @@ fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes
     assert_eq!(
         rig.edges
             .link_send_descriptor(A, b"rt", StreamEndpoint::new(6u8))
-            .ok(),
+            .ok()
+            .map(|(sent, _)| sent),
         Some(2)
     );
     rig.with(|t| {
