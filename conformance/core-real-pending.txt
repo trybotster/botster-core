@@ -72,6 +72,11 @@ conf::dp_3_unknown_type_closes_route
 # Step 25 strict expect on r3 races the PTY echo (1/3 FAIL, seed 6) (lead, plan 23bh). P3, in the am_2 contracts PR.
 conf::ou_10_no_authorization_in_core
 
+# FAIL real tier s13: wait_wake timeout 0 after poll_all gave TimedOut; diagnosis open (TM-6 vs transcript), record
+# shared/core-stage1/handoffs/flaky-ev-5-poll-wakes-pending-work-017f0127.md (the final gate of the .39 pin PR on 017f0127, seed 0;
+# it passed the PR's first gate and 5 of 5 per tier in its N-run). Owner of the diagnosis: P5 (lead).
+conf::ev_5_poll_wakes_pending_work
+
 # oracle_screen and oracle_screen_payload pass on the testkit (RC, plans 23ax to 23ba). On the real tier, ou_9 needs hold_handoff,
 # release_handoff and route_stream_written, which the real tier lacks (unowned; the lead assigns them). st_5's program prints, so
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
