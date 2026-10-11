@@ -127,3 +127,18 @@ It uses declared lengths 4097 and 0x7FFFFFFF and requires frame_too_large for bo
 The implementer schedules the replacement gate after PR B. The replacement gate and same-head package artifact remain pending.
 This source inspection completes no round and grants no CLEAN verdict.
 I changed no product code and ran no build, test, gate, mutation job, measurement, reversal, or executable merge-check job.
+
+## Published body correction — 2026-10-10
+
+Head remains `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+Receipt: `msg_plugin-w_1791694987_cfc0ed`.
+I verify the published GitHub body and full head after P3 reports that publication now succeeds.
+The Prior art section now separates the older far-bound lesson from the current differential transcript assertion.
+It names declarations 4097 and 0x7FFFFFFF, frame_too_large in both cases, and `check: le [$peak_large, $peak_small]`.
+That wording matches the pinned transcript already read in the source inspection.
+SI-1 / F116 LOW closes. SI-2 / F115 remains closed in source at this head.
+The package reviewer independently verifies the same body correction in `msg_plugin-w_1791695033_526027`.
+Both reported findings now have verified source or documentation corrections.
+The replacement exact-head gate, package artifact, and final READY remain pending.
+This body inspection completes no formal round and grants no CLEAN verdict.
+I run no reviewer execution job.
