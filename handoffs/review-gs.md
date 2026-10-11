@@ -2,22 +2,22 @@
 
 ## Current verdict
 
-- PR: #248, candidate verification once per test process.
-- Head: `41002679c4a9c24bb16b75c7735bc950bdc6f753`.
+- PR: #251, reject stale mutation exclusions.
+- Head: `7b942de5726df1e1bc17d178a65740d661d78461`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
 - Verdict: CLEAN.
 - Open findings: 0, including LOW.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The earlier head `b4072c19` has a green Linux gate. The PR reports a passing base-merge-check for the reviewed head.
-
-I confirmed byte-identical own diffs and the same 427 slow-suite PASS names. Both corruption probes reject the changed candidate worker.
+The exact-head Linux gate is green. The new check compares 207 exclusions with 5991 mutants. Stage 1 catches all six in-diff mutants.
 
 I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
 
 The final gate on the exact head remains required before merge.
 
 PR #247 received package CLEAN in `c7c538a1` and integration CLEAN in `b5df2e0e`. It is now in the base through `5c480db4`.
+
+PR #248 received package CLEAN at `41002679` in `92746fef`. That verdict requires the final exact-head gate before merge.
 
 ## Remaining review work
 

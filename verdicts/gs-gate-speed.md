@@ -92,3 +92,51 @@ Those corruption probes start separate test processes. They prove first-verifica
 I ran no gate, build, or test. The final gate on the exact head remains required before merge.
 
 This CLEAN covers only PR #248 at the reviewed head. The in-place mutation run and baseline reuse changes remain unreviewed formally.
+
+## PR #251: reject stale mutation exclusions
+
+VERDICT: CLEAN
+
+- Reviewed head: `7b942de5726df1e1bc17d178a65740d661d78461`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Risk tier: HIGH.
+- Open findings: 0, including LOW.
+- Review date: 2026-10-11.
+
+The new `mutants-stale` check rejects each exclusion that matches no listed mutant. It checks the configured regex entries and the explicit off-macOS entries.
+
+The command lists the workspace mutants without configuration. Listing, JSON parsing, invalid regexes, and Git failures propagate as errors. The taint step calls the check before mutation testing.
+
+The new shell exclusion covers only the whole-body replacement of `command`. Its reason cites `stale` and its running proof. No exclusion covers the new decision functions.
+
+The two READ_CHUNK exclusions move to their current constant locations. Their reasons still cover only positive read-size tuning. Their existing proofs test retained bytes and frames at 65536, 1088, and 1.
+
+The Linux guard exclusion moves from `live_members` to `live_where`. Commit `9873f33d` moved the same stat read and error guard there. The error decision remains mutation-tested.
+
+The removed macOS entry matches a deleted conjunction. Commit `996a17f0` split that conjunction into separate zombie and selection checks. Removing its obsolete entry suppresses no current mutant.
+
+The corrected entries restore documented exclusions. They do not exclude a new behavior decision. I checked their reasons, source locations, and cited proofs.
+
+The new check adds a rejection condition. It changes no test selection, timeout, mutant build, candidate binary dependency, or two-stage verdict.
+
+I found no new acceptance for a behavior-changing mutant in this diff. The check does not detect a regex that moves onto a different mutant. The PR states that limit.
+
+The Prior art note identifies the reused gate-decision parsers and regex library. The PR reports the agreed file split with P6.
+
+### Evidence
+
+The exact-head Linux gate log is:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-mutants-stale-7b942de5-pool-20261011-011635-60299.log`
+
+All ten steps report PASS. The gate exits 0. The new check compares 207 exclusions with 5991 workspace mutants.
+
+Stage 1 catches all six in-diff mutants. Stage 2 runs no mutants because stage 1 misses none. The counts report no timeout or unviable mutant.
+
+The log shows the new stale-entry proof passing. It also shows the read-bound proofs and the Linux error-decision proof passing.
+
+The PR reports a red-on-revert check that restores the old worker constant line. That check rejects the stale entry. I did not run that check.
+
+I ran no gate, build, or test. The final gate remains required under the GS brief after both CLEAN verdicts.
+
+This CLEAN covers only PR #251 at the reviewed head. The in-place mutation run and baseline reuse changes remain unreviewed formally.
