@@ -1,5 +1,51 @@
 # Core #277 — worker death before Running
 
+## Round 2 — 2026-10-11 — base imports and final gate
+
+Verdict: CLEAN (0 open) at `2c78bb6c8424d37089062437731980ec0d34eab0`.
+Base: `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+Parents: `79277df141aa6c5b18f150ed47015bd733b5efc1` and this base.
+Package CLEAN: `5ee8cfb2ef82e5e68d3f9504590a868408e53913`, Round 2, read in full.
+Sol read the full current PR body and the full failed base-check report.
+The lead ordered the second import and stopped the stale gate after #276 moved v1.
+The stopped 79277df1 gate supplies no completed result. Plan 23bu records the exception and final-gate slot.
+
+Report: `~/botster-sessions/shared/core-stage1/evidence/pc-a2-3/base-merge-check-2c78bb6c.out`.
+SHA256: `fcf69ab5cd1353ea0fde08595497f07ef002dc3e3fa598812e74e85031ec086a`.
+The report passes ancestry and conditions 1–3. It fails condition 4 for the real pending file.
+The base adds identifier rows, comments, and a blank line. It is not a pure removal of identifier rows.
+This round supplies the required explicit delta review. Q7 automatic carry does not apply.
+
+Sol independently compares the complete canonical own diffs outside both pending files.
+They are byte-identical: 15231 bytes; SHA256 `f330332690061aad54448cce4aabee47a9d401e0830ee34efc6b80a7b17f1819`.
+All seven own source and test blobs equal the original reviewed blobs.
+None of the nineteen changed base paths overlaps an own path outside the pending files.
+All imported paths outside own scope equal the base blobs. The testkit pending file equals the base exactly.
+The real pending file equals the base minus only `conf::a2_3_lost_session_closes_routes_session_lost`.
+Sol reads the complete base change to that file. The imported TM-6, OU-9 attach, and ST-5 rows remain present.
+The static merge tree of the original reviewed head and current base equals the final head tree:
+`fed65ce895b71a25f22d1c9ac82d3344e9952580`.
+The unchanged source preserves the R-72 worker-exit classification, startup deadline, adoption guard, and route-close order.
+Round 1's scratch-checkout provenance and engine-reversal evidence limits remain in force.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-pc-a2-3-lost-before-running-2c78bb6c-pool-20261011-105545-34013.log`.
+SHA256: `00ac6621cdd278fa7836f913156836da5423592010e4693ae257231a2c44c904`.
+The header names this head and base. Sol reads all ten step results, suite summaries, named proofs, and mutation results.
+All ten steps pass in 136.3 seconds. Default: 1740 passes and 478 skips. Slow: 558 passes and 2027 skips.
+Both A2-3 trials and all four relevant engine tests pass. The four named real-process proofs pass.
+Minimum counts: testkit 60/69; real-passing 49/68; real-accepted 50/69.
+Stage 1 catches all six mutations. All six raw caught identities equal all six reported catcher identities.
+Stage 2 does not run because stage 1 misses none. Result: zero missed, zero unviable, zero timeout.
+The complete log contains no FLAKY token. The fuzz step passes because no decoder crate changed.
+The job exits zero after 144 seconds: one second queued, 143 seconds running. The wrapper exits zero after 144 seconds.
+
+The package LOW body finding closes. The corrected body states that two catcher names differ from the first gate.
+The body records both imports, the stopped gate, the failed check, the package delta verdict, and the final gate.
+The owner must add this same-head integration verdict before merge. The gate base must still equal v1 at merge.
+Three real-pending trials pass in this gate. The lead assigns their separate removal and repeated evidence to P5's pin PR.
+This PR removes none of those rows. This verdict accepts no later head, pin, or pending removal.
+Sol ran no execution job. Wait for the doorbell. Never poll.
+
 ## Round 1 — 2026-10-11
 
 Verdict: source CLEAN (0 open) at `7d7d429f06335c18e8a21e6c63085be4c5465eb0`.
