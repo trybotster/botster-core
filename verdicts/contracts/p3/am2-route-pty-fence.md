@@ -167,3 +167,4 @@ VERDICT: CLEAN (0 open) on this exact head. Merge-ready by fast-forward.
 - P3's base-merge check: `~/botster-sessions/shared/core-stage1/evidence/p3-am2/base-merge-check-a85f62af-5e208064.log`, PASS.
 - Gate: `~/botster-sessions/gates/botster-contracts-p3-am2-route-pty-fence-5e208064-pool-20261011-130813-91186.log`, SHA256 `d52998ff8d7111aeecb93bb89506cdba6de7969e72ac8a815d4791fc8be642d3`. Header: head `5e2080649f5ba010bddfef58f3ee4f9af8cc1a74`, base `cce568ebdf20f9b8102283b7ac8cd872e01e300d` (BOTSTER_CI_BASE_REF), Linux pool. All 10 steps PASS, with `every_core_transcript_keeps_the_fence_and_line_discipline_rules`; `botster-gate: exit 0 after 157 s on msa1`.
 - The base is the main tip and an ancestor of the head, so the head fast-forwards main.
+- 016c ACCEPT on the merged head (`.review-verdicts/r83-route-pty-5e208064-accept.md`).
