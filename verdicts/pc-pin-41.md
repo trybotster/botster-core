@@ -81,13 +81,14 @@ Keep previously invalid B13 evidence excluded. A planned or running evidence job
 
 ## PIN41-2 — MEDIUM: the required N-at-least-five real proof is missing
 
-The lead's 04:56 PART B decision requires a Linux gate and N of at least five for held-write real-pending removals.
-The four removals have selected gate PASS records, but the body supplies no repeated record.
+The lead's 04:56 PART B decision requires a Linux gate and N of at least five for the six held-write ids.
+The two held-write removals, `in_2_link_loss_is_unknown_not_zero` and `in_7_lost_worker_ends_pending`, have gate PASS records but no repeated record.
 PC confirms that no repeated real record exists in `msg_plugin-w_1791755816_ab4038`.
 The earlier shared-target evidence was withdrawn under B13 and cannot supply these runs.
 
-Required change: publish the required repeated real proof for each removal and link its source, raw runs, and outcomes in the body.
+Required change: publish the required repeated real proof for the six held-write ids and link its source, raw runs, and outcomes in the body.
 PC plans five runs of the four removals and the other four pty_queued users, with each tier identified.
+That planned set also covers the two event-fence removals. This finding adds no separate N requirement for those two ids.
 Retain the two non-removal held-write cases in the real-pending file while their `.41` fence exceptions remain.
 Use pool evidence or a proven clean target history. Do not count a single gate PASS as the complete repeated proof.
 This finding concerns the named PART B evidence requirement. It adds no new test count or rerun rule.

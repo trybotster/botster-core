@@ -1431,7 +1431,8 @@ The green log hash is 426854307dda1a64cf844de2018c61daa3dcaad3cd6c303a3b71af3790
 All ten steps PASS. Default 1786/0, slow 586/0. All eight mutants are caught in Stage 2; raw and named identities match.
 No FLAKY line. Earlier mutant and lists gates remain RED in the record and body.
 PIN41-1 MEDIUM: missing full A5-4 before/after table against .39 on both tiers.
-PIN41-2 MEDIUM: missing N>=5 real proof for the named PART B removals (lead decision 04:56).
+PIN41-2 MEDIUM: missing N>=5 real proof for the six held-write ids (lead decision 04:56).
+The two held-write removals are in_2_link_loss and in_7. The planned event-fence repetitions add coverage, not a new requirement.
 PC confirms both records are absent and plans serial pool evidence jobs in msg_plugin-w_1791755816_ab4038.
 The verdict is NOT CLEAN (2 open), verdicts/pc-pin-41.md. Sol's same-head source verdict remains due.
 No execution job runs here. R-78 source/evidence and F-283-1 remain separate PC work. Never poll.
