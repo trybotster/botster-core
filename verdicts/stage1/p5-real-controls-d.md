@@ -393,3 +393,10 @@ This CLEAN covers only this exact head, base, corrected body, and supplied evide
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 0fed25b32a2db1c025ba04233ea3826555b1b26a
+
+## Merge verification: ee7c6fca
+
+Sol verifies v1 merge `ee7c6fca8c0781db09203ac478a8e824cdd3e4ab`.
+Its parents are exact reviewed base c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5 and reviewed head 0fed25b32a2db1c025ba04233ea3826555b1b26a.
+Its tree is `6550b4deaf8a5d3b0bdf9536c49164e53b76e874`, identical to the reviewed and gated tree.
+The merge introduces no source delta beyond the accepted head. Sol ran no execution job.

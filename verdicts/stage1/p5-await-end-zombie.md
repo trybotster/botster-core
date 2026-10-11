@@ -171,3 +171,31 @@ This CLEAN covers only this exact head, base, source composition, body, and supp
 The lead retains merge order. Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at a540687728a7be9718e9bb11de62aa042ed905b6
+
+## Import inspection at 312b48a1
+
+Head: `312b48a16cb37163ebb1c897cf9d8a4f8b2374d6`. Base: `ee7c6fca8c0781db09203ac478a8e824cdd3e4ab`.
+Parents: reviewed a540687728a7be9718e9bb11de62aa042ed905b6 and exact base ee7c6fca.
+Tree: `3e49b5bc28e978cf82a55da8840e3fe273a8adb7`. Receipt: msg_plugin-w_1791725183_0637c8.
+This receipt supplies an import for inspection. Final READY will follow the running Linux gate and a Mac pool job.
+
+Sol reads the complete canonical base-check log:
+`~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-312b48a1-pool-20261011-062601-85073.log`.
+SHA256: `7bbb2346033494b2fb25b0dc37190efd3f31fac6905def9a6b060d956f5649b1`.
+The log names the exact previous head, new head, and base. Conditions (1) and (4) PASS.
+Conditions (2) and (3) FAIL on platform.rs and platform/macos.rs. Both pending files equal the new base.
+Jobq and the wrapper exit one after nine seconds. This failed check requires both delta reviews; it supplies no automatic CLEAN transfer.
+
+The independent permitted static merge-tree check returns the exact recorded tree without a conflict.
+Sol reads both complete shared-path import deltas and the current own delta in those paths.
+The import adds the accepted #257 thread-count exports, descriptor-count helper, and count proof to platform.rs.
+It adds the accepted libproc thread-count helper before the Mac process observer. It changes no own wait decision.
+The own Waited documentation, ESRCH branch, signal-zero probe, and PID reuse limit remain intact.
+All three own addition/deletion sequences equal the prior reviewed sequences. The own slow_process.rs blob equals the prior head exactly.
+All thirteen outside-own imported blobs equal exact base blobs. The import changes fifteen paths in total.
+The static diff check passes. No source finding appears in this inspection.
+
+The supplied local Mac clippy, 84-test, and taint results are owner claims; Sol has not read their execution logs.
+This inspection grants no formal imported-head CLEAN or execution evidence approval.
+Final READY/body, the exact-head Linux and Mac records, and the package artifact remain pending.
+The prior CLEAN covers only a5406877 and its recorded base and evidence. Sol ran no execution job.
