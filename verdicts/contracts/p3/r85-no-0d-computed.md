@@ -61,3 +61,40 @@ VERDICT: NOT CLEAN (3 open).
 - Header: head `115cb4d9f0a27eb9a9bd930dce9fa60c4c9da021`, base `7df311e282260b29fadc143fdd0a97c1645bf1e8` (BOTSTER_CI_BASE_REF), Linux pool. The PR's merge base is `e2c0ad9c842046454be6da7f5015f1d5b8a7dbb1`.
 - Result (read by me): all 10 steps PASS; mutants 26 tested, 24 caught, 2 unviable; `botster-gate: exit 0 after 349 s on msa1`.
 - F1 to F3 change the drivers, so the next head needs its own gate.
+
+## Round 2: head `7c780843dc9646ea5b14c0a4278aa4d59dba4409`
+
+VERDICT: CLEAN (0 open) on this exact head. Ready for P3's main merge (Q7) and the final gate.
+
+Commits since round 1: `4fe77f9a6a733ee45b630095334925d7d3934497` (the round 1 fixes) and `7c780843dc9646ea5b14c0a4278aa4d59dba4409` (round 2b). No main merge yet: the PR's merge base is still `e2c0ad9c842046454be6da7f5015f1d5b8a7dbb1`.
+
+### Round 1 findings
+
+- **F1 closed.** `input_log_check` runs before every step. For a `check` or an `assume`, when any argument refers to an input-log variable (at any depth), every hex string of every other argument is checked, for every relation and in either order. The two `dp_5b` `eq` checks are covered; by value they hold no `0d`. Test: `a_check_over_a_captured_input_log_with_a_0d_byte_is_a_transcript_defect` (`eq`, `ne`, `prefix_of`, `suffix_of`, `hex_prefix`, `hex_ends_with`, both orders, a nested `eq`). The body is corrected.
+- **F2 closed.** `expect_pty` parses every sequence and runs `no_0d_expected` on each before it matches any. Test: `a_later_one_of_sequence_with_a_0d_byte_is_a_transcript_defect_when_an_earlier_one_matches`.
+- **F3 closed.** With a `written_without_op` part, the known bytes of every run are checked. The route test has a bare `written_without_op` over runs with a known `0d`, and a run without one that is no defect. The driver doc states it.
+
+### 016c's round 1 items (my record)
+
+- `await_control` of `pty_input` is a `pty_input` read (`pty_input_read`), so it is checked and tracked.
+- `no_0d_in` walks the whole `expect.bytes` matcher, so a `$one_of` alternative is checked.
+- Input logs are tracked by value: after each step, a variable whose value changed no longer holds a log.
+- A `let` whose expression refers to an input-log variable, and whose value is not a number or a boolean, holds the log (an alias, a field, a concatenation).
+- The route `one_of` is F2.
+
+### Round 2b: two more ids by form (a)
+
+- With Core #285, `in_9_kitty_each_flag` reaches an Enter check whose expected bytes are `0d`. P3 removes, by form (a), every Enter capture and its `hex_ends_with` where kitty flag 8 is off (Enter is then `0d`): 16 in `in_9_kitty_all_32_flag_combinations_pinned` (flags 0 to 7 and 16 to 23) and 4 in `in_9_kitty_each_flag` (flags 1, 2, 4 and 16). I checked that the removed steps are exactly these captures and checks, and that every Enter `oracle_encode` keeps its `hex_len_eq`. With flag 8, Enter is `CSI 13 u`, and those captures stay.
+
+### Evidence
+
+- `~/botster-sessions/shared/core-stage1/evidence/p3-r85/round2b/`: Core `6401bb04a70cc7723d0bfee9b9ba2f5ecc1914ac` (local: #288 tip, v1 `23550811`, and #285), testkit tier, `BOTSTER_SEEDS=0-31`.
+- The red scan has 4 defects (`in_9_application_cursor_and_keypad` s128, `in_9_kitty_each_flag` s15, `in_9_legacy_keys_table` s7, `in_9_kitty_unknown_flag_bits_ignored` s20). The green scan has 0.
+- From the full raw outputs (`*.raw.txt`), the per-id outcome of the green run equals the baseline's: 579 ids in scan mode, 227 in strict mode. So no id goes from PASS to non-PASS.
+
+### Gate on the exact head
+
+- Log: `~/botster-sessions/gates/botster-contracts-p3-r85-no-0d-computed-7c780843-pool-20261011-142323-43406.log`, SHA256 `f6c5c069a06036f60597467ad76f1cee00711e7c1f6d615327b64a76448c7e57`.
+- Header: head `7c780843dc9646ea5b14c0a4278aa4d59dba4409`, base `71f01c8812132fa979b8584f12a92ba2efde071e` (BOTSTER_CI_BASE_REF, the main tip), Linux pool.
+- Result (read by me): all 10 steps PASS; mutants 43 tested, 39 caught, 4 unviable, 0 missed; `botster-gate: exit 0 after 496 s on msa1`.
+- Main after the merge base: `7df311e282260b29fadc143fdd0a97c1645bf1e8` (#60: `vocabulary.rs`, `core-testkit-controls.md`), `16fdb77854c1fd3859e4645797c927dfa1a8195f` and `71f01c8812132fa979b8584f12a92ba2efde071e` (#63, #65: `ci/remote/`, a doc). None is a path of this PR, so the merge needs no delta review (Q7). I check that the merge is automatic, and I read the final gate on the merged head.
