@@ -306,3 +306,25 @@ Final acceptance awaits the corrected body, completed exact-head gate, and match
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (1 open: P282-SI-3 LOW; final gate and package completion pending) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+
+## Round 4 — final body correction receipt, 2026-10-11
+
+Head remains `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+Base remains `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Body SHA-256: `68386dd5bfd9f87a1d8f2b152cd7da287b0ca194fda8a5187b963febacf3cd0c`.
+Sol reads the complete body delta from the Round 3 body and verifies the live head and base.
+P282-SI-3 closes. Summary now states twelve removals.
+The removal table contains those twelve ids and excludes EV-5. The body states EV-5 under Ids that stay.
+Expected-change separates the three removed R-43(5) ids from retained EV-5.
+Its EV-5 row preserves the historical A5-4 PASS and the final 017f0127 failure.
+No source, gate status, or other body section changes in this correction.
+
+Package receipt `msg_plugin-w_1791752607_8bb4db` confirms all body corrections and the exact retention.
+It closes D1 and D2 and the invalid-removal part of D3, while retaining P5's separate diagnosis.
+The package states that it will publish source CLEAN. No new published package verdict is read in this receipt.
+The final d893833e gate remains running by owner report. Sol reads no running output.
+Zero source or body finding conditions remain open.
+Formal final acceptance awaits the completed exact-head gate and matching published package verdict.
+The EV-5 diagnosis, ST-6 diagnosis, and IN-9 fence work remain separate and open.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
