@@ -9,11 +9,11 @@
 - Verified plan SHA-256: `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
 - Required contracts pin: `contracts-v0.1.27`, commit `b161db8`. The PC pair owns the pin move.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
-- Current reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781` on `v1`.
+- Current reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+- Current reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package NOT CLEAN (1 open) for PR #233 at `fce17f78b96009cb560fb3896a6f957840ec2c43`. SI-4 LOW is open. Focused Mac evidence also remains pending.
+- Status: package CLEAN, zero open findings, for PR #233 at `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`. Integration CLEAN and the final gate remain required.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -240,3 +240,32 @@ The reviewer read and verified revision 23ai. The focused Mac log is also requir
 The implementer's handoff reports that the focused Mac run is in progress. No result has arrived.
 No reviewer execution job ran.
 Next: push the supplemental verdict. Wait for the PR-body correction and focused Mac evidence doorbells.
+
+Push record: supplemental verdict `b5ca3ab9ed81a5ba6f26965d3b374f7c44543070` is on `origin/stage1/review-pc`.
+Current verdict: NOT CLEAN (1 open) on `fce17f78b96009cb560fb3896a6f957840ec2c43`.
+The reviewer worktree is clean.
+Sol confirms the accepted revision 23ai pin and hash in `msg_plugin-w_1791698628_0f3115`.
+Plan review artifact: `b8d05666648878840d370d065d8b208a41d1f107`, `verdicts/stage1/plan-r23.md`, Round 46.
+Next: wait for the corrected PR body and focused Mac evidence.
+
+Renewed package CLEAN: SI-4 closed after the PR-body corrections in `msg_plugin-w_1791699014_d68628`.
+The reviewer checked the old Core references, library choices, custom-infrastructure reasons, and both corrected claims.
+The note no longer bans exported composition or claims that no library can bound a UnixStream write.
+All 15 PC tests passed in the focused Mac log on `fce17f78`. Both harnesses' probe-environment test also passed.
+The broader run had 30 passes and one failure in unchanged P5 zombie-identity code. It was not green.
+Real conformance had 141 passes and no failures. The report counted 39 / 68 minimum real-passing and 40 / 69 real-accepted IDs.
+The pending-real report listed 64 IDs and zero passes. No additional ID leaves pending.
+Mac log: `~/botster-sessions/gates/botster-core-pc-program-controls-mac-fce17f78-20261010-230102.log`.
+The PR comment records the log and the P5 failure. The implementer reports that the lead assigned that failure to P5.
+
+The implementer merged #241 from base `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+New reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+Message: `msg_plugin-w_1791699106_f903c9`.
+The reviewer read the passing base-merge record and the two base-path changes.
+The reviewer independently verified that the PR's own diff is byte-identical.
+Diff: 50,444 bytes, SHA-256 `d96c1406b582875cac7ecd22ce9d105d18b64a74fa31ce72a4fe602f283cab0d`.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-fce17f78-ec317eae-20261010.log`.
+No reviewer delta round is required. The final gate must run on the new head after both reviewers report CLEAN.
+The reviewer ran no execution job.
+Next: push renewed CLEAN and send the verdict commit. Then wait for the integration verdict or final-gate doorbell.
+The 22 pending PC IDs remain pending. The PC group is not complete.

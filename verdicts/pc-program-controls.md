@@ -1,11 +1,11 @@
 # PC package review: PR #233
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-- Reviewed head: `fce17f78b96009cb560fb3896a6f957840ec2c43`.
-- Reviewed base: `11a5246a669de9e8ae6b7ca1ed7763192a099781` (`v1`).
+- Reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+- Reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
 - Risk tier: HIGH. BUILD.md rule 3 applies because the testkit is a shared crate.
-- Open findings: 1.
+- Open findings: 0.
 - Scope: this PR's five changed files, its merge resolutions, and its 16 real-pending removals.
 
 The current binding plan is revision 23ai at `stage1-plan.c7cbc474.md`.
@@ -16,30 +16,49 @@ The reviewer used the PC brief, BUILD.md, P3's real-form mapping, and the pinned
 
 ## Supplement to Round 1
 
-This verdict supersedes package CLEAN commit `deec5b5bf779b55d759e18b5264fe3ea0e6d1905` on the same reviewed head.
-The integration reviewer identified SI-4 after that package verdict. The package reviewer missed the required Prior art detail.
-The three earlier source findings remain closed.
+This verdict supersedes package NOT CLEAN commit `b5ca3ab9ed81a5ba6f26965d3b374f7c44543070`.
+The first package CLEAN, `deec5b5bf779b55d759e18b5264fe3ea0e6d1905`, missed the required Prior art detail.
+The integration reviewer identified SI-4. All four findings are now closed.
+The source review covered `fce17f78b96009cb560fb3896a6f957840ec2c43` before the base-only merge described below.
 
-### SI-4 LOW — The Prior art note omits required comparisons and reasons
+### SI-4 LOW — The Prior art note omitted required comparisons and reasons
 
-Evidence: the PR body's Prior art section names the testkit controls and contracts #30 only.
-It gives no comparison with the pinned old Core code.
-It gives no library choice or reason for the custom socket hub and reader loop.
-BUILD.md rule 0 requires the prior-art comparison and a recorded reason for custom infrastructure.
-The pair-common brief also requires that note. Every LOW finding blocks CLEAN on this HIGH PR.
+BUILD.md rule 0 and the pair-common brief require a recorded prior-art comparison and reasons for custom infrastructure.
+The original note named the testkit controls and contracts #30 only.
+It omitted the pinned old Core comparison and the library choices.
+Every LOW finding blocks CLEAN on this HIGH PR.
 
-Required change: complete the PR body's Prior art note.
-Record the pinned old-code comparison, the library choices, and the reason for the custom socket hub and reader loop.
-Name what was reused or rejected and why. Record actual research; do not invent it.
-Status: OPEN. This is a PR-body correction, with no requested product-code change.
+Status: CLOSED. The reviewer read the corrected PR body after message `msg_plugin-w_1791699014_d68628`.
+The note compares old Core at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+It records the rejected worker routing channel, shell cat payloads, and old bounded-wait helper.
+It names the reused probe protocol, process helpers, serde_json, rustix poll, and testkit control semantics.
+It explains the synchronous socket hub, shared state, request writer, report reader, and temporary accept loop.
+The reviewer checked the pinned old-code references. No old test was ported.
+
+The corrected note states that the real tier uses exported HostEdges and the payload.
+It does not claim that plan 23l forbids all composition through an exported interface.
+The request writer shares one Deadline across the complete line and acknowledgement wait.
+The note compares that need with per-call write timeouts and the available botster_test_process helpers.
+The note removes the unsupported claim that no library can bound a UnixStream write.
+This correction changes the PR body only.
 
 ### Focused Mac evidence
 
 Plan revision 23ai requires focused Mac tests when the operating system decides the portable code's behavior.
-This PR's process identity and Unix sockets meet that condition.
-The retained focused Mac log must be in the PR before renewed CLEAN.
-The implementer's handoff reports that the run is in progress. The reviewer has not received its result.
-This evidence requirement remains pending. It is separate from SI-4.
+The reviewer read the retained log on `fce17f78b96009cb560fb3896a6f957840ec2c43`, macOS 27.0.1 arm64.
+Log: `~/botster-sessions/gates/botster-core-pc-program-controls-mac-fce17f78-20261010-230102.log`.
+The PR comment includes this log and its results.
+
+All 15 `real::program::slow_tests` passed. The test of both harnesses' probe environments also passed.
+The broader `real::` run had 30 passes and one failure, with exit code 101.
+The failure was `real::slow_controls::a_recorded_process_that_ended_and_is_not_reaped_does_not_live`.
+That unchanged P5 test expected Matches for a zombie, but Mac reported Absent.
+The reviewer compared that test with the base. The implementer reports that the lead assigned the failure to P5.
+This evidence clears the focused PC requirement. It does not establish a green result for the broader Mac run.
+
+Real conformance had 141 passes, zero failures, and exit code 0.
+The report counted 39 / 68 minimum real-passing IDs and 40 / 69 real-accepted IDs.
+The pending-real report listed 64 IDs and zero passes. It supports no additional pending-ID removal.
 
 ## Logic
 
@@ -99,6 +118,15 @@ The program module is byte-identical between gated head `7a4ab70b` and reviewed 
 Its blob is `2a83304cc10f4e2463bc41d90abeced1d62fb434`.
 The reviewer does not treat the failed base-merge check as an automatic approval.
 
+The implementer then merged `v1` at `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (#241).
+The resulting head is `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+The reviewer read the retained base-merge check and the two base-path changes.
+All four base-merge conditions pass. The two changed base paths do not overlap the PR's own diff.
+The own diff is byte-identical: 50,444 bytes, SHA-256 `d96c1406b582875cac7ecd22ce9d105d18b64a74fa31ce72a4fe602f283cab0d`.
+The reviewer independently compared those diff bytes. No reviewer delta round is required.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-fce17f78-ec317eae-20261010.log`.
+The PR comment records this check. The final gate must use the new head.
+
 Two IDs pass on Linux and remain pending under the lead's ruling (A), message `msg_plugin-w_1791698173_6bb0a3`:
 `ev_2_one_marker_per_session` and `in_5_lane_bounds_refuse_at_begin`.
 The lead says a race that passes on an idle node is not proof.
@@ -118,12 +146,12 @@ The final mutation result is 59 caught, 0 missed, 0 timeout, and 20 unviable.
 Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-7a4ab70b-pool-20261010-201116-66449.log`.
 
 **The final gate on the CLEAN head remains required before merge.**
-The older gate does not establish that `fce17f78` passed CI.
+The older gate does not establish that `ec317eae` passed CI.
 The integration reviewer must also report CLEAN on this head.
 A later code change requires a delta review.
 
 The reviewer ran no tests, build, gate, or mutation job. The reviewer checked logic and the supplied evidence.
-The source review below records the checks already completed. The current verdict does not clear PR #233.
+This package verdict clears the reviewed logic. It does not authorize merge before the required final gate and integration CLEAN.
 The verdict does not clear the 22 pending IDs or complete the PC group.
 
 ---
