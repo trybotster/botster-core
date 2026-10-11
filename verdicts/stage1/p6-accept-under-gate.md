@@ -104,3 +104,60 @@ The lead's one-merge rule governs the final import after both source CLEANs.
 I ran no execution job.
 
 VERDICT: CLEAN (0 open) at 7e3457fc53e8c78db41fa385c697448fdc410d8e
+
+## Round 3 — final import, gate, and merge, 2026-10-11
+
+Head: `888a9d32880d92e49f92501671cbb987df972318`.
+Base: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+Tree: `0bcf6a379cb06106e1cdad282c97332588feab45`.
+Package source carry: `827251b72072885b3ba52fab27d1ea1ba2a09416`, Round 4.
+Owner receipt: `msg_plugin-w_1791736842_00e677`.
+Package receipt: `msg_plugin-w_1791736848_48d2a6`.
+
+Sol read the complete base-check log and the complete package Round 4.
+The import has exactly two parents: the accepted source head 7e3457fc and the base above.
+Both ancestry checks and all four base-check conditions pass.
+The check exits zero after 20 seconds, with one second queued and 19 seconds running.
+Log suffix: `888a9d32-pool-20261011-091605-25132.log`.
+SHA256: `748e8e5db3f424d09ed74cb13f4994b2a6ae63197015759cf36e1a41adee257e`.
+
+Sol independently compared both complete own diffs from Git objects. They are byte-identical, with 9986 bytes.
+SHA256: `eca7e04f12bfd16693aff655b2b5ecc60c4ac6749e20773bde5d5d340df9651d`.
+None of the 26 imported paths overlaps the three own paths. Every imported blob equals the base blob.
+Both pending files equal the base. The static Git merge tree equals the head tree above.
+The first static merge-tree call failed because the sandbox prevented a temporary file. The authorized retry succeeded.
+No executable base check ran. These results carry the accepted source verdict to this exact head under Q7.
+
+### Final exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-accept-under-gate-888a9d32-pool-20261011-091642-28196.log`.
+SHA256: `b543226ec615ea432c7ee2ad8e4f8c1b9cd04614321ebafefc148067e72ee9d3`.
+The Linux gate names this exact head and base. Sol read the headers, summaries, changed test outcomes, and all mutant and catcher records.
+All ten steps pass in 241.0 seconds. Default passes 1725 tests, with 481 skipped. Slow passes 553 tests, with 2022 skipped.
+The new gated-accept test and both route_fill tests pass. The named ad_6 real proof passes in this gate's slow tier.
+The real minimum reports 46 / 68 passing and 47 / 69 accepted.
+The gate reports four passing real-pending identifiers. The PR removes none of them.
+The earlier before/after proof retains its original source trees and full 0–31 seed scope. This import does not enlarge that scope.
+
+The mutation baseline passes. All 21 raw caught identities exactly match 21 unique named catcher records.
+One mutant is unviable: End::readiness replaced with Default::default(). It supplies no catch evidence.
+There are zero misses and zero timeouts. Stage 2 does not run because stage 1 misses no mutant.
+The fuzz step reports no changed crate with a decoder harness.
+Job exit zero follows 252 seconds, with zero queued and 252 running. Wrapper exit zero follows 253 seconds.
+
+### Body and merge
+
+Sol read the complete final GitHub body through the authorized CLI fallback.
+GitHub reports this exact head, base branch v1, and state MERGED.
+The body records the import, check, final gate, corrected seed proof, and historical failed formatting gate.
+Package Round 4 accepts source carry only. The package reviewer has not yet supplied a final gate/body completion record.
+Sol independently accepts the final gate and body described above.
+
+Merge: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Git objects show exact parents a0adb132 and 888a9d32. The merge tree equals the accepted head tree.
+Sol verifies this merge independently. AG-SI-1 and AG-R1-1 remain closed. Zero findings remain.
+The active Contracts pin remains .36. No later pin, pending removal, source import, or gate is accepted.
+Historical gate omissions and the separate ou_9 repair propagation retain their existing status.
+Sol changed no product source and ran no execution job.
+
+VERDICT: CLEAN (0 open) at 888a9d32880d92e49f92501671cbb987df972318
