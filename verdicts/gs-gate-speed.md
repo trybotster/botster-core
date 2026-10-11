@@ -483,7 +483,11 @@ The check reports PASS for ancestry, conflict absence, disjoint paths, identical
 
 I checked the merge parents and base paths with Git. The four changed base paths do not intersect the six PR paths.
 
-I independently compared the complete own diffs. They are byte-identical: 46885 bytes, SHA-256 `c74d91f086dfc4fe14fda2c53f6fe68391565b31fd296ac0b1e6a38bdacf6ac2`.
+The retained script reports 46885 bytes and SHA-256 `c74d91f086dfc4fe14fda2c53f6fe68391565b31fd296ac0b1e6a38bdacf6ac2` for its diff format.
+
+I independently compared both complete own diffs with the same plain `git diff` command. They are byte-identical: 46501 bytes.
+
+My comparison's SHA-256 is `1eb4cf9ed0766a6e957dc6af5844f7ce1184de7b8c8e54cdc498174952f99d9a`. I do not equate that format with the script's format.
 
 The lead's carry-over condition is satisfied. The source CLEAN applies to this exact head. The failed earlier gate remains on the record.
 
