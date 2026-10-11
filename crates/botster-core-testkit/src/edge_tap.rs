@@ -223,8 +223,9 @@ struct Hold {
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
 
 /// The instances whose worker the taps of one data directory met: a hello that a tap read, or Core's connection to the
-/// worker's endpoint (an adoption). From then on, the recorded pid runs the worker binary, which starts no child but its
-/// payload. They outlive the handle, as [`Rows`] do.
+/// worker's endpoint (an adoption). Only the worker binary sends the hello or listens on that endpoint, so each one proves
+/// that the recorded pid has exec'd the worker binary, which starts no child but its payload. They outlive the handle, as
+/// [`Rows`] do.
 pub type Heard = Arc<Mutex<BTreeSet<InstanceId>>>;
 
 /// The state of one tap, shared by the driver's edges and the harness's controls.

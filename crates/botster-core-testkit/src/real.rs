@@ -29,12 +29,13 @@
 //!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A payload
 //!   that is not known (the tap has not read the report, or another handle's tap read it) is never taken as ended: the
 //!   answer is whether the recorded worker, which still matches its identity, has a live child
-//!   ([`botster_test_process::platform::live_children`]). That holds only after a tap of the data directory met the worker
-//!   ([`Tap::heard`]: its hello, or Core's connection to its endpoint): from then on the recorded pid runs the worker
-//!   binary, whose only child is its payload. Before that, the pid may still run the guard's wrap stage, whose own child
-//!   (the intermediate that starts the anchor) is no payload, and the worker has launched none: the answer is `false`.
-//!   A worker that
-//!   does not match is `Bad`, because its payload can outlive it. It sends no signal.
+//!   ([`botster_test_process::platform::live_children`]). "The only child is the payload" is true only of the worker
+//!   binary, so the answer needs proof that the recorded pid runs it: a tap of the data directory met the worker
+//!   ([`Tap::heard`]). Only the worker binary sends the hello or listens on the worker's endpoint, so either one proves that
+//!   the pid has exec'd the worker; the guard's wrap stage reaps its own child (the intermediate that starts the anchor)
+//!   before that exec. Without that proof the pid may still run the wrap stage, whose child is no payload, and no worker
+//!   has launched one: the answer is `false`. This is a fact about the process, not a wait. A worker that does not match
+//!   is `Bad`, because its payload can outlive it. It sends no signal.
 //! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
 //!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
 //!   so a reused pid is never signalled (AD-6). The worker's group is the worker's own (Core spawns it as a group leader),
@@ -435,7 +436,8 @@ impl RealCoreHarness {
             return Ok(json!({ "alive": alive }));
         }
         if !tap.heard(&processes.instance) {
-            // The recorded pid may still run the guard's wrap stage, whose child is no payload; no worker launched one.
+            // No proof that the recorded pid runs the worker binary (its hello, or its endpoint): it may still run the guard's
+            // wrap stage, whose child is no payload, and no worker has launched one.
             return Ok(json!({ "alive": false }));
         }
         let children = platform::pid(worker.pid)
