@@ -235,10 +235,12 @@ pub fn run_to_completion(command: &mut Command, deadline: Deadline) -> io::Resul
 
 /// Reaps `child`, a child of this process, once its status is available by `deadline`: `None` when the deadline came first
 /// (the child stays unreaped). The status is available before the reap, so the reap of the exact pid does not block.
+/// For a `std::process::Child` that the caller ends itself and so cannot be an [`OwnedChild`] (for example, a worker that
+/// must get SIGTERM first): the wait is bounded by `deadline` alone, and on `None` the caller still owns the child.
 ///
 /// # Errors
 /// The child could not be observed or reaped.
-pub(crate) fn reap_within(child: &mut Child, deadline: Deadline) -> io::Result<Option<ExitStatus>> {
+pub fn reap_within(child: &mut Child, deadline: Deadline) -> io::Result<Option<ExitStatus>> {
     if await_status(pid(child.id())?, deadline)?.is_none() {
         return Ok(None);
     }
