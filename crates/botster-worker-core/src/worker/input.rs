@@ -183,21 +183,16 @@ impl Worker {
     }
 
     /// A reply of the model joins the admission point (EV-8: it is written as one contiguous transaction, in order). An
-    /// empty reply writes nothing, so it does not join.
+    /// empty reply joins too: admission is the first decision of every source (PR3 round 6), and an admitted empty reply
+    /// writes nothing.
     pub(super) fn enqueue_reply(&mut self, bytes: Vec<u8>) {
-        if bytes.is_empty() {
-            return;
-        }
         self.input.queue.push_back(Pending::Reply(bytes));
         self.try_start();
     }
 
-    /// DP-5: a client's input joins the admission point in its receive order, with its route and op. An empty frame writes
-    /// nothing, so it does not join.
+    /// DP-5: a client's input joins the admission point in its receive order, with its route and op. An empty frame joins
+    /// too: at its turn it takes the same admission as every other client input (PR3 R5, Sol), and then writes nothing.
     pub(super) fn enqueue_route_input(&mut self, route: RouteId, op: Option<Op>, bytes: Vec<u8>) {
-        if bytes.is_empty() {
-            return;
-        }
         self.input
             .queue
             .push_back(Pending::Route(RouteInput { route, op, bytes }));
@@ -253,7 +248,7 @@ impl Worker {
             let write = match pending {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload. It advances no revision and completes no operation (EV-8).
-                    if self.admission(Source::Reply).is_ok() {
+                    if self.admission(Source::Reply).is_ok() && !bytes.is_empty() {
                         self.start_unowned(Owner::Reply, bytes);
                     }
                     continue;
@@ -262,10 +257,10 @@ impl Worker {
                     // A client's input advanced its revision on receipt (IN-4). On a payload that ended or is being
                     // stopped it is refused `session_ended`, with nothing written (DP-5: `NotWritten(SessionEnded)` and
                     // `NotWritten(Stopping)`).
-                    if self.admission(Source::Route).is_ok() {
-                        self.start_unowned(Owner::Route(route, op), bytes);
-                    } else {
+                    if self.admission(Source::Route).is_err() {
                         self.refuse(route, op, RefusalReason::SessionEnded, None);
+                    } else if !bytes.is_empty() {
+                        self.start_unowned(Owner::Route(route, op), bytes);
                     }
                     continue;
                 }
