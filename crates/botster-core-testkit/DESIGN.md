@@ -106,16 +106,33 @@ Planned dispatch after the stacked P1/P3 PR lands:
 2. Retain a clone in the harness's session map.
 3. Feed consumed output at the worker model boundary, after each model step.
 4. Apply accepted resize and terminal configuration changes at that boundary.
-5. Dispatch `oracle_state`, `oracle_modes`, `oracle_screen`, `oracle_cursor`, and `oracle_notification` through the retained handle.
+5. Dispatch `oracle_state`, `oracle_modes`, `oracle_cursor`, and `oracle_notification` through the retained handle.
 6. Parse `oracle_encode` input into the contract's key or mouse type.
 7. Pass explicit modes to the binding when the control supplies them.
 8. Otherwise use the oracle's current modes.
 9. Convert binding output bytes into the control's JSON result with the contract codec.
 10. Keep the binding's typed zero result when the encoder produces no output.
 
-For `oracle_query_reply`, resolve the session size and decode the optional prefix and request with the contract codec.
-Call the public helper with the optional host color profile.
-The helper uses a fresh libghostty shadow and reports its answerability and encoded reply.
+Dispatched (RC, plans 23ax to 23ba): `oracle_query_reply`, `oracle_screen` and `oracle_screen_payload`, on both tiers.
+`oracle_controls.rs` holds the argument forms and the oracle reads.
+Each tier supplies only its session lookup: the testkit's handlers in that module, the real tier's in `real/oracle.rs`.
+
+- `oracle_query_reply` resolves the size of the session's stored row and decodes the request and the optional prefix.
+  It calls the public helper with the optional profile argument.
+  The helper uses a fresh libghostty shadow and reports its answerability and encoded reply.
+- `oracle_screen` does not use a retained `OracleHandle` (lead, plan 23ax).
+  It reads O_raw, the anchor of `oracle_resume`, so one source of consumed output serves both controls.
+  On the testkit, O_raw replays the model log of the session's worker with the worker's step rule (R-67).
+  On the real tier, O_raw applies the session's known output history (R-62, condition 1: `unknown_output_history`).
+- `oracle_screen_payload` loads the native snapshot of a route's `screen` frame in a fresh terminal without history.
+- Condition 3 (R-62) holds for the controls that replay the history, `oracle_resume` and `oracle_screen`, on both tiers.
+  A session that a `Resize` or a `SetColorProfile` reached gives `unsupported_control` `size_or_profile_changed`.
+  `oracle_controls::Changed` is the one record and the one check.
+  Each tier records the op where its host begins it, before Core admits it, because the op enters Core there in every state.
+  A replay with the changes needs a steward ruling.
+  Before this check, the testkit's `oracle_resume` replayed with the create request's size and profile and gave a wrong
+  `{"equal": false}`.
+
 For `oracle_hyperlinks`, read all Core capture pages or decode the route baseline's screen payload.
 Pass the native snapshot bytes and source configuration to the public helper.
 The helper restores the bytes through libghostty and reads cell URIs, including history.
