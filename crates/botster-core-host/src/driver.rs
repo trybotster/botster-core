@@ -640,7 +640,14 @@ impl<E: HostEdges> HostDriver<E> {
                                 return;
                             }
                         }
+                        if !self.links.contains_key(&link) {
+                            return;
+                        }
+                        continue;
                     }
+                    // The decoder took every pending byte and waits for the rest of a frame: the read below comes next.
+                    // Going on to the read, not back to the top, keeps each turn of this loop on a delivered frame or a
+                    // read, so the loop ends by its own structure (plan section 8).
                     Ok(None) => {}
                     Err(error) => {
                         // A frame over the bound ends the link (plan section 3).
@@ -648,10 +655,6 @@ impl<E: HostEdges> HostDriver<E> {
                         return;
                     }
                 }
-                if !self.links.contains_key(&link) {
-                    return;
-                }
-                continue;
             }
             // 3. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
             // more than what is left of that allowance. A read posts no event, so it runs with no event budget left too:
