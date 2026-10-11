@@ -67,3 +67,21 @@ VERDICT: CLEAN (0 open) on this exact head. The gate on this head is still to co
   - Only the step's own `WriteInput` binding installs the variable again, with that write's session.
 - The regression cases cover 016c's `let $w = $v + 0` case and the other three replacement forms, each with one unfenced capture. They also cover a `WriteInput` rebinding of `$w` to s2 before and after s1's write.
 - No transcript, exception line or other file changes.
+
+### The gate on `bd95b2acde7327fa6e3f9372c08677fa1f2526f9` (read by me)
+
+- Log: `~/botster-sessions/gates/botster-contracts-stage1-pc-held-write-bd95b2ac-pool-20261011-112328-56940.log`, SHA256 `81b8b78e8048133ed8d8c54f0a10e4bff37ebea61562a9a6aa891d39f3bd91a1`. Base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0`. All 10 steps PASS; `botster-gate: exit 0 after 709 s on msa1`.
+- It is not the merging gate, because the lead ordered a merge of main after it.
+
+## Round 5 (delta: one merge of main): head `3fec741732ec515a056e1a748c5b2c291c260cea`
+
+VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration review when the gate on this exact head is green; I read that log before I send CLEAN to the lead.
+
+- The parents are the reviewed head `bd95b2acde7327fa6e3f9372c08677fa1f2526f9` and main `5ee91959dc63a62469870096cd15dbbd0fd25682` (#55). The remote branch points at this head.
+- **Q7's disjoint proof does not apply.** `conformance/core-fence-exceptions.txt` changed on both sides, so base-merge-check fails (2) and (3) (`~/botster-sessions/shared/core-stage1/evidence/pc-held-write/base-merge-check-3fec7417.out`, SHA256 `48e90da4ce6e64e4c37bf7e551b4efa5b646fc8edfd8298fac912aed45f0bd86`). So the merge gets this delta review.
+- **What I checked:**
+  - The merge adds exactly #55's two files.
+  - The exception-file change from `bd95b2ac` to `3fec7417` equals main's change from `8d79b70d` to `5ee91959` line for line: the four `in_9_kitty_unknown_flag_bits_ignored` entries renumbered. No line of #52 changes.
+  - The transcript `in_9_kitty_unknown_flag_bits_ignored` is the same blob as on main.
+  - Outside the exception file, the PR's own `git diff --raw` against its new merge base is identical to the reviewed one.
+  - No semantic overlap: the merged transcript has no `await_pty`, so #52's written-count rule fences none of its three captures, and its four entries are still needed (the lint fails on an unneeded entry).
