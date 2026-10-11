@@ -115,3 +115,12 @@ This source verdict accepts no future source, gate, pin, or pending removal.
 Sol runs no build, test, gate, mutation, measurement, or executable base-check script. Never poll.
 
 VERDICT: CLEAN (0 open) at 8d56987ec2d7983bdeebd2101cca751f1d2c92ee
+
+## Evidence receipt — 2026-10-11
+
+RC withdraws the shared-target scripted log for #285 under hazard B13. That log is outside #284's verdict.
+For #284, RC supplies botster-core-rc-paste-invalid-utf8-clean-mac-8d56987e-20261011-120738.log.
+Sol reads the complete log. Its header states a clean target and a build from this worktree only.
+All three real runs fail at seed 0, step 13, with the same empty PTY log.
+The retained real-pending entry remains supported. The source CLEAN verdict at 8d56987e does not change.
+The final READY must identify build provenance for every cited local record under the lead's new B13 condition.
