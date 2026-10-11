@@ -1411,3 +1411,65 @@ Log: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-928d2c1c-pool-2
 The mutation step reports zero mutants because the own diff changes no Rust source. Both closed findings remain closed.
 
 The next assigned review is the Contracts shared-script split, risk HIGH. I will wait for its exact head. I ran no gate, build, or test.
+
+
+## Contracts PR #45: shared gate script
+
+- Repository: `trybotster/botster-contracts`.
+- Head: `56e5b744588b98ccbbb892d6b0a63522317284f0`.
+- Base: `7176d02b577c9043c72ca4eda3b293104aad6961`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+I read both complete scripts, the three-file source delta, the live body, and both supplied evidence logs. The base is an ancestor of the head.
+
+`job.sh` keeps its executable mode, strict shell options, and settings. It sources the adjacent common file in the same shell.
+
+The common file needs no executable mode. The source operation preserves positional arguments, shell options, traps, and exit behavior.
+
+A missing common file fails under the existing strict options before container start. The project guard rejects the supplied standalone invocation without settings.
+
+The existing settings are byte-identical after removal of the new artifact setting. The new array has the exact three existing artifact paths.
+
+From the first `dir` assignment onward, the old and new bodies differ only in the artifact comment and artifact invocation.
+
+The new `sh -c` invocation supplies `sh` as argument zero. It passes each array entry as a separate positional argument.
+
+The loop reads every path through quoted `"$@"`. The first path is preserved. The destination naming, mounts, copy command, and failure handling remain unchanged.
+
+The failed main command's status remains saved while the artifact container runs. Artifact failure cannot replace that saved status with zero.
+
+The disk decisions and exit-75 cleanup remain unchanged. The completed-command status path reviewed for #44 still applies.
+
+The change does not alter test selection, mutation scope, binary builds, exclusions, timeouts, or step verdicts. I found no new acceptance path for a failed test or mutant.
+
+The existing candidate-binary limitation remains outside this change. This verdict does not approve that limitation.
+
+The prior-art note is present. The pinned old Core tree has no `ci/remote` files.
+
+The handoff records Contracts ownership and the planned Core copy check. The body clearly leaves the Core copy and check for the next pin move.
+
+### Evidence
+
+I decoded and read the focused evidence script without executing it. Its three input hashes match the exact Git blobs I read.
+
+All nine disk scenarios give matching old and new exits and identical normalized Docker run logs. Failed decisions exit 75 with zero container starts.
+
+The failed main-command scenario gives exit 3 in both scripts. The captured artifact invocation supplies all three paths after argument zero.
+
+The extracted artifact scripts copy identical path lists from the fake tree. Every other Docker run remains identical.
+
+A missing common file gives exit 1 with zero container starts. The standalone invocation gives exit 1 at the project guard.
+
+The evidence reports zero failures. It exercises Contracts settings; the future Core settings and copy need their own review.
+
+Focused log: `~/botster-sessions/gates/botster-contracts-stage1-gs-job-common-56e5b744-pool-20261011-063127-22026.log`.
+
+The full gate identifies the exact head and base above. All ten steps pass in 336.1 seconds. The Linux job uses the split script.
+
+The mutation step reports no changed Rust source. No Rust mutant was required for this shell-only source change.
+
+Full gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-job-common-56e5b744-pool-20261011-063138-24237.log`.
+
+Sol owns the separate integration review. The steward owns the merge decision and current-base check. I ran no gate, build, or test.

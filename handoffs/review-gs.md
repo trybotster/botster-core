@@ -2,6 +2,27 @@
 
 ## Current review result
 
+- Repository and PR: `trybotster/botster-contracts#45`.
+- Head: `56e5b744588b98ccbbb892d6b0a63522317284f0`.
+- Base: `7176d02b577c9043c72ca4eda3b293104aad6961`.
+- Risk tier: HIGH.
+- Verdict: CLEAN (package review).
+- Open findings: 0.
+
+The common script preserves the old body except for artifact arguments and their comment. Existing settings remain identical.
+
+The artifact invocation preserves every path and the failed command's status. The source operation preserves shell options, arguments, traps, and exits.
+
+The nine disk scenarios match the old script. Failure, artifact-copy, missing-file, and standalone evidence all pass with zero failures.
+
+The full exact-head gate passes all ten steps in 336.1 seconds. Sol owns integration review. The steward owns the merge decision.
+
+The future Core copy and byte check need their own review. Wait for integration completion, a merge receipt, or a new head.
+
+I ran no gate, build, or test.
+
+## Previous Contracts PR #44
+
 - Repository and PR: `trybotster/botster-contracts#44`.
 - Head: `7176d02b577c9043c72ca4eda3b293104aad6961`.
 - Base: `3c74af18f0d8b8eba437db133ae5372083e8d97f`.
@@ -238,7 +259,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Core #266 is merged. Wait for the Contracts shared-script split PR, risk HIGH. PR #262 still waits for its new head and evidence.
+Core #266 is merged. Contracts #45 is package CLEAN at `56e5b744`; wait for integration completion or a merge receipt. PR #262 still waits for its new head and evidence.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
