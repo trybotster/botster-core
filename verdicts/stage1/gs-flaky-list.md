@@ -96,3 +96,77 @@ The green gate does not close GS-KF-R1-1. A corrected head needs review and its 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open) at 80af70d2ea876b062c55002e64f2e1eb107ad247
+
+## Round 2: exact-list correction
+
+- Head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
+- Parent and previous reviewed head: `80af70d2ea876b062c55002e64f2e1eb107ad247`.
+- Base remains `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Tree: `d11f2dff71f0112a972225e69a0b458751a6d896`.
+- Package verdict: `ad72f6631c8b6b8bf62d78cf634c258af13b02a7`, NOT CLEAN (2 open), read in full.
+- Package receipt: `msg_plugin-w_1791718229_e60957`.
+- Implementer receipt: `msg_plugin-w_1791718088_67b418`.
+
+Sol read the complete five-file delta: 320 added lines and 177 deleted lines.
+The correction removes the tier field. The parser now rejects that old field.
+Each stage intersects known identities with a preliminary nextest list. An identity present in both lists receives both exclusions.
+The slow step checks for an identity absent from both normal tier lists. Stage 2 lists the workspace with its actual slow features.
+This corrects the original single-tier representation case. It does not yet close GS-KF-R1-1.
+
+### GS-KF-R1-1 HIGH: stage 1 lists a different package selection
+
+Status: OPEN, with the original single-tier case corrected.
+
+The stage-1 preliminary command uses nextest list --workspace. The actual stage-1 mutation command has no test-workspace override.
+Sol checks the installed primary source of cargo-mutants 27.1.0:
+- options.rs, lines 293 through 309, defaults to TestPackages::Mutated without a command or configuration override.
+- lab.rs, lines 245 through 252, selects only the mutant's package for each mutated scenario.
+- cargo.rs, lines 139 through 158, emits explicit package arguments and the selected feature arguments.
+
+The reviewed command and .cargo/mutants.toml supply no override. Stage 1 therefore does not use the preliminary workspace selection.
+Cargo feature unification can remove a test from a workspace build while a package-only build still includes the test.
+The workspace list is not a guaranteed superset of the actual stage-1 tests.
+
+Concrete accepted-feature case:
+- Library A declares x and slow features. Another workspace member enables A's x feature.
+- A known-flaky test slow_flaky uses `#[cfg(any(feature = "slow", not(feature = "x")))]`.
+- The default workspace build enables x and lacks that test. The package-only mutation build of A can omit x and include it.
+- The slow workspace build enables slow and includes the identity. The absent check therefore accepts its list entry.
+- The stage-1 filter lacks the exclusion, so the known-flaky test can still count as a mutant catch.
+
+This is a static counterexample, not an independently executed reproduction. It requires no malformed list entry.
+No leak of the current EV-5 entry is claimed.
+
+Required correction: cover stage 1's actual package-specific feature selections, or prevent a missing preliminary identity from adding a catch.
+Add a real multi-member fixture that exercises this feature-unification case.
+Do not broaden stage 1's test execution without separate review of that gate change.
+The current PR body still describes the removed tier field and old safety argument. Correct it before closure.
+
+### GS-KF-R2-2 MEDIUM: the slow-only fixture identity is already unselected
+
+Status: OPEN. Sol identifies this finding; the package reviewer confirms it.
+
+The new known_flaky fixture uses the shared-library test `tests::runs_only_under_slow`.
+Its binary is botster-core. Neither its binary nor its test name matches `binary(/^slow/) | test(/(^|::)slow_/)`.
+The copied fixture keeps mod tests unchanged. Stage 2 therefore omits this test before the known-flaky subtraction.
+The test's absence from the filtered real run cannot prove its exclusion.
+The string assertion proves that the generated filter names this listed identity. It does not prove the required selected-test exclusion.
+
+Required correction: make this copied slow-only shared-binary test selected before subtraction, for example through a slow_tests module.
+Assert its pre-exclusion selection or execution. Then prove its exclusion while an unrelated selected test still runs.
+The shared identity slow_in_both and the slow-only integration binary remain useful fixture cases.
+
+### Evidence and unchanged limits
+
+The correction reuses slow_coverage's strict nextest JSON parser and exact binary/test keys.
+The default normal tier, standalone stage-2 baseline, mutant identities, count checks, retry policy, and timeout values remain unchanged.
+The mutation stage skips the new listing commands when the known-flaky list is empty. Existing empty-list argument checks remain.
+The delta changes no pending ID, contracts pin, minimum list, candidate binary, or mutation exclusion.
+The original Prior art check remains applicable.
+
+The implementer says this head's full gate will follow its running exact-count job.
+No exact-head gate log or completed real-fixture evidence for b6b32f73 has been supplied.
+The older 80af70d2 gate does not cover this correction. This round accepts no gate or merge on the new head.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (2 open) at b6b32f739bee9e5a5002b376452ee39a8245f55f
