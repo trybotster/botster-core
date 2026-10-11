@@ -1447,3 +1447,23 @@ Publication on Sol's remote branch is verified. Both reviews cover head 4e26982b
 Sol's two findings match PIN41-1 and PIN41-2. No new integration source defect is identified.
 Sol independently verifies the exact-head gate and the eight matching mutation identities/citations with normal PASS records.
 Both evidence findings stay open. No running or future evidence is accepted. Wait for the completed evidence doorbell. Never poll.
+
+#289 integration receipt record pushed: 83dd3901d5b71984b5de8c398849e6700e47444e.
+The worktree is clean. Both reviews retain two evidence findings. Wait for the evidence doorbell. Never poll.
+
+## #289 Round 2: evidence findings closed; package CLEAN on list-only head
+
+Head f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc restores only IN-7 to its original real-pending status.
+The implementation and pin remain the reviewed 4e26982b source. The restoration stays within the unmerged PR.
+The reviewer matches all cells in both v2 A5-4 tables to raw results: 691 rows each, zero mismatches.
+Testkit must-pass 223→230, eight changes. Real must-pass 198→204, pending-real PASS 4→14, 21 changes.
+One real PASS-to-FAIL is retained: EV-5 route-closed, seed 7 step 28, activity_before_close false and closed true.
+Lead msg_plugin-w_1791756534_fb4088 accepts the source-disjoint failure for #289 under the controlled .39 baseline reproduction.
+Baseline log hash b0fa78606981a6fe0621558c35d473d7c0aac59452fa402790443904caedcc8c and scratch diff hash 027d7d7aad29ad7cd084dd9081f76001d837a3d07671debae1ac858e339f5397 are recorded.
+The scratch snapshot delays an existing input; it is not an uninstrumented failure or merge gate. Both earlier reviewer acceptances are read.
+Repair owner RC, contracts #69 into .42. No new pending entry and no rerun-to-PASS.
+All 80 N-run records are unique and complete. IN-7 is 4/5 real; all other pairs are 5/5. The failed run is preserved.
+PIN41-1 and PIN41-2 close. Package verdict CLEAN applies to f45794a4 with the preserved failure and pending limits.
+The local arm reversal reaches Unsupported and then passes after restoration. Its clean history remains owner-reported.
+Static log is read; taint/lists report success. The lead requires no separate full gate now; the final SLOT gate covers the head.
+Sol's matching evidence verdict, final import/check/review, exact-head final gate, body, and Q7 remain due. No execution job runs here. Never poll.

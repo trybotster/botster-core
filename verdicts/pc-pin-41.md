@@ -142,3 +142,106 @@ Sol independently verifies the pin, ledger, control boundary, pending accounting
 Its eight raw catches, Stage 1 misses, and named citations match uniquely. Each named catcher has a normal PASS.
 The two evidence findings remain open. This receipt closes neither finding and accepts no running evidence job.
 The final-slot and merge conditions remain due. No execution job runs here. Never poll.
+
+## Round 2: completed evidence and IN-7 restoration
+
+VERDICT: CLEAN. No open package finding.
+
+PC receipts: `msg_plugin-w_1791756328_044342`, `msg_plugin-w_1791756384_01c2e7`, and `msg_plugin-w_1791756574_615bb6`.
+New head: `f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc`.
+Parent: the reviewed and gated `4e26982b4c8ed836e43baa30f18fbf8134db90d5`.
+Tree: `6ed07fea1e12fba1d4efd83112cc95b825abea00`.
+Base remains `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+The reviewer rereads the binding brief before the delta review and verifies the new live head and body.
+The complete delta restores only `in_7_lost_worker_ends_pending` to `core-real-pending.txt`.
+The implementation, pin, lock, tests, ledger, and other pending entries remain unchanged.
+This restoration is within the unmerged PR. It does not add an id that the merged base had already removed.
+The PR now removes three real-pending ids. IN-7 stays pending and claims no five-PASS proof.
+
+### PIN41-1 closure: complete table and accepted baseline failure
+
+Evidence directory: `~/botster-sessions/shared/core-stage1/evidence/pc-pin-41/`.
+The reviewer reads both job scripts, both table parsers, the raw job headers and results, and the complete table data.
+Both raw jobs use Linux `6.12.111+deb13-amd64` on msa1.
+Before source: base `f68f26a7`, pinned `.39`. After source: parent `4e26982b`, pinned `.41`.
+The reviewer accepts these as pool artifacts from those recorded sources, not independent reviewer execution.
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `a54-linux-before-f68f26a7.log` | `7159ba5eedff88e920b4959c44058d39ca60e9be9e769f702501ea41806bed32` |
+| `a54-nrun-linux-after-4e26982b.log` | `e4358f490347669aeee40f4aa0229ecaac8dddda7c221b0d343a81f8b7344788` |
+| `a54-both.log` | `32b237906315be439f62bddb3eee23b854bf7f67d9db0b9dbbb1738d827c2b7e` |
+| `a54-testkit-v039-v041.md` (v2) | `cef1931879478b9c405310db42ff6375aa73924e0ea07d77f0c58b4675f8da5d` |
+| `a54-real-v039-v041.md` (v2) | `d4ebfc8cd1d550addc2545dbc82ae7ab27374c52b4abce77bcb9aa9a204221bd` |
+| `nrun-real-testkit-4e26982b.md` | `85c8154436669c6f688c2ddf9447d99e6c2f4ba58f949cc63875297b2a773596` |
+
+The first parser omitted 93 testkit and 92 real ledger rows with other markers.
+PC preserves that parser as v1 and regenerates both tables with v2, without another run.
+The revised tables include no-transcript, withdrawn, deferred, real-only, and testkit-proven reasons.
+The reviewer independently matches every table cell with its raw result and detail. Both tables have 691 rows and zero mismatches.
+The new E6-1 row is absent before and pending after. Omitted-category restoration changes no result.
+
+Testkit: 223 must-pass PASS before, 230 after, eight changed rows, no PASS-to-non-PASS.
+Real: 198 must-pass PASS before, 204 after; pending-real PASS four before, fourteen after; 21 changed rows.
+The real after run also records one must-pass FAIL: `ev_5_route_closed_retires_route_keyed_events`, seed 7, step 28.
+It receives `activity_before_close: false, closed: true` instead of both true.
+The table retains that PASS-to-FAIL. It does not claim an all-green comparison.
+The scripts print outcomes through pipelines and finish after all records. Their wrapper exit 0 is not a test PASS.
+The before job exits 0 after 79 seconds; the after job exits 0 after 67 seconds. The after real test itself reports FAILED.
+
+Lead disposition: `msg_plugin-w_1791756534_fb4088` accepts this documented failure for #289 and says it does not block CLEAN.
+The lead supplies an accepted 23bl(A) controlled reproduction on the same `.39` base.
+Log: `~/botster-sessions/gates/botster-core-detached-f68f26a7-f68f26a7-pool-20261011-150206-64641.log`.
+SHA-256: `b0fa78606981a6fe0621558c35d473d7c0aac59452fa402790443904caedcc8c`.
+Scratch diff SHA-256: `027d7d7aad29ad7cd084dd9081f76001d837a3d07671debae1ac858e339f5397`.
+Snapshot: `9c44c653e9d71c32f276842b870a4c6a8a8dc203`, marked `--allow-dirty` and not a merge gate.
+
+The reviewer reads the header, complete scratch diff, exact failure, trace, exits, and unmodified worker-loop order.
+The diagnostic delays the selected second-route input for one second and preserves its bytes while the control link continues.
+The worker loop handles control before route input. Detach can therefore close the route before that delayed input reaches the machine.
+The test fails at seed 0, step 28, with the exact expected and received values above. It exits 101.
+The trace shows a held 14-byte transport read ending in `0x63` and a route close in the same millisecond.
+The failure precedes release of the delayed input. This proves the observed prefix, not later release behavior.
+The shell prints the trace and exits 0. That wrapper result does not change the failure.
+
+The reviewer reads package acceptance `1ad1761f78871340bc7745580755080544203d8e` and Sol acceptance `acd9d7f5809f83e6c5da91be89ddc0e722675d05`.
+Both retain the controlled-diagnostic limits. The lead explicitly applies that baseline classification to #289.
+This review claims no uninstrumented `.39` failure and no trace from PC's original after-run failure.
+The transcript is byte-identical across `.39` and `.41`. It uses no held-write control, and its route-reports path is unchanged here.
+The core-conformance runtime source delta adds only the fill constant; generic runner source is unchanged.
+The source checks support non-interference on the observed path. The controlled baseline and lead disposition supply the accepted attribution.
+
+The repair is RC's contracts #69, R-66 follow-up, into `.42`. #289 does not wait for that fix.
+The observed failure stays in this verdict and the body. No new pending entry or rerun-to-PASS is permitted.
+PIN41-1 closes with these explicit limits.
+
+### PIN41-2 closure: five distinct runs and preserved IN-7 failure
+
+The reviewer independently parses all 80 distinct N-run records: eight ids, two tiers, five numbered runs each.
+No record is duplicated or missing. The six held-write ids and two additional event-fence ids are identified in the table.
+All testkit pairs pass five of five. Seven real pairs pass five of five.
+IN-7 real passes four of five. Run 4 is INCONCLUSIVE at seed 3, step 7, with `step_timeout`.
+The complete failed trial remains in the raw log and table. It is not replaced by a successful rerun.
+PC restores IN-7 to its original real-pending status. The three remaining real removals have the required valid evidence for their scope.
+The other held-write ids keep their existing fence-exception and pending limits despite the observed five passes.
+PIN41-2 closes as an evidence condition. The record accepts no claim that IN-7 now meets real acceptance.
+
+### Arm reversal and static-head limits
+
+The reviewer reads `reversal-pty-queued-arm-4e26982b.log`.
+SHA-256: `99ef8572cac4dec45e003ed5056aae80c27866128b89e90bbe3e49c9418c5bfd`.
+The scratch diff deletes only the pty_queued match arm. The served-controls test reaches `pty_queued: Err(Unsupported)` and exits 101.
+After restoration, the same test passes and exits 0. Both runs compile the PR's testkit crate.
+PC reports that the run follows a clean. The reviewer does not independently verify the clean or the shared-target writer history.
+The separately reviewed exact-head pool mutation catch remains valid independently of that local history.
+
+Static log for the list-only head: `static-f45794a4.log`.
+SHA-256: `12c4e2e1031e127b53ec690ad4a16250350ac914daf518692ecad5b4c638b55c`.
+The reviewer reads the complete log. Taint and lists report success; the lists output names base f68f26a7 and 27 real-pending ids.
+PC reports fmt success and static exit 0. The log contains no exact-head header; those run-to-head details remain PC's report.
+The parent green gate remains evidence for the unchanged implementation, not a full gate on f45794a4.
+The lead explicitly requires no separate full gate now. The final SLOT gate must cover the final head.
+
+Both package findings close on f45794a4. Sol's matching new-head evidence verdict remains due here.
+The final slot, applicable import/check/review, exact-head final green gate, completed body, and Q7 remain required.
+No current merge approval is given. The reviewer runs no executable job or base check. Never poll.
