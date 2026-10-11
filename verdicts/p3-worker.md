@@ -12860,3 +12860,114 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 181 — #279 route input logs, 2026-10-11
+
+Exact head: `cbe4ef51cff6868f88947dea6f04ee309db90768`.
+Source and supplied gate base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Current PR base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+The merge base of the current PR base and this head remains the source base above.
+Owner READY receipt: `msg_plugin-w_1791738629_6b3ec2`.
+Risk: HIGH under BUILD rule 3 because this PR changes the shared testkit. Every finding must close before CLEAN.
+Complete verified PR record: /private/tmp/review-p3-pr279-cbe4ef51.json.
+Binding plan: 23bk, stage1-plan.00635d10.md, SHA256 d90aab57ce819b2607339cfe0c92a1d5b60987db52d3b111ce1f223af6354bf6.
+
+### Source and scope
+
+The reviewer reads all nine changed paths and the complete delta against the exact source base.
+The earlier overlapping base import precedes the supplied gate. This review covers its resulting source directly.
+No production code, committed transcript, timeout, or contracts pin changes. The pin remains contracts-v0.1.36.
+Both route ends use route_pty_log and the existing session input log. No additional log is introduced.
+The shared label testkit:unattributed cannot equal the codec's decimal u64 operation identifier.
+The reviewer reads the pinned codec and the complete pty_matches function.
+The label rejects written_without_op and written_by_op relations under this pin. Literal byte parts remain supported.
+The boundary tests load a pinned transcript, modify only their local test value, and call the matcher through the driver.
+The supplied historical reversal shows that replacing the label with null lets written_without_op pass falsely.
+R-73 permits this label form until the .40 pin replaces relations with transcript-frame relations plus the literal byte log.
+This verdict accepts no future pin or operation-attribution implementation.
+
+The new named real test proves the route reads the same input bytes as its session probe after a host WriteInput.
+It cites Core OU-1 and DP-4. It uses the existing harness process ownership and cleanup.
+The existing pump_until waits on the wake event with a deadline. Probe input reports wake the host.
+No new sleep, timer polling loop, global lock, production test hook, or helper-internal assertion appears.
+The testkit session_worker checks the route's original instance. The real SessionInput does not preserve that identity.
+This difference causes F135 below. The passing new test covers one session instance only.
+
+Four ids leave core-pending.txt and enter core-real-pending.txt:
+- conf::dp_3_unknown_type_closes_route
+- conf::ou_10_no_authorization_in_core
+- conf::ou_11_transport_ownership_is_defined
+- conf::ou_1_attach_hands_transport_to_worker
+
+All four pass on the testkit in the supplied final gate. None is accepted as a new real-tier transcript PASS.
+The reviewer compares the exact list changes. Core pending changes from 460 to 456; real pending changes from 30 to 34.
+minimum-core.txt keeps the same 69 ids and corrects its header.
+All eighteen relation transcripts listed in the body remain core-pending. The reviewer verifies the exact set against pinned JSON.
+am_2_transaction_is_contiguous_across_short_writes and a2_1_attach_state_rules remain pending.
+The excluded hold_start change and its evidence are outside this review.
+
+### Supplied evidence
+
+Final Linux gate: gates/botster-core-stage1-p3-testkit-route-input-cbe4ef51-pool-20261011-095001-79733.log.
+The header names the exact head and source base above. All ten steps PASS.
+Default: 1732 passed, 477 skipped. Slow: 554 passed, 2025 skipped.
+The default suite takes 18.430 seconds. The slow suite takes 57.175 seconds.
+The gate reports testkit minimum 57/69 and real minimum 46/68 passing, 47/69 accepted.
+The new harness test, both matcher boundary tests, and the new named real test pass.
+The reviewer reads all 33 stage-1 outcomes, all 23 stage-2 outcomes, and all 21 catcher records.
+Stage 1: nine caught, 23 missed, one unviable, zero timeout.
+Stage 2: twelve caught, eleven unviable, zero missed or timeout.
+Final: 21 caught, including twelve by stage 2; twelve unviable; zero missed or timeout.
+No FLAKY record appears. The gate selects no changed decoder harness.
+The new real test catches the input lookup and real route input-control mutants.
+Existing route tests catch the other route-control mutants. Unviable outcomes remain unviable, not catches.
+Total step time is 995.1 seconds. Jobq and the wrapper exit zero after 1181 seconds.
+The earlier 8b252deb gate missed eight real mutants. This verdict uses the completed cbe4ef51 gate.
+
+Mac evidence directory: shared/core-stage1/evidence/p3-testkit-route-input.
+route-pty-log-revert-macos.log names historical head b0db80ec92113457a7eeee24bafd47bf509be423 on Darwin 27.
+Its null-label reversal fails the relation test; the literal test passes. Restoration passes both tests.
+real-route-pty-input-reverts-macos.log names this exact cbe4ef51 head on Darwin 27.
+Removing the input arm, returning an empty probe log, and changing the control comparisons fail the named route tests.
+Restoration passes both tests. These are supplied records; the reviewer performs no reversal.
+ou1-am2-unpended-macos.log and three-ids-real-macos.log name historical b0db80ec with local pending-list changes.
+The records show unsupported route_stream_holders for real ou_1 and ou_11, and the real am_2 step-14 failure.
+The latter log shows two ou_10 passes and one seed-6 step-25 failure with PTY echo bytes.
+Its three dp_3 failures do not print an INCONCLUSIVE classification, step number, or diagnosis.
+The body's INCONCLUSIVE step-17 classification is an owner report, not an independently verified raw-log classification.
+Historical outcomes retain their original heads. They do not replace the exact-head gate or prove new real-tier acceptance.
+
+### Open findings
+
+**F135 MEDIUM — the real route can read a replacement session instance's log. OPEN.**
+real/route.rs SessionInput stores SessionId but no InstanceId.
+Its log method reads rows.get(session).worker without an instance check.
+real.rs attach_stream gives the route the mutable registry rows and session identifier without binding the original instance.
+Keep an old route, remove its session, then create and start the same SessionId.
+The old route can answer pty_input with the replacement instance's log.
+The testkit session_worker already rejects this instance change.
+Bind the real route to its original instance. Reject an absent or changed instance.
+Prove the rejection through the route control boundary.
+
+**F136 LOW — the PR retains the superseded operation-attribution design. OPEN.**
+The body acknowledges R-73 at the top but later calls op-attributed segments the deferred (B) design note.
+It says relation ids wait until op attribution. Its Prior art section says attribution needs worker and probe changes.
+R-73 replaces that design with relations from the transcript's own frames plus the literal byte log.
+Update these follow-up statements. The current .36 label form remains valid.
+
+**F137 LOW — the pending reason omits the known current dp_3 diagnosis. OPEN.**
+core-real-pending.txt calls dp_3_unknown_type_closes_route undiagnosed. The body repeats that current reason.
+The lead's later handoff records P6's diagnosis: the R-65 host copy closes only in a pump.
+The driver does not pump before expect_closed. The lead identifies the same root as R-68.
+Keep the historical Mac outcome. State the known current cause and its separate follow-up.
+This finding requires no transcript change or additional pending removal.
+
+Finding receipts: P3 msg_plugin-w_1791738755_43c84c; Sol msg_plugin-w_1791738755_2883d7.
+All three findings remain OPEN at this exact head. This is the first NOT CLEAN round for #279.
+The passing gate does not close the source identity defect or the stale PR record statements.
+F39 and F61/F62 retain separate scopes. All earlier verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: NOT CLEAN
