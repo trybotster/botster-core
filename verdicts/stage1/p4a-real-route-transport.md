@@ -678,3 +678,56 @@ Sol reads the complete published package Round 170 addition in `09b07639d95797d2
 Sol verifies publication on fetched stage1/review-p3. It agrees on this exact head, base, gate outcomes, and remaining acceptance items.
 Receipt `msg_plugin-w_1791722219_02b87d` confirms the package reviewer reads Sol's complete gate addendum and matches its hash and mutation multisets.
 The package completion artifact is now read. A5-4 classifications and final body record remain pending.
+
+## A5-4 table and final body completion
+
+Head: `850bb78522e43967667ec839d5253e952822eea2`. Before/base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+The source and exact-head full gate CLEANs in 92f66908 and 316872cb remain applicable. No product delta occurs here.
+Table receipts: msg_plugin-w_1791722393_aced79, msg_plugin-w_1791722432_223f0d, and msg_plugin-w_1791722828_776e34.
+Lead classification and no-removal decision: msg_plugin-w_1791722410_aea847 and the complete 10:30 PT entry in the lead handoff.
+
+Sol reads the job command, exact heads, all retained failure details, summaries, and exit.
+Log: `~/botster-sessions/gates/botster-core-stage1-p4a-real-route-transport-850bb785-pool-20261011-053328-3935.log`.
+SHA256: `f914abfadceb512838cfa2f6dd8e2e0830069886292e0fbc0de4c8b3a9282b0d`.
+The evidence copy is byte-identical. The printed heads equal the exact head and base above.
+Each tree has its own target directory and prebuilds its worker. Both ghostty Git entries equal `39a68e822e505685d1e7fa9c6abeff21125b489c`.
+The script checks those entries before copying the prepared vendor tree into the before worktree.
+The script continues after test failures. Its zero exit after 226 seconds proves completion, not a passing must-pass run.
+
+Before reports 141 passed, six failed, and 543 ignored: 147 run, in 3.11 seconds.
+After reports 145 passed, five failed, and 540 ignored: 150 run, in 2.86 seconds.
+The ignored runs report zero ordinary passes or failures. Their pending-real reasons identify zero passing IDs before and 33 after.
+The separate exact-head full gate remains the accepted green gate.
+
+Sol independently parses every runner ID and compares all 1380 before/after cells against the corrected 690-row table.
+No mismatch, duplicate table ID, or absent runner ID remains. All 48 changed IDs and their cells match.
+The 33 after pending-real PASS IDs exactly equal the full gate's 33 printed PASSED identities.
+The omitted categories are now included: seventy without transcripts, eighteen withdrawn, two deferred, and one testkit-proven.
+No ignored status becomes a passing result. The three reviewed in_10 IDs become must-pass PASS after.
+Repeated attach/detach EV-5 passes in both trees. Route-key retirement EV-5 stays pending-real. DP-2 stays pending.
+Static comparison record: `/private/tmp/integration-243-a54-comparison.json`.
+
+Four before failures and all five after failures report DataDirInUse.
+Sol reads the complete existing lock-race README and the lead's approved design, reassignment, and classification.
+The lock-race source remains unchanged by #243. GS owns its correction in #265.
+Sol accepts this classification under the lead's explicit decision. Sol performs no independent Linux cause reproduction.
+The README's diagnostic and selected-reversal limits remain applicable.
+The before-only st_6 failure reports seed 6, step 17, with equal revisions where inequality is required.
+The before-only lc_9 record says FAILED and retains no detail. Its cause remains unspecified in this record.
+Both IDs pass after. The exact before tree contains none of this PR's commits.
+These failures remain recorded; this review does not declare the comparison job green.
+
+Sol reads the complete local package Round 171 addition in `1357ac2882c172114afb3b22eefe713f6f8deff0`.
+F124 and F125 close through the complete table and corrected GS/#265 owner statement.
+That artifact remains local because GitHub DNS prevents its publication. The published package gate artifact remains 09b07639.
+Sol compares the corrected API body snapshot with the owner's supplied body copy; their text matches.
+The body preserves the final head, base, accepted full gate, earlier red gates, Mac source identities, and prior proof limits.
+It states the lead's decision: #243 removes no pending-real ID. The 33 removals require a separate PR after #265.
+The base-to-head core-real-pending file has no delta. No new minimum count or future removal is accepted here.
+
+Source, exact-head gate, A5-4 table, classifications, and final body review are complete for this head. Zero integration findings remain.
+The local package completion and this integration completion still need publication when GitHub DNS returns.
+This verdict covers no later import, pending removal, or new source head. The lead owns the merge decision.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 850bb78522e43967667ec839d5253e952822eea2
