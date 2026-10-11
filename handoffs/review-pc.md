@@ -1304,3 +1304,24 @@ Both pending files now equal the base and have no own change. Source CLEAN carri
 Plan 23by-to-23cm delta is read and hash-verified. It changes no R-74 queue behavior.
 The final gate is reported running. No completed log is read. Sol's import receipt, the final green gate, body, and Q7 remain due.
 No executable check runs here. No final merge approval is given. Wait for the doorbell. Never poll.
+
+Final-import source verdict pushed: c28d75fbb2d382eabada3c7abadb2584a9e7a4e7.
+The worktree is clean. Source CLEAN carries to 4daf627b. Final-gate evidence remains due. Never poll.
+
+## #283 final gate GREEN; exact gated tree merged
+
+PC receipt: msg_plugin-w_1791751041_4ae590.
+Final gate head 4daf627b54739f847dd2448bf660a6a45c1b714a; base 926dfb62f3f7168990b2a48741946932d84b2fbb.
+Log: gates/botster-core-stage1-pc-held-write-testkit-4daf627b-pool-20261011-133054-46680.log.
+SHA-256: 4031f5cf739a27eb403a0c8407919855e86b2ca6c4ac5bd7e954bf3770de37cb.
+All ten steps PASS. CI steps total 343.6 seconds; Linux job/wrapper exit 0 after 353/354 seconds on msa1.
+Default: 1754 PASS, 474 skipped. Slow: 559 PASS, 2037 skipped. Testkit minimum 61/69; real passing 49/68, accepted 50/69.
+All 33 raw caught identities match the named catchers. No misses, timeout, unviable, or FLAKY line.
+All five fixed-guard mutants are caught by the next-step test. The host-pump test passes and catches the pty_queued mutant.
+Stage 2 does not run because Stage 1 catches all mutants. Fuzz PASS reports no changed decoder harness.
+The body records final evidence, both import carries, the earlier red gate, and invalid pre-split evidence.
+Sol's import carry is reported in the body; its message is not yet read here. Receipt requested in msg_plugin-w_1791751076_1d3a98.
+GitHub reports MERGED at 2026-10-11T20:37:42Z, commit 670e5fc799a25794910a1847fc41b3e089bf03f4.
+The reviewer verifies parents gate base + gated head, identical tree fcfb3382e8c6c8633d152eb3bd7f2d6a151440d4, and empty diff.
+Q7's base and tree condition is verified. Package review and final-gate audit are complete; Sol's message receipt remains due.
+PART B and later PC work remain separate. No execution job runs here. Never poll.

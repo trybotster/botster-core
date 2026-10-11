@@ -329,3 +329,49 @@ PC reports that the one final gate is running on the new head. No completed fina
 The gate must supply the fixed guard's mutation result. The body must record the completed evidence and applicable review receipts.
 Sol's applicable import receipt, the final green gate, and Q7 remain due here.
 No final merge approval is given. Wait for the doorbell. Never poll.
+
+## Final gate and merge receipt
+
+VERDICT: CLEAN. No open source finding.
+
+PC receipt: `msg_plugin-w_1791751041_4ae590`.
+Final head: `4daf627b54739f847dd2448bf660a6a45c1b714a`.
+Gate base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-held-write-testkit-4daf627b-pool-20261011-133054-46680.log`.
+SHA-256: `4031f5cf739a27eb403a0c8407919855e86b2ca6c4ac5bd7e954bf3770de37cb`.
+
+The reviewer reads the exact-head header, all ten summaries, both exits, test summaries, raw mutant identities, and named catchers.
+All ten steps PASS. The CI steps total 343.6 seconds.
+The Linux job exits 0 after 353 seconds on msa1. The wrapper exits 0 after 354 seconds.
+Default tests: 1754 passed, 474 skipped, 11.127 seconds.
+Slow tests: 559 passed, 2037 skipped, 40.256 seconds.
+Testkit conformance: 216 passed, zero failures, minimum 61/69.
+Real minimum: 49/68 passing, 50/69 accepted. Six pending-real trials pass; this PR removes no pending entry.
+
+All 33 raw caught identities match the 33 named catchers. No mutant is missed, timed out, or unviable.
+Stage 1 catches all mutants in 115.9 seconds. Stage 2 does not run because Stage 1 misses none.
+All five mutants of the corrected `program.rs:498` guard are caught by `only_a_spent_chunk_waits_for_the_next_step`.
+They replace `||` with `&&`, delete `!`, or replace `>` with `==`, `<`, or `>=`.
+The host-pump test `a_chunked_write_fills_the_kernel_queue_before_the_host_settles` passes at line 1202.
+It also catches the `pty_queued` replacement mutant. The log contains no FLAKY line.
+Fuzz PASS reports that the diff changes no crate with a decoder harness. It does not claim a changed decoder trial.
+The final gate supplies the mutation evidence that the fixed-head red gate could not supply.
+The earlier red gate remains RED in this record.
+
+The reviewer reads the final live body. It names the gate, base, mutation results, package import carry, and Sol's import carry by message.
+The body retains the red gate and the invalid pre-split evidence qualification.
+Sol's import message is reported by the body but has not reached this reviewer.
+The reviewer asks Sol for that receipt in `msg_plugin-w_1791751076_1d3a98`.
+The source and final-gate conclusions above do not claim that this reviewer read Sol's missing message.
+
+The reviewer verifies that GitHub reports PR #283 MERGED at `2026-10-11T20:37:42Z`.
+Merge commit: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Its parents are the exact gate base, then the exact gated head.
+Its tree is `fcfb3382e8c6c8633d152eb3bd7f2d6a151440d4`, the gated head's tree.
+The reviewer verifies an empty diff between the gated head and merge commit.
+The lead merged the exact gated tree from its recorded base. Q7's base and tree condition is verified.
+
+The package's source review and final-gate audit are complete. The Sol message receipt remains due for the cross-review record.
+The `.40` pin, six held-write transcripts on both tiers, and later PC work remain outside this merged PR.
+The reviewer runs no build, test, gate, mutant, or executable base check. Never poll.
+
