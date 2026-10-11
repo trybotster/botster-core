@@ -365,3 +365,64 @@ This verdict clears no additional pending ID and does not complete the PC group.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## Round 3: two v1 imports and conflict review
+
+VERDICT: NOT CLEAN (1 open: SI-5)
+
+- Head: 4d05d270d6c6cebcdae247050cd702b6a157c639.
+- Base: 554d43e890b391cefc9da205c71db6856accb21d.
+- Previous reviewed head: 8cfdd6715c6a69c419d9819636e185bfff74bb24.
+- Package delta NOT CLEAN: 82fc2df8aa8c052c94f5819c5ec30b2b184aa337.
+- Request: msg_plugin-w_1791708757_8533ef.
+
+### Conflict and source checks
+
+The first import, 3a71241d53c2613a978490d2df4cabea55b27487, merges v1 b7c97b42 into 8cfdd671.
+It resolves conflicts in core-real-pending.txt and real.rs.
+The second import merges v1 554d43e8 into that result without conflict.
+Sol read the complete retained check: ~/botster-sessions/gates/botster-core-pc-base-merge-check-8cfdd671-4d05d270-20261011.log.
+Its ancestry checks pass. The automatic merge, disjoint-path, own-diff, and real-pending-file conditions fail.
+The failed check requires source delta reviews. It gives no automatic review waiver or gate evidence.
+
+Sol read the combined conflict diff, complete own real.rs diff against the new base, and pending-file changes.
+The real harness now declares both program::CONTROLS and route::CONTROLS for its tapped form.
+The plain form still declares neither set. The two control-name sets are disjoint.
+Program controls retain their harness dispatch. Route controls retain their route dispatch.
+The tests retain the base's route-control assertions and the program-control assertions.
+The removed assertion that pty_output is unsupported conflicts with this PR's supported program control.
+The replacement still rejects pty_fail_after. The plain harness also retains its pty_output rejection proof.
+
+The merged open path retains both the program wake registration and the base's shared Heard record.
+The base's route attachment, payload identity, and post-hello child checks remain intact.
+The union supplies no alternate worker, descriptor receipt, route, or program implementation.
+The program module is byte-identical to 8cfdd671, including the corrected closed-peer proof.
+Its SHA-256 is 502b0def622ce62ab80a29140c0e601eb61ea70924daa89387bcf1975122aaa6.
+The process-check allowance and testkit manifest are also byte-identical to that reviewed head.
+Sol's independent merge-tree for the second import equals the actual tree, 7f4d11bd6626d737407f38ab635a71d0ef788e16.
+No additional source finding exists in these resolutions.
+
+Sol independently compares pending IDs from the original merge base, old head, current base, and new head.
+The old PR removes 16 IDs. The base removes three separate IDs. Neither side adds an ID.
+The new pending file equals the original set minus both removal sets.
+Against the current base it removes exactly the same 16 PR IDs and no other ID.
+Every non-ID line equals the current base's line, including the count-free group comments from #244.
+EV-2 and IN-5 remain pending. Their removal still requires PASS in the final gate on this new contracts pin.
+The six steward-controlled IDs remain pending. The R-59 limit on the unfenced AD-7 minimum remains in force.
+
+The current base includes the .29 contracts pin, #249's payload fix, #248's verification cache, and #251's exclusion check.
+Sol already reviewed those changes. This delta changes no own deadline, mutation exclusion, transcript expectation, or runtime control logic.
+The preceding focused Mac proof remains valid for the unchanged program module and closed-peer test.
+The preceding Prior art and source findings retain their stated scope. SI-1 through SI-4 stay closed.
+Sol read the complete package delta section. The package reviewer reaches the same source result and keeps SI-5 open.
+
+### Remaining acceptance condition
+
+SI-5 remains OPEN until the completed final Linux gate supplies the corrected mutation result on this exact head and base.
+The old 8cfdd671 gate stopped before mutants. The focused closed-peer proof does not replace the full mutation step.
+The final gate also supplies the required after-pin proof for any later EV-2 or IN-5 removal.
+PC reports that the final gate is running. Sol has not read or polled that running log.
+A running gate supplies no result and permits no pending-ID removal or merge.
+Any removal commit requires the corresponding source delta review and exact-head gate under the binding rule.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
