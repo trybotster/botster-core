@@ -1240,3 +1240,44 @@ The integration reviewer retains all controlled-diagnostic limits, contracts #69
 The lead received the completed integration CLEAN and controls the merge.
 The merge must preserve the gated tree. This receipt accepts no later source or base change.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — final-slot delta receipt
+
+Exact source head: `46c8c5481a3cdf11ec98949227fda32f4d0f0ee0`.
+New base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Source tree: `abb16eb98ca2c99349976ea9a72d43a617293501`.
+Previously reviewed head: `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Message: `msg_plugin-w_1791761559_9487b6`.
+
+The reviewer read the final-slot body, complete canonical check, code composition, conflict resolution, and new list delta.
+The canonical check fails all four conditions and requires both delta reviews.
+Log: `gates/botster-core-rc-oracle-base-merge-check-46c8c548-20261011-163114.log` under `~/botster-sessions`.
+Both pending files have conflicts. The non-list overlap is `crates/botster-core-testkit/src/real.rs`.
+No automatic Q7 carry applies.
+The reviewer compares the added and deleted lines in all five own code files against their old and new bases.
+Those lines remain identical, including the corrected tests and fresh-terminal mode base.
+The imported hold and release dispatch arms remain separate from the six oracle dispatch arms.
+The oracle guards and real replay source preserve the reviewed behavior.
+The merge adds no own terminal semantics, model form, private-state assertion, or mutation exclusion.
+F-283-1 remains the separate follow-up for imported private-state assertions under the lead's scope ruling.
+
+The reviewer independently checks the three-way identifier formula in four files.
+The merge sets for `core-pending.txt`, `core-real-pending.txt`, `minimum-core.txt`, and `core-ledger-ids.txt` exactly match that formula.
+The merge preserves the six prior `v1` removals that the first rerere result had retained incorrectly.
+The real-pending resolution retains the oracle group and the imported groups.
+The later commit changes only the two pending files.
+It moves four IDs from testkit pending to real pending: worker-mode keys, kitty modifier keys, and both mouse-mode groups.
+The reviewer reads their contracts-v0.1.39 fence exceptions.
+They have respectively one, two, nine, and thirteen R-56 entries, and one R-60 entry each.
+Their comments retain these gaps and P3 ownership. The move claims no fenced real-tier PASS.
+The named ev_8 comment exists at all four comparison heads; the canonical diagnostic does not prove its removal.
+
+The supplied local log retains the 1161-test default summary at the merge head, prebuild result, and clippy count zero.
+It labels the run as after a target clean but retains no independent raw clean proof.
+Its strict-run excerpt contains no final strict summary.
+RC separately reports 245 strict passes at the final head with seeds 0-31. The exact-head gate must supply final evidence.
+The body distinguishes the merge-head log from the final-head owner report.
+Open package findings: 0, including LOW. The earlier source and body findings remain closed.
+The completed exact-head final gate and final body result remain pending before CLEAN.
+The reviewer ran no test, build, gate, or diagnostic.
