@@ -108,3 +108,14 @@ Delta against `6c22bc91`: `5a49fc4` (F2) and `2efda09` (016c's MEDIUM). It chang
 Still to do:
 - **The main merge is not disjoint.** Main `c0c2abc09f208fea39896972373da53cb90dd830` includes #61, which changes `crates/botster-core-conformance/src/driver.rs` (the R-85 check) and `tests/driver_steps.rs`. #66 changes the same two files. So the merge needs a delta review (Q7), not only the base-merge check. I review how the resolution keeps both R-85's check and R-86/R-89's wait-loop changes.
 - One gate on the exact merged head.
+
+## Merge delta review: no finding on 21f9406ff989da76407d78abdaaa7a6286671da4 (final CLEAN waits for a green gate)
+
+The head `21f9406f` merges main `3c68880b011fdb60f7bca8124eef350e2d4d4708` into the reviewed head `2efda094b1fa2eeed5f7cb8ba4ac3a0eb952ae13` (reviewed base main `7c4004a0ba6c9734fbe8d2072f68addde2d58596`). Its parents are `2efda094` and `3c68880b`. RC's record is `~/botster-sessions/gates/botster-contracts-rc-r86-final-merge-delta-21f9406f.txt`.
+
+- **The PR's own lines.** For each of the six files (`core-fence-exceptions.txt`, the `dp_5` transcript, `driver.rs`, `fake.rs`, `harness.rs`, `driver_steps.rs`), the sorted +/- lines of `7c4004a..2efda094` equal those of `3c68880b..21f9406f`. The new diff has no other file.
+- **Main's lines.** For each of the 33 files that main changed since `7c4004a`, the sorted +/- lines of `7c4004a..3c68880b` equal those of `2efda094..21f9406f`. So the merge drops no line of #61, #68 or the other main changes, and `driver.rs` keeps the R-85 run-time check next to `progress(share)`, `pending(deadline)`, `core_pump` and the R-89 checks.
+- **The conflict.** `git merge-tree --write-tree` gives tree `bf7f836cc5cca79bca69c423b2edd756b798086a` with one conflict, in `driver_steps.rs`. The head differs from that tree only in this file. The resolution removes the three conflict markers and puts one blank line between the two appended blocks: this PR's R-89 test block, then #61's R-85 tests. Neither block changes. The patch-id changes only because of this block order.
+- 016c's delta review on the same head has no finding.
+
+**The gate is not green.** `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-21f9406f-pool-20261011-164521-79451.log` ends with `exit 141 after 25 s on msa1`, during the nextest build. The log has no failed step. Exit 141 is SIGPIPE. This run is not evidence. The final CLEAN needs one green gate on `21f9406f`.
