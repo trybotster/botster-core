@@ -6,12 +6,14 @@
 //!   ([`super::program`]). The harness never asks the subject for these bytes.
 //! - **O_resume** loads the capture's pages, then applies every `pty_output` of the session that the transcript sent after the
 //!   capture step: the outputs whose mark is not below the capture's.
-//! - A **second capture**, taken when the control runs, is decoded into an oracle terminal: the session's model.
+//! - A **second capture**, taken when the control runs, is decoded into an oracle terminal: the session's model. It runs
+//!   only at a quiet point (R-69): a poll that returns any event other than its own `Completed` gives `unsupported_control`
+//!   `events_pending`, never a pass.
 //!
 //! `equal` is true only if O_resume equals O_raw and the second capture equals O_raw.
 //!
 //! The capture layer ([`crate::capture_layer`]) sits between the driver and Core's own composition. It records each
-//! transcript capture with its cut and pages, and it takes the second capture.
+//! transcript capture with its cut and pages, and it takes the second capture. It never holds or re-injects an event.
 //!
 //! Conditions (R-62):
 //! 1. The output history must be known. A session whose program is not only `hold` steps, or whose probe has a `fake`, gives
@@ -21,7 +23,7 @@
 //!    `unsupported_control`, never a pass.
 
 use super::RealCoreHarness;
-use crate::capture_layer::lock;
+use crate::capture_layer::{lock, Resumed};
 use crate::controls::parse;
 use crate::oracle_compare::{raw_oracle, resume_holds};
 use botster_core_conformance::ControlError;
@@ -83,27 +85,14 @@ impl RealCoreHarness {
             .get(handle)
             .and_then(|open| open.resume.upgrade())
             .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
-        let mut shared = lock(&shared);
-        if shared.changed.contains(&session) {
-            return Err(ControlError::Unsupported);
-        }
-        let recorded = shared
-            .captures
-            .get(&capture)
-            .filter(|recorded| recorded.session == session)
-            .cloned()
-            .ok_or_else(|| {
-                ControlError::Bad(format!(
-                    "no completed capture {} of the session {}",
-                    capture.0, session.0
-                ))
-            })?;
-        let pages = recorded
-            .pages
-            .map_err(|e| ControlError::Bad(format!("oracle_resume: {e}")))?;
         let worker = row.worker.ok_or_else(|| {
             ControlError::Bad(format!("the session {} has no worker process", session.0))
         })?;
+        let Resumed {
+            mark,
+            pages,
+            second,
+        } = lock(&shared).resume(&session, capture, botster_test_process::CLEANUP)?;
         let history = self.programs.output(worker.identity());
         let all: Vec<u8> = history
             .iter()
@@ -111,13 +100,9 @@ impl RealCoreHarness {
             .collect();
         let after: Vec<u8> = history
             .iter()
-            .filter(|(mark, _)| *mark >= recorded.mark)
+            .filter(|(at, _)| *at >= mark)
             .flat_map(|(_, bytes)| bytes.clone())
             .collect();
-        let second = shared.capture_now(&session, botster_test_process::CLEANUP)?;
-        #[cfg(test)]
-        let second = shared.second.take().unwrap_or(second);
-        drop(shared);
         let size = row.request.size;
         let profile = row.request.color_profile.as_ref();
         let mut resumed = decoded(&pages, &size, "the capture")?;
@@ -161,10 +146,58 @@ mod slow_tests {
         terminal.snapshot().unwrap()
     }
 
-    fn titled(core: &mut dyn CoreApi, title: &str) {
+    /// Pumps Core with a later clock and never polls, until a pump posts an event (the `Activity` of a new output, Core
+    /// ST-7); returns how many the pumps posted.
+    fn pumped_without_poll(core: &mut dyn CoreApi) -> u32 {
+        let deadline = botster_test_process::Deadline::cleanup();
+        let wake = core.wake_handle();
+        let mut posted = 0;
+        loop {
+            posted += core
+                .pump(Now {
+                    monotonic: std::time::Instant::now(),
+                    unix: 1_000_100,
+                })
+                .events_posted;
+            if posted > 0 {
+                return posted;
+            }
+            assert!(!deadline.expired(), "Core never posted an event");
+            // timer: deadline — the cleanup bound ends a Core that never posts
+            wake.wait(deadline.remaining());
+        }
+    }
+
+    fn titled(core: &mut dyn CoreApi, session: &str, title: &str) {
         pump_until(core, |c| {
-            c.terminal_state(&sid("s1")).unwrap().title.as_deref() == Some(title)
+            c.terminal_state(&sid(session)).unwrap().title.as_deref() == Some(title)
         });
+    }
+
+    /// Pumps and polls until Core completes the capture `op`, and returns its id from the public `Completed`.
+    fn completed_capture(core: &mut dyn CoreApi, op: OpId) -> CaptureId {
+        let deadline = botster_test_process::Deadline::cleanup();
+        let wake = core.wake_handle();
+        loop {
+            core.pump(Now {
+                monotonic: std::time::Instant::now(),
+                unix: 1_000_000,
+            });
+            for event in core.poll_events(usize::MAX) {
+                if let Event::Completed {
+                    op: id,
+                    result: OpResult::Ok(OpOutput::Capture(done)),
+                } = event
+                {
+                    if id == op {
+                        return done.capture;
+                    }
+                }
+            }
+            assert!(!deadline.expired(), "Core never completed the capture");
+            // timer: deadline — the cleanup bound ends a capture that never completes
+            wake.wait(deadline.remaining());
+        }
     }
 
     /// R-62 on a real session of the prebuilt candidate, with the bytes of the `saved_cursor` transcript:
@@ -186,29 +219,40 @@ mod slow_tests {
             limits: serde_json::to_value(CoreLimits::default()).unwrap(),
         };
         let mut core = harness.open(&spec).expect("open");
-        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
-        core.begin(Op::Start { id: sid("s1") }).expect("start");
-        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
-        let output = |h: &mut RealCoreHarness, bytes: &[u8]| {
+        for session in ["s1", "s2"] {
+            created_with(&harness, core.as_mut(), session, harness.probe_env());
+            core.begin(Op::Start { id: sid(session) }).expect("start");
+            pump_until(core.as_mut(), |c| {
+                state(c, session) == SessionState::Running
+            });
+        }
+        let output = |h: &mut RealCoreHarness, session: &str, bytes: &[u8]| {
             h.control(
                 "a",
                 "pty_output",
-                &json!({"session": "s1", "bytes_hex": HexBytes(bytes.to_vec()).to_hex()}),
+                &json!({"session": session, "bytes_hex": HexBytes(bytes.to_vec()).to_hex()}),
             )
         };
-        assert_eq!(output(&mut harness, BEFORE), Ok(Value::Null));
-        titled(core.as_mut(), "r62-st6b-dec-1");
-        let shared = harness.handles["a"].resume.upgrade().unwrap();
-        core.begin(Op::CaptureSnapshot {
-            session: sid("s1"),
-            owner: ClientId("c1".into()),
-        })
-        .unwrap();
-        // The pumps take the events, and the layer records the completed capture.
-        pump_until(core.as_mut(), |_| !lock(&shared).captures.is_empty());
-        let capture = *lock(&shared).captures.keys().next().unwrap();
-        assert_eq!(output(&mut harness, AFTER), Ok(Value::Null));
-        titled(core.as_mut(), "r62-st6b-dec-2");
+        // The output of s2 goes between the outputs of s1: the history of s1 has only its own outputs, and its cut counts
+        // the outputs of every session.
+        let noise = |h: &mut RealCoreHarness, core: &mut dyn CoreApi, title: &str| {
+            let bytes = format!("\x1b]2;{title}\x07\x1b[1;31mother\x1b7");
+            assert_eq!(output(h, "s2", bytes.as_bytes()), Ok(Value::Null));
+            titled(core, "s2", title);
+        };
+        noise(&mut harness, core.as_mut(), "s2-1");
+        assert_eq!(output(&mut harness, "s1", BEFORE), Ok(Value::Null));
+        titled(core.as_mut(), "s1", "r62-st6b-dec-1");
+        let op = core
+            .begin(Op::CaptureSnapshot {
+                session: sid("s1"),
+                owner: ClientId("c1".into()),
+            })
+            .unwrap();
+        let capture = completed_capture(core.as_mut(), op);
+        noise(&mut harness, core.as_mut(), "s2-2");
+        assert_eq!(output(&mut harness, "s1", AFTER), Ok(Value::Null));
+        titled(core.as_mut(), "s1", "r62-st6b-dec-2");
 
         let resume = |h: &mut RealCoreHarness, session: &str, capture: CaptureId| {
             h.control(
@@ -217,16 +261,34 @@ mod slow_tests {
                 &json!({"session": session, "capture": capture}),
             )
         };
+        // R-69 item 3: after a quiet second capture, Core's open captures, pending ops, queue and next deadline are as before.
+        let public = |core: &dyn CoreApi| {
+            let diagnostics = core.diagnostics();
+            (
+                [
+                    diagnostics["captures"].clone(),
+                    diagnostics["pending_ops"].clone(),
+                    diagnostics["queued_events"].clone(),
+                ],
+                core.next_deadline(),
+            )
+        };
+        let before = public(core.as_ref());
+        assert_eq!(before.0[0], json!(1), "the transcript's capture");
         assert_eq!(
             resume(&mut harness, "s1", capture),
             Ok(json!({"equal": true}))
         );
+        assert_eq!(public(core.as_ref()), before);
         assert_eq!(
             resume(&mut harness, "s1", capture),
             Ok(json!({"equal": true})),
             "again"
         );
+        assert_eq!(public(core.as_ref()), before);
 
+        // Fault injection: the layer's copy of a capture without the saved cursor, then a second capture without it.
+        let shared = harness.handles["a"].resume.upgrade().unwrap();
         let pages = lock(&shared).captures[&capture].pages.clone();
         lock(&shared).captures.get_mut(&capture).unwrap().pages = Ok(without_saved_cursor(BEFORE));
         assert_eq!(
@@ -249,10 +311,19 @@ mod slow_tests {
         let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
         assert!(bad(resume(&mut harness, "s1", CaptureId(capture.0 + 100))));
         assert!(bad(resume(&mut harness, "s9", capture)));
-        created_with(&harness, core.as_mut(), "s2", harness.probe_env());
         assert!(
             bad(resume(&mut harness, "s2", capture)),
             "another session's capture"
+        );
+
+        // R-69: an `Activity` of the session's output that the driver has not polled.
+        assert_eq!(output(&mut harness, "s1", b"x"), Ok(Value::Null));
+        let posted = pumped_without_poll(core.as_mut());
+        assert!(posted > 0);
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Err(ControlError::UnsupportedFor("events_pending".into())),
+            "the pending events: {posted}"
         );
 
         core.begin(Op::Resize {
