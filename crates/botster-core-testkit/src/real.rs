@@ -1176,7 +1176,7 @@ impl CoreHarness for RealCoreHarness {
     /// harnesses serve it: the route is the client's, not the tap's.
     fn attach_stream(
         &mut self,
-        _handle: &str,
+        handle: &str,
         core: &mut dyn CoreApi,
         client: ClientId,
         session: &SessionId,
@@ -1189,7 +1189,20 @@ impl CoreHarness for RealCoreHarness {
             )
         };
         let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
-        let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        let mut route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        // The tapped harness records the rows of the handle's data directory: the route reads its session's input log there.
+        let rows = self
+            .handles
+            .get(handle)
+            .and_then(|h| self.rows.get(&h.data_dir))
+            .filter(|_| self.tapped);
+        if let Some(rows) = rows {
+            route = route.with_input(route::SessionInput {
+                rows: Arc::clone(rows),
+                session: session.clone(),
+                inputs: self.programs.inputs(),
+            });
+        }
         let result = core
             .attach(
                 client,

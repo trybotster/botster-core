@@ -7,10 +7,11 @@ use crate::worker::Workers;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
 use botster_core_contract::prelude::{InstanceId, RouteCloseReason, RouteId, SessionId};
+use botster_core_edges::edges::ProcessIdentity;
 use botster_core_edges::RouteTransport;
 use botster_core_host::session::Row;
 use botster_hub_conformance::route::RouteRead;
-use botster_route_codec::prelude::RouteEndReason;
+use botster_route_codec::prelude::{HexBytes, RouteEndReason};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
@@ -69,6 +70,28 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "route_stream_written",
     "route_fill",
 ];
+
+/// The op of the one segment of a route's `pty_input` log (plan 23bd). The harness does not know which op wrote which bytes,
+/// so it names none. An op is a decimal `u64` (Codec A.1), so this label can never be one: a `written_by_op` part never
+/// matches it, and neither does `written_without_op` (which wants no op). Literal parts compare the concatenated log, so the
+/// one segment serves them exactly.
+pub(crate) const UNATTRIBUTED_OP: &str = "testkit:unattributed";
+
+/// The answer of `pty_input` on a route, on both tiers: the log, and one segment that holds it, with [`UNATTRIBUTED_OP`].
+/// An empty log has no segment.
+pub(crate) fn route_pty_log(input: Vec<u8>) -> Value {
+    let hex = HexBytes(input).to_hex();
+    let segments: Vec<Value> = if hex.is_empty() {
+        vec![]
+    } else {
+        vec![json!({"op": UNATTRIBUTED_OP, "bytes": {"$bytes_hex": hex}})]
+    };
+    json!({"bytes": {"$bytes_hex": hex}, "segments": segments})
+}
+
+/// The session controls that a route also answers, for its own session: the conformance driver reads `route_expect_pty`'s
+/// log through the route. The harness registers them as session controls, so they are not in `ROUTE_CONTROLS`.
+const SESSION_CONTROLS_ON_ROUTE: &[&str] = &["pty_input"];
 
 /// The optional bool `key` of a control's arguments; absent is true (`route_gate`, `fail_writes`).
 pub(crate) fn flag(args: &Value, key: &str) -> Result<bool, String> {
@@ -141,28 +164,12 @@ impl TestkitRoute {
     /// then holds a frame that the stream does not take. The control returns when the program edge has the bytes, and the
     /// host is woken. A payload that has exited is refused.
     fn route_fill(&mut self) -> Result<Value, String> {
-        let fill = self
+        let max_frame_bytes = self
             .fill
             .as_ref()
-            .ok_or("route_fill needs a route that attach_stream built")?;
-        let max_frame_bytes = fill.max_frame_bytes;
-        let session = fill
-            .session
-            .as_ref()
-            .ok_or("route_fill: the route has no session row")?;
-        // The worker of the route's own session instance, as the row names it now (the worker can come after the attach,
-        // while `Starting`). A removed or recreated session is not the route's.
-        let row = session
-            .rows
-            .read()
-            .ok_or("route_fill: the route's session has no stored row (not yet, or removed)")?;
-        let row = Row::decode(&session.session, &row)
-            .filter(|row| row.instance == session.instance)
-            .ok_or("route_fill: the route's session instance is gone")?;
-        let worker = row
-            .worker
-            .ok_or("route_fill: the route's session has no worker process yet")?
-            .identity();
+            .ok_or("route_fill needs a route that attach_stream built")?
+            .max_frame_bytes;
+        let worker = self.session_worker("route_fill")?;
         if !self.workers.payload_alive(worker) {
             return Err(
                 "route_fill: the payload of the route's session has exited: it writes nothing more"
@@ -176,6 +183,34 @@ impl TestkitRoute {
             wake.signal();
         }
         Ok(json!({"bytes": bytes}))
+    }
+
+    /// The worker of the route's own session instance, as the row names it now (the worker can come after the attach, while
+    /// `Starting`). A removed or recreated session is not the route's.
+    fn session_worker(&self, op: &str) -> Result<ProcessIdentity, String> {
+        let session = self
+            .fill
+            .as_ref()
+            .and_then(|fill| fill.session.as_ref())
+            .ok_or_else(|| format!("{op}: the route has no session row"))?;
+        let row = session.rows.read().ok_or_else(|| {
+            format!("{op}: the route's session has no stored row (not yet, or removed)")
+        })?;
+        let row = Row::decode(&session.session, &row)
+            .filter(|row| row.instance == session.instance)
+            .ok_or_else(|| format!("{op}: the route's session instance is gone"))?;
+        Ok(row
+            .worker
+            .ok_or_else(|| format!("{op}: the route's session has no worker process yet"))?
+            .identity())
+    }
+
+    /// `pty_input` on a route (the conformance driver's `route_expect_pty` reads it through the route): every byte of PTY input
+    /// that the program edge of the route's session took, in order, as [`route_pty_log`] gives it.
+    fn pty_input(&self) -> Result<Value, String> {
+        let worker = self.session_worker("pty_input")?;
+        let (program, _) = self.workers.program_edge(worker)?;
+        Ok(route_pty_log(program.input_log()))
     }
 
     /// Writes the waiting bytes while the stream takes them. `Interrupted` writes again; any other error ends the writes.
@@ -296,12 +331,14 @@ impl RouteClient for TestkitRoute {
             "route_stream_written" => Ok(json!({"bytes": self.worker_end().written()})),
             // R-47 item 3, Core OU-3b: the session's output fills the stream and one frame more.
             "route_fill" => self.route_fill(),
+            // Core OU-1, DP-4: the input that reached the PTY of the route's session.
+            "pty_input" => self.pty_input(),
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
 
     fn has_control(&self, op: &str) -> bool {
-        ROUTE_CONTROLS.contains(&op)
+        ROUTE_CONTROLS.contains(&op) || SESSION_CONTROLS_ON_ROUTE.contains(&op)
     }
 }
 
@@ -380,10 +417,15 @@ mod tests {
         for &op in ROUTE_CONTROLS {
             assert!(client.has_control(op), "{op}");
         }
-        assert!(!client.has_control("pty_input"));
+        assert!(!client.has_control("pty_output"));
+        assert_eq!(
+            control(&mut client, "pty_output", json!({})).unwrap_err(),
+            "unsupported_control: pty_output"
+        );
+        // A route that `attach_stream` did not build has no session row, so it has no input log to read.
         assert_eq!(
             control(&mut client, "pty_input", json!({})).unwrap_err(),
-            "unsupported_control: pty_input"
+            "pty_input: the route has no session row"
         );
         assert_eq!(
             control(&mut client, "route_stream_holders", json!({})).unwrap(),
