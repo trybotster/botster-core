@@ -290,7 +290,11 @@ fn a_lost_worker_is_worker_gone_and_its_payload_ends() {
         args.as_object_mut()
             .unwrap()
             .extend(reason.as_object().unwrap().clone());
+        let alive =
+            |h: &mut TestkitHarness| h.control("a", "worker_alive", &json!({"session": "s1"}));
+        assert_eq!(alive(&mut harness), Ok(json!({"alive": true})));
         assert_eq!(harness.control("a", "lose_worker", &args), Ok(Value::Null));
+        assert_eq!(alive(&mut harness), Ok(json!({"alive": false})));
         assert_eq!(wake.wait(Duration::ZERO), Wake::Woken);
         assert_eq!(
             harness.control("a", "payload_alive", &json!({"session": "s1"})),
@@ -365,4 +369,27 @@ fn lose_worker_refuses_what_it_cannot_end() {
         ),
         Err(ControlError::Unsupported)
     );
+}
+
+/// `worker_alive` reads the worker of the session's row: a created session has none, and a session with no row is `Bad`.
+#[test]
+fn worker_alive_reads_only_a_recorded_worker() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, false);
+    assert_eq!(
+        harness.control("a", "worker_alive", &json!({"session": "s1"})),
+        Ok(json!({"alive": false}))
+    );
+    for args in [
+        json!({"session": "s9"}),
+        json!({"session": "s1", "extra": 1}),
+    ] {
+        assert!(
+            matches!(
+                harness.control("a", "worker_alive", &args),
+                Err(ControlError::Bad(_))
+            ),
+            "{args}"
+        );
+    }
 }
