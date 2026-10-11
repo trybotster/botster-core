@@ -83,3 +83,29 @@ I performed no reversal. The exact-head Linux gate supplies the completed gate e
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-11: evidence correction
+
+Exact head: `f63daf224c3feb9e2f4e35ae3de5bd4cdc414e22`.
+Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+The implementation has not changed. This round corrects the preceding acceptance of its Mac evidence.
+The Round 1 CLEAN at `7dfc5000bc5ffe85c735486a60d388c93ee331dd` is withdrawn until the required evidence is established.
+
+**AL-R2-1 — MEDIUM — the branch Mac record does not establish which source ran.**
+
+The branch log identifies an uncommitted tree and states that it matches the PR.
+It provides no head, tree, source hash, or retained diff to establish that match.
+I have no separate retained identity record. The P6 handoff has none for this run.
+My verified old storage and signal blobs establish only the old evidence's relation to the base.
+They do not establish the branch evidence's relation to the reviewed head.
+
+Plan revision 23ai requires a focused Mac run for portable code whose behavior the operating system decides.
+That rule covers this change's resource-limit, signal, and process-group behavior.
+Its log must be in the PR before the first READY. The Linux gate does not replace this required Mac proof.
+P6 must provide an existing retained source-identity record or a focused Mac record that identifies the tested head.
+The source review and exact-head Linux results remain valid. No implementation defect is identified.
+
+Integration raised this evidence gap. I confirmed it and sent the finding directly to P6.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN
