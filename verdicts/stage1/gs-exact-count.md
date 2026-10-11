@@ -94,3 +94,27 @@ The three xtask own diffs equal their previously reviewed diffs after removal of
 The source has zero new findings. The earlier parser review, prior-art check, ecosystem rationale, and count-versus-identity limit remain applicable. This inspection approves no exact-head execution evidence, pending removal, or merge. Formal CLEAN waits for READY, the final published body, the supplied full gate, the saved base-check log, and the published package artifact.
 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
+
+## Round 2 — imported head body finding
+
+- Head: `bbd25214835b4648623cb1e5ac3a89ac50f5d260`.
+- Base: `56fae5826f766b408abca06f99376e0506982bf9`.
+- Package artifact: `476c465673bf6a3ef08e9d9f14cbdcee2e33508e`, `verdicts/gs-gate-speed.md`.
+- Package receipt: `msg_plugin-w_1791728456_f317b5`.
+- Base-check receipt: `msg_plugin-w_1791728438_08f090`.
+
+Sol now reads the complete saved log `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-bbd25214-base-merge-check.log`. Both ancestry checks pass. Conditions 1, 2, and 3 fail on `.cargo/mutants.toml`. Both condition-4 checks pass. The appended source comparison removes only the four previously identified annotated lines. The source delta inspection above addresses that failed check. Sol does not convert its failed result to PASS.
+
+Sol reads the complete published package round and verifies its publication. The package review also finds no source defect. Sol independently fetches and reads the complete current PR body. Its head matches the reviewed head.
+
+### EC-SI-1 LOW — the body states earlier counts as current. OPEN.
+
+This finding agrees with package GS-EC-R2-1. The current body states 85 annotated entries out of 207 and 208 exclusions against 6201 mutants as the merged-head result. The current file has 81 count comments and 203 exclusion entries. Sol independently checks both counts with a standard TOML parse and static text parsing.
+
+Required change: state the current file counts. Describe the four removed exclusions. Add the new exact-head gate evidence when it is supplied. Keep the earlier gates clearly identified as historical evidence.
+
+This finding requires no source edit or repeat gate after the running gate. The owner says final READY follows a green gate. Sol has no final exact-head gate receipt yet and accepts none here. Formal CLEAN waits for READY, the corrected published body, the supplied exact-head gate, and package closure.
+
+No source finding is open. One body finding is open. The source, prior-art, ecosystem, and count-versus-identity limits remain as recorded above. Sol runs no execution job.
+
+VERDICT: NOT CLEAN (1 open) at bbd25214835b4648623cb1e5ac3a89ac50f5d260
