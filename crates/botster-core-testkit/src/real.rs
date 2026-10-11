@@ -72,6 +72,7 @@
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
+mod oracle;
 mod program;
 mod resume;
 
@@ -1112,7 +1113,11 @@ impl CoreHarness for RealCoreHarness {
                     | "host_crash"
                     | "reuse_pid"
                     | "bystander_alive"
+                    // A capability name, not a control (contracts controls doc; Core E1-1): `open` honours
+                    // `worker: {file_name}` with a wrapper of that name that execs the real worker (`wrapper`).
+                    | "worker_file_name"
             ) || program::CONTROLS.contains(&op)
+                || crate::oracle_controls::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
 
@@ -1141,6 +1146,9 @@ impl CoreHarness for RealCoreHarness {
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
+            "oracle_query_reply" if self.tapped => self.oracle_query_reply(handle, args),
+            "oracle_screen" if self.tapped => self.oracle_screen(handle, args),
+            "oracle_screen_payload" if self.tapped => crate::oracle_controls::screen_payload(args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
             "bystander_alive" if self.tapped => self.bystander_alive(args),
@@ -1176,7 +1184,7 @@ impl CoreHarness for RealCoreHarness {
     /// harnesses serve it: the route is the client's, not the tap's.
     fn attach_stream(
         &mut self,
-        _handle: &str,
+        handle: &str,
         core: &mut dyn CoreApi,
         client: ClientId,
         session: &SessionId,
@@ -1189,7 +1197,21 @@ impl CoreHarness for RealCoreHarness {
             )
         };
         let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
-        let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        let mut route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        // The tapped harness reads the handle's stored rows at its tap: the route reads its session's input log there.
+        let tap = self.tap(handle).ok().filter(|_| self.tapped);
+        if let Some(tap) = tap {
+            let instance = lock(&tap)
+                .stored_row(&row_key(session))
+                .and_then(|bytes| Row::decode(session, &bytes))
+                .map(|row| row.instance);
+            route = route.with_input(route::SessionInput {
+                tap: Arc::downgrade(&tap),
+                session: session.clone(),
+                instance,
+                inputs: self.programs.inputs(),
+            });
+        }
         let result = core
             .attach(
                 client,
@@ -1348,6 +1370,9 @@ mod slow_controls {
             "fail_next",
             "fail_handoff",
             "oracle_resume",
+            "oracle_query_reply",
+            "oracle_screen",
+            "oracle_screen_payload",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
@@ -1509,6 +1534,89 @@ mod slow_controls {
             "the record outlives the Remove"
         );
         assert!(bad(ready(&mut harness, "s2")), "removed");
+        drop(core);
+    }
+
+    /// Core OU-1, DP-4 (lead, plans 23aw and 23bd): a route of the tapped harness answers `pty_input` with the input that
+    /// the probe of its session read, in one segment with the unattributed op, as the testkit does. It has no other
+    /// control than its own and `pty_input`.
+    #[test]
+    fn pty_input_on_a_route_is_the_input_that_the_sessions_probe_read() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        // The probe connects to the socket that the environment names.
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        let options: AttachOptions = serde_json::from_value(
+            json!({"file_directory": "/tmp", "answers_queries": false, "input": true}),
+        )
+        .unwrap();
+        let (_, mut route) = harness
+            .attach_stream(
+                "a",
+                core.as_mut(),
+                ClientId("c".into()),
+                &sid("s1"),
+                options,
+            )
+            .expect("attached");
+        assert!(route.has_control("pty_input"));
+        assert!(!route.has_control("route_fill"));
+        assert_eq!(
+            route.control("pty_input", &Value::Null),
+            Ok(json!({"bytes": {"$bytes_hex": ""}, "segments": []})),
+            "nothing reached the PTY yet"
+        );
+        core.begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: botster_core_contract::prelude::InputPayload::Bytes {
+                bytes: botster_route_codec::prelude::HexBytes(b"xy".to_vec()),
+            },
+            guard: None,
+        })
+        .expect("write");
+        pump_until(core.as_mut(), |_| {
+            harness
+                .control("a", "pty_input", &json!({"session": "s1"}))
+                .unwrap()
+                == json!({"bytes": {"$bytes_hex": "7879"}})
+        });
+        assert_eq!(
+            route.control("pty_input", &Value::Null),
+            Ok(json!({"bytes": {"$bytes_hex": "7879"}, "segments": [
+                {"op": crate::route_client::UNATTRIBUTED_OP, "bytes": {"$bytes_hex": "7879"}}
+            ]}))
+        );
+        // The route belongs to the instance that it attached to: after a Remove, and after a Create and Start of the same id
+        // (a new instance), it has no input log.
+        core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s1"), SessionState::Exited { .. })
+        });
+        core.begin(Op::Remove { id: sid("s1") }).expect("remove");
+        pump_until(core.as_mut(), |c| c.get(&sid("s1")).is_err());
+        let gone = |route: &mut Box<dyn RouteClient>| {
+            let answer = route.control("pty_input", &Value::Null);
+            assert!(
+                matches!(&answer, Err(why) if why.contains("instance of s1 is gone")),
+                "{answer:?}"
+            );
+        };
+        gone(&mut route);
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        gone(&mut route);
+        drop(route);
         drop(core);
     }
 
@@ -2417,9 +2525,11 @@ mod slow_tests {
             "host_crash",
             "reuse_pid",
             "bystander_alive",
+            "worker_file_name",
         ]
         .into_iter()
         .chain(program::CONTROLS.iter().copied())
+        .chain(crate::oracle_controls::CONTROLS.iter().copied())
         {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
