@@ -1190,16 +1190,17 @@ impl CoreHarness for RealCoreHarness {
         };
         let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
         let mut route = route::RealRoute::new(client_end).map_err(stream_failed)?;
-        // The tapped harness records the rows of the handle's data directory: the route reads its session's input log there.
-        let rows = self
-            .handles
-            .get(handle)
-            .and_then(|h| self.rows.get(&h.data_dir))
-            .filter(|_| self.tapped);
-        if let Some(rows) = rows {
+        // The tapped harness reads the handle's stored rows at its tap: the route reads its session's input log there.
+        let tap = self.tap(handle).ok().filter(|_| self.tapped);
+        if let Some(tap) = tap {
+            let instance = lock(&tap)
+                .stored_row(&row_key(session))
+                .and_then(|bytes| Row::decode(session, &bytes))
+                .map(|row| row.instance);
             route = route.with_input(route::SessionInput {
-                rows: Arc::clone(rows),
+                tap,
                 session: session.clone(),
+                instance,
                 inputs: self.programs.inputs(),
             });
         }
@@ -1584,6 +1585,26 @@ mod slow_controls {
                 {"op": crate::route_client::UNATTRIBUTED_OP, "bytes": {"$bytes_hex": "7879"}}
             ]}))
         );
+        // The route belongs to the instance that it attached to: after a Remove, and after a Create and Start of the same id
+        // (a new instance), it has no input log.
+        core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s1"), SessionState::Exited { .. })
+        });
+        core.begin(Op::Remove { id: sid("s1") }).expect("remove");
+        pump_until(core.as_mut(), |c| c.get(&sid("s1")).is_err());
+        let gone = |route: &mut Box<dyn RouteClient>| {
+            let answer = route.control("pty_input", &Value::Null);
+            assert!(
+                matches!(&answer, Err(why) if why.contains("instance of s1 is gone")),
+                "{answer:?}"
+            );
+        };
+        gone(&mut route);
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        gone(&mut route);
         drop(route);
         drop(core);
     }
