@@ -7,8 +7,10 @@
 //! slow filter). A slow-only test is a test of the slow list that the default list does not have (the same binary id and
 //! test name). Each slow-only test must be one of these:
 //! - a test that is not ignored, and that the slow filter selects;
-//! - an ignored test of the conformance binary `botster-core::slow_conformance` whose id (the last `::` segment of its
-//!   name) is in `conformance/core-real-pending.txt`: the pending-real trials, which `test_budget::pending_real` runs.
+//! - an ignored trial of the conformance binary `botster-core::slow_conformance`, named exactly `[<kind>] conf::<id>` with
+//!   a kind of the real tier (`IGNORED_KINDS`, from `tests/suite/mod.rs`). The harness takes these kinds from the list
+//!   files that the `lists` step checks. A `pending-real` trial must also have its `conf::<id>` in
+//!   `conformance/core-real-pending.txt`: `test_budget::pending_real` runs those.
 //!
 //! Every other slow-only test is a violation, which names the binary and the test. The check fails closed: a list that it
 //! cannot read, a list with no test, or no slow-only test at all (the slow features changed nothing) is an error.
@@ -18,8 +20,39 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
-/// The binary whose ignored tests are the pending-real trials.
+/// The real tier's conformance binary: the only binary with ignored slow-only tests.
 const PENDING_BINARY: &str = "botster-core::slow_conformance";
+
+/// The kinds of the ignored trials of the real tier (`tests/suite/mod.rs`). Any other kind is a violation.
+const IGNORED_KINDS: [&str; 6] = [
+    "pending",
+    "pending: no transcript",
+    "pending-real",
+    "withdrawn",
+    "deferred",
+    "testkit-proven",
+];
+
+/// An ignored test that the real tier's conformance harness ignored by its lists: in the conformance binary, named
+/// `[<kind>] conf::<id>` with a kind of `IGNORED_KINDS`; a `pending-real` trial has its `conf::<id>` in `pending`.
+fn listed_trial(binary: &str, name: &str, pending: &BTreeSet<String>) -> bool {
+    let Some((kind, id)) = name
+        .strip_prefix('[')
+        .and_then(|rest| rest.split_once("] "))
+    else {
+        return false;
+    };
+    let id_form = id.strip_prefix("conf::").is_some_and(|rest| {
+        !rest.is_empty()
+            && rest
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    });
+    binary == PENDING_BINARY
+        && id_form
+        && IGNORED_KINDS.contains(&kind)
+        && (kind != "pending-real" || pending.contains(id))
+}
 
 /// A test of a nextest list, by binary id and test name.
 type Key = (String, String);
@@ -76,11 +109,10 @@ fn violations(
         if default.contains_key(&(binary.clone(), name.clone())) {
             continue;
         }
-        let id = name.rsplit("::").next().unwrap_or(name);
         if listed.ignored {
-            if binary != PENDING_BINARY || !pending.contains(id) {
+            if !listed_trial(binary, name, pending) {
                 found.push(format!(
-                    "{binary} {name}: only the slow features build it, and it is ignored; only a pending-real id of \
+                    "{binary} {name}: only the slow features build it, and it is ignored; only a listed trial of \
                      {PENDING_BINARY} may be ignored there"
                 ));
             }
@@ -114,7 +146,10 @@ fn list(root: &Path, target: &Path, selection: &[String]) -> Result<BTreeMap<Key
             "--target-dir",
         ])
         .arg(target)
-        .args(selection);
+        .args(selection)
+        // The default profile: a run under nextest (the slow tier, a mutation run) sets the variable to its own profile,
+        // which another workspace need not have. The profile does not change the list: no profile sets a default filter.
+        .env_remove("NEXTEST_PROFILE");
     let output = crate::caps::apply(&mut command)
         .output()
         .context("start cargo nextest list")?;
@@ -269,34 +304,95 @@ mod tests {
         assert_eq!(slow_only(&default, &slow), 3);
     }
 
-    /// An ignored slow-only test passes only in the conformance binary with a pending-real id: not in another binary, not
-    /// with an id that is not pending, and not selected by the filter instead.
+    /// The violation line of an ignored slow-only test.
+    fn ignored(binary: &str, name: &str) -> String {
+        format!(
+            "{binary} {name}: only the slow features build it, and it is ignored; only a listed trial of \
+             botster-core::slow_conformance may be ignored there"
+        )
+    }
+
+    /// The violations of a slow list with one ignored slow-only test, which the filter selects; `pending` is
+    /// `conf::a1_1_x`.
+    fn one_ignored(binary: &str, name: &str) -> Vec<String> {
+        let slow = tests(&[(binary, name, true, true)]);
+        violations(&BTreeMap::new(), &slow, &ids(&["conf::a1_1_x"]))
+    }
+
+    /// Each kind of the real tier passes in the conformance binary, and a pending-real trial passes only with its full
+    /// `conf::<id>` in the pending-real file (the last segment alone is not the id).
     #[test]
-    fn an_ignored_slow_only_test_passes_only_as_a_pending_real_trial() {
-        let default = tests(&[("a", "shared", true, false)]);
-        let slow = tests(&[
-            ("a", "shared", true, false),
-            (PENDING_BINARY, "conf::pending_id", true, false),
-            (PENDING_BINARY, "conf::other_id", true, true),
-            ("a::slow_x", "conf::pending_id", true, true),
-        ]);
-        let ignored = |binary: &str, name: &str| {
-            format!(
-                "{binary} {name}: only the slow features build it, and it is ignored; only a pending-real id of \
-                 botster-core::slow_conformance may be ignored there"
-            )
-        };
-        assert_eq!(
-            violations(&default, &slow, &ids(&["pending_id"])),
-            [
-                ignored("a::slow_x", "conf::pending_id"),
-                ignored(PENDING_BINARY, "conf::other_id"),
-            ]
-        );
-        assert_eq!(
-            violations(&default, &slow, &ids(&["pending_id", "other_id"])),
-            [ignored("a::slow_x", "conf::pending_id")]
-        );
+    fn a_listed_trial_of_each_kind_passes_and_a_pending_real_id_must_be_in_the_file() {
+        for kind in IGNORED_KINDS {
+            let name = format!("[{kind}] conf::a1_1_x");
+            assert_eq!(
+                one_ignored(PENDING_BINARY, &name),
+                Vec::<String>::new(),
+                "{kind}"
+            );
+        }
+        let slow = tests(&[(PENDING_BINARY, "[pending-real] conf::a1_1_x", true, false)]);
+        for pending in [&[][..], &["a1_1_x"], &["conf::a1_1_y"]] {
+            assert_eq!(
+                violations(&BTreeMap::new(), &slow, &ids(pending)),
+                [ignored(PENDING_BINARY, "[pending-real] conf::a1_1_x")],
+                "{pending:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ignored_trial_of_another_binary_is_a_violation() {
+        for binary in [
+            "a::slow_x",
+            "botster-core::conformance",
+            "botster-core::slow_conformance_x",
+        ] {
+            assert_eq!(
+                one_ignored(binary, "[pending] conf::a1_1_x"),
+                [ignored(binary, "[pending] conf::a1_1_x")]
+            );
+        }
+    }
+
+    #[test]
+    fn a_plain_ignored_test_is_a_violation() {
+        for name in ["conf::a1_1_x", "tests::slow_ignored", "a1_1_x"] {
+            assert_eq!(
+                one_ignored(PENDING_BINARY, name),
+                [ignored(PENDING_BINARY, name)]
+            );
+        }
+    }
+
+    #[test]
+    fn an_ignored_trial_of_an_unknown_kind_is_a_violation() {
+        for kind in ["real-only", "pending: strict", "Pending", "pending ", ""] {
+            let name = format!("[{kind}] conf::a1_1_x");
+            assert_eq!(
+                one_ignored(PENDING_BINARY, &name),
+                [ignored(PENDING_BINARY, &name)]
+            );
+        }
+    }
+
+    #[test]
+    fn a_malformed_trial_name_is_a_violation() {
+        for name in [
+            "[pending] a1_1_x",
+            "[pending] conf::",
+            "[pending] conf::a1 x",
+            "[pending] conf::a1_1_x ",
+            "[pending] conf::A1_1_x",
+            "[pending]conf::a1_1_x",
+            "pending] conf::a1_1_x",
+            "[pending] [pending] conf::a1_1_x",
+        ] {
+            assert_eq!(
+                one_ignored(PENDING_BINARY, name),
+                [ignored(PENDING_BINARY, name)]
+            );
+        }
     }
 }
 
@@ -308,8 +404,8 @@ mod slow_tests {
 
     /// The fixture's package is `botster-core`, with a `slow` feature and the test target `slow_conformance`. Its library
     /// has a `mod tests` that only the slow feature builds: the slow filter does not select it, and the check names it.
-    /// Renamed `slow_tests`, the filter selects it. The ignored test `conf::pending_id` of `slow_conformance` passes only
-    /// while its id is pending-real.
+    /// Renamed `slow_tests`, the filter selects it. The fixture's `slow_conformance` lists the ignored trial
+    /// `[pending-real] conf::pending_id` as the real harness names it; it passes only while `conf::pending_id` is pending-real.
     #[test]
     fn a_slow_only_test_outside_the_filter_or_an_ignored_one_not_pending_fails() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -331,7 +427,7 @@ mod slow_tests {
         // fixture, and cargo would reuse that build.
         let target = dir.path().join("target");
         let packages = ["botster-core".to_string()];
-        let pending = ids(&["pending_id"]);
+        let pending = ids(&["conf::pending_id"]);
         let unrun = "botster-core tests::runs_only_under_slow: only the slow features build it, and the slow filter \
                      does not select it, so no tier runs it";
         assert_eq!(
@@ -351,8 +447,8 @@ mod slow_tests {
         assert_eq!(
             check(dir.path(), &target, &packages, &ids(&[])).unwrap(),
             [
-                "botster-core::slow_conformance conf::pending_id: only the slow features build it, and it is ignored; \
-                 only a pending-real id of botster-core::slow_conformance may be ignored there"
+                "botster-core::slow_conformance [pending-real] conf::pending_id: only the slow features build it, and it \
+                 is ignored; only a listed trial of botster-core::slow_conformance may be ignored there"
             ]
         );
     }
