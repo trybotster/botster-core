@@ -48,28 +48,11 @@ pub(super) struct Fill {
     pub(super) max_frame_bytes: usize,
 }
 
-impl std::fmt::Debug for Fill {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Fill")
-            .field("worker_send_buffer", &self.worker_send_buffer)
-            .field("max_frame_bytes", &self.max_frame_bytes)
-            .finish_non_exhaustive()
-    }
-}
-
 /// What the `route_stream_holders` of a route needs (plan 23bf): the identity of the worker end's socket, read before Core
 /// took the end, and the bytes that Core moved through that socket at its edges ([`crate::edge_tap::Tap::stream_bytes`]).
 pub(super) struct Holders {
     pub(super) socket: Socket,
     pub(super) host_bytes: Box<dyn Fn() -> Result<u64, String>>,
-}
-
-impl std::fmt::Debug for Holders {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Holders")
-            .field("socket", &self.socket)
-            .finish_non_exhaustive()
-    }
 }
 
 /// N = C + F (R-47 item 3): C is what the transport holds outside the worker, the worker end's `SO_SNDBUF` plus the client
@@ -970,12 +953,6 @@ mod slow_tests {
             worker_send_buffer: 1,
             max_frame_bytes: 1,
         });
-        // A failed trial prints the route: the fill names its sizes, and the requests name themselves.
-        assert_eq!(
-            format!("{:?}", route.fill.as_ref().unwrap()),
-            "Fill { worker_send_buffer: 1, max_frame_bytes: 1, .. }"
-        );
-        assert_eq!(format!("{:?}", programs.requests()), "Requests");
         assert!(route
             .control("route_fill", &json!({}))
             .unwrap_err()
@@ -996,11 +973,6 @@ mod slow_tests {
             socket,
             host_bytes: Box::new(|| Ok(7)),
         });
-        let debug = format!("{:?}", route.holders.as_ref().unwrap());
-        assert!(
-            debug.starts_with("Holders { socket: Socket {") && debug.ends_with(".. }"),
-            "{debug}"
-        );
         let answer =
             |route: &mut RealRoute| route.control("route_stream_holders", &json!({})).unwrap();
         assert_eq!(answer(&mut route), json!({"holders": 1, "host_bytes": 7}));
