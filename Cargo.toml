@@ -14,8 +14,9 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj and 23ak; contracts-v0.1.29 = 65f76ab: contracts-v0.1.27 + contracts #32, the
-# R-56 await_pty fences, + #33, await_title and the ev_2 sentinel (R-57), + #34, expect_closed ended (R-58), + rulings R-54 to R-58;
+# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj and 23ak; contracts-v0.1.29 = 65f76ab: contracts-v0.1.27 + contracts #31, the R-52
+# row text, + #32, the R-56 await_pty fences, + #33, await_title and the ev_2 sentinel (R-57), + #34, expect_closed ended (R-58), + rulings
+# R-54 to R-58;
 # contracts-v0.1.28 = 94b63b8 was not pinned; contracts-v0.1.27 = b161db8: contracts-v0.1.26 + contracts #30, the
 # probe control socket (BOTSTER_PROBE_CONTROL, CoreHarness::probe_env) and the ad_3 output fence, + rulings R-52 and R-53; contracts-v0.1.26 = 0ac061d: contracts-v0.1.25 + contracts #29, the
 # output check speed fix, with no ledger, transcript or manifest change; contracts-v0.1.25 = ff34059, manifest-final39 unchanged: the
