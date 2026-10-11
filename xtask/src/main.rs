@@ -7,6 +7,7 @@ mod fsutil;
 mod gate_decisions;
 mod high_tier;
 mod lists;
+mod mutant_logs;
 mod mutants_cited;
 mod mutants_stale;
 mod platform_code;
