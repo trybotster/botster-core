@@ -17,6 +17,7 @@ mod public_api;
 #[cfg(test)]
 mod signal_bans;
 mod signals;
+mod slow_coverage;
 mod taint;
 mod test_budget;
 mod timers;
@@ -45,6 +46,7 @@ commands:
   prebuild-worker                    build the real-process binaries into target/candidate with a sha256 manifest
   test-budget [--slow] [options]     run a test tier under nextest and enforce its budgets
   slow                               the slow tier (test-budget --slow)
+  slow-coverage                      every test that only the slow features build runs in the slow tier
 
 Heavy commands need the parallelism cap: launch them as
   botsterq run --label \"core <package> ...\" --deadline <d> -- env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask <command>";
@@ -77,6 +79,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("prebuild-worker", prebuild::command, None),
     ("test-budget", test_budget::command, None),
     ("slow", test_budget::command, Some(&["--slow"])),
+    ("slow-coverage", slow_coverage::command, None),
 ];
 
 /// What the arguments ask for.
@@ -148,8 +151,9 @@ mod tests {
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
             ("public-api", public_api::command, given.clone()),
             ("prebuild-worker", prebuild::command, given.clone()),
-            ("test-budget", test_budget::command, given),
+            ("test-budget", test_budget::command, given.clone()),
             ("slow", test_budget::command, strings(&["--slow"])),
+            ("slow-coverage", slow_coverage::command, given.clone()),
         ]
     }
 
