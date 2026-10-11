@@ -142,3 +142,37 @@ Both reported findings now have verified source or documentation corrections.
 The replacement exact-head gate, package artifact, and final READY remain pending.
 This body inspection completes no formal round and grants no CLEAN verdict.
 I run no reviewer execution job.
+
+## Final READY evidence inspection — 2026-10-10 — Package artifact pending
+
+READY head: `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+Base: `cf3bcaa93faa240b418fa2248884a96581fd82c3`.
+Receipt: `msg_plugin-w_1791695059_7e623c`.
+The complete source delta after the initial e6b67617 inspection remains the one corrected positive proof: 32 insertions and 11 deletions.
+The final source diff check passes. No other source, list, pin, or exclusion changes after that initial inspection.
+The only mutation-configuration change from the base remains the reviewed proof names and their comment. No exclusion is added.
+
+Exact-head gate: `~/botster-sessions/gates/botster-core-stage1-p4a-alloc-peak-cc834158-pool-20261010-215500-44897.log`.
+I read the exact head and base, all result summaries, conformance reports, positive and negative allocation proof results, and every mutation outcome.
+All ten CI steps pass in 364.9 seconds on msa1.
+The job exits zero after 524 seconds, with 152 queued seconds and 372 running seconds. The wrapper exits zero after 525 seconds.
+Default: 1596 passed, 484 skipped, in 11.521 seconds.
+Slow: 408 passed, 1987 skipped, in 91.500 seconds.
+Both testkit conformance reports show 206 passed and zero failed.
+Strict pending runs 373/394, with 21 real-only IDs and two held IDs.
+Testkit minimum is 55/69; real-passing is 35/68; real-accepted is 36/69.
+Real-pending remains 83, with zero passing IDs.
+The real runner names DP-3 as testkit-proven and does not claim a real allocator measurement.
+
+The removed DP-3 ID passes in 0.206 seconds through the ordinary testkit harness.
+The corrected per-thread worker-frame proof passes in 0.008 seconds.
+The other-thread negative proof, first-allocation proof, zeroed/realloc proof, controls, and separate no-allocator target all pass.
+All seven generalized unsafe-exception proofs pass.
+Stage 1 records 46 distinct mutants: 45 caught, one unviable, zero missed, and zero timeouts, in 197.3 seconds.
+I read all 46 individual outcomes, including the testkit controls and unsafe-exception decisions. No mutant identity repeats.
+Stage 2 skips because stage 1 has no miss. The complete mutation step passes in 199.4 seconds.
+No failed, timed-out, or signal-ended test result occurs in the gate.
+
+Both reported findings have verified corrections. The exact-head gate is now verified.
+The formal package artifact remains pending, so this inspection completes no integration round and grants no CLEAN verdict.
+I run no reviewer execution job.
