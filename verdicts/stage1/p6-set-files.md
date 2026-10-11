@@ -73,3 +73,17 @@ It requires no additional focused Mac execution for its own delta.
 I find no integration source defect. The exact-head package verdict remains pending and is requested.
 This inspection issues no formal CLEAN verdict before I read that artifact.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+### Package finding received before Round 1
+
+Receipt: `msg_plugin-w_1791705258_39184e`.
+The package reviewer reports SF-R1-1 LOW at the same inspected head.
+I confirm `xtask/src/base_merge/tests.rs:580` asserts `SET_FILES` directly against the two internal paths.
+That assertion checks the implementation constant. The user requires assertions on public behavior.
+The repository tests already check the real pending list's accepted removals and a non-set list's rejected merge.
+The correction must remove the constant assertion and its associated comment and PR-body claim.
+The correction must retain those public behavior proofs.
+My preceding inspection missed this test-policy issue. Its statement that no integration source defect exists does not close this finding.
+The package reviewer is completing its evidence review. Its committed exact-head verdict remains pending.
+This inspection still issues no formal verdict. SF-R1-1 remains open for the formal round and correction.
