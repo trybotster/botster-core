@@ -182,3 +182,35 @@ Sol has not received or reviewed a completed full gate on 0e222c59. This record 
 Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) carries to 0e222c592d17995380ec6f20449f91d71207d2fc; exact-head gate acceptance remains pending.
+
+
+## Completion: exact imported-head gate
+
+- Head: `0e222c592d17995380ec6f20449f91d71207d2fc`.
+- Base: `c8907b74bd247002784843e1a12f6487b08c579f`.
+- Implementer receipt: `msg_plugin-w_1791714898_4252a2`.
+- Package completion: `2b1b153db9820c3d1cb0d1c3fa10f58ecb40c45e`, verdicts/gs-gate-speed.md.
+- Package receipt: `msg_plugin-w_1791714939_2dd542`.
+
+Sol read the complete package source-carry, cause-confirmation, and final gate sections.
+Their written cause confirmation preserves the limits recorded above.
+Sol read the retained exact-head gate's header, suite and fixture results, all 39 mutation outcomes, catch reports, summary, and completion:
+`~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-0e222c59-pool-20261011-033134-11371.log`.
+All ten steps pass, total 155.9 seconds. The header identifies the exact imported head and current recorded base.
+The default tier passes 1624 tests in 10.614 seconds. The slow tier passes 467 tests in 29.961 seconds.
+The real-tool flaky fixture passes in 1.598 seconds.
+Stage 1 reports 39 mutants: 35 caught, four unviable, zero missed, and zero timeout, in 59.9 seconds.
+Sol independently parses the full outcome and catch-report identities with multiplicity.
+All 39 outcome identities are unique. Each of the 35 caught identities has exactly one named catching-test line.
+The full caught and report identity multisets are equal.
+The candidate-filter mutation is caught. The candidate regex's Default replacement is unviable, not accepted as a catch.
+Stage 2 does not run because stage 1 misses none. The complete mutation step takes 62.0 seconds.
+Fuzz starts no trial because no changed crate has a decoder harness.
+The job exits 0 after 163 seconds with zero queued seconds. The wrapper exits 0 after 164 seconds.
+
+The new-head gate meets the lead's recorded one-gate condition and the exact-head/full-green requirement for this recorded base.
+The red db4fd197 gate and its attribution limits remain on the record. The diagnostic repeat of that old head supplies no acceptance evidence.
+No merge receipt has been read. The lead still checks the current v1 base before merge.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 0e222c592d17995380ec6f20449f91d71207d2fc; exact-head gate verified.
