@@ -111,6 +111,35 @@ fn end_child_worker(pid: rustix::process::Pid) {
     let _ = waitpid(Some(pid), WaitOptions::empty());
 }
 
+/// The exit status of `child`, an unreaped worker of this test, once it is available by `deadline`; then the child is
+/// reaped by its exact pid. The wait is the testkit's `reap_within`: it blocks on the child's exit event (a pidfd on Linux,
+/// kqueue on macOS), never on a sleep. A worker is a std `Child`, not an `OwnedChild`, because `OwnedWorker` ends it with
+/// SIGTERM first. When the deadline comes first, the report names `step` and the pid, and the child stays unreaped, so its
+/// owner's drop still ends it (and the payload guard still ends the payload group).
+fn status_within(
+    child: &mut Child,
+    step: &str,
+    deadline: Deadline,
+) -> Result<std::process::ExitStatus, String> {
+    let id = child.id();
+    match botster_test_process::reap_within(child, deadline) {
+        Ok(Some(status)) => Ok(status),
+        Ok(None) => Err(format!(
+            "{step}: the child {id} did not end within {:?}",
+            deadline.limit()
+        )),
+        Err(error) => Err(format!(
+            "{step}: the child {id} cannot be observed or reaped: {error}"
+        )),
+    }
+}
+
+/// [`status_within`] with the cleanup bound (`Deadline::cleanup`), and a failure of the test at `step` when the child does
+/// not end within it.
+fn status_by_bound(child: &mut Child, step: &str) -> std::process::ExitStatus {
+    status_within(child, step, Deadline::cleanup()).unwrap_or_else(|report| panic!("{report}"))
+}
+
 /// The host end of one control link, written with the link's own codec. It checks only what the worker sends.
 struct Link {
     stream: UnixStream,
@@ -240,7 +269,10 @@ impl Session {
             matches!(report, WorkerMsg::RemoveResult { .. }),
             "{report:?}"
         );
-        let status = self.worker.worker.wait().unwrap();
+        let status = status_by_bound(
+            &mut self.worker.worker,
+            "LC-7: the worker ends after RemoveResult",
+        );
         assert_eq!(
             status.code(),
             Some(0),
@@ -622,8 +654,29 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
     assert_eq!(first_line(&ready).1, "up\n");
     s.signal_worker(rustix::process::Signal::TERM);
     assert_eq!(s.link.report(), exited(None, Some(9)));
-    let status = s.worker.worker.wait().unwrap();
+    let status = status_by_bound(&mut s.worker.worker, "R12: the worker ends after SIGTERM");
     assert_eq!(status.code(), Some(0));
+}
+
+/// The test's own wait for a worker: a worker that does not end (its payload runs) fails the wait at its deadline, with the
+/// step and its pid. A plain `Child::wait` would block here, because the worker never ends on its own. The worker stays the
+/// test's unreaped child: the link still works, and the bounded wait of `remove` then reaps it with code 0.
+#[test]
+fn a_worker_that_does_not_end_fails_the_bounded_wait_with_its_pid() {
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()), 5000);
+    let id = s.worker.worker.id();
+    // timer: deadline — the proof's own short bound, so that the test does not wait the cleanup bound; not a contract value.
+    let deadline = Deadline::after(Duration::from_millis(100));
+    let report = status_within(&mut s.worker.worker, "the proof step", deadline).unwrap_err();
+    assert_eq!(
+        report,
+        format!("the proof step: the child {id} did not end within 100ms")
+    );
+    s.link.msg(&HostMsg::Stop);
+    assert_eq!(s.link.report(), exited(None, Some(15)));
+    s.remove();
 }
 
 /// The test's own link helper (F8): two complete frames and the start of a third in ONE read are all delivered, in order,
@@ -681,7 +734,7 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
     );
     // SIGKILL prevents every production cleanup action in the worker.
     session.signal_worker(rustix::process::Signal::KILL);
-    session.worker.worker.wait().unwrap();
+    status_by_bound(&mut session.worker.worker, "the worker ends after SIGKILL");
     let mut fds = [rustix::event::PollFd::new(
         reader.get_ref(),
         rustix::event::PollFlags::IN,
@@ -1013,25 +1066,24 @@ fn parent_death_ends_the_driver_observer() {
         "{}::observer_parent",
         module_path!().split_once("::").unwrap().1
     );
-    let mut parent = ObserverParent(Some(
+    // The drop of an OwnedChild kills the parent and reaps it within the cleanup bound.
+    let mut parent = OwnedChild::spawn(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &name, "--nocapture"])
             .env("BOTSTER_DRIVER_PARENT_ROOT", root.path())
             .stdin(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap(),
-    ));
-    let child = parent.0.as_mut().unwrap();
-    let mut reader = BufReader::new(child.stderr.take().unwrap());
+            .stdout(std::process::Stdio::null()),
+    )
+    .unwrap();
+    let mut reader = BufReader::new(parent.take_stderr().unwrap());
     let mut ready = String::new();
     reader.read_line(&mut ready).unwrap();
     assert!(
         ready.trim().parse::<u32>().is_ok(),
         "observer ready: {ready}"
     );
-    child.kill().unwrap();
+    parent.kill().unwrap();
     drop(parent);
     let (done, result) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1043,17 +1095,6 @@ fn parent_death_ends_the_driver_observer() {
         .recv_timeout(Duration::from_secs(10))
         .expect("the observer ended after its test parent died")
         .unwrap();
-}
-
-struct ObserverParent(Option<Child>);
-
-impl Drop for ObserverParent {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-    }
 }
 
 #[test]
