@@ -26,7 +26,10 @@ Message: `msg_plugin-w_1791714268_35bab6`.
 The reviewer checked the final exact-head gate receipt. Every step passed; all 7 mutants were caught, including 5 in stage 2.
 Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-program-ready-15633946-pool-20261011-032441-61505.log`.
 The gate names base `5ac94fabf41909a733267a62b692c1a4ee72bf62` and ends with exit 0.
-A merge receipt has not arrived in this session.
+The integration reviewer reports completion CLEAN in `14f1d685979d04da55dbb86d704217149053ef52`, round 3.
+Message: `msg_plugin-w_1791714711_df4927`.
+The package reviewer checked merge `c8907b74bd247002784843e1a12f6487b08c579f` in the local Git object store.
+Its parents are the recorded base and reviewed head. Its tree has no difference from the reviewed and gated head.
 The earlier integration NOT CLEAN verdict was `25a1ca56597ed6ee463e715ab2983b297de873c2`.
 The retained Mac failure reproduces on plain v1 and remains explicit in the verdict.
 The remaining RC controls have no submitted head or verdict in this session.

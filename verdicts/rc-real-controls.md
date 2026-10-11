@@ -264,3 +264,13 @@ Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-progr
 Every step passed. All 7 mutants were caught, including 5 in stage 2. No mutant was missed or timed out.
 The gate ended with exit 0. Both source CLEAN verdicts now have an exact-head green gate.
 This receipt does not establish a merge. The reviewer ran no gate.
+
+### Integration completion and merge receipt
+
+The integration reviewer reports completion CLEAN at the same exact head.
+Integration verdict: `14f1d685979d04da55dbb86d704217149053ef52`, `verdicts/stage1/rc-program-ready.md`, round 3.
+The report arrived in `msg_plugin-w_1791714711_df4927`.
+The package reviewer checked merge commit `c8907b74bd247002784843e1a12f6487b08c579f` in the local Git object store.
+Its parents are base `5ac94fabf41909a733267a62b692c1a4ee72bf62` and reviewed head `15633946e020a9d092ff2fcb8d0bf20560efd202`.
+Its tree has no difference from the reviewed and gated head.
+The Mac failure limits remain explicit. The reviewer ran no test or gate.
