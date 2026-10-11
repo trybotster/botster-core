@@ -12,8 +12,12 @@
 # active; each fails on the real tier (the gate on 97a8015a) and is listed here with its cause and owner (lead, 2026-10-09).
 # The merge of v1 dc7fb11d (#210, the real worker endpoint) made the 7 ids of the real-tier adoption group pass (the gate on
 # dfdcd05f), so they are not listed.
+# The real controls corrupt_registry_row, payload_alive and lose_worker (P5, real-controls PR A) made 6 ids of the adoption group
+# pass; with them, a2_3_lost_session_closes_routes_session_lost stops at attach_stream and ev_5_full_queue_defers_transition_not_output
+# at pty_output, so they are listed in those groups.
 
-# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (21).
+# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (22).
+conf::a2_3_lost_session_closes_routes_session_lost
 conf::a2_4_other_osc_forms_stay_in_output
 conf::a7_1_frame_cap_above_route_frame_max_is_invalid_input
 conf::a7_1_overlong_route_tag_or_owner_is_invalid_input
@@ -36,7 +40,7 @@ conf::lc_12_drop_leaves_workers_running
 conf::ou_1_attach_options_carry_no_paste_policy
 conf::ou_1_terminal_format_is_negotiated_against_the_target_worker
 
-# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (32).
+# the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (33).
 conf::a2_2_cancel_is_ok_cancelled_never_err
 conf::a2_2_cancel_race_reports_the_real_outcome
 conf::ad_3_adopted_equals_started
@@ -46,6 +50,7 @@ conf::dp_3_screen_is_one_frame_within_max_screen_frame_bytes
 conf::ev_2_drop_oldest_with_marker
 conf::ev_2_one_marker_per_session
 conf::ev_2_retired_instance_never_creates_a_loss_marker
+conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
 conf::in_10_terminal_guard_refuses_after_a_redraw_before_start
 conf::in_2_link_loss_is_unknown_not_zero
@@ -70,29 +75,21 @@ conf::tm_3_next_deadline_is_host_armed
 conf::tm_4_silent_fires_once_at_threshold
 conf::tm_5_deadlines_in_order
 
-# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (22).
+# the adoption and worker controls (withhold_control_link, lose_worker, impostor_worker, announce_protocol, payload_alive, hold_start_at, corrupt_registry_row, fail_next): their real forms by steward ruling R-49 at the HostEdges tap and the endpoint path, P5 (real-controls PRs) on P6's harness (14).
 conf::a10_1_wrong_instance_is_never_signalled
 conf::a10_1_wrong_token_is_never_signalled
-conf::a10_2_corrupted_row_is_lost_registry_corrupt
 conf::a2_1_adopt_completes_ok_with_the_state_it_reached
-conf::a2_1_read_of_created_or_lost_is_wrong_state
-conf::a2_3_lost_session_closes_routes_session_lost
 conf::a5_3_only_sync_column_codes_scripted
 conf::a5_3_sync_refusal_has_no_op_event_slot_or_state
 conf::a6_1_withheld_control_link_gives_worker_unreachable_not_worker_gone
 conf::a6_2_out_of_set_hello_is_lost_worker_version
-conf::ad_1_running_adopts_running
 conf::ad_2_lost_row_keeps_id_and_allows_retry
 conf::ad_4_absent_worker_protocol_is_unknown_never_compatible
 conf::ad_4_compatibility_is_not_a_guarantee_of_adoption_auth_and_reachability_can_still_fail
 conf::ad_4_unknown_version_is_lost
 conf::ad_6_token_and_instance_checked
 conf::ad_7_payload_launches_after_durable_identity
-conf::ev_5_full_queue_defers_transition_not_output
-conf::ev_5_stop_kills_while_queue_full
-conf::lc_12_stop_all_leaves_created_exited_lost
 conf::lc_9_worker_protocol_absent_for_an_unreachable_worker_whose_hello_was_never_read
-conf::tm_6_more_means_runnable_not_blocked
 
 # the route fault controls of #217 (P4a PR2): fail_handoff, a HostEdges wrapper around link_send_descriptor that returns Err((endpoint, Failed)) once, P6 (2).
 conf::dp_2_failed_handoff_closes_route_handoff_failed
