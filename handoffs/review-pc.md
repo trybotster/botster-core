@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.133ea0b2.md`, revision 23bu.
-- Verified plan SHA-256: `f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.5224c5dc.md`, revision 23bx.
+- Verified plan SHA-256: `64977fbc8080379f6b684eb1c2dd0d5aa307b574f26a1193a911451c62c5038c`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -1116,7 +1116,7 @@ Next: read the brief first and review #277 on the new head. Never poll.
 
 Head: 2c78bb6c8424d37089062437731980ec0d34eab0.
 Own/PR/final-gate base: 20c4e98df6b47a45f3e2284a976e1c8a1341457e.
-Plan: 23bu, stage1-plan.133ea0b2.md; SHA-256 f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815.
+Plan: 23bu, stage1-plan.133ea0b2.md; SHA-256 64977fbc8080379f6b684eb1c2dd0d5aa307b574f26a1193a911451c62c5038c.
 The reviewer read the brief first. The original source CLEANs cover 7d7d429f only.
 Actual history: import 84b1e9be -> 79277df1, then lead-directed import 20c4e98d -> 2c78bb6c.
 The lead stopped the stale-base 79277df1 gate. It supplies no completed evidence.
@@ -1169,3 +1169,27 @@ The tree diff is empty. The merge's first parent equals the final gate base; the
 Both delta CLEANs, final gate, and body conditions close. The package verdict remains CLEAN, zero open findings.
 The original program-controls group remains incomplete. The lead owns triage of the six other R-72 classification places.
 No execution job ran here. Wait for the doorbell. Never poll.
+
+Final #277 record pushed: d28b50691c644196856bc8fee44ed3efc39bdff6 on origin/stage1/review-pc.
+All #277 review conditions close. The worktree is clean. The original group remains incomplete. Never poll.
+
+
+## PR #283: R-74 testkit part, Round 1 NOT CLEAN
+
+READY receipt: msg_plugin-w_1791743029_b2452a.
+Head: 646ebe7321cc5a5de46f15d9aa6b61028ffec1e5.
+Parent, own/PR/gate base: 9f7085f703457b0669785697dbeb14ac687a8942. HIGH, shared testkit crate.
+The lead approves PART A at 04:56. PART B is PC's .40 pin PR after #282 and the tag.
+The reviewer reads the brief first, then the binding rules, R-74, plan through 23bx, complete diff, and applicable source paths.
+NOT CLEAN: two open findings in verdicts/pc-held-write-testkit.md.
+HW-TK-1 MEDIUM: the spent pty_chunk cap sets no next-step marker while blocked with remaining kernel room.
+HW-TK-2 LOW: settle discards completion events before the test checks the held interval.
+PC receives both findings in msg_plugin-w_1791743210_dce502 before publication.
+Gate: gates/botster-core-stage1-pc-held-write-testkit-646ebe73-pool-20261011-111204-3662.log.
+SHA-256: 6ad44b5a5fa5efd7129a5ac9de1535bb96efe1bd8030eb7f7fbc313cf37b658f.
+Ten steps PASS in 554.7 seconds; Linux job/wrapper exit 0 after 668 seconds.
+Default: 1745 PASS, 478 skipped, 18.687 seconds. Slow: 558 PASS, 2032 skipped, 57.292 seconds.
+All five new tests pass. Stage 1 catches 28/28 mutants; raw identities match named catchers; zero FLAKY outcomes.
+The green gate closes neither finding. No reviewer execution job runs.
+No pending ID, pin, transcript, timeout, or real-tier control changes. The group remains incomplete.
+Next: wait for PC's fixes and exact-head gate evidence. Never poll.
