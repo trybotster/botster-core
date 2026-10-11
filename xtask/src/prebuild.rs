@@ -22,13 +22,14 @@ const ANCHOR: &str = "botster-test-anchor";
 /// which the tests read; a test checks that the names agree).
 const SOURCE_ROOT_FILE: &str = "source-root";
 
-/// The worktree that `record` (the text of the source-root file, if any) names, when it is not `here` (canonical).
-/// Two worktrees with one target directory and the same `Cargo.lock` share artifact names, and cargo can reuse the other
-/// worktree's build (bug catalog B13), so a candidate of another worktree is never rebuilt over in place.
-fn other_source_root(record: Option<&str>, here: &Path) -> Option<PathBuf> {
-    let built = PathBuf::from(record?.trim_end_matches('\n'));
-    let canonical = built.canonicalize().unwrap_or_else(|_| built.clone());
-    (canonical != here).then_some(built)
+/// The target dir of the worker and anchor builds: one dir per worktree, named by the sha256 of its canonical root.
+/// Two worktrees with one target directory and the same `Cargo.lock` share artifact names, and cargo reuses the other
+/// worktree's build (bug catalog B13), also after a plain `cargo build` that writes no record. Only this worktree ever
+/// builds in its dir, so the candidate binaries come from its own sources by construction (lead, 2026-10-11).
+fn candidate_build_dir(target_dir: &Path, root: &Path) -> PathBuf {
+    let digest = Sha256::digest(root.as_os_str().as_encoded_bytes());
+    let name: String = digest[..8].iter().map(|b| format!("{b:02x}")).collect();
+    target_dir.join("candidate-build").join(name)
 }
 
 /// The git url and the tag of the contracts dependency in the root `Cargo.toml`.
@@ -85,25 +86,42 @@ fn has_worker_binary(members: &[(String, bool)]) -> bool {
         .any(|(name, has_bin)| name == WORKER && *has_bin)
 }
 
-fn build_worker(root: &Path, meta: &Meta, candidate: &Path) -> Result<Option<(String, String)>> {
+fn build_worker(
+    root: &Path,
+    meta: &Meta,
+    build_dir: &Path,
+    candidate: &Path,
+) -> Result<Option<(String, String)>> {
     if !has_worker_binary(&meta.members) {
         println!("prebuild-worker: no `{WORKER}` binary in the workspace yet (P3 adds it); nothing to build");
         return Ok(None);
     }
     let mut build = cargo(root);
-    build.args(["build", "-p", WORKER, "--locked"]);
+    build
+        .args(["build", "-p", WORKER, "--locked", "--target-dir"])
+        .arg(build_dir);
     run(build)?;
-    let built = meta.target_dir.join("debug").join(WORKER);
+    let built = build_dir.join("debug").join(WORKER);
     let target = candidate.join(WORKER);
     install_executable(&built, &target)?;
     Ok(Some((WORKER.to_string(), sha256_hex(&target)?)))
 }
 
-fn build_anchor(root: &Path, meta: &Meta, candidate: &Path) -> Result<(String, String)> {
+fn build_anchor(root: &Path, build_dir: &Path, candidate: &Path) -> Result<(String, String)> {
     let mut build = cargo(root);
-    build.args(["build", "-p", ANCHOR_PACKAGE, "--bin", ANCHOR, "--locked"]);
+    build
+        .args([
+            "build",
+            "-p",
+            ANCHOR_PACKAGE,
+            "--bin",
+            ANCHOR,
+            "--locked",
+            "--target-dir",
+        ])
+        .arg(build_dir);
     run(build)?;
-    let built = meta.target_dir.join("debug").join(ANCHOR);
+    let built = build_dir.join("debug").join(ANCHOR);
     let target = candidate.join(ANCHOR);
     install_executable(&built, &target)?;
     Ok((ANCHOR.to_string(), sha256_hex(&target)?))
@@ -147,25 +165,19 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let here = root
         .canonicalize()
         .with_context(|| format!("canonicalize {}", root.display()))?;
+    let build_dir = candidate_build_dir(&meta.target_dir, &here);
+    // The record names the worktree of the binaries; the tests refuse a candidate of another worktree. It is written with
+    // the manifest, after every binary is in place.
     let record = candidate.join(SOURCE_ROOT_FILE);
-    if let Some(other) = other_source_root(std::fs::read_to_string(&record).ok().as_deref(), &here)
-    {
-        bail!(
-            "{} was last prebuilt from {}, and this worktree is {} (bug catalog B13): cargo can reuse that worktree's build; run `cargo clean --target-dir {}`, then run prebuild-worker again",
-            candidate.display(),
-            other.display(),
-            here.display(),
-            meta.target_dir.display()
-        );
-    }
-    std::fs::write(&record, format!("{}\n", here.display()))?;
+    let _ = std::fs::remove_file(&record);
     // The manifest is written last, after every replacement succeeded: a failed run leaves none.
     let manifest = candidate.join("manifest.json");
     let _ = std::fs::remove_file(&manifest);
     let mut entries = Vec::new();
-    entries.extend(build_worker(root, &meta, &candidate)?);
-    entries.push(build_anchor(root, &meta, &candidate)?);
+    entries.extend(build_worker(root, &meta, &build_dir, &candidate)?);
+    entries.push(build_anchor(root, &build_dir, &candidate)?);
     entries.push(build_probe(root, &meta, &candidate)?);
+    std::fs::write(&record, format!("{}\n", here.display()))?;
     std::fs::write(&manifest, manifest_text(&entries))?;
     println!(
         "prebuild-worker: wrote {} ({} binaries)",
@@ -218,28 +230,23 @@ mod tests {
     }
 
     #[test]
-    fn a_candidate_of_another_worktree_is_named() {
-        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
-        let here = root.path().join("b");
-        let other = root.path().join("a");
-        std::fs::create_dir_all(&here).unwrap();
-        std::fs::create_dir_all(&other).unwrap();
-        let here = here.canonicalize().unwrap();
-        assert_eq!(other_source_root(None, &here), None);
-        assert_eq!(
-            other_source_root(Some(&format!("{}\n", here.display())), &here),
-            None
-        );
-        assert_eq!(
-            other_source_root(Some(&format!("{}\n", other.display())), &here),
-            Some(other.clone())
-        );
-        // A removed worktree is another worktree.
-        let gone = root.path().join("gone");
-        assert_eq!(
-            other_source_root(Some(&format!("{}\n", gone.display())), &here),
-            Some(gone)
-        );
+    fn each_worktree_builds_the_candidate_in_its_own_dir() {
+        let target = Path::new("/t");
+        let a = candidate_build_dir(target, Path::new("/w/a"));
+        let b = candidate_build_dir(target, Path::new("/w/b"));
+        assert_ne!(a, b);
+        assert_eq!(a, candidate_build_dir(target, Path::new("/w/a")));
+        assert_eq!(a.parent(), Some(Path::new("/t/candidate-build")));
+        // 16 hex digits: the first 8 bytes of the sha256 of the root.
+        let name = a.file_name().unwrap().to_str().unwrap();
+        assert_eq!(name.len(), 16);
+        assert!(name.bytes().all(|c| c.is_ascii_hexdigit()), "{name}");
+        // sha256("/w/a") starts with these 8 bytes.
+        let expected: String = Sha256::digest(b"/w/a")[..8]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        assert_eq!(name, expected);
     }
 
     #[test]
