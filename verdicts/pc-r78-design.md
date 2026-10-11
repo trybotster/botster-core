@@ -209,3 +209,16 @@ The committed source, first READY gate, two source reviews, reversal logs, A5-4 
 No broad mutation exclusion is accepted. Any new guard exclusion requires its exact scope and B9 reason in source review.
 Sol's applicable revision-3 design receipt is not yet read here. No PR or source head is approved by this verdict.
 The reviewer runs no build, test, gate, mutant, or executable check. Never poll.
+
+## Sol revision-3 design CLEAN receipt
+
+Receipt: `msg_plugin-w_1791752475_943937`.
+Sol verdict: `1c4aacd9ca68abc860103270258ead5d44ec2023`, `verdicts/stage1/pc-r78-stopping.md`, Round 3.
+The reviewer reads the complete new round and verifies publication on `origin/stage1/integration-review-sol`.
+Both design CLEANs cover revision 3, hash `52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885`.
+Both reviews use base `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Sol closes the drain finding and confirms the mandatory guard, ownership, event-order, and pump-bound requirements.
+The same-design integration receipt condition is closed.
+The socket-order premise remains unverified. The named both-OS proof must establish it before the dependent driver repair relies on it.
+All source reviews, reversal evidence, A5-4 evidence, both-OS proofs, and gates remain due.
+This receipt accepts no source head, executable result, or merge readiness. No execution job runs here. Never poll.

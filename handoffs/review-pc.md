@@ -1404,3 +1404,14 @@ Source review must verify priority before Kill effects, bounded sends, descripto
 PC's local build and 43 tests are reports only. No source or executable result is accepted.
 Source READY, two reviews, reversals, A5-4 table, both-OS proofs, and final gate remain due.
 Sol's revision-3 design receipt remains unread. No execution job runs here. Never poll.
+
+Revision-3 design CLEAN pushed: a661545657a37bc4a1f68bfab15da7c1a5c41154.
+The worktree is clean. No source or executable result is accepted. Wait for the source/evidence doorbell. Never poll.
+
+## R-78 both design CLEANs verified
+
+Sol receipt msg_plugin-w_1791752475_943937 names 1c4aacd9ca68abc860103270258ead5d44ec2023, Round 3.
+The reviewer reads that round and verifies publication on Sol's remote branch.
+Both design CLEANs cover revision 3 hash 52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885 and base 670e5fc799a25794910a1847fc41b3e089bf03f4.
+The integration design receipt condition is closed. No source or executable result is accepted.
+The socket-order premise, exact source reviews, reversal evidence, A5-4 table, both-OS proofs, and gates remain due. Never poll.
