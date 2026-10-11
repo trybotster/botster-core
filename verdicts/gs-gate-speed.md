@@ -516,3 +516,72 @@ The integration reviewer reports completion CLEAN on the same exact head and bas
 The integration reviewer independently checked that every caught mutant identity has exactly one catching-test report. The integration reviewer ran no execution job.
 
 No merge receipt has been reviewed. The lead still owns the current-base check.
+
+## PR #260: slow-only test check, round 1
+
+- Head: `f41e42e016d1dfa3a7015f2c8473b743baf04e9a`.
+- Base: `d86bfcc747718452efe57b2aa207492acde96573`.
+- Risk tier: HIGH, with a worker test rename and a mutation exclusion.
+- VERDICT: NOT CLEAN (1 open).
+
+### GS-SC-R1-1 LOW: P6 file agreement is not recorded
+
+Status: OPEN.
+
+The GS brief requires agreement with P6 on the file split before the first commit. The PR adds a call in P6's `slow_job` area.
+
+The PR body states that P6's confirmation is pending. The lead handoff also records unanswered requests. I asked P6 directly for confirmation.
+
+Required closure: record P6's agreement for this line, or the lead's explicit decision that permits this file change without P6's agreement.
+
+This finding concerns the required coordination record. The source review found no gate-safety defect at this head.
+
+### Source review
+
+`tier_selection` contains the previous selection code. The default workspace selection and the slow packages, features, and filter remain unchanged.
+
+The new check lists both selections. It compares each test by binary id and full test name. It adds a rejection and removes no existing test check.
+
+The list parser rejects missing suites, unlisted binaries, missing testcases, missing ignored flags, and unknown filter statuses. An empty list fails.
+
+No slow-only tests also fails. The closed-kind rule matches the lead's recorded Q2 decision.
+
+Only ignored trials of `botster-core::slow_conformance` with the exact accepted form pass. A pending-real trial also requires its full id in the pending-real file.
+
+Other ignored kinds, binaries, plain ignored tests, and malformed names fail. The check does not duplicate the conformance harness's per-kind list rules.
+
+The list command removes `NEXTEST_PROFILE`. No current profile defines a default filter, so this removal does not narrow either selection.
+
+The command uses Cargo metadata's target directory. The real-tool fixture uses its own temporary target directory to avoid reuse across copied fixtures.
+
+The worker rename changes both the test function and `DRIVER_OBSERVER`. The child commands use that constant with `--exact`, so they still reach the same Driver.
+
+Without `BOTSTER_DRIVER_CONTROL`, the selected observer returns immediately. With that variable, the observer retains its previous behavior.
+
+The new command exclusion covers only the whole-body `Ok(())` replacement. The command reads metadata and pending ids, then forwards to `check` and `verdict`.
+
+The cited decisions remain outside that exclusion. The real-tool fixture checks rejected and accepted selections and the pending-real membership condition.
+
+The existing `slow_job` exclusion now documents the new call. This PR changes no timeout or mutation selection rule.
+
+The check does not scope a mutant's slow tests or replace candidate binaries. The existing candidate build limitation remains outside this change.
+
+### Evidence
+
+I read the first-rule evidence log. It reports 1009 slow-only tests and 544 violations, including the unselected `driver_observer`.
+
+The other reported violations are ignored conformance trials. The lead approved the closed-kind rule that now accepts those trials.
+
+Exact-head gate:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-slow-coverage-f41e42e0-pool-20261011-033934-73592.log`
+
+The log names the full head and base. All ten steps PASS, total 576.0 seconds. The check reports 1012 slow-only tests with no violation.
+
+`slow_driver_observer` and the real-tool fixture report PASS. The mutation step reports 40 mutants: 38 caught, zero missed, zero timeout, and two unviable.
+
+Stage 1 catches 30 mutants. Stage 2 catches the remaining eight after its baseline passes. Each stage-2 catch names the real-tool fixture test.
+
+I checked the Prior art statement at the pinned old commit. No `nextest` or `feature = "slow"` match exists there.
+
+I ran no gate, build, or test. I will wait for the coordination evidence before closing the LOW finding.
