@@ -241,9 +241,10 @@ exclude_re = [
     # Driver::read_pty_chunk: control_and_pty_reads_retain_bytes_at_each_positive_bound checks bytes; pty_reads_clear_readiness_and_finish_a_bounded_drain checks drains.
     # The PTY read budget (PR C, OU-3d): the size of each read is io_decisions::pty_read_bytes
     # (a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget) and the poll's wait is ReadyState
-    # (every_ready_source_prevents_a_blocking_wait), both in the default tier. No real-process test covers the budget's
-    # decrement here yet: a proof needs a route queue that fills (32 MiB by default, and at least max_snapshot_bytes). The
-    # real-tier OU-3 id for a progressing reader stays real-pending until P6's real route_fill (plan revision 23t).
+    # (every_ready_source_prevents_a_blocking_wait), both in the default tier.
+    # a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads proves the stop and the resume on the real
+    # driver, with a small route queue (F121). The real-tier OU-3 id for a progressing reader stays real-pending until
+    # P6's real route_fill (plan revision 23t).
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_pty_chunk( ->| with)|.* in Driver::read_pty_chunk$)',
     # Driver::read_control: control_reads_require_readiness_and_report_eof_once and the positive-bound test check real socket reads.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_control( ->| with)|.* in Driver::read_control$)',

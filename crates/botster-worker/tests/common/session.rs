@@ -222,6 +222,7 @@ impl Session {
             vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
             None,
+            CoreLimits::default(),
         );
         assert!(payload.pid > 0);
         Session { worker, link }
@@ -258,6 +259,7 @@ fn hello_and_launch(
     argv: Vec<String>,
     stop_grace_ms: u64,
     route: Option<std::os::fd::BorrowedFd<'_>>,
+    limits: CoreLimits,
 ) -> (Link, PayloadId) {
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
@@ -301,7 +303,7 @@ fn hello_and_launch(
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
         stop_grace_ms,
-        limits: CoreLimits::default(),
+        limits,
     }));
     match route {
         None => link.msg(&launch_msg),
@@ -690,8 +692,13 @@ fn a_received_route_descriptor_does_not_reach_the_payload() {
         hold.shell(),
     );
     let (client, worker_end) = UnixStream::pair().unwrap();
-    let mut s =
-        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    let mut s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
     drop(worker_end);
     assert_eq!(
         ready.line(Deadline::cleanup()).unwrap().as_deref(),
@@ -784,8 +791,13 @@ fn a_real_route_carries_the_attach_the_input_and_the_output() {
         hold.shell()
     );
     let (client, worker_end) = UnixStream::pair().unwrap();
-    let _s =
-        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
     drop(worker_end);
     let mut client = RouteClient::new(client);
     client.read_to_live();
@@ -818,8 +830,13 @@ fn a_real_route_delivers_large_output_whole_and_in_order() {
         hold.shell()
     );
     let (client, worker_end) = UnixStream::pair().unwrap();
-    let _s =
-        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
     drop(worker_end);
     assert_eq!(
         done.line(Deadline::cleanup()).unwrap().as_deref(),
@@ -847,6 +864,71 @@ fn a_real_route_delivers_large_output_whole_and_in_order() {
     assert!(body.iter().all(|&b| b == b'a'), "only the payload's bytes");
 }
 
+/// OU-3d on the real driver (F121): a route queue that fills stops the PTY reads until the client reads, and the reads then
+/// go on. The route queue is 64 KiB (`route_queue_bytes`; R-45 exempts the baseline from it). The payload writes 3,000,000
+/// bytes and then its `done` marker. The client reads nothing first: the queue, the socket's buffers and the PTY's buffer
+/// hold far less than the output, so the payload cannot write it all, and no `done` comes by the cleanup bound. A driver
+/// that ignores the budget reads the whole output into the queue, and `done` comes. Then the client reads: `done` comes,
+/// and every byte reaches the client, once and in order.
+#[test]
+fn a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads() {
+    use botster_route_codec::prelude::ToClient;
+    use botster_test_process::ReadError;
+    use std::os::fd::AsFd;
+    const BYTES: usize = 3_000_000;
+    let root = temp_root();
+    let mut done = marker_fifo(root.path(), "done");
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "/usr/bin/head -c {BYTES} /dev/zero | /usr/bin/tr '\\0' a; /bin/echo end; /bin/echo done > {}; exec {}",
+        quoted(&root.path().join("done")),
+        hold.shell()
+    );
+    let limits = CoreLimits {
+        route_queue_bytes: 64 * 1024,
+        ..CoreLimits::default()
+    };
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        limits,
+    );
+    drop(worker_end);
+    match done.line(Deadline::cleanup()) {
+        Err(ReadError::Deadline { .. }) => {}
+        other => {
+            panic!("the payload wrote all its output to a client that read nothing: {other:?}")
+        }
+    }
+    let mut client = RouteClient::new(client);
+    client.read_to_live();
+    let mut output = Vec::new();
+    // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
+    let end = loop {
+        let from = output.len().saturating_sub(2);
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+        if let Some(at) = output[from..].windows(3).position(|w| w == b"end") {
+            break from + at;
+        }
+    };
+    assert_eq!(
+        done.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("done\n")
+    );
+    let body: Vec<u8> = output[..end]
+        .iter()
+        .copied()
+        .filter(|b| !b"\r\n".contains(b))
+        .collect();
+    assert_eq!(body.len(), BYTES, "every byte, once");
+    assert!(body.iter().all(|&b| b == b'a'), "only the payload's bytes");
+}
+
 /// OU-5 on the real driver: the client's close of its end ends the route, and the host hears `RouteClosed{PeerClosed}`.
 #[test]
 fn a_client_close_ends_its_real_route() {
@@ -859,6 +941,7 @@ fn a_client_close_ends_its_real_route() {
         &hold.shell(),
         5000,
         Some(worker_end.as_fd()),
+        CoreLimits::default(),
     );
     drop(worker_end);
     let mut client = RouteClient::new(client);
@@ -955,16 +1038,18 @@ impl GuardedSession {
     /// Starts a worker and launches `sh -c script`, each through the guard's wrapper. Before this returns, one anchor
     /// reports the worker as its group's leader, and one the payload.
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> GuardedSession {
-        GuardedSession::launch_with_route(root, script, stop_grace_ms, None)
+        GuardedSession::launch_with_route(root, script, stop_grace_ms, None, CoreLimits::default())
     }
 
     /// As [`GuardedSession::launch`]; with `route`, the `Launch` frame and an `AttachRoute` frame go in one send with the
-    /// route's stream (DP-2), so the worker holds the descriptor when it spawns the payload.
+    /// route's stream (DP-2), so the worker holds the descriptor when it spawns the payload. `limits` are the `Launch`
+    /// frame's.
     fn launch_with_route(
         root: &Path,
         script: &str,
         stop_grace_ms: u64,
         route: Option<std::os::fd::BorrowedFd<'_>>,
+        limits: CoreLimits,
     ) -> GuardedSession {
         let mut guard = Guard::new(root)
             .unwrap()
@@ -1043,6 +1128,7 @@ impl GuardedSession {
             vec![wrapper.display().to_string()],
             stop_grace_ms,
             route,
+            limits,
         );
         let reports = guard.anchors(2, Deadline::cleanup()).unwrap();
         assert_eq!(
