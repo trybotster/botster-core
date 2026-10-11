@@ -135,7 +135,22 @@ impl World {
     }
 
     fn send(&mut self, msg: &HostMsg) -> Vec<Action> {
-        self.feed(Input::LinkBytes(World::msg(msg)))
+        self.feed(World::read(World::msg(msg), Vec::new()))
+    }
+
+    /// Sends `msg` in one link read with `descriptors`.
+    fn send_with(&mut self, msg: &HostMsg, descriptors: Vec<DescriptorId>) -> Vec<Action> {
+        self.feed(World::read(World::msg(msg), descriptors))
+    }
+
+    /// One link read with no descriptor.
+    fn read_plain(bytes: Vec<u8>) -> Input {
+        World::read(bytes, Vec::new())
+    }
+
+    /// One link read.
+    fn read(bytes: Vec<u8>, descriptors: Vec<DescriptorId>) -> Input {
+        Input::LinkBytes { bytes, descriptors }
     }
 
     /// The frames of every `LinkSend` among `actions`.
@@ -170,7 +185,7 @@ impl World {
         let mut w = World::new();
         let first = w.initial();
         assert_eq!(w.frames(&first).len(), 1);
-        let actions = w.feed(Input::LinkBytes(World::host_hello(
+        let actions = w.feed(World::read_plain(World::host_hello(
             instance(),
             EPOCH,
             TOKEN,
@@ -273,9 +288,9 @@ fn a_host_hello_that_does_not_prove_the_token_closes_the_link() {
         w.initial();
         let mut input = bytes;
         input.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
-        let actions = w.feed(Input::LinkBytes(input));
+        let actions = w.feed(World::read_plain(input));
         assert_eq!(actions, [Action::LinkClose]);
-        assert_eq!(w.feed(Input::LinkBytes(World::msg(&HostMsg::Stop))), []);
+        assert_eq!(w.feed(World::read_plain(World::msg(&HostMsg::Stop))), []);
     }
 }
 
@@ -310,7 +325,7 @@ fn the_hello_and_the_launch_in_one_read_are_both_handled() {
     w.initial();
     let mut bytes = World::host_hello(instance(), EPOCH, TOKEN);
     bytes.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
-    let actions = w.feed(Input::LinkBytes(bytes));
+    let actions = w.feed(World::read_plain(bytes));
     assert!(
         matches!(actions.as_slice(), [Action::SpawnPayload(_)]),
         "{actions:?}"
@@ -323,9 +338,9 @@ fn a_launch_split_across_reads_is_handled_when_complete() {
     let mut w = World::linked();
     let bytes = World::msg(&HostMsg::Launch(Box::new(spec())));
     for byte in &bytes[..bytes.len() - 1] {
-        assert_eq!(w.feed(Input::LinkBytes(vec![*byte])), []);
+        assert_eq!(w.feed(World::read_plain(vec![*byte])), []);
     }
-    let actions = w.feed(Input::LinkBytes(vec![bytes[bytes.len() - 1]]));
+    let actions = w.feed(World::read_plain(vec![bytes[bytes.len() - 1]]));
     assert!(matches!(actions.as_slice(), [Action::SpawnPayload(_)]));
 }
 
@@ -462,7 +477,7 @@ fn a_host_message_in_another_frame_kind_is_ignored() {
     let mut w = World::running();
     let mut payload = Vec::new();
     HostMsg::Kill.encode(&mut payload);
-    let actions = w.feed(Input::LinkBytes(World::frame(FrameType::HELLO, &payload)));
+    let actions = w.feed(World::read_plain(World::frame(FrameType::HELLO, &payload)));
     assert_eq!(actions, []);
     assert_eq!(signals(&w.send(&HostMsg::Kill)), [SIGKILL]);
 }
@@ -765,7 +780,7 @@ fn a_closed_link_leaves_the_payload_running() {
     let mut actions = w.feed(Input::PayloadExited(ExitStatus::Code(0)));
     actions.extend(w.feed(Input::PtyDrained));
     assert_eq!(actions, [Action::DrainPty]);
-    assert_eq!(w.feed(Input::LinkBytes(World::msg(&HostMsg::Kill))), []);
+    assert_eq!(w.feed(World::read_plain(World::msg(&HostMsg::Kill))), []);
 }
 
 /// Plan section 3: a frame above the bound ends the link; the launch sets the bound of later frames.
@@ -779,7 +794,7 @@ fn a_frame_above_the_launch_bound_closes_the_link() {
     let mut header = Vec::new();
     header.extend_from_slice(&65u32.to_le_bytes());
     header.push(FrameType::HOST_MSG.0);
-    assert_eq!(w.feed(Input::LinkBytes(header)), [Action::LinkClose]);
+    assert_eq!(w.feed(World::read_plain(header)), [Action::LinkClose]);
 }
 
 /// Plan section 3: a message that this worker cannot decode is a later host's and is ignored; the link stays.
@@ -787,7 +802,7 @@ fn a_frame_above_the_launch_bound_closes_the_link() {
 fn an_unknown_host_message_is_ignored() {
     let mut w = World::running();
     let bytes = World::frame(FrameType::HOST_MSG, br#"{"t":"later","x":1}"#);
-    assert_eq!(w.feed(Input::LinkBytes(bytes)), []);
+    assert_eq!(w.feed(World::read_plain(bytes)), []);
     assert_eq!(signals(&w.send(&HostMsg::Stop)), [SIGTERM]);
 }
 
@@ -924,7 +939,7 @@ fn a_closing_link_obeys_and_sends_nothing() {
     w.initial();
     let mut bytes = World::host_hello(instance(), EPOCH, [8; TOKEN_LEN]);
     bytes.extend(World::msg(&HostMsg::Launch(Box::new(spec()))));
-    assert_eq!(w.feed(Input::LinkBytes(bytes)), []);
+    assert_eq!(w.feed(World::read_plain(bytes)), []);
     assert_eq!(
         w.feed(Input::LinkWritten { total: w.sent }),
         [Action::LinkClose]

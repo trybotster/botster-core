@@ -111,25 +111,29 @@ impl Client {
     }
 }
 
+/// Sends the `AttachRoute` of `route` in one link read with `descriptor`, its stream (DP-2).
 fn attach(
     w: &mut World,
+    descriptor: DescriptorId,
     route: RouteId,
     options: AttachOptions,
     limits: AppliedRouteLimits,
 ) -> Vec<Action> {
-    w.send(&HostMsg::AttachRoute {
-        route,
-        options,
-        limits,
-    })
+    w.send_with(
+        &HostMsg::AttachRoute {
+            route,
+            options,
+            limits,
+        },
+        vec![descriptor],
+    )
 }
 
 /// A running worker with one route attached and its baseline taken.
 fn attached(limits: AppliedRouteLimits) -> (World, Client, Vec<Action>) {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
     let mut client = Client::with(&limits);
-    let actions = attach(&mut w, RouteId(1), options(), limits);
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits);
     let all = client.take_all(&mut w, RouteId(1), actions);
     (w, client, all)
 }
@@ -144,17 +148,15 @@ fn budgets(actions: &[Action]) -> Vec<Option<usize>> {
         .collect()
 }
 
-/// DP-2, OU-9: each `AttachRoute` binds the oldest unbound descriptor, and the route's first frames are `attached`, the
-/// baseline at one point, and `live`.
+/// DP-2, OU-9: each `AttachRoute` binds the descriptor of the read that holds its first byte, and the route's first frames
+/// are `attached`, the baseline at one point, and `live`.
 #[test]
-fn an_attach_binds_the_oldest_descriptor_and_writes_the_baseline_then_live() {
+fn an_attach_binds_the_descriptor_of_its_read_and_writes_the_baseline_then_live() {
     use botster_route_codec::prelude::{
         TYPE_ATTACHED, TYPE_BASELINE_BEGIN, TYPE_BASELINE_END, TYPE_LIVE, TYPE_SCREEN,
     };
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    w.feed(Input::Descriptor(DescriptorId(2)));
-    let actions = attach(&mut w, RouteId(5), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(5), options(), limits());
     assert!(actions.contains(&Action::BindRoute {
         descriptor: DescriptorId(1),
         route: RouteId(5)
@@ -180,7 +182,7 @@ fn an_attach_binds_the_oldest_descriptor_and_writes_the_baseline_then_live() {
         unreachable!()
     };
     assert_eq!(end.history, HistoryState::NotRequested);
-    let second = attach(&mut w, RouteId(6), options(), limits());
+    let second = attach(&mut w, DescriptorId(2), RouteId(6), options(), limits());
     assert!(second.contains(&Action::BindRoute {
         descriptor: DescriptorId(2),
         route: RouteId(6)
@@ -233,7 +235,11 @@ fn the_worker_announces_and_enforces_exactly_the_limits_that_the_host_sent() {
 #[test]
 fn an_attach_route_without_a_descriptor_closes_the_link() {
     let mut w = World::running();
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = w.send(&HostMsg::AttachRoute {
+        route: RouteId(1),
+        options: options(),
+        limits: limits(),
+    });
     assert!(actions.contains(&Action::LinkClose), "{actions:?}");
     assert!(!actions
         .iter()
@@ -248,8 +254,7 @@ fn output_that_the_model_holds_at_the_bind_is_the_first_output_after_live() {
     w.feed(Input::PtyOutput(b"\x1b]2;t\x1b".to_vec()));
     let held = w.worker.model.as_ref().unwrap().unfed().to_vec();
     assert!(!held.is_empty(), "the model holds the ESC");
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     let mut client = Client::default();
     client.take_all(&mut w, RouteId(1), actions);
     let actions = w.feed(Input::PtyOutput(b"\\after".to_vec()));
@@ -280,8 +285,7 @@ fn closes(w: &mut World, actions: &[Action]) -> Vec<WorkerMsg> {
 #[test]
 fn a_snapshot_over_max_snapshot_bytes_closes_the_route_with_no_baseline() {
     let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     let mut client = Client::default();
     let all = client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
@@ -329,10 +333,9 @@ fn a_snapshot_over_the_routes_screen_frame_bound_closes_the_route() {
 #[test]
 fn an_attach_with_no_common_format_fails_the_handoff_with_no_frame() {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
     let mut opts = options();
     opts.terminal_formats = vec!["no_such_format".into()];
-    let actions = attach(&mut w, RouteId(1), opts, limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
     assert_handoff_failed_with_no_frame(&mut w, &actions);
 }
 
@@ -340,10 +343,9 @@ fn an_attach_with_no_common_format_fails_the_handoff_with_no_frame() {
 #[test]
 fn the_features_are_the_intersection_with_the_workers() {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
     let mut opts = options();
     opts.route_features = vec!["output_deflate".into(), "x".into()];
-    let actions = attach(&mut w, RouteId(1), opts, limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), opts, limits());
     let mut client = Client::default();
     client.take_all(&mut w, RouteId(1), actions);
     let ToClient::Attached(attached) = &client.frames[0] else {
@@ -361,8 +363,7 @@ fn the_pty_read_budget_follows_the_free_queue_space() {
         budgets(&w.feed(Input::PtyOutput(b"no route".to_vec()))).is_empty(),
         "no route, no limit"
     );
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let bound = attach(&mut w, RouteId(1), options(), limits());
+    let bound = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     let first = *budgets(&bound).last().expect("a budget at the bind");
     let first = first.expect("a limit");
     assert!(first < CoreLimits::default().route_queue_bytes as usize);
@@ -391,8 +392,7 @@ fn the_pty_read_budget_follows_the_free_queue_space() {
 #[test]
 fn a_write_error_closes_the_route_write_failed_once() {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     assert!(actions
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
@@ -434,12 +434,24 @@ fn a_write_error_closes_the_route_write_failed_once() {
         .is_empty());
 }
 
-/// DP-8: the descriptors that no route took are closed when their link ends or is replaced.
+/// DP-8: the descriptors that no route took are closed when their link ends or is replaced. Here the link ends while the
+/// `AttachRoute` frame that their read started is not complete.
 #[test]
 fn a_link_end_closes_the_unbound_descriptors() {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(3)));
-    w.feed(Input::Descriptor(DescriptorId(4)));
+    let frame = World::msg(&HostMsg::AttachRoute {
+        route: RouteId(1),
+        options: options(),
+        limits: limits(),
+    });
+    let read = w.feed(World::read(
+        frame[..frame.len() - 1].to_vec(),
+        vec![DescriptorId(3), DescriptorId(4)],
+    ));
+    assert!(
+        !read.iter().any(|a| matches!(a, Action::CloseDescriptor(_))),
+        "the frame is not complete: {read:?}"
+    );
     let actions = w.feed(Input::LinkClosed);
     let closed: Vec<&Action> = actions
         .iter()
@@ -490,11 +502,10 @@ fn the_snapshot_limits_take_a_snapshot_at_the_exact_bound() {
     ] {
         let mut w = with_limits(|l| l.max_snapshot_bytes = native);
         assert_eq!(snapshot_len(&w), size, "the same screen");
-        w.feed(Input::Descriptor(DescriptorId(1)));
         let mut route = limits();
         route.max_screen_frame_bytes = screen;
         let mut client = Client::with(&route);
-        let actions = attach(&mut w, RouteId(1), options(), route);
+        let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), route);
         client.take_all(&mut w, RouteId(1), actions);
         assert_eq!(
             refused(&client),
@@ -592,8 +603,7 @@ fn a_route_bound_below_the_attach_frames_fails_the_handoff_with_no_frame() {
     small.max_frame_bytes = 500;
     assert!(route_closed_snapshot_too_large().encode().len() <= 500);
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), small);
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), small);
     assert_handoff_failed_with_no_frame(&mut w, &actions);
 }
 
@@ -604,8 +614,7 @@ fn a_route_bound_below_route_closed_closes_with_no_frame() {
     let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
     let mut tiny = limits();
     tiny.max_frame_bytes = route_closed_snapshot_too_large().encode().len() as u64 - 1;
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), tiny);
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), tiny);
     assert!(
         !actions
             .iter()
@@ -656,8 +665,7 @@ fn a_route_bound_equal_to_the_largest_attach_frame_attaches() {
 #[test]
 fn a_write_error_during_a_healthy_close_keeps_the_first_reason() {
     let mut w = with_limits(|l| l.max_snapshot_bytes = 8);
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     assert!(actions
         .iter()
         .any(|a| matches!(a, Action::RouteWrite { .. })));
@@ -702,8 +710,7 @@ fn a_queue_of_exactly_the_snapshot_takes_the_baseline_and_the_held_suffix() {
     });
     w.feed(Input::PtyOutput(held_input.to_vec()));
     assert_eq!(snapshot_len(&w), size, "the same state");
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    let mut bound = attach(&mut w, RouteId(1), options(), limits());
+    let mut bound = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     // R-45 item 1: only the held suffix's `output` frame counts (its payload and 5 bytes of overhead).
     let held_frame = held.len() as u64 + 5;
     let first = budget_behind(size, held_frame);
@@ -878,13 +885,11 @@ fn a_detach_that_is_closing_at_the_exit_keeps_its_reason() {
 #[test]
 fn the_exit_closes_every_route_session_ended_after_the_tail_and_reports_each_close_at_delivery() {
     let mut w = World::running();
-    w.feed(Input::Descriptor(DescriptorId(1)));
-    w.feed(Input::Descriptor(DescriptorId(2)));
     let mut one = Client::default();
     let mut two = Client::default();
-    let a = attach(&mut w, RouteId(1), options(), limits());
+    let a = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     one.take_all(&mut w, RouteId(1), a);
-    let b = attach(&mut w, RouteId(2), options(), limits());
+    let b = attach(&mut w, DescriptorId(2), RouteId(2), options(), limits());
     two.take_all(&mut w, RouteId(2), b);
     let mut actions = w.feed(Input::PtyOutput(b"bye".to_vec()));
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(3))));
@@ -938,9 +943,8 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
     let mut w = World::running();
     w.feed(Input::PayloadExited(ExitStatus::Signal(9)));
     w.feed(Input::PtyDrained);
-    w.feed(Input::Descriptor(DescriptorId(1)));
     let mut client = Client::default();
-    let actions = attach(&mut w, RouteId(1), options(), limits());
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options(), limits());
     client.take_all(&mut w, RouteId(1), actions);
     assert!(client.frames.contains(&ToClient::Live));
     assert_eq!(
@@ -954,3 +958,5 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
         ))
     );
 }
+
+mod handoff;

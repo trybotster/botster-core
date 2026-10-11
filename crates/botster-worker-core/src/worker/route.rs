@@ -1,8 +1,7 @@
 //! The stream routes of the session (P4a; DESIGN.md "P4a: the stream route").
 //!
-//! **Handoff (DP-2).** A route's stream rides on the first byte of its `AttachRoute` frame, so the driver delivers
-//! [`Input::Descriptor`](super::Input::Descriptor) before the bytes of that frame. The machine keeps the unbound
-//! descriptors of the current link in order, and each `AttachRoute` binds the oldest one.
+//! **Handoff (DP-2).** A route's stream rides on its `AttachRoute` frame: it is the one descriptor of the link read that
+//! holds the frame's first byte (`handoff.rs`, plan revision 23ae).
 //!
 //! **Baseline (OU-9).** At the bind, in one step, the worker takes the baseline at the model's consumed cut `R`: `attached`,
 //! `baseline_begin`, `screen`, `baseline_end`, `live`. Output that the model holds and has not applied (`unfed`) is after
@@ -45,10 +44,9 @@ const ROUTE_FEATURES: &[&str] = &[];
 const STREAM_PREFIX: usize = 4;
 const OUTPUT_OVERHEAD: usize = STREAM_PREFIX + 1;
 
-/// The routes of the session, and the descriptors that wait for their `AttachRoute`.
+/// The routes of the session.
 #[derive(Debug, Default)]
 pub(super) struct Routes {
-    unbound: VecDeque<DescriptorId>,
     routes: BTreeMap<RouteId, Route>,
     /// The last budget that the driver got was a limit: when the last route ends, the limit is lifted once.
     limited: bool,
@@ -108,17 +106,6 @@ impl Route {
     }
 }
 
-impl Routes {
-    pub(super) fn descriptor(&mut self, id: DescriptorId) {
-        self.unbound.push_back(id);
-    }
-
-    /// The descriptors of a link that ended or was replaced (DP-8): none of them will be bound.
-    pub(super) fn take_unbound(&mut self) -> Vec<DescriptorId> {
-        self.unbound.drain(..).collect()
-    }
-}
-
 /// The wire form of the applied limits (OU-1, "wire projection").
 fn wire_limits(limits: &AppliedRouteLimits) -> RouteLimits {
     let ms = |d: std::time::Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
@@ -148,16 +135,16 @@ fn negotiate(client: &[String]) -> Option<String> {
 }
 
 impl Worker {
-    /// `AttachRoute` (OU-1, OU-9, DP-2): the oldest unbound descriptor is this route's stream, and the baseline is queued in
-    /// this step. An `AttachRoute` with no descriptor is a host fault: the link closes, as for a bad frame.
+    /// `AttachRoute` (OU-1, OU-9, DP-2): the descriptor of the read that holds the frame's first byte is this route's stream,
+    /// and the baseline is queued in this step. A frame with no descriptor of its own is a host fault (`handoff.rs`): the
+    /// link closes.
     pub(super) fn on_attach_route(
         &mut self,
         route: RouteId,
         options: AttachOptions,
         limits: AppliedRouteLimits,
     ) {
-        let Some(descriptor) = self.routes.unbound.pop_front() else {
-            self.close_link();
+        let Some(descriptor) = self.attach_descriptor(route) else {
             return;
         };
         self.actions
@@ -376,7 +363,7 @@ impl Worker {
     /// Closes the transport once and reports the close once (OU-2). An ended session's close is reported too, when its queue
     /// is delivered or it fails or stalls (OU-7): the host waits for it, and posts it with the exit and the cause that the
     /// host decides (LC-5).
-    fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
+    pub(super) fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
         let Some(route) = self.routes.routes.remove(&id) else {
             return;
         };
@@ -475,13 +462,6 @@ impl Worker {
                 self.actions.push_back(Action::PtyReadBudget(None));
             }
             None => {}
-        }
-    }
-
-    /// The unbound descriptors of a link that ended or was replaced are closed (DP-8).
-    pub(super) fn close_unbound(&mut self) {
-        for id in self.routes.take_unbound() {
-            self.actions.push_back(Action::CloseDescriptor(id));
         }
     }
 }

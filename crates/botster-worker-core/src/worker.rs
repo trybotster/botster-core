@@ -103,8 +103,13 @@ pub struct CandidateId(pub u64);
 /// An input of the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
-    /// Bytes that the control link delivered, in order.
-    LinkBytes(Vec<u8>),
+    /// One read of the control link: its bytes, in order, and the descriptors that came with them (DP-2: a route's stream
+    /// rides on its `AttachRoute` frame; plan revision 23ae). The read boundary matters: the descriptors belong to the one
+    /// `AttachRoute` frame whose first byte is in `bytes`.
+    LinkBytes {
+        bytes: Vec<u8>,
+        descriptors: Vec<DescriptorId>,
+    },
     /// The control link ended: the peer closed it, or it failed. Bytes that the driver still held for it are lost.
     LinkClosed,
     /// The driver has written `total` bytes of `LinkSend`s to the link, counted from the first one. A staged close and the
@@ -138,8 +143,6 @@ pub enum Input {
     CandidateBytes(CandidateId, Vec<u8>),
     /// A candidate's connection ended.
     CandidateClosed(CandidateId),
-    /// The control link delivered a descriptor (a route's stream, DP-2), before the link bytes that it rides with.
-    Descriptor(DescriptorId),
     /// The answer to [`Action::RouteWrite`]: `Ok(n)` is the bytes that the transport accepted (OU-3a), and `Ok(0)` waits for
     /// [`Input::RouteWritable`]. `Err(errno)` is a terminal write error; the driver writes again on `Interrupted` and
     /// reports `WouldBlock` as `Ok(0)`.
@@ -296,6 +299,8 @@ pub struct Worker {
     limits: CoreLimits,
     /// The stream routes (P4a).
     routes: route::Routes,
+    /// The descriptors of the control link's reads (DP-2).
+    handoffs: handoff::Handoffs,
     actions: VecDeque<Action>,
 }
 
@@ -343,6 +348,7 @@ impl Worker {
             model: None,
             limits: CoreLimits::default(),
             routes: route::Routes::default(),
+            handoffs: handoff::Handoffs::default(),
             actions: VecDeque::new(),
         };
         if !worker.send_hello() {
@@ -491,10 +497,20 @@ impl Worker {
 
     // ---- the control link ----
 
-    fn on_link_bytes(&mut self, now: Instant, mut bytes: &[u8]) {
-        while !bytes.is_empty() && matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
-            let took = self.decoder.push(bytes);
-            bytes = &bytes[took..];
+    fn on_link_bytes(&mut self, now: Instant, bytes: &[u8], descriptors: Vec<DescriptorId>) {
+        if !self.link_read_begins(descriptors) {
+            return;
+        }
+        let mut offset = 0;
+        while offset < bytes.len() && matches!(self.link, LinkState::AwaitHello | LinkState::Ready)
+        {
+            // The decoder holds no part of a frame, so the byte at `offset` is a frame's first byte: the frame starts in this
+            // read. `push` takes no byte past a complete frame, so a frame that ends in this read never shares a push with
+            // the next one.
+            if self.decoder.buffered() == 0 {
+                self.frame_starts();
+            }
+            offset += self.decoder.push(&bytes[offset..]);
             loop {
                 match self.decoder.next_frame() {
                     Ok(Some(frame)) => self.on_frame(now, frame.kind, &frame.payload),
@@ -510,6 +526,7 @@ impl Worker {
                 }
             }
         }
+        self.link_read_ends(self.decoder.buffered() > 0);
     }
 
     fn on_frame(&mut self, now: Instant, kind: FrameType, payload: &[u8]) {
@@ -969,7 +986,7 @@ impl Worker {
         let report = self.adoption_report();
         self.report(&report);
         // Bytes that came after the hello in the same read belong to the new link.
-        self.on_link_bytes(now, rest);
+        self.on_link_bytes(now, rest, Vec::new());
     }
 
     /// DESIGN.md part 4: the live state, never values remembered from the spawn.
@@ -1037,7 +1054,7 @@ impl Machine for Worker {
     fn handle(&mut self, now: Instant, input: Input) {
         self.expire_adoption(now);
         match input {
-            Input::LinkBytes(bytes) => self.on_link_bytes(now, &bytes),
+            Input::LinkBytes { bytes, descriptors } => self.on_link_bytes(now, &bytes, descriptors),
             Input::LinkClosed => {
                 // DP-8: the worker keeps its payload and its model when the host is gone. Unwritten bytes are lost with
                 // the link, so a staged close is complete, and a staged end follows.
@@ -1074,7 +1091,6 @@ impl Machine for Worker {
                     self.candidate = None;
                 }
             }
-            Input::Descriptor(id) => self.routes.descriptor(id),
             Input::RouteWritten { route, result } => self.on_route_written(route, result),
             Input::RouteWritable { route } => self.on_route_writable(route),
         }
@@ -1136,6 +1152,7 @@ fn op_name(op: &Op) -> String {
         .unwrap_or_else(|| "this operation".to_string())
 }
 
+mod handoff;
 mod input;
 mod model;
 mod route;
