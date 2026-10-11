@@ -70,3 +70,34 @@ That earlier gate also reports the separate payload_alive control failure. This 
 One LOW finding remains. I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11
+
+Exact head: `7e899c88bddc985ce8ac9b0fe5b943cff96beed7`.
+Base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parent: `9d153e3cec74d34a15d3ac10f25d0eb092a88fcb`.
+Tree: `a305945fe56674d400775ba527aa781e97019797`.
+
+I read the complete correction delta and the full updated body.
+The only change replaces the expected private constant with the required literal `/tmp` and reformats that assertion.
+The test still observes the public root parent. Its mode, address-validity, uniqueness, and removal assertions remain unchanged.
+The body records the finding and correction. SR-R1-1 is closed. No finding remains.
+Root creation, process ownership, deadlines, cleanup, contract assertions, pending lists, pin, and mutation exclusions remain unchanged.
+
+I read the complete retained Linux evidence log:
+`~/botster-sessions/gates/botster-core-stage1-p6-short-root-7e899c88-pool-20261011-081953-17947.log`.
+Its checkout prints the exact correction head and zero tracked changes before the positive run.
+The corrected root test passes exactly one selected test.
+The implementer then changes only SHORT_ROOT to `/var/tmp`. The same test fails at line 2306.
+The failure reports the observed parent `/var/tmp` and required parent `/tmp`.
+The job restores the file and exits zero after 82 seconds, with 62 queued and 20 running.
+This retained reversal proves the corrected assertion detects the reported change. I ran no reversal.
+
+The completed full gate and focused Mac proof remain the parent-head records reviewed in Round 1.
+The assertion correction changes no OS-dependent implementation. This round does not claim a new Mac run or completed full gate at this head.
+The implementer states that the final gate will run after both CLEAN reviews under the pool rule.
+This verdict completes the source review and correction proof. The required final gate remains pending.
+GitHub names this exact head and base. The PR remains open.
+I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
+
+VERDICT: CLEAN
