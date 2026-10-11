@@ -1193,3 +1193,23 @@ All five new tests pass. Stage 1 catches 28/28 mutants; raw identities match nam
 The green gate closes neither finding. No reviewer execution job runs.
 No pending ID, pin, transcript, timeout, or real-tier control changes. The group remains incomplete.
 Next: wait for PC's fixes and exact-head gate evidence. Never poll.
+
+#283 Round 1 verdict pushed: f91046e143764ff17504b66a355350804f346b7f on origin/stage1/review-pc.
+VERDICT: NOT CLEAN (2 open) on 646ebe7321cc5a5de46f15d9aa6b61028ffec1e5.
+The worktree is clean. Wait for fixes and the doorbell. Never poll.
+
+
+## PR #283: Round 2 source CLEAN; gate pending
+
+Fix receipt: msg_plugin-w_1791743341_c41c67.
+Head: bd4c6f16c9c1435252f929663a33ea8b28b4beb5; parent 646ebe7321cc5a5de46f15d9aa6b61028ffec1e5.
+The brief is read first again. The complete two-file delta closes both findings by source review.
+HW-TK-1: next-step guard includes blocked kernel room; full queue and spent accept limits still retain no next-step work.
+The new control test pumps until idle and observes three queued bytes, no early completion, then Written 5 after release.
+HW-TK-2: settle returns all events that each pump's poll returned, including the final idle pump.
+Both held-write tests inspect retained events before release. Existing ignored-return sites retain prior behavior.
+PC reports 394 local testkit passes, 212 conformance passes, and two red-on-revert failures. No raw reversal log is supplied.
+No reviewer execution job runs. Source CLEAN: zero open findings on bd4c6f16.
+The gate on 646ebe73 covers only the original head. PC queues the new gate after its contracts job.
+Exact-head gate and mutation results, Sol verdict, and updated body remain due. The final slot/import/Q7 conditions remain due.
+The original group remains incomplete. Wait for the doorbell. Never poll.

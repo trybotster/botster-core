@@ -1,6 +1,9 @@
 # PC package review: R-74 held writes, testkit part, PR #283
 
-VERDICT: NOT CLEAN (2 open).
+VERDICT: CLEAN (0 open), source review on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+
+Round 1 below retains the two findings on the original head. Round 2 closes both by source review.
+The exact-head gate on the fixed head remains pending.
 
 - READY receipt: `msg_plugin-w_1791743029_b2452a`.
 - Head: `646ebe7321cc5a5de46f15d9aa6b61028ffec1e5`.
@@ -127,3 +130,42 @@ After both CLEANs, PC must request the lead's final-gate slot under plan 23bu.
 With the slot, PC imports the then-current v1 once, posts the base check, and runs one exact-head final gate.
 The gate base must equal the v1 tip at merge. This verdict approves no later import or source delta.
 The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
+
+
+## Round 2: source fixes
+
+- Fix receipt: `msg_plugin-w_1791743341_c41c67`.
+- Head: `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+- Parent: `646ebe7321cc5a5de46f15d9aa6b61028ffec1e5`.
+- Own-diff and PR base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+- The head has no v1 import. The contracts pin remains `.36`.
+
+The reviewer reads the brief first again. The binding rules and contracts read in Round 1 remain applicable.
+The reviewer reads the complete two-file delta and the corrected helper and test call sites.
+The source delta closes both findings. No new source finding remains open.
+
+HW-TK-1 closes. The next-step guard now accepts `!blocked || kernel_room > 0`.
+It retains the checks for an unspent accept limit, an active chunk cap, and a spent per-step allowance.
+A chunk-only refusal can therefore retain future work while the blocked kernel queue has room.
+A full kernel queue retains no next-step marker. A spent accept limit also retains no next-step marker.
+The existing edge test adds these combined states. The new control test sets chunk 1, kernel capacity 3, and a five-byte write.
+It pumps to idle, then observes three queued bytes and no completion over the retained events.
+This case fails at the queue count with the old guard, which lets the host settle before it fills the queue.
+Release then gives Written 5 and the complete ordered input log. The test covers the host's scheduling boundary.
+
+HW-TK-2 closes. `settle` now retains the events from each poll, including the poll after the final idle pump.
+The held-write test checks those retained events for a matching `Completed` before release.
+The chunked-write test uses the same retained-event check. Existing call sites that ignore the return keep their prior drain behavior.
+The helper keeps the same pump limit and clock. It adds no sleep, timeout value, production hook, or event re-injection.
+The test interval has one write and no program output, so its event count does not exceed the existing poll bound.
+
+PC reports 394 local testkit passes, 212 conformance passes, and two failures with the guard reverted.
+The reviewer traces the stated reversal to the new queue count and next-step assertion. The reviewer executes no reversal or test.
+No separate raw reversal log was supplied in this receipt. These execution counts remain PC's reports.
+
+Source verdict: CLEAN (0 open) on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+The original gate on `646ebe73` does not cover this later source delta.
+PC reports that the new exact-head gate follows its running contracts job. No completed gate receipt for this head exists here.
+The new mutation results, exact-head gate, Sol's same-head integration verdict, and updated body remain required.
+After both source CLEANs, PC must request the lead's final-gate slot. The current-v1 import and Q7 conditions remain due.
+This source CLEAN approves no later head or incomplete gate. No execution job ran here. Never poll.
