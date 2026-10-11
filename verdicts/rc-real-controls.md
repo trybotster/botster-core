@@ -115,3 +115,61 @@ Integration verdict: `745964561c19243f5fe0e032895e9c4c61946498`, `verdicts/stage
 The report arrived in `msg_plugin-w_1791710645_32356d`.
 The integration reviewer confirms the comment correction and the focused Mac source equivalence.
 The final exact-head gate remains required before merge.
+
+## #255: round 1
+
+Date: 2026-10-11.
+Head: `81304f8588cac4c98deffad2e05ce6fa5fb70b3a`.
+Base: `517c2235`.
+Risk: HIGH. The change modifies the shared testkit.
+Authority: R-60 and plan 23am, section 0, item 1. This PR adds the control before the pin moves.
+
+**VERDICT: NOT CLEAN (1 open)**
+
+### RC-PR-1 — MEDIUM — The real control accepts a removed session's historical row
+
+Status: OPEN.
+Evidence: `crates/botster-core-testkit/src/real/program.rs:539` at the reviewed head.
+The new `program_ready` arm uses `session_processes` to decide whether the session has a row.
+That method reads the tap's historical row table. Its documentation at `real.rs:323` states that a row outlives removal.
+The tap's `delete_row` at `edge_tap.rs:557` deletes storage without removing the historical entry.
+
+Sequence: Create a session. Complete Remove. Call `program_ready` for the removed session on the same open handle.
+The real control finds the historical row and returns `{ready: false}` for a session that never started.
+For a session whose probe connected, the historical probe entry can instead produce `{ready: true}`.
+The testkit returns `Bad`: its `session_row` at `controls.rs:73` reads current storage, where Remove deleted the row.
+This contradicts the new arm's stated behavior, "no row is `Bad`, as on the testkit."
+It also lets the real readiness fence accept a session that no longer exists.
+
+Required change: Read and decode the current stored row for `program_ready`.
+The existing `RealCoreHarness::stored` helper provides that read through the storage edge.
+Keep historical process records for controls that need them.
+Add a regression through the harness control: after Remove completes, `program_ready` returns `Bad` on both tiers.
+The regression must assert control behavior, not the historical table's private state.
+
+### Other checks and evidence
+
+- The PR states HIGH and includes a Prior art note.
+- R-60 defines both forms. The real read does not wait for connection. The testkit answers true at once for an existing row.
+- The hello inserts the probe before it signals the watched host wakes. The existing wake function signals every live watcher.
+- The new real-session test uses the guarded production worker and probe. The change adds no production test hook.
+- The new socket test fences the hello's wake with an acknowledged request. It uses no sleep or polling loop.
+- The changed room test consumes the hello's wake before it waits for the input report's wake. Its new timer is a marked deadline.
+- The pin, transcripts, and pending lists do not change in this PR.
+
+The exact-head Linux log is:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-program-ready-81304f85-pool-20261011-025755-50233.log`.
+Every step passed. All 7 mutants were caught, including 5 in stage 2. None was missed or timed out.
+
+The exact-head Mac log is:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-program-ready-81304f85-mac-20261011-025659.log`.
+It reports 410 passes and 1 failure. The new readiness tests pass.
+The existing zombie test fails because `identity_state` returns `Absent`, while the test expects `Matches`.
+The implementer reports the same failure on plain v1. The PR does not change that test or identity implementation.
+Bug catalog B9 records the same macOS identity distinction. This review does not treat the Mac run as entirely green.
+
+The mutation configuration is byte-identical to the configuration already read in the #246 review.
+The reviewer checked every exclusion against the changed implementation paths. No expression targets those paths.
+The existing test globs do not cover the changed implementation files.
+
+The reviewer ran no test or gate. RC-PR-1 must close before CLEAN.

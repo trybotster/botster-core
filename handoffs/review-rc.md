@@ -16,6 +16,9 @@ The final gate remains required on this head or the later final head before merg
 A later base merge also requires the plan's base-merge record.
 The reviewer ran no test or gate.
 
+Core #255 is NOT CLEAN at `81304f8588cac4c98deffad2e05ce6fa5fb70b3a`.
+RC-PR-1 is open. The real `program_ready` control uses a historical row after Remove, while the testkit returns `Bad`.
+The implementer must use the current stored row and add a control-level regression on both tiers.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.
