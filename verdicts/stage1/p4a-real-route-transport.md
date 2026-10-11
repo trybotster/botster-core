@@ -592,3 +592,44 @@ This CLEAN covers source only. It accepts no gate, merge, new minimum result, fu
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at bebc95821b4a35a7d5f17663a61569fb1006d739
+
+### Formal source delta verdict at 850bb785
+
+- Head: `850bb78522e43967667ec839d5253e952822eea2`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Parent: `bebc95821b4a35a7d5f17663a61569fb1006d739`.
+- Tree: `f077931e3d09041843c367f891fdb40fc2ee122a`.
+- Published package CLEAN: `dc43e90040dfdfb848ec04be856396228dd1ecab`, Round 169 in verdicts/p3-worker.md.
+- Package receipt: `msg_plugin-w_1791721499_b4d42c`.
+
+Sol reads the complete package addition and verifies its publication on fetched stage1/review-p3.
+Sol reads the complete one-file delta, surrounding engine match, message variant, and driver feed path.
+The explicit empty RouteReceived arm and the unchanged empty catch-all produce the same engine behavior.
+Removing the explicit arm leaves the driver responsible for closing the host copy before engine input.
+The catch-all comment now identifies that responsibility. Every other explicit message arm remains unchanged.
+No exclusion, test, state transition, timeout, dependency, pin, or pending ID changes.
+The static diff check passes. Zero integration source findings remain open.
+The complete parent composition, protocol confirmation, and recorded Prior art checks remain applicable.
+
+Sol reads the failed parent gate's header, named proof results, tier summaries, missed identities, stage-2 results, summary, and exit.
+The log is `~/botster-sessions/gates/botster-core-stage1-p4a-real-route-transport-bebc9582-pool-20261011-051225-8796.log`.
+Default reports 1680 PASS and 481 skipped. Slow reports 494 PASS and 2009 skipped.
+The real receipt and DP-2 byte proofs each report PASS by exact name in the slow tier.
+The unmutated stage-2 baseline reports 494 PASS, eleven slow, and 2693 skipped.
+Stage 1 reports 167 mutants: 144 caught, two missed, 21 unviable, and zero timeout.
+Its missed identities are deletion of the empty RouteReceived arm and replacement of Driver::bind_route with ().
+Stage 2 catches bind_route through `slow_driver::a_real_route_carries_the_attach_the_input_and_the_output`.
+Stage 2 misses `crates/botster-core-host/src/inbound.rs:303:13: delete match arm WorkerMsg::RouteReceived{..} in HostEngine::on_worker_msg`.
+Its totals are two mutants, one caught, one missed, zero unviable, and zero timeout.
+The first eight steps pass. Mutants fails. Fuzz reports NOT RUN.
+CI totals 515.5 seconds. Jobq exits one after 524 seconds. The wrapper exits one after 525 seconds.
+Sol does not claim acceptance review of all 144 stage-1 catch identities from this selected inspection.
+The parent gate stays failed. Equivalent code removal supplies no waiver for that failure.
+
+The replacement exact-head full gate remains pending. Its proof outcomes and mutation identities require acceptance review.
+The A5-4 table still needs the exact 0c5ac80e before, reviewed after, and classification of every failure and pending result.
+The final body must record the replacement head and completed gate result before merge.
+This CLEAN covers source only. It accepts no gate, merge, new minimum result, future status removal, or future import.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 850bb78522e43967667ec839d5253e952822eea2
