@@ -2107,3 +2107,46 @@ This CLEAN approves only this plan. It approves no future combined source, pin, 
 Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at 8140a92991e82d69381cd618e9ce154afa746f97
+
+## Round 60: revision 23ar, contracts .36 target
+
+- Head: `a2897c1204dbfe6bbc44f476783686a68cabf57a`.
+- Parent and previous approved plan: `8140a92991e82d69381cd618e9ce154afa746f97`.
+- Plan SHA-256: `2e4d6e962f37ddafe2a68fd50598a1bd218fe3a6a53358f8cccd970884e0daed`.
+- Lead receipt: `msg_plugin-w_1791718432_8dfd0d`.
+
+Sol checks the complete delta. Only docs/stage1-plan.md changes, with two added lines and one deleted line.
+Section 0 records contracts-v0.1.36 and sets it as the combined #240/#243 target instead of .35.
+The revision table adds 23ar. No other operative rule changes.
+
+The local annotated tag object is `49f82ad13472a21cf47415f296f96dff0fae277f`.
+It resolves to the plan's commit `96f48d6d3d7a0e75e752d78433eff92efad0e77e`.
+The lead reports that the steward tagged it. Its annotation records #41 B2, the crate review, and the gate.
+Sol's separate remote-tag query fails because DNS cannot resolve github.com. It supplies no independent remote publication check.
+The local exact tag and the lead's release receipt are the tag evidence for this plan review.
+
+Sol independently confirms .35 and the R-65 follow-up commit 6243fdcb are ancestors of .36.
+Only three contracts paths change from .35:
+- crates/botster-core-conformance/tests/fence_lint.rs.
+- conformance/core-fence-exceptions.txt.
+- docs/steward-rulings.md.
+
+No transcript, runtime crate, frozen contract, ledger, manifest, or BUILD.md changes.
+The lint's declared scope adds R-56 input fences and the capture ratchet to the previously reviewed fence rules.
+Sol checks that scope and the exception data. This plan review does not replace the contracts implementation review.
+The exception file has 398 unique entries: 271 initial R-56 capture entries and the same 127 R-60 entries from .35.
+Sol independently compares the complete R-60 sets. They are equal. Every new entry has the R-56 capture reason.
+These lint exceptions do not remove a Core pending ID or count a Core pass.
+
+The steward-rulings blob at .36 equals the previously read blob at 6243fdcb exactly.
+Thus the new target carries R-65 and its complete state qualification without changing either ruling.
+The #243 fix and real-process proof remain required before the combined review.
+The protocol release condition, R-50 ordering, Running HandoffFailed reading, and A21 caveat remain unchanged.
+
+The current Core code pin remains .32. This plan changes only the future combined target.
+The combined head still needs source review, a full real-tier before/after table, and its exact-head full gate.
+The pending-removal rule, active IDs, minimum list, and Stage 1 completion criteria remain unchanged.
+This CLEAN approves only the plan. It approves no future combined source, pin implementation, gate, lint implementation, or pending removal.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at a2897c1204dbfe6bbc44f476783686a68cabf57a
