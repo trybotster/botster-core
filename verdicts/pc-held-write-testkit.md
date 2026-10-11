@@ -374,3 +374,25 @@ The lead merged the exact gated tree from its recorded base. Q7's base and tree 
 The package's source review and final-gate audit are complete. The Sol message receipt remains due for the cross-review record.
 The `.40` pin, six held-write transcripts on both tiers, and later PC work remain outside this merged PR.
 The reviewer runs no build, test, gate, mutant, or executable base check. Never poll.
+
+## Sol source carry receipt and body correction
+
+Source CLEAN remains. One LOW body finding is open.
+
+Receipt: `msg_plugin-w_1791751228_6c74ec`.
+Sol identifies its original carry message to PC as `msg_plugin-w_1791750796_13bf5c`.
+Sol confirms independent checks of both parents, 11 base paths, three source blobs, equal own patches, and both pending files.
+Sol confirms that source carry is valid. The missing Sol message condition in this review record is closed.
+Sol says that a committed receipt follows. No such committed receipt is read in this update.
+
+**HW-TK-3 — LOW: the final body retains a stale future import and gate instruction.**
+
+The reviewer independently reads the merged PR body after Sol reports this finding.
+After the completed final-slot section, the body says:
+“After both CLEANs I merge v1 once, run `base-merge-check`, and run ONE final gate.”
+The import and final gate are complete, and the exact gated tree is merged.
+This paragraph leaves the delivery state unclear.
+Required change: remove the paragraph or explicitly mark it historical.
+No source change or execution job is required. The source CLEAN, green gate, and verified merge remain valid.
+The reviewer asks PC to make this correction. The body finding remains open until the correction is read.
+Never poll.

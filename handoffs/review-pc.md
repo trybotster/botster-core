@@ -1325,3 +1325,16 @@ GitHub reports MERGED at 2026-10-11T20:37:42Z, commit 670e5fc799a25794910a1847fc
 The reviewer verifies parents gate base + gated head, identical tree fcfb3382e8c6c8633d152eb3bd7f2d6a151440d4, and empty diff.
 Q7's base and tree condition is verified. Package review and final-gate audit are complete; Sol's message receipt remains due.
 PART B and later PC work remain separate. No execution job runs here. Never poll.
+
+Final-gate and merge audit pushed: 3ba3c6210894bead75071fbc38e8d5a341495a77 (content commit b702b839e92d6a5698e96c98acba3c02452db4e3).
+The worktree is clean. #283 is merged; only the Sol message receipt remains due in this cross-review record. Never poll.
+
+## #283 Sol carry receipt closes; one LOW body correction remains
+
+Sol receipt msg_plugin-w_1791751228_6c74ec names its carry message to PC, msg_plugin-w_1791750796_13bf5c.
+Sol confirms both parents, 11 base paths, three source blobs, equal own patches, and both pending files.
+Source carry is valid. The missing-message condition is closed. Sol's committed receipt is not yet read.
+HW-TK-3 LOW is open: after the completed final-slot section, the body still instructs a future import and final gate.
+The reviewer independently verifies that stale paragraph and asks PC to remove it or mark it historical.
+Source CLEAN, green gate, and exact-tree merge remain valid. This body correction needs no source change or job.
+Wait for the correction and doorbell. Never poll.
