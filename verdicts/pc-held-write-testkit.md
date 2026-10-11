@@ -181,3 +181,16 @@ This receipt adds no separate source finding. Sol leaves the correction unread i
 Package Round 2 source CLEAN remains on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
 Sol's review of that fixed head and its exact-head gate remain pending here.
 No execution job runs here. Wait for the doorbell. Never poll.
+
+
+## Sol Round 2 source CLEAN receipt
+
+Receipt: `msg_plugin-w_1791743918_7be331`.
+Sol verdict: `d9bdb2db873eb6f11f6eae54c44f2848a5c98cf1`, `verdicts/stage1/pc-held-write-testkit.md`, Round 2.
+The reviewer reads the complete verdict and verifies publication on `origin/stage1/integration-review-sol`.
+Both source CLEANs cover `bd4c6f16c9c1435252f929663a33ea8b28b4beb5` and base `9f7085f703457b0669785697dbeb14ac687a8942`.
+Sol independently closes both findings and accepts the corrected guard, event retention, and host-pump test.
+The same-head integration source-review condition is closed. Both reviewers retain the reported-reversal evidence limits.
+No completed gate receipt for the fixed head exists here. The body must include both source verdicts and completed evidence.
+The lead's final slot, current-v1 import, applicable base check, final exact-head gate, and Q7 remain required.
+This receipt approves no later import, running gate, `.40` pin, or real-tier result. No execution job runs here. Never poll.

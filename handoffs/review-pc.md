@@ -1224,3 +1224,14 @@ Verdict 951091b9b7bec3b686731eaafc98e247b02f87be is read in full and verified on
 Sol independently confirms both package findings on original head 646ebe73. Sol adds no separate finding.
 Package source CLEAN remains on fixed head bd4c6f16. Sol's fixed-head review and exact-head gate remain pending.
 No execution job runs. Wait for the doorbell. Never poll.
+
+Sol Round 1 receipt record pushed: 7a620e6795abedb3012d5ed3f3f86f3443407f2b.
+The worktree is clean. Fixed-head gate and Sol review remain pending. Never poll.
+
+
+#283 Sol Round 2 source CLEAN receipt: msg_plugin-w_1791743918_7be331.
+Verdict d9bdb2db873eb6f11f6eae54c44f2848a5c98cf1 is read in full and verified on origin/stage1/integration-review-sol.
+Both source CLEANs cover bd4c6f16c9c1435252f929663a33ea8b28b4beb5, base 9f7085f703457b0669785697dbeb14ac687a8942.
+Both source findings close. Same-head integration source-review condition closes.
+Exact-head gate evidence, body verdict references, final slot/import/check/gate, and Q7 remain due.
+Neither reviewer accepts a running gate, later import, .40 pin, or real-tier result. Never poll.
