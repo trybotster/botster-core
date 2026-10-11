@@ -275,6 +275,11 @@ impl HostEngine {
     /// Whether the engine can take `input` now. A route event needs mandatory room (EV-5b); the driver keeps a frame that
     /// cannot be taken unread on its link and removes the read interest (plan 2.5 rule 7).
     pub fn can_accept(&self, input: &Input) -> bool {
+        self.accepts_at(input, self.has_room())
+    }
+
+    /// Whether the engine could take `input` if the mandatory queue had room or not, as `room` says.
+    fn accepts_at(&self, input: &Input, room: bool) -> bool {
         use botster_core_link::msg::WorkerMsg;
         match input {
             Input::LinkMsg {
@@ -288,7 +293,7 @@ impl HostEngine {
                     | WorkerMsg::LaunchFailed { .. }
                     | WorkerMsg::Adopted { .. },
                 ..
-            } => self.has_room(),
+            } => room,
             // The events of the model belong to the running session: an observation stays unread on its link while the
             // session's start or adoption is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5).
             // The link keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
@@ -597,6 +602,44 @@ impl HostEngine {
 
     pub(crate) fn has_room(&self) -> bool {
         self.queue.has_mandatory_room()
+    }
+
+    /// The sessions with work that waits only for mandatory-queue room (EV-5b, TM-6): a step that the engine would run with
+    /// room, or a frame in `held` (read from a worker link and not taken) that the engine would take with room. Work that is
+    /// runnable now, or that waits for anything else, is not counted. With room, no work waits for it, so the set is empty.
+    pub fn parked_on_room<'a>(
+        &self,
+        held: impl IntoIterator<Item = &'a Input>,
+    ) -> BTreeSet<SessionId> {
+        if self.has_room() {
+            return BTreeSet::new();
+        }
+        let now = self.ready_at(false);
+        let mut out = BTreeSet::new();
+        for work in self.ready_at(true) {
+            if now.contains(&work) {
+                continue;
+            }
+            match work {
+                Work::Op(op) => out.extend(self.ops.get(&op).and_then(|p| p.session.clone())),
+                Work::Session(id) => {
+                    out.insert(id);
+                }
+                Work::Parked => out.extend(self.parked.iter().filter_map(|p| {
+                    let (ParkedRoute::Close(route, _) | ParkedRoute::Progress(route, _)) = p;
+                    self.routes.get(route).map(|r| r.session.clone())
+                })),
+                _ => {}
+            }
+        }
+        for input in held {
+            if let Input::LinkMsg { link, .. } = input {
+                if !self.accepts_at(input, false) && self.accepts_at(input, true) {
+                    out.extend(self.links.get(link).cloned());
+                }
+            }
+        }
+        out
     }
 
     // ---- time and deadlines (TM-1, TM-3, TM-5) ----
