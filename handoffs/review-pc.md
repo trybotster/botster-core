@@ -1338,3 +1338,14 @@ HW-TK-3 LOW is open: after the completed final-slot section, the body still inst
 The reviewer independently verifies that stale paragraph and asks PC to remove it or mark it historical.
 Source CLEAN, green gate, and exact-tree merge remain valid. This body correction needs no source change or job.
 Wait for the correction and doorbell. Never poll.
+
+Sol carry/body finding record pushed: 650d2d9aff018a9efeabe5946812c581e0fa7c73.
+The worktree is clean. HW-TK-3 LOW remains open; source CLEAN and merged gate result remain valid. Never poll.
+
+## #283 review complete
+
+PC correction msg_plugin-w_1791751288_946d46 is verified in the live body. HW-TK-3 closes.
+Sol final record 4ad5e8d5b669134eba7db24b7d1f3f1cffc8348f is read and verified on its remote review branch.
+Sol receipt msg_plugin-w_1791751368_16378a confirms import carry, final gate, exact-tree merge, and its body closure.
+Both reviews are CLEAN on 4daf627b54739f847dd2448bf660a6a45c1b714a. No #283 review condition remains open.
+PART B and R-78 design remain separate. No execution job runs here. Never poll.

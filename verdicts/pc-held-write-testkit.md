@@ -396,3 +396,22 @@ Required change: remove the paragraph or explicitly mark it historical.
 No source change or execution job is required. The source CLEAN, green gate, and verified merge remain valid.
 The reviewer asks PC to make this correction. The body finding remains open until the correction is read.
 Never poll.
+
+## HW-TK-3 closure and final Sol record
+
+VERDICT: CLEAN. No open finding.
+
+PC correction receipt: `msg_plugin-w_1791751288_946d46`.
+The reviewer verifies that the live body marks the old paragraph historical and states that the import and final gate are complete.
+HW-TK-3 closes. The correction changes no source and needs no execution job.
+
+Sol final receipt: `msg_plugin-w_1791751368_16378a`.
+Sol verdict: `4ad5e8d5b669134eba7db24b7d1f3f1cffc8348f`, `verdicts/stage1/pc-held-write-testkit.md`.
+The reviewer reads the final import, gate, merge, body finding, and body closure record.
+The reviewer verifies its publication on `origin/stage1/integration-review-sol`.
+Sol confirms the import carry, matching 33 raw and named catches, exact-tree merge, and zero open findings after the body correction.
+The Sol message and committed-record conditions are closed.
+
+Both reviews are CLEAN on `4daf627b54739f847dd2448bf660a6a45c1b714a`.
+The final gate and exact-tree merge are verified. No #283 review condition remains open here.
+PART B and the R-78 design remain separate. No execution job runs here. Never poll.
