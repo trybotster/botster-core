@@ -1132,6 +1132,9 @@ impl CoreHarness for RealCoreHarness {
                     | "host_crash"
                     | "reuse_pid"
                     | "bystander_alive"
+                    // A capability name, not a control (contracts controls doc; Core E1-1): `open` honours
+                    // `worker: {file_name}` with a wrapper of that name that execs the real worker (`wrapper`).
+                    | "worker_file_name"
             ) || program::CONTROLS.contains(&op)
                 || crate::oracle_controls::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
@@ -2444,6 +2447,7 @@ mod slow_tests {
             "host_crash",
             "reuse_pid",
             "bystander_alive",
+            "worker_file_name",
         ]
         .into_iter()
         .chain(program::CONTROLS.iter().copied())
