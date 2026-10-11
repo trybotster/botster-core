@@ -165,11 +165,16 @@ mod tests {
 
     /// The real call reaches our own group, this process included. `SIGURG` is the signal: its default action is to ignore
     /// it, so no other member of the group is affected. The handler of this process writes one byte to a socket, and the
-    /// test waits for that byte (the event), not for a flag.
+    /// test waits for that byte (the event), not for a flag. The handler belongs to the whole process, so the test runs
+    /// alone in a new process (`botster_test_process::alone`), which also leads a group of its own.
     #[test]
     fn a_signal_to_our_own_group_reaches_this_process() {
         use std::io::Read;
         use std::time::Duration;
+        const NAME: &str = "signal::tests::a_signal_to_our_own_group_reaches_this_process";
+        if !botster_test_process::alone::is_alone(NAME) {
+            return botster_test_process::alone::run_alone(NAME, &[]);
+        }
         let (mut reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
         let handler =
             signal_hook::low_level::pipe::register(signal_hook::consts::SIGURG, writer).unwrap();
