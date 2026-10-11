@@ -301,3 +301,31 @@ The static diff check passes. No source finding exists so far.
 This is an inspection record, not a formal imported-head CLEAN.
 The canonical base-check log, exact-head gate, final READY/body, and formal package artifact remain pending.
 The prior CLEAN covers only 5e6b1518. Sol runs no execution job.
+
+## Second import inspection: 0fed25b3
+
+Head: `0fed25b32a2db1c025ba04233ea3826555b1b26a`. Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+Parents: inspected 15d682b2 and exact base c9ae2c2f. Tree: `6550b4deaf8a5d3b0bdf9536c49164e53b76e874`.
+Receipt: msg_plugin-w_1791723700_2efe93. The owner stops the 15d682b2 gate when v1 moves again.
+That stopped gate establishes no completed acceptance for either head.
+
+Sol reads the complete supplied canonical base-check log:
+`~/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-0fed25b3-pool-20261011-060113-32411.log`.
+SHA256: `eb8b02485f2e4fea085b28a0540b6a47e6e592eff14ac0fd9efd55f548901309`.
+It names the exact original reviewed head, new head, and base. Conditions 1 and 4 PASS.
+Conditions 2 and 3 FAIL on the same four shared paths. Job and wrapper exit one after eleven seconds.
+The pending-list check combines one own removal with three base removals and retains the base's real-pending file.
+The failed check requires a delta review; it supplies no automatic CLEAN transfer.
+
+Sol independently verifies the new merge parents. The permitted static merge-tree check returns the exact tree without a conflict.
+The delta from 15d682b2 contains only #265's five paths, all outside #257's own diff.
+All fifteen own files equal the inspected 15d682b2 blobs. All original own added/deleted sequences remain identical to 5e6b1518.
+All 37 outside-own imported paths equal exact base blobs. The four shared-path and pending-composition inspections remain applicable.
+The imported lock source equals the reviewed #265 tree that now enters v1 as c9ae2c2f.
+The snapshot retains exact blob `4a091397d5a58f71b534dcc1fc1ff15b36f2f693` from the reviewed stat-only correction.
+It still opens no top-level lock file. Its process-record-lock proof retains the before/after-held and after-close-free checks.
+The static diff check passes. No source finding exists so far, and the #265 snapshot condition is retained in this source.
+
+This inspection supplies no formal imported-head CLEAN or gate approval.
+Final READY/body, the exact 0fed25b3 gate, and the applicable package artifact remain pending.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.

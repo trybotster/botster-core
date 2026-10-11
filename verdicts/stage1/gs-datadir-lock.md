@@ -155,3 +155,12 @@ A later source head remains outside this verdict. The lead owns the merge decisi
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 3c8044f40a6b26400240616b8946b05478b72fca
+
+### Merge completion
+
+Package completion `7ba7b0e1fa24bf9e4374a46ffae067f560427c85` is fully read and verified on fetched origin/stage1/review-gs.
+It records Sol's published integration completion and retains the #257 stat-only snapshot condition.
+Sol verifies notified v1 merge `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+Its exact parents are reviewed base ddd3b849 and reviewed head 3c8044f4.
+Its tree equals reviewed and gated `7a6ccdc55a282b093859ab80b5cf3cb25b7605f8`.
+The merge adds no source delta beyond the reviewed and gated tree.
