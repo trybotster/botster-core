@@ -365,3 +365,78 @@ That review must identify the exact new head and base and check both previously 
 One full gate must cover the resulting exact head before merge. The old pool instruction supplies no gate waiver.
 No composition review of that future imported head has started. No new approval comes from this information record.
 The preceding source findings remain closed within their reviewed scope. The new composition and final gate remain pending.
+
+## Round 4: combined composition inspection, review active
+
+- READY head: `bbc83015fde9e51127029667ccc3dcae766a7645`.
+- Recorded base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Head tree: `cacc29701284724665bba83ee82c7aafbbc260b8`.
+- Plan: 23ar, `a2897c1204dbfe6bbc44f476783686a68cabf57a`.
+- READY receipt: `msg_plugin-w_1791719202_427b4b`.
+
+Sol reads the complete updated PR body. This review covers the combined #240/#243 composition and later source changes.
+The previous CLEAN applies to stacked source only. This inspection supplies no formal source CLEAN yet.
+
+### Base composition
+
+Merge bb73428bf4fc2dc6935135820abd470654062ed7 has parents 53502d55 and exact base b3cb268f.
+Its tree e103c4f8a62ebfdd656c559f37492bba6fabdcc5 equals Sol's independent git merge-tree result.
+Sol reads the complete retained base-merge-check log. Conditions 2 and 3 fail; both pending-file conditions pass.
+The six shared paths are .cargo/mutants.toml, .config/process-check-allow.txt, Cargo.lock, testkit worker.rs, worker/tests.rs, and worker main.rs.
+Sol reads their complete own deltas against b3cb268f.
+Sol independently compares their ordered added/deleted line sequences with the previously reviewed own deltas against 7e8e07d6.
+All six sequences match exactly, with 7, 4, 1, 55, 141, and 115 changed lines respectively.
+This is a composition delta review, not mechanical carry-over through the failed check.
+
+### Post-merge source inspection
+
+Sol reads all eighteen changed paths after bb73428b: 477 added lines and 111 deleted lines.
+The descriptor edge now returns the host's copy when SCM_RIGHTS duplicates the endpoint.
+The real edge returns that copy. The testkit edge transfers its endpoint by value and returns no copy.
+The tap forwards the copy without consuming it.
+The host driver keeps sent copies per link and route. RouteReceived or RouteClosed removes the matching copy.
+A lost link closes every remaining copy and queues HandoffLost for each route.
+The driver feeds LinkClosed before those queued handoff-loss inputs. The existing state-first and first-reason rules remain applicable.
+Sol reads on_handoff_lost and on_link_closed. Starting/Stopping retain the existing end-state route path; Running closes HandoffFailed.
+The worker queues RouteReceived after BindRoute. No new timer or production test branch is added.
+
+The real-link hold proof drops the receiver's copy, proves a client write succeeds before the acknowledgement, and then sends RouteReceived.
+A completed capture on the same link fences acknowledgement handling. EOF and BrokenPipe then prove closure of the host's copy.
+The DP-2 byte proof sends known client bytes before handoff and ends that direction. The worker receives every byte through EOF.
+The client receives the worker's exact first line. Both proofs use public link, stream, and Core results.
+The shared helper retains its stop over a broken link and worker process ownership.
+
+Sol reads the complete hold-reversal and host-byte reversal logs.
+Removing the hold fails the pre-acknowledgement write with BrokenPipe. A host read or write fails the corresponding byte assertion.
+The DP-2 reversal header names staged tree cacc2970, equal to this head's tree.
+The 30-run green log names that tree but contains summaries only. It supplies no independently read per-test PASS identity.
+The final gate must supply the named proof results. Sol runs no repeat campaign or reproduction.
+
+### Pin and pending data
+
+Cargo.toml and Cargo.lock move all contracts sources from .32 to exact .36 commit 96f48d6d.
+Sol reads the complete eight-transcript, BUILD.md, and steward-rulings deltas between those exact pins.
+The other changed contracts paths are the fence lint and its exceptions, already checked for plan-target scope.
+No frozen contract, manifest, ledger, or runtime contract crate changes between these pins.
+The fences retain assertion values. R-65, its state qualification, and the A21 caveat remain explicit.
+The prior .36 remote tag check remains valid.
+
+Only the three in_10 IDs leave core-pending.txt. The post-merge source leaves core-real-pending.txt unchanged.
+Sol reads the Mac receipt completely. It names an earlier 95ffb505 working tree with .35 and the three removals.
+Each ID reports five passes. The relevant transcripts equal .36 because .35-to-.36 changes no transcript.
+This receipt does not replace the final exact-head gate. No pending removal is accepted until its required PASS is checked there.
+DP-2 stays pending until PC's separate named-proof mechanism and a passing named proof satisfy the gate.
+The full real-tier before/after table and EV-5 result remain pending.
+
+### Required release confirmation and remaining work
+
+The body reports publish=false, zero repository tags, zero GitHub releases, and no crates.io botster-worker release.
+R-65 also requires the Core lead to confirm in the PR that no released protocol-1 worker exists.
+Sol finds conditional design approval in the lead handoff, but no explicit release confirmation in the supplied PR body.
+Sol asks the lead for that confirmation. This is the release condition from R-65, not a new protocol requirement.
+
+The exact-head package round, final full gate, full before/after table, and release confirmation remain pending.
+Current v1 has advanced to 0c5ac80e by merging #261. This head still records b3cb268f as its base.
+A later current-base import needs its applicable review and its own exact-head gate.
+This inspection approves no merge, gate, pin implementation, or pending removal.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.

@@ -297,3 +297,42 @@ The 80af70d2 and eb7f5c12 gates do not cover this correction. This CLEAN approve
 A new head requires its applicable review and exact-head gate. Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at 727a1c5043ad007f5b2d0a3353be657cf240e403
+
+### Exact-head gate completion
+
+Gate receipt: `msg_plugin-w_1791719354_4402d3`.
+Package completion: `994ca99bdcef313c5f24b1e0c14892cabdb7c5c0`, read in full and independently confirmed published.
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-flaky-list-727a1c50-pool-20261011-044118-44498.log`.
+Log SHA-256: `e3efb4e31b630b702b11fde0afbba5145a8f9b6e96ae431c6f3f1ea0fde956bf`.
+
+The header names exact head 727a1c50 and base b3cb268f. All ten steps pass in 446.3 seconds.
+The default tier passes 1639 tests in 12.300 seconds. The slow tier passes 479 tests in 36.133 seconds.
+The coverage check examines 1014 slow-only tests. The report retains 58 real-pending IDs, with none newly passing.
+The minimum report remains real-passing 40/68 and real-accepted 41/69.
+Both settled-rule unit tests pass. Both real fixtures pass, including the corrected slow-only selection proof.
+The normal slow run passes the workspace-list fixture in 1.607 seconds and the exclusion fixture in 0.965 seconds.
+The real flaky-catch fixture passes in 2.412 seconds. This exact-head evidence closes the source-only execution limits.
+
+Stage 1 tests 66 unique mutants: 46 caught, seven missed, thirteen unviable, zero timeout, in 139.9 seconds.
+Its unmutated baseline passes, with four seconds of build and two seconds of tests.
+The standalone stage-2 baseline passes all 479 tests in 37.580 seconds; the reported complete baseline takes 46.0 seconds.
+EV-5 passes in both unmutated slow runs. The mutation-stage filter reports its exact listed identity as excluded.
+Stage 2 catches all seven mutants in 152.0 seconds, with no miss, timeout, or unviable result.
+Sol independently compares their complete identity multisets. Stage 2 tests exactly the seven stage-1 misses.
+Sol independently matches all 53 caught identities to all 53 catching-test reports across both stages.
+The final result is 53 caught, thirteen unviable, zero missed, and zero timeout.
+
+The complete mutation step takes 341.7 seconds. Fuzz starts no trial because the diff changes no crate with a decoder harness.
+The job and wrapper exit 0 after 455 seconds, with one second queued and 454 seconds running.
+This green gate covers the corrected source and closes the previously missing exact-head gate evidence.
+The lead owns merge and current-base checks. A future import requires its applicable review and exact-head gate.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open), source and exact-head gate complete at 727a1c5043ad007f5b2d0a3353be657cf240e403
+
+### Merge verification
+
+Sol observes v1 0c5ac80e512f986edd2ec1455012552a41c7f855 and fetches it once for this completion check.
+The merge has exact parents b3cb268f3c2cb3223dadef02033d2bee49f06c59 and 727a1c5043ad007f5b2d0a3353be657cf240e403.
+Its tree is be567bfe8afc218b6f018e46eb8b0fbfcf505f4a, equal to the reviewed and gated head's tree.
+#261 is complete and merged. This check adds no approval for a later base import in another PR.
