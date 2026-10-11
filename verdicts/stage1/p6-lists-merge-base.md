@@ -51,3 +51,17 @@ The PR changes no line-set file. Both pending files in the new head equal the im
 The standing base-only merge rule carries integration CLEAN to the new head without a delta round. The final gate is still pending. This receipt accepts no final-gate result or merge completion.
 
 VERDICT: CLEAN (0 open)
+
+## Final evidence receipt
+
+Exact head: `f6bdb3f8ff0836b3e85f534033dda08daf00416a`. Gate base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+
+Sol-B read the completed final-gate records at `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-lists-merge-base-f6bdb3f8-pool-20261011-164701-94465.log`. All ten steps PASS. The wrapper exits 0. Mutation results remain 5 caught, 0 missed, 0 timeout, and 1 unviable. The log contains no FLAKY record.
+
+The lists step prints the gate base as its merge base. This confirms that the merged-head check compares against current `v1`, as the approved design requires.
+
+The package reviewer carries CLEAN to this head in `09054ec59d4dce999b65f6d07b6763c8b1437705`. Sol-B read the updated PR body. It names the final head, base check, final gate, and both reviewer receipts. The live PR still names this exact head.
+
+All integration prerequisites are complete for this head. The lead owns the merge and its tree check. This receipt claims no merge completion.
+
+VERDICT: CLEAN (0 open)
