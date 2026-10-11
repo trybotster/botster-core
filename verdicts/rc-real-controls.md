@@ -1292,3 +1292,25 @@ The corrected base and the event-sourced state have governing steward rulings; n
 
 Both findings must close before CLEAN, including the LOW finding.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — source correction receipt
+
+New source head: `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Message: `msg_plugin-w_1791750885_f2353d`.
+The reviewer read the complete source delta and the corrected PR body.
+RC-OE-1 is closed in the source. The literal mode assertions are removed.
+The independent binding comparisons and merge-sensitivity checks remain.
+The modes test compares the replay's modes with a fresh terminal's modes, then compares the control with the replay.
+RC-OE-2 is closed in the body. The incorrect parenthetical count is removed; the review section states five plus one.
+No production control, list, or mutation exclusion changes in this correction.
+
+The supplied reversal log names this exact head and reports all four reversals red:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-oracle-reversals-mac-41c1f7e2-20261011-133400.log`.
+The getter-state reversal, all-off base, shallow overlay, and ignored size each fail a behavior assertion.
+The log ends with the source restored clean.
+
+Open package findings: 0. The new exact-head gate receipt remains pending.
+The reviewer issues no CLEAN on the new head before that receipt.
+The previous head's gate does not prove the new head.
+The reviewer ran no test, build, or gate.
