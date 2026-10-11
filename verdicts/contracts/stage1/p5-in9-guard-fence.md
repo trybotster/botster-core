@@ -77,3 +77,53 @@ How my round 1 findings carry over to a head built on R-80:
 - A wait that would consume an event that a later step asserts uses an appended R-57 sentinel instead.
 - The exception list is only for matches where no sentinel works.
 - The lint takes a named list of the derived events.
+
+## Round 2: head `381e4bb8843063e47929e197be87b0efa4144115`
+
+VERDICT: NOT CLEAN (2 open, both LOW).
+
+Commits since round 1: `72eb31b` (R-80: the rule, addition (1), the fences, the exceptions), `42c64cd` (merge of main `7df311e282260b29fadc143fdd0a97c1645bf1e8`, with conflicts resolved by hand) and `381e4bb8843063e47929e197be87b0efa4144115` (merge of main `16fdb77854c1fd3859e4645797c927dfa1a8195f`, automatic: `git merge-tree` gives the commit's own tree).
+
+### Round 1 findings
+
+- **F1 closed.** The body states HIGH: the lint and the exception file are gate-decision code and data.
+- **F2 closed (and 016c R1-1).** R-80's rule tracks no bindings: every model read after an output with no output fence of its session between them is a finding. So a comparison taken as a binding, and a `model_rev` bound by a `pump_until` matcher, no longer matter. Every `model_rev` comes from a model read or a wait, and the read is checked itself. The self-test checks each later read after the same unfenced output.
+- **016c R1-2 closed.** `output_fences` takes only an `Activity` of the read's own session. The self-test has another session's `Activity` as a case that is not a fence.
+- **F3 closed.** Evidence `~/botster-sessions/shared/core-stage1/evidence/p5-r80/core-tiers-mac.log` (SHA256 `b1c563c555c5f15ba923f37f6eded33c5d084ceac6e69613b096e082e6ad8708`), Core #282 head `d893833eb9dc3762e859c0130e51498bf6db91fe`, both tiers, macOS, own target directory: `in_9_key_repeat…` and `st_6_capture_is_frozen_at_model_rev` PASS before and after on both tiers; `ev_8`'s new fence passes on both tiers; the other ids stop at unchanged Core pending causes or unsupported controls. No id gets worse.
+  - Note: the log's header names the contracts tree as `6383bf7f` (a WIP commit that `72eb31b` replaced, not an ancestor of the head) plus uncommitted edits. Those edits are in exactly the 8 files that differ between `6383bf7f` and `72eb31b`. The two must-pass ids' transcripts are not among them, so the after run's `in_9` and `st_6` equal `72eb31b`'s.
+
+### The merges (BUILD Q7)
+
+- `42c64cd` resolved conflicts in the exception file header and in `fence_lint.rs` (the module doc, the exception filter, the tests). The PR's diff against main `16fdb77854c1fd3859e4645797c927dfa1a8195f` removes only three module-doc lines, which the PR rewrites to add the R-80 rule. Every R-83 line of main is kept: `UNFENCED_ROUTE_READ` stays in the exception filter, and its tests pass in the gate.
+
+### R-80 and its additions, checked
+
+1. **The rule.** Outputs: `pty_output`, `pty_chunk`, `program_write_once`. Model reads: `ReadScreen`, `CaptureSnapshot`, a `terminal_state` call, a `begin` with a `model_rev` guard. A read is never a fence. `await_quiet`, `drain`, `pump`, the clock, `let`, `check`, an `ignore` or `forbid` matcher, and another session's wait are not fences.
+2. **Addition (1).** `DERIVED_EVENTS` is the named list (`ModesChanged`, `TitleChanged`, `Bell`). A derived event fences only when it is a `pump_until`'s `event` or a `pump_collect` member, and when the last bytes of the session's last unfenced output are the sequence that posts it. Distinctness is stated per fence in the body. See F4 for one gap in the last-bytes test.
+3. **The fences (R-77 checks (a) and (b), the body's table).** I checked the claims that need the transcript:
+   - `dp_12_focus_report…` step 16 and `ev_8_reply…` step 12 (`Activity` with no `at`): step 15 and step 11 are the first outputs of s1, so no earlier `Activity` can meet them;
+   - `st_6` steps 7 and 14 (`at` 5000 and 5001), `st_6b` (`at` 5000): as R-80 states;
+   - `ev_5` and `ev_6_keyed` use `await_title` of the output's own title (T23, T5), distinct from every earlier title, and consume no event;
+   - `a3_2` and `ev_6_loss` append an R-57 sentinel and `await_title` it, because an `Activity` wait would not be distinct (`a3_2`) or would drop events that a later step collects (`ev_6_loss`).
+4. **The exception list.** It removes 5 R-57 entries that the new fences close, renumbers 2 R-60 entries, and adds one R-80 entry, `st_6_pages_owned_last_flag_and_range` step 8, with the steward's reason as a comment above it. Net: 4 fewer.
+
+### F4 (LOW, open): the last-bytes test accepts two `u` sequences that post no `ModesChanged`
+
+- **Evidence.** `ends_with_a_mode_sequence` accepts any CSI whose parameter bytes (0x20 to 0x3F) run to a final `h`, `l` or `u`. With final `u`, that also accepts:
+  - `ESC [ u` (`1b5b75`, empty parameters): SCORC, restore the cursor;
+  - `ESC [ ? u` (`1b5b3f75`): the kitty keyboard flags query, which answers and changes no mode.
+  Neither posts `ModesChanged`. So an output that ends with one of them, followed by `pump_until ModesChanged{S}`, passes the lint's condition 3 ("the sequence that posts it is the last bytes"). The wait would then end only on an earlier event, or time out.
+- **Effect today.** None: no derived fence in the corpus follows such an output.
+- **Required.** For a final `u`, accept only the kitty forms that change the flags: the first parameter byte is `=`, `>` or `<` (set, push, pop). Add the two cases above as non-fences in the self-test.
+
+### F5 (LOW, open): the PR body says "four reasons"; the file says five
+
+- **Evidence.** Body, section 3: "The header says four reasons." The exception file's header at this head says "Only five reasons exist" (R-56 capture, R-60, R-57, R-80, and main's R-83 route read).
+- **Required.** Correct the body. No code change.
+
+### Gate on the exact head
+
+- Log: `~/botster-sessions/gates/botster-contracts-stage1-p5-in9-guard-fence-381e4bb8-pool-20261011-141218-97570.log`, SHA256 `4d3c8d1c5f4263ea450d2568af3252c829056cad215a6ecf2d8799f9a1952dc0`.
+- Header: head `381e4bb8843063e47929e197be87b0efa4144115`, base `16fdb77854c1fd3859e4645797c927dfa1a8195f` (BOTSTER_CI_BASE_REF), Linux pool.
+- Result (read by me): all 10 steps PASS, with `a_model_read_after_an_output_of_its_session_needs_an_output_fence` and the corpus test; `botster-gate: exit 0 after 441 s on msa1`.
+- Main is now `71f01c8812132fa979b8584f12a92ba2efde071e` (#65: `ci/remote/` and a doc only, disjoint from this PR). F4 changes the lint, so the next head needs its own gate. P5 merges main once after both CLEANs, then the final gate.
