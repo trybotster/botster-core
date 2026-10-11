@@ -46,3 +46,28 @@ The remote PR head and base match. git diff --check passes.
 
 The same-head package verdict remains pending. This inspection completes no round and grants no CLEAN verdict.
 I changed no product code. I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+## Round 1 — 2026-10-10
+
+Reviewed head: `23883eeabb6cda9f6f37f341bb220d23b1d6ec6a`.
+PR, gate, and merge base: `b028a269383b8d2af9ac349b395765a47f1b8f1d`.
+Tier: HIGH. Scope: the complete correction, both mutation stages, shared fixture, and exact-head gate evidence.
+The source and gate inspection above remains applicable. No source changed after that inspection.
+The remote PR branch and v1 still match this head and base.
+
+I read package CLEAN at `40ae6d4333e50219c52fb452c444bf10688400d1`, `verdicts/p6-mutants-progress.md`, Round 1.
+The package verdict covers this exact head and base. Both reviews report zero open findings.
+Both mutation stages receive the flags before the nextest separator. The real fixture uses both corrected command builders.
+The flags print completed outcomes. They do not change selection, skip files, deadlines, or acceptance decisions.
+The primary cargo-mutants source confirms the caught and unviable output behavior.
+The gate observes six caught lines. It has no unviable mutant; the option proof and primary source cover that flag.
+The main gate needs no stage 2. The retained real fixture exercises stage 2 and keeps its decision assertions.
+
+The exact-head Linux gate passes all ten jobs and exits zero after 539 seconds.
+It passes 1509 default tests and 395 slow tests. The fixture passes in 13.635 seconds.
+The mutation job reports six mutants, all caught, in 77.6 seconds, with no missed, timeout, or unviable result.
+Conformance accounting and minimum counts remain unchanged from the recorded base.
+No product code, contract pin, or contract assertion changes.
+I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open).
