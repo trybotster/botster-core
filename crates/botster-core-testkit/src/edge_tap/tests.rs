@@ -1149,6 +1149,36 @@ mod held_starts {
         assert_eq!(calls(&rig).last().unwrap(), "write 1 true");
     }
 
+    /// #287 RC-R2-1: an interrupted read in `quiet` makes no progress, so the edges are not quiet, the wake signals, and each
+    /// call reads the link once. The link stays, and a later call reads its bytes.
+    #[test]
+    fn an_interrupted_read_in_quiet_is_not_quiet_and_is_read_again_at_the_next_call() {
+        let mut rig = linked(Fake::default());
+        rig.with(|t| {
+            t.inner.reads.insert(
+                A,
+                vec![
+                    Read::Interrupted,
+                    Read::Interrupted,
+                    Read::Data(b"z".to_vec()),
+                ]
+                .into(),
+            )
+        });
+        for left in [2, 1] {
+            let before = rig.signals();
+            assert!(!rig.with(|t| t.quiet()), "no progress is not quiet");
+            assert_eq!(rig.signals(), before + 1, "the wake signals");
+            assert_eq!(
+                rig.with(|t| t.inner.reads[&A].len()),
+                left,
+                "one read in the call"
+            );
+        }
+        assert!(!rig.with(|t| t.quiet()), "the bytes came");
+        assert_eq!(rig.recv(A, 16).unwrap(), b"z");
+    }
+
     /// A hold set before the link exists holds nothing until the `Launch`; the bytes that the inner edge takes in part keep
     /// the tap's reading in step, so the hold begins exactly at the `Launch`.
     #[test]

@@ -310,20 +310,19 @@ impl<E: HostEdges> Tap<E> {
             }
             let mut buf = vec![0u8; READ_CHUNK];
             for (link, tap) in &mut self.links {
-                loop {
-                    match self.inner.link_recv(*link, &mut buf) {
-                        Ok(0) => tap.end = Some(End::Closed),
-                        Ok(n) => {
-                            tap.observe(&buf[..n], &mut self.launches, &self.heard);
-                            tap.held.extend(&buf[..n]);
-                        }
-                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                        Err(e) => tap.end = Some(End::Failed(e.kind())),
+                match self.inner.link_recv(*link, &mut buf) {
+                    Ok(0) => tap.end = Some(End::Closed),
+                    Ok(n) => {
+                        tap.observe(&buf[..n], &mut self.launches, &self.heard);
+                        tap.held.extend(&buf[..n]);
                     }
-                    quiet = false;
-                    break;
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    // No progress: the edges are not quiet, the wake signals, and a later call reads again (#287
+                    // RC-R2-1: no retry without progress). The link and its bytes stay.
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(e) => tap.end = Some(End::Failed(e.kind())),
                 }
+                quiet = false;
             }
         }
         if !quiet {
