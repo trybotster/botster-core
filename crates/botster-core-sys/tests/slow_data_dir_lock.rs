@@ -122,13 +122,18 @@ impl Spawners {
 }
 
 impl Drop for Spawners {
+    /// Stops the threads and joins every one of them before it reports a failure, so no thread is left detached with a
+    /// child.
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        for thread in self.threads.drain(..) {
-            let joined = thread.join();
-            if !std::thread::panicking() {
-                joined.expect("a spawner thread failed");
-            }
+        let failed = self
+            .threads
+            .drain(..)
+            .map(std::thread::JoinHandle::join)
+            .filter(Result::is_err)
+            .count();
+        if failed > 0 && !std::thread::panicking() {
+            panic!("{failed} spawner threads failed");
         }
     }
 }
@@ -137,7 +142,8 @@ impl Drop for Spawners {
 /// it, in each of `CYCLES` cycles. With `flock`, a child between its fork and its exec held the dropped lock, and the first
 /// refused reopen fails the test (no retry). The cycles start after a spawner's first child ended, and some child must
 /// start during them, or they prove nothing. With v1's `flock`, 95 of 3671 cycles (Mac) and 51 of 7945 cycles (Linux) were
-/// refused, so 2000 cycles miss a reverted fix with a probability below 1e-5 (2.5e-6 on Linux).
+/// refused (the first form of this test, which retried). If the cycles are independent, an estimate that this assumes,
+/// 2000 cycles miss a reverted fix with a probability of about 2.5e-6 on Linux and less on the Mac.
 #[test]
 fn a_dropped_lock_is_free_at_once_while_other_threads_start_children() {
     const CYCLES: u64 = 2000;
