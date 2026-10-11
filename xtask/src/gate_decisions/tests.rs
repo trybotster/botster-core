@@ -249,6 +249,7 @@ fn an_entry_counts_one_mutant_or_the_n_of_its_note() {
         "'e', #3 mutants",
         "'e', # three mutants",
         "'e', # -2 mutants",
+        "'e', # +3 mutants",
         "'e', # 3 mutants and more",
         "'e', # 3",
         "'e', 'f',",
