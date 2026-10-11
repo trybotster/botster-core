@@ -79,12 +79,12 @@ pub(crate) fn await_group_end(
     cleanup: std::time::Duration,
 ) -> Result<(), String> {
     // timer: deadline — bounds the wait for a killed group's last members.
-    let deadline = std::time::Instant::now() + cleanup;
+    let deadline = platform::real_now() + cleanup;
     end_members(
         || Ok(()),
         || live_members(group),
         |member| await_end(member.pid, deadline),
-        || std::time::Instant::now() >= deadline,
+        || platform::real_now() >= deadline,
     )
     .map_err(|failure| match failure {
         Failure::Left(members) => {
