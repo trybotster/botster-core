@@ -481,3 +481,30 @@ It contains summaries rather than individual proof names. Final gate review stil
 The bbc83015 receipt names EV-5 PASS in each of twenty runs. Sol starts no repeat campaign.
 The current full gate, A5-4 table, and formal package composition verdict remain pending.
 This continuation supplies no formal source CLEAN, final gate approval, or merge approval.
+
+### Round 4 continuation: package artifact and replacement test
+
+Sol reads the complete formal package Round 166 addition in e04cca4c6322a28b00e062c35d46167d616ecebb.
+The fetched stage1/review-p3 branch contains that commit. Sol independently confirms its publication.
+The package CLEAN covers 3cf27c1b, base 0c5ac80e, complete composition, and post-import corrections.
+Sol also reads the complete driver and worker reversal records. They fail on missing copy retention and missing RouteReceived respectively.
+Those selected reversals supplement the inspected public real-link and DP-2 proofs. They replace no full gate.
+
+The 3cf27c1b gate then fails at test-budget. Sol reads its exact header, named failure, final summary, and exit record.
+The repository-list test still requires the EV-5 entry that this head removes.
+The gate stops before slow, mutants, and fuzz. This failed gate supplies no execution approval.
+Lead receipt msg_plugin-w_1791720429_53ea49 assigns the replacement head for this same round.
+
+Sol reads the complete correction at `7e577f68a167fb1f21e248fcd3300ee87118b9bf`, parent 3cf27c1b.
+It changes only the repository-list test in xtask/src/known_flaky.rs: four added lines and nine deleted lines.
+The test still reads and parses the actual repository file. It now requires the parsed list to be empty.
+The parser, selection, verdict, and nonempty fixture tests do not change. No check of the empty list is removed.
+This matches the inspected list removal and the plan's Stage 1 exit condition.
+The package delta verdict, replacement exact-head gate, and A5-4 table remain pending.
+No formal integration source CLEAN was issued for the superseded 3cf27c1b head.
+
+The earlier #240 and stacked #243 Prior art checks remain applicable to their retained source.
+The later changes reuse the descriptor edge, per-link driver, worker action queue, frame decoder, and real-link fixture.
+No dependency or alternative runtime is added. The protocol condition remains closed by the lead's explicit PR confirmation.
+This continuation accepts no gate, merge, new minimum result, future pending removal, or future base import.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
