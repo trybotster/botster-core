@@ -43,3 +43,8 @@ VERDICT: NOT CLEAN (2 open).
 - Header: head `c6db5d0010db45ecf83eb8252d1e3ed00e565b43`, base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` (BOTSTER_CI_BASE_REF), Linux pool.
 - Result (read by me): all 10 steps PASS; mutants 56 tested, 54 caught, 2 unviable; `botster-gate: exit 0 after 420 s on msa1`.
 - The PR's merge of main is `194643cf65bb4418c522322fb94c5461b65b5757`. P3 merges the main tip once before the final gate; I check that merge with Q7.
+
+### Rulings after round 1 (recorded for round 2)
+
+- **F2.** The steward to me (2026-10-11): the stricter lint is ACCEPTED as sound ("the lint may flag a 0d in any paste body that a relation part covers ... This line closes F2"). P3's `a2aacea80473185899c299d9a94915291f975e28` narrowed the lint at the same time. I asked P3 to revert that narrowing, because F1 item (2) makes a paste body known bytes in the accounting, so a paste body `0d` would give a false pass on the real tier.
+- **F1.** The steward's ruling (R-73 follow-up 2, pending; via the lead): P3's meaning is accepted. (1) An op with an observed zero-effect `input_refused` leaves `runs()`; a partial refusal is a run of `written_bytes` when exact, else unknown. (2) A paste body is known bytes (IN-8), so an unplaced paste body inside a `written_without_op` span fails; key, mouse and focus bytes are the stated limit, written in the `route_expect_pty` doc. F1 closes on a head that implements (1) and (2) with tests and cites the ruling.
