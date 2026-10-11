@@ -89,7 +89,7 @@ fn break_control(
 /// The `reason` of `lose_worker`, in the control vocabulary (`fake-core` `control.rs`).
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum LoseReason {
+pub(crate) enum LoseReason {
     WorkerGone,
     WorkerUnreachable,
 }
