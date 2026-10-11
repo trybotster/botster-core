@@ -1052,3 +1052,20 @@ Required change: record that reported cause and identify the clean build from #2
 Keep the withdrawn log explicitly invalid. Do not claim that its PASS proves this branch's behavior.
 
 All three findings must close before CLEAN. The reviewer ran no test, build, or gate.
+
+
+### Core #285 — gate record correction
+
+VERDICT: NOT CLEAN (4 open)
+Exact source remains `b5ca83e2825dc9404a3c6634fd97d755cf8f5d37`.
+RC-TK-1, RC-TK-2, and RC-TK-3 remain open.
+Integration message: `msg_plugin-w_1791746867_0246a2`.
+
+RC-TK-4 — LOW — The historical red gate description claims a PASS for an unrun step.
+The body's `b1f4fb3a` paragraph says `all other steps passed` after the mutation failure.
+The reviewer checked lines 5751 to 5760 of `botster-core-stage1-rc-testkit-controls-b1f4fb3a-pool-20261011-120615-12620.log`.
+The summary has eight PASS results, `mutants FAIL`, and `fuzz NOT RUN` because an earlier step failed.
+Required change: replace the claim with those actual results. Keep the later green gate distinct.
+The final `b5ca83e2` gate has ten PASS results; this finding concerns only the earlier gate record.
+
+All four findings must close before CLEAN. The reviewer ran no test, build, or gate.
