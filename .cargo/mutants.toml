@@ -238,15 +238,9 @@ exclude_re = [
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start( ->| with)|.* in Driver::start$)',
     # Driver::start_with_read_bound: control_and_pty_reads_retain_bytes_at_each_positive_bound uses the real constructor at all three bounds.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start_with_read_bound( ->| with)|.* in Driver::start_with_read_bound$)',
-    # Driver::run: the gate runs its other mutants: the body, the signal arm's `==`
+    # Driver::run has no entry: the gate runs each of its mutants. The slow tier kills the body, the signal arm's `==`
     # (lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays) and the route-token guard
-    # (a_new_host_whose_hello_comes_after_the_first_read_adopts_the_worker and the real-route tests). One stays out:
-    # `||` in a route stream's event (`is_read_closed() || is_write_closed()`) is equivalent: the value only feeds the
-    # route's readability (`route_io::Routes::event`), and a stream that is read-closed is also readable, hung up or in
-    # error on both OSes (mio: kqueue's read-filter EOF is readable; epoll's read-closed is EPOLLHUP, which is also
-    # write-closed, or EPOLLIN with EPOLLRDHUP; EPOLLERR is an error). A write-closed event alone makes the route
-    # readable for one more read, which ends in `WouldBlock` or at the end that the read side also reports.
-    'crates/botster-worker/src/main\.rs:\d+:\d+: replace \|\| with && in Driver::run$',
+    # (a_new_host_whose_hello_comes_after_the_first_read_adopts_the_worker and the real-route tests).
     # Driver::settle: ev_4_a_real_exit_carries_the_code_or_the_signal requires queued machine inputs and actions to reach real edges.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::settle( ->| with)|.* in Driver::settle$)',
     # Driver::perform: lc_6_signal_reaches_the_whole_group checks signals; pty_reads_clear_readiness_and_finish_a_bounded_drain checks ReapPayload.
