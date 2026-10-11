@@ -23,7 +23,7 @@ mod read;
 pub mod rounds;
 
 pub use anchor::Guard;
-pub use child::{run_to_completion, OwnedChild};
+pub use child::{reap_within, run_to_completion, OwnedChild};
 pub use deadline::{Deadline, CLEANUP};
 pub use fixture::{quoted, Blocker};
 pub use read::{eof, first_line, Bounded, ReadError};
