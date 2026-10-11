@@ -64,6 +64,8 @@
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
+mod program;
+
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
@@ -80,7 +82,7 @@ use botster_core_conformance::{
 };
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{IdentityState, ProcessIdentity};
-use botster_core_host::driver::HostDriver;
+use botster_core_host::driver::{HostDriver, HostEdges};
 use botster_core_host::session::{row_key, Row};
 use botster_test_process::{platform, Guard};
 use serde::Deserialize;
@@ -192,6 +194,8 @@ pub struct RealCoreHarness {
     /// The scripted synchronous refusals of each handle (`fail_next`, R-49 Q3): the testkit's own layer in front of the
     /// handle's Core returns them without calling Core.
     refusals: BTreeMap<String, RefusalHandle>,
+    /// The probes' control sockets (the program controls). Declared before `root`: its socket is in the root.
+    programs: program::Programs,
     /// The guards' sockets, the wrappers and the data directories.
     root: tempfile::TempDir,
 }
@@ -230,6 +234,8 @@ impl RealCoreHarness {
     }
 
     fn make(candidate: Candidate, tapped: bool) -> io::Result<RealCoreHarness> {
+        let root = tempfile::tempdir()?;
+        let programs = program::Programs::listen(root.path())?;
         let mut harness = RealCoreHarness {
             guards: BTreeMap::new(),
             candidate,
@@ -243,7 +249,8 @@ impl RealCoreHarness {
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
             stand_ins: 0,
-            root: tempfile::tempdir()?,
+            programs,
+            root,
         };
         // `Core::open` creates the data directory itself, not its parent.
         std::fs::create_dir(harness.root.path().join("d"))?;
@@ -707,6 +714,9 @@ impl CoreHarness for RealCoreHarness {
                 .install_stand_ins(&data_dir)
                 .map_err(RealCoreHarness::harness_failed)?;
             let (cfg, edges) = botster_core::open_parts(config)?;
+            // A probe's read gives Core no wake, and `await_pty` waits on this handle. The plain harness serves no control, so
+            // it needs none.
+            self.programs.watch(&edges.wake());
             let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
             let heard = Arc::clone(self.heard.entry(data_dir.clone()).or_default());
             let (edges, tap) = EdgeTap::new(edges, rows, heard);
@@ -791,7 +801,8 @@ impl CoreHarness for RealCoreHarness {
                     | "release_start_at"
                     | "fail_next"
                     | "fail_handoff"
-            ) || route::CONTROLS.contains(&op))
+            ) || program::CONTROLS.contains(&op)
+                || route::CONTROLS.contains(&op))
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -816,6 +827,9 @@ impl CoreHarness for RealCoreHarness {
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            op if self.tapped && program::CONTROLS.contains(&op) => {
+                self.program_control(handle, op, args)
+            }
             _ => Err(ControlError::Unsupported),
         }
     }
@@ -828,6 +842,11 @@ impl CoreHarness for RealCoreHarness {
             }
             _ => Err(ControlError::Unsupported),
         }
+    }
+
+    /// Both real harnesses name the probes' control socket, so the probe behaves the same under each (steward condition 2).
+    fn probe_env(&self) -> BTreeMap<String, String> {
+        self.programs.env()
     }
 
     /// The guarded wrapper of the prebuilt probe. The probe receives the script as `argv[1]`, unchanged.
@@ -1615,6 +1634,26 @@ mod slow_tests {
         }
     }
 
+    /// Both real harnesses name their own control socket, `<root>/p`, in the probe's environment, and nothing else: the
+    /// probe connects under either harness (steward condition 2).
+    #[test]
+    fn both_real_harnesses_name_their_control_socket_in_the_probe_env() {
+        for harness in [
+            RealCoreHarness::new(nonexistent()).unwrap(),
+            RealCoreHarness::plain(nonexistent()).unwrap(),
+        ] {
+            let socket = harness.root.path().join("p");
+            assert!(socket.exists());
+            assert_eq!(
+                harness.probe_env(),
+                BTreeMap::from([(
+                    botster_probe_script::control::CONTROL_ENV.to_string(),
+                    socket.display().to_string()
+                )])
+            );
+        }
+    }
+
     /// The tapped harness serves only the controls that it builds at its tap; the plain harness of the pass-through test
     /// serves none.
     #[test]
@@ -1637,7 +1676,10 @@ mod slow_tests {
             "release_start_at",
             "fail_next",
             "fail_handoff",
-        ] {
+        ]
+        .into_iter()
+        .chain(program::CONTROLS.iter().copied())
+        {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
         }
@@ -1645,7 +1687,7 @@ mod slow_tests {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
         }
-        assert!(!tapped.has_control("pty_output"));
+        assert!(!tapped.has_control("pty_fail_after"));
         assert!(!tapped.has_control("wait_worker_exit"));
     }
 
@@ -1654,7 +1696,7 @@ mod slow_tests {
     #[test]
     fn a_control_that_the_harness_does_not_serve_is_unsupported() {
         let mut plain = RealCoreHarness::plain(nonexistent()).unwrap();
-        for op in ["edges_quiet", "break_control"] {
+        for op in ["edges_quiet", "break_control", "pty_output"] {
             let result = plain.control("h", op, &json!({}));
             assert!(
                 matches!(result, Err(ControlError::Unsupported)),
@@ -1662,7 +1704,7 @@ mod slow_tests {
             );
         }
         let mut tapped = RealCoreHarness::new(nonexistent()).unwrap();
-        let result = tapped.control("h", "pty_output", &json!({}));
+        let result = tapped.control("h", "pty_fail_after", &json!({}));
         assert!(
             matches!(result, Err(ControlError::Unsupported)),
             "{result:?}"
