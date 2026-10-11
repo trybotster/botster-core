@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.5c247504.md`, revision 23bo.
-- Verified plan SHA-256: `0c4aed22c9810d623b2b75e0da9073aff4d0d3d742db3db315f659d39d9caa7c`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.a730792d.md`, revision 23bt.
+- Verified plan SHA-256: `a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -1014,3 +1014,34 @@ Own base: a0adb1321bfc3deb7d16735e9a622775ba5f1a2d. PR and green gate base: 42d7
 The same-head integration-review condition is closed. The final current-v1 import, applicable base check, and exact-head gate remain due.
 Neither verdict approves a later source delta or gate. The OU-9 structural fix still needs its Core pin.
 No execution job ran here. Wait for the doorbell. Never poll.
+
+
+Receipt record pushed: b9d4795455d4b43f0b3745a613aeb4d7afb00e4b on origin/stage1/review-pc.
+#276 both source CLEANs cover 67fd9112d0e7554d39be6eb6b43260c782dda200. The final import, applicable base check, and gate remain due.
+The reviewer worktree is clean. Wait for the doorbell. Never poll.
+
+
+## PR #276: package delta review after the base merge
+
+PC receipt: msg_plugin-w_1791740971_556be3.
+Merged head: 300eccec3f9c2929e137ee33eb2e8cbe45bf66a8.
+First parent: reviewed 67fd9112d0e7554d39be6eb6b43260c782dda200.
+Second parent, imported v1, own-diff and PR base: 84b1e9be2c58044b27958ed39fe1fffa2a0eb907.
+Package verdict: source CLEAN (0 open), verdicts/pc-e1-1-worker-file-name.md, Round 2.
+The reviewer read the brief first and the complete 23bo-to-23bt changes. Sections 5 and 8 remain unchanged.
+The base-check report remains FAIL. The proof file conflicted, real.rs overlapped, and blob identities/context changed.
+Report: evidence/base-merge-check-276-300eccec.out. SHA-256 d8df10a3da9398056b7134f4693950caf4e65f2a117bb253a414fc1fe25ed6dc.
+Both pending-file checks pass. The disjoint-base exception does not apply. This round supplies the package delta review.
+The reviewer verified both merge parents, the complete three-file own diff, current GitHub head/base/body, and imported shared-file changes.
+The three own paths retain byte-identical added/removed lines. The pending file equals the base minus E1-1.
+The real-pending file equals the base. The proof file preserves the base plus exactly one E1-1 row, including both LC-2 rows.
+The merged capability expression keeps the tapped guard, PC's worker_file_name arm, and #275's oracle-control term.
+The test keeps both control sets. The imported oracle names do not intercept E1-1.
+Candidate validation, guard wrapper, E1-1 suite path, and proof checker are unchanged from the reviewed head.
+The imported real.rs changes leave open, worker wrapping, and binary selection unchanged. The pin and transcript are unchanged.
+No package finding remains open. Sol's same-head delta review is required because the base check failed.
+PC reports that the final gate is running. No completed gate receipt exists here for 300eccec. The 67fd9112 gate is prior-head evidence.
+Before merge, the PR body must record the merge, failed base check, both delta verdicts, and final exact-head gate.
+This source verdict approves no other base import and does not establish the final gate condition.
+The reviewer ran no execution job. The original program-controls group remains incomplete.
+Next: push the source verdict and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.

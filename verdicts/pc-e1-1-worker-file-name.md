@@ -1,6 +1,6 @@
 # PC package review: worker_file_name capability, PR #276
 
-VERDICT: CLEAN (0 open) at `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+VERDICT: source CLEAN (0 open) at `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
 
 Round 1 below records the source review. The earlier cause record remains as historical evidence.
 
@@ -140,3 +140,54 @@ Both source CLEANs now cover that exact head and distinguish its own base from t
 This closes the same-head integration-review condition. The final current-v1 import, applicable base check, and exact-head gate remain due.
 Neither source verdict approves a later source delta or gate. The OU-9 structural fix still needs its Core pin.
 The reviewer ran no execution job. Wait for the doorbell. Never poll.
+
+## Round 2: review after the base merge
+
+- PC receipt: `msg_plugin-w_1791740971_556be3`.
+- Merged head: `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+- First parent, previously reviewed head: `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+- Second parent, imported v1, new own-diff and PR base: `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+- Plan: 23bt, `~/botster-sessions/pins/stage1-plan.a730792d.md`.
+- Plan SHA-256: `a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca`.
+
+The reviewer read the brief first. The reviewer read the complete plan changes from 23bo to 23bt.
+Sections 5 and 8 are unchanged. The new rulings govern other work and do not alter the E1-1 proof.
+The reviewer checked the complete base-check report, merge parents, imported changes in the shared files, and new three-file own diff.
+The reviewer also verified the current GitHub head, base, and body.
+
+Base-check report: `~/botster-sessions/shared/core-stage1/evidence/base-merge-check-276-300eccec.out`.
+SHA-256: `d8df10a3da9398056b7134f4693950caf4e65f2a117bb253a414fc1fe25ed6dc`.
+The report remains FAIL. The proof file conflicted, and both sides changed `real.rs`.
+The own diff also has different blob identities and context. Both pending-file checks pass.
+The disjoint-base exception does not apply. This round supplies the required package source review.
+
+The head has exactly the two reported parents. PC made one base merge after the reviewed head.
+The new own diff contains the same three paths as Round 1.
+For each path, the added and removed lines are byte-identical to the Round 1 lines.
+The pending file equals the imported base with only E1-1 removed.
+The real-pending file equals the imported base without any PC change.
+
+The resolved proof file equals the imported base with exactly one additional E1-1 row.
+It retains AD-6 and both LC-2 rows from #280. The new row stays between AD-6 and LC-2.
+The same-run proof checker is unchanged. Each proof retains its exact test identity.
+The conflict resolution loses no base row and changes no existing row.
+
+The merged capability expression keeps `self.tapped` around the complete control set.
+It retains the new oracle-control term from #275 and the PC `worker_file_name` arm.
+The imported oracle set contains only its three oracle names. It does not intercept the E1-1 capability.
+The capability test retains the PC entry and now chains the imported oracle set.
+The plain harness still declares none of those controls.
+
+Candidate validation, the guard wrapper, the E1-1 suite path, and the proof checker are unchanged from the reviewed head.
+The imported `real.rs` changes leave `open`, the worker wrapper, and binary selection unchanged.
+The E1-1 transcript and contracts pin remain unchanged. The reviewed real-process boundary remains valid.
+The imported source does not change the diagnosed OU-9 fence cause.
+
+Package verdict: source CLEAN (0 open) on `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+No package finding remains open. Sol's same-head delta verdict remains required because the base check failed.
+PC reports that the one final gate is running. The reviewer has no completed gate receipt for this head.
+The earlier gate at `67fd9112` remains evidence for that earlier head only.
+PC must record the merge, failed base check, both delta verdicts, and final exact-head gate in the PR body before merge.
+This source verdict does not establish the final gate condition or approve another base import.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable base check.
+The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
