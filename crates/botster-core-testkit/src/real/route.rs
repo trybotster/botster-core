@@ -281,18 +281,25 @@ mod slow_tests {
     }
 
     /// A stream that fails its next `interrupts` writes with `Interrupted`, then takes `chunk` bytes per write until
-    /// `room` is used, then is full (`WouldBlock`). A `chunk` of 0 takes nothing (`Ok(0)`).
+    /// `room` is used, then is full (`WouldBlock`). A `chunk` of 0 takes nothing (`Ok(0)`). A write past `allowed`
+    /// panics, so a flush that writes again after a write with no progress fails at once and never spins (#238 round 1).
     struct Chunky {
         taken: Vec<u8>,
         room: usize,
         chunk: usize,
         interrupts: usize,
         writes: usize,
+        allowed: usize,
     }
 
     impl Write for Chunky {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
             self.writes += 1;
+            assert!(
+                self.writes <= self.allowed,
+                "write {} after a write with no progress",
+                self.writes
+            );
             if self.interrupts > 0 {
                 self.interrupts -= 1;
                 return Err(io::Error::from(io::ErrorKind::Interrupted));
@@ -322,15 +329,19 @@ mod slow_tests {
             chunk: 2,
             interrupts: 1,
             writes: 0,
+            allowed: 1,
         };
         let mut unsent = b"abcdef".to_vec();
         flush_into(&mut end, &mut unsent);
         assert_eq!((end.writes, end.taken.as_slice()), (1, &b""[..]));
         assert_eq!(unsent, b"abcdef");
+        // Two partial writes, then the full stream: three writes.
+        end.allowed = 4;
         flush_into(&mut end, &mut unsent);
         assert_eq!(end.taken, b"abcd");
         assert_eq!(unsent, b"ef");
         end.room = 2;
+        end.allowed = 5;
         flush_into(&mut end, &mut unsent);
         assert_eq!(end.taken, b"abcdef");
         assert!(unsent.is_empty());
@@ -340,6 +351,7 @@ mod slow_tests {
             chunk: 0,
             interrupts: 0,
             writes: 0,
+            allowed: 1,
         };
         let mut unsent = b"ab".to_vec();
         flush_into(&mut stuck, &mut unsent);
