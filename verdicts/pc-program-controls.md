@@ -1,23 +1,72 @@
 # PC package delta review: PR #233
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-- Current head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`.
+- Current head: `a596c945111ae5df7db757e53ef945d238873c75`.
 - Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` (`v1`).
 - Source-reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
 - Source-reviewed base: `554d43e890b391cefc9da205c71db6856accb21d`.
 - Previous reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Risk tier: HIGH. This delta belongs to the shared testkit PR.
-- Open findings: 1.
+- Open findings: 0.
 - Binding plan: revision 23al, `stage1-plan.1555a98b.md`.
 - Plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
 - Contracts pin: contracts-v0.1.29, `65f76ab9829d7a0fda2835c10abc7ffae2c35215`, inherited from #245.
 
 The final gate failed after package and integration CLEAN on the previous head.
 This verdict supersedes package CLEAN commit `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` for the current PR.
-SI-1 through SI-4 remain closed. The previous review below remains the source record for unchanged code.
+SI-1 through SI-5 are closed. The previous review below remains the source record for unchanged code.
 
-## Disjoint base merge
+## Completed gate and two pending-ID removals
+
+Request: `msg_plugin-w_1791710640_8d164a`.
+This verdict supersedes NOT CLEAN commit `dfead09daa9a2393549cf0ebfe79223a8caaa140`.
+The reviewer read the complete two-line removal diff and its commit record.
+The local branch and its tracking ref name the current head.
+The GitHub API reads failed. The reviewer instead checked both remote branch refs with `git ls-remote`.
+The program-controls branch names a596c945. The remote v1 branch names the stated base, 8dab35d1.
+
+The only delta from 6dd3caef is `conformance/core-real-pending.txt`.
+The file equals the parent file with exactly these two lines removed:
+
+- `conf::ev_2_one_marker_per_session`.
+- `conf::in_5_lane_bounds_refuse_at_begin`.
+
+The delta changes no code, transcript, timeout, pin, exclusion, or other status file.
+The completed gate on the parent supplies both real PASS records, under contracts-v0.1.29's R-56 and R-57 fences.
+These results meet the lead's required Linux after-pin condition. The removals are valid within this PR.
+The PC group now has 20 pending IDs. All six steward-held IDs and the four remaining minimum PC IDs stay pending.
+No additional source finding exists. The group is not complete.
+
+Gate log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-6dd3caef-pool-20261011-020628-1436.log`.
+Gate head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`.
+Gate base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+The reviewer read the header, suite summaries, pending-real report, mutation records, final summary, and exit result.
+All ten steps pass. The job exits 0 after 1015 seconds on Linux node msa1.
+Default tests: 1614 pass, 484 skip. Slow tests: 461 pass, 1981 skip.
+The pending-real report has 61 IDs and exactly two passes, EV-2 and IN-5, at lines 4461 and 4462.
+The gate reports minimum real-passing 39 / 68 and real-accepted 40 / 69.
+That raw tally does not override R-59: the unfenced AD-7 pass does not count toward the accepted minimum progress.
+The fuzz step passes because the diff changes no crate with a decoder harness. It runs no decoder fuzz campaign.
+
+### SI-5 closure
+
+The unchanged closed-peer proof passes on Linux in 0.002 seconds.
+The focused Mac normal run and selected guard reversal remain accepted for the unchanged program module.
+The reviewer read all 79 stage-2 mutation outcomes and checked the identity multisets from both stages.
+Both stages select the same 79 unique mutant identities. Stage 1 misses all 79; stage 2 catches 59 and has 20 unviable.
+No mutant survives stage 2. No mutant times out.
+The previously missed guard-to-true mutant at `real/program.rs:269:20` is explicitly caught.
+The final mutation summary is 59 caught, zero missed, zero timeout, and 20 unviable.
+This closes SI-5. All five findings are closed.
+
+The completed green gate covers 6dd3caef, before the two removals. It is not CI evidence on a596c945.
+Integration CLEAN and the final Linux gate on the current exact head remain required before merge.
+The implementer will run that gate after both reviewers report CLEAN.
+The reviewer runs no build, test, gate, mutation, reversal, or executable merge-check job.
+This verdict grants no merge approval by itself. Wait for the final gate doorbell. Never poll.
+
+## Earlier disjoint base merge
 
 Message: `msg_plugin-w_1791709587_77d7ec`.
 The current head only merges the base's #252 change to `xtask/src/ci.rs`.
@@ -32,7 +81,7 @@ SI-5 remains open. The completed final gate on the exact current head must close
 The implementer reports cancellation of the stale-base gate and a new gate running on the current head.
 The reviewer did not read or poll either running job.
 
-## Base-merge delta
+## Earlier base-merge delta
 
 Delta message: `msg_plugin-w_1791708757_0cc48c`.
 The reviewer confirmed the PR head and base. The reviewer read the complete source delta and the combined conflict diff.
@@ -84,7 +133,7 @@ Required change: supply a behavior test that rejects retries of a permanent sock
 Supply a passing normal run and evidence that the missed mutant fails that test.
 The final Linux gate must pass on the corrected head. Plan 23ai also requires focused Mac evidence for this socket test.
 
-Status: OPEN, pending a green final Linux gate and its corrected mutation result. The source correction is present.
+Status: CLOSED by the completed 6dd3caef gate and mutation evidence above. The source correction is unchanged.
 The delta adds one 17-line test, `a_request_write_to_a_closed_probe_fails_with_its_error_not_at_the_bound`.
 It creates a socket pair, makes the harness end non-blocking, and drops the peer.
 It requires BrokenPipe or ConnectionReset from `send_line`. TimedOut fails that assertion.
@@ -107,8 +156,8 @@ Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-8cfdd671-
 It does not close SI-5. The new base contains #249's payload identity correction.
 
 The reviewer ran no build, test, gate, mutation, reversal, or executable merge-check job.
-The verdict grants no merge approval. The 22 pending PC IDs remain pending.
-Next: wait for the completed final Linux gate. Never poll.
+The verdict grants no merge approval. The earlier head retained 22 pending PC IDs; the current head retains 20.
+Next: wait for the final Linux gate on a596c945. Never poll.
 
 ---
 

@@ -9,11 +9,11 @@
 - Verified plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
 - Current code pin: `contracts-v0.1.29`, commit `65f76ab9829d7a0fda2835c10abc7ffae2c35215`. The base contains merged #245.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current head: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb` (verified disjoint base merge).
+- Current reviewed head: `a596c945111ae5df7db757e53ef945d238873c75`.
 - Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package NOT CLEAN (1 open) for PR #233 at `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
+- Status: package CLEAN for PR #233 at `a596c945111ae5df7db757e53ef945d238873c75`. All five findings are closed. Integration CLEAN and the final exact-head Linux gate remain required.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -568,3 +568,29 @@ The new base is an ancestor of the new head. Both pending files retain the sourc
 No source delta round is needed. The package verdict carries as NOT CLEAN (1 open), SI-5.
 The implementer reports cancellation of the stale-base gate and a final gate running on this head.
 The reviewer did not read or poll the running jobs. Wait for the completed gate doorbell. Never poll.
+
+Push record: dfead09daa9a2393549cf0ebfe79223a8caaa140 is on origin/stage1/review-pc.
+VERDICT: NOT CLEAN (1 open), SI-5, at 6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb.
+The reviewer worktree is clean. Wait for the completed gate doorbell. Never poll.
+
+Sol confirms the disjoint base import in msg_plugin-w_1791709729_b68198.
+Integration record: 4252061ee9df200155130e68a891cc57e6a034da. The package reviewer read the complete added section.
+Both verdicts remain NOT CLEAN (1 open), SI-5, at 6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb, base 8dab35d14f7038d3cc0598e2cde8da207bd1b723.
+EV-2 and IN-5 remain pending. Wait for the completed final-gate receipt. Never poll.
+
+#233 completed gate and removal delta: `msg_plugin-w_1791710640_8d164a`.
+Current head: `a596c945111ae5df7db757e53ef945d238873c75`. Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+The completed gate on 6dd3caef is green: all ten steps PASS, exit 0 after 1015 seconds on msa1.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-6dd3caef-pool-20261011-020628-1436.log`.
+The reviewer read its header, suite summaries, pending-real report, all stage-2 mutation outcomes, final summary, and exit result.
+Both stages use the same 79 unique mutant identities. Stage 2 reports 59 caught, zero missed, zero timeout, and 20 unviable.
+The guard-to-true mutant at real/program.rs:269:20 is caught. The closed-peer proof passes on Linux in 0.002 seconds.
+The unchanged focused Mac normal-run and reversal evidence remain accepted. SI-5 is closed.
+The gate reports pending-real 61, with exactly two passes: EV-2 and IN-5 (lines 4461 and 4462).
+The delta removes exactly those two ID lines. It changes no code, transcript, timeout, pin, exclusion, or other status file.
+The PC group retains 20 pending IDs. The six steward-held IDs and four remaining minimum PC IDs stay pending.
+R-59 still prevents the unfenced AD-7 pass from counting toward minimum progress. The group is not complete.
+Current package verdict: CLEAN, zero open findings. File: verdicts/pc-program-controls.md.
+The green parent gate is not CI evidence on the removal head. Integration CLEAN and a final exact-head Linux gate remain required.
+Sol requests the completed package verdict in `msg_plugin-w_1791710685_0021ed`.
+The reviewer ran no execution job. Next: push CLEAN and send its commit. Then wait for the final gate doorbell. Never poll.
