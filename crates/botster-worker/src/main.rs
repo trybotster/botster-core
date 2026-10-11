@@ -24,7 +24,7 @@ mod io_decisions;
 use botster_core_edges::Machine;
 use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
-use botster_core_sys::payload::{self, Payload, PayloadCommand};
+use botster_core_sys::payload::{self, LoopThread, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
 use botster_worker_core::{Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker};
 use io_decisions::{IoFailure, ReadyState};
@@ -117,6 +117,8 @@ struct Driver {
     /// The bytes still to read for a `DrainPty`; `None` when no drain is asked.
     drain_left: Option<usize>,
     waker: Arc<Waker>,
+    /// The thread of this loop: the one thread that starts the payload (`payload`, "Loop thread").
+    loop_thread: LoopThread,
     exits: (
         mpsc::Sender<botster_core_edges::edges::ExitStatus>,
         mpsc::Receiver<botster_core_edges::edges::ExitStatus>,
@@ -136,6 +138,7 @@ impl Driver {
         read_chunk: NonZeroUsize,
     ) -> io::Result<Driver> {
         let poll = Poll::new()?;
+        let loop_thread = LoopThread::current();
         // The endpoint is bound before the first hello: a host that has the hello can adopt the worker. `Endpoint` owns it
         // from the bind on, so every later failure of the start removes it (DESIGN.md part 7).
         let mut endpoint = Endpoint {
@@ -158,6 +161,7 @@ impl Driver {
             read_chunk,
             worker,
             poll,
+            loop_thread,
             control,
             link_open: true,
             outbound: VecDeque::new(),
@@ -360,16 +364,23 @@ impl Driver {
 
     fn spawn(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
         let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
-        let payload = Payload::spawn(&PayloadCommand {
-            argv: &spec.argv,
-            env: &spec.env,
-            cwd: &spec.cwd,
-            rows: clamp(spec.size.rows),
-            cols: clamp(spec.size.cols),
-        })
+        let payload = Payload::spawn(
+            self.loop_thread,
+            &PayloadCommand {
+                argv: &spec.argv,
+                env: &spec.env,
+                cwd: &spec.cwd,
+                rows: clamp(spec.size.rows),
+                cols: clamp(spec.size.cols),
+            },
+        )
         .map_err(|failure| match failure {
             payload::SpawnFailure::CwdMissing => SpawnFailure::CwdMissing,
             payload::SpawnFailure::Exec { errno } => SpawnFailure::Exec { errno },
+            // The driver is the loop: it runs on the thread that made `loop_thread`, so this cannot come.
+            payload::SpawnFailure::NotLoopThread => {
+                unreachable!("the driver spawns on its own loop thread")
+            }
         })?;
         let pid = payload.pid();
         let fd = payload.master().as_raw_fd();
