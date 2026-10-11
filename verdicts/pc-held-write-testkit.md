@@ -194,3 +194,36 @@ The same-head integration source-review condition is closed. Both reviewers reta
 No completed gate receipt for the fixed head exists here. The body must include both source verdicts and completed evidence.
 The lead's final slot, current-v1 import, applicable base check, final exact-head gate, and Q7 remain required.
 This receipt approves no later import, running gate, `.40` pin, or real-tier result. No execution job runs here. Never poll.
+
+
+## Fixed-head gate: RED on the advanced base's list comparison
+
+PC receipt: `msg_plugin-w_1791743932_aa5b95`.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-held-write-testkit-bd4c6f16-pool-20261011-113530-95097.log`.
+SHA-256: `4208ebc4b8ac166e5e7686c6f87daa02940f462b9f9b96f4acd27090116fbd49`.
+Head: `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+Gate header base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+The PR and own-diff base remain `9f7085f703457b0669785697dbeb14ac687a8942`.
+
+The reviewer reads the complete failed-step output and CI summary.
+Fmt, clippy, and taint PASS. Lists FAIL on four entries that the later base removed from `core-pending.txt`:
+
+- `conf::dp_3_unknown_type_closes_route`;
+- `conf::ou_10_no_authorization_in_core`;
+- `conf::ou_11_transport_ownership_is_defined`;
+- `conf::ou_1_attach_hands_transport_to_worker`.
+
+The reviewer independently compares the old PR base with the gate base. The base removes exactly those four entries from that file.
+The reviewer verifies that this PR has an empty own diff under `conformance/`.
+The failed comparison sees the PR's retained old-base entries as additions against the later gate base.
+The R-74 source change does not alter this cause. Both source CLEANs remain on the fixed head.
+
+Public-api, prebuild-worker, test-budget, slow, mutants, and fuzz are NOT RUN.
+The gate fails in 75.6 seconds of CI steps. The Linux job and wrapper exit 1 after 160 seconds on msa1.
+This RED is not a completed gate and supplies no exact-head mutation evidence. The original 28 catches cover only `646ebe73`.
+
+PC asks the lead how to apply the current-v1 import and final-gate slot. The reviewer does not authorize an import or another same-head gate.
+Under plan 23an(b), an approved base import that removes this diagnosed cause is a source repair.
+The new head still needs its applicable source review or proven carry, base check, and one exact-head green gate.
+The red log and its cause must remain in the body. The reviewer approves no unseen import, check, or gate.
+No execution job runs here. Wait for the lead's answer and the doorbell. Never poll.

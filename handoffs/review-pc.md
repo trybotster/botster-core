@@ -1235,3 +1235,23 @@ Both source CLEANs cover bd4c6f16c9c1435252f929663a33ea8b28b4beb5, base 9f7085f7
 Both source findings close. Same-head integration source-review condition closes.
 Exact-head gate evidence, body verdict references, final slot/import/check/gate, and Q7 remain due.
 Neither reviewer accepts a running gate, later import, .40 pin, or real-tier result. Never poll.
+
+Sol Round 2 receipt record pushed: 08e43fee1dbf41feb8c1eff1ad37177396fc2db9.
+The worktree is clean. Both source reviews are CLEAN on bd4c6f16. Gate and final merge conditions remain due. Never poll.
+
+
+## PR #283: fixed-head gate RED at lists; both source CLEANs remain
+
+PC receipt msg_plugin-w_1791743932_aa5b95.
+Log: gates/botster-core-stage1-pc-held-write-testkit-bd4c6f16-pool-20261011-113530-95097.log.
+SHA-256: 4208ebc4b8ac166e5e7686c6f87daa02940f462b9f9b96f4acd27090116fbd49.
+Gate head bd4c6f16c9c1435252f929663a33ea8b28b4beb5; gate base 926dfb62f3f7168990b2a48741946932d84b2fbb.
+Own/PR base stays 9f7085f703457b0669785697dbeb14ac687a8942.
+Fmt/clippy/taint PASS. Lists FAIL because the later base removes four IDs retained in the PR's old-base pending file.
+The reviewer independently verifies those four removals and an empty own diff under conformance/.
+The source change does not alter the cause. Both source CLEANs remain on bd4c6f16.
+The six later steps are NOT RUN. No exact-head mutation evidence exists. The earlier 28 catches cover only 646ebe73.
+CI steps total 75.6 seconds; Linux job/wrapper exit 1 after 160 seconds on msa1.
+PC asks the lead about the final-slot/import order. No reviewer authorization for an import or same-head retry is given.
+An approved import that removes this cause is a source repair under plan 23an(b), with applicable review/check/new-head gate.
+Retain the red log and cause in the body. Never poll.
