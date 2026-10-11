@@ -142,3 +142,156 @@ Sol accepts no local source edit, reported build or test result, PR, source head
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: CLEAN (0 open design findings) for design revision 3 against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+## Round 4 — #291 source and retained evidence, 2026-10-11
+
+READY head: `79f31be3b3213e362539a51c35a1a1273a5aee26`.
+Reviewed and gate base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Head tree: `6ff05266cf0ed9a366d5e7e21c1cb1f2d9af8f64`.
+Plan 23cm governs. The earlier design CLEAN accepts no source implementation.
+Sol reads all changed production code and tests, relevant callers, and retained evidence at this head.
+The source spans the engine, driver, process identity, shared testkit, and real process proofs.
+The production worker sends Exited before its route closes. The driver must consume that actual message order.
+Sol reads complete package Round 1 at `5eb26a34f7131061db9bc81d6b88e16e4a24dcd5`, `verdicts/pc-r78-stopping.md`.
+It independently reports the same two MEDIUM source findings.
+
+### R291-SI-1 — MEDIUM: the grace probes a worker already known gone
+
+At run.rs `kill_payload`, the EndPayload branch requires `!gone`, but the probe branch requires only `broken`.
+A worker with known death and a failed write can therefore receive ProbeIdentity at the grace.
+Accepted design revision 3 requires known death to take priority before any probe, classification, or request failure.
+A Matches answer can then select WorkerUnreachable although the readable link still holds the confirmed-gone drain.
+The World removes the process from its alive set after ProcessExited. Its automatic Absent answer hides the extra probe.
+Tests 7, 16, and 17 initially check no signals, but do not assert no probe.
+Required change: suppress ProbeIdentity when worker.gone is set and assert that absence in both combined input orders.
+Retain the readable link and in-flight requests under the drain rule.
+
+PC confirms that 574f85be removed the guard because no test failed under its reversal.
+Sol reads the complete fix at `dc47d2b474826e99c9c80cacf64b47a031f7e0d7`, parent 79f31be3.
+Its tree is `85eaac783c9407035cd11a57dc32f9337ebb2ebe`.
+The fix adds `!gone` to the probe branch. The World records ProbeIdentity; all three relevant tests assert no probe.
+The local reversal record shows the combined-order test failing without the guard and all 12 tests passing with it.
+Log: `~/botster-sessions/shared/core-stage1/evidence/pc-r78/no-probe-reversal.log`.
+SHA-256: `0b8dc7ccb27950b45aabbd235a1daf651ccd0c78b6fe3b6480a5700f6bcc41c6`.
+This filtered log has no head, decoded command, clean-state header, or exit record. PC supplies its source attribution.
+The complete source delta closes R291-SI-1 at source level on dc47d2b4. The 79f31be3 gate does not cover that fix.
+
+### R291-SI-2 — MEDIUM, open: ProcessExited discards frames after Exited
+
+At inbound.rs `on_process_exited`, retention depends on `drain_classifies`.
+An Exited frame advances Stop into PostEnd or Finish, where that predicate is false.
+A later ProcessExited closes the link and fails in-flight requests before the driver consumes buffered Done and RouteClosed frames.
+The production worker's `report_exit` sends Exited, then `routes_session_ended` causes each route's close.
+At host flows.rs `finish_close`, the missing delivered close and removed link produce SessionLost for an undelivered route.
+The already-Exited test checks the selected session state. It does not check the remaining route frames or request completion.
+The existing OU-7 #217 R2-1 test pins this earlier SessionLost behavior.
+This is an existing behavior within R-78's required repair, not an asserted regression introduced by #291.
+
+Sol reads the full steward follow-up at contracts `761dd5ecca5ac9a7e2ac65adf3afcea0711dbc1f`.
+Its drain rule applies after every process exit, including after the session end is chosen.
+Core must consume complete frames without blocking until EOF, would-block, or a read error.
+A trailing partial frame is a truncated link. Core must not wait for EOF or add a timer, deadline, or CoreLimits field.
+The steward commit retains an earlier separate-item owner statement.
+The later lead FINAL decision `msg_plugin-w_1791760401_2488da` keeps the repair and changed R2-1 test in #291.
+The package receives the same final decision as `msg_plugin-w_1791760401_5c2be8`.
+These decisions withdraw the earlier R-78-F1 transfer. No separate R-78-F1 item remains.
+
+Required change: retain the link independently of session classification and handle each complete frame within existing pump bounds.
+Preserve the chosen end and in-flight completions. End the drain at the first would-block instead of awaiting peer closure.
+When RouteClosed{SessionEnded} was written behind Exited, the route must close SessionEnded.
+Retain a SessionLost case where no close was written. Provide the required red-on-revert evidence for the production-driver path.
+The fixed source, completed evidence, and new READY remain due.
+
+### Completed old-head gates and A5-4 evidence
+
+79f31be3 log: `~/botster-sessions/gates/botster-core-stage1-pc-r78-stopping-79f31be3-pool-20261011-154351-14262.log`.
+SHA-256: `b45f923e484960c2d2f9926ff884a3601d66897d813aad56c9c5ab26ec03e9ee`.
+All ten steps PASS in 837.5 seconds. The Linux job and wrapper exit zero after 946 seconds: one queued, 945 running.
+The host is structvr-MS-7C77 with four CPUs and kernel 6.8.0-142-generic; this gate is not an msa1 record.
+Default: 1806 PASS, 460 skipped, 24.380 seconds. Slow: 587 PASS, 2019 skipped, 70.096 seconds.
+The slow baseline has 587 PASS, 11 slow cases, and 2743 skipped, in 60.385 seconds; its interval is 83.0 seconds.
+Stage 1: 51 mutants, 47 caught, two missed, two unviable, zero timeout, 97.9 seconds.
+Stage 2 handles exactly those two misses and catches both in the real zombie test, in 87.5 seconds.
+Sol independently matches all 49 unique raw catches to all 49 named catches and selected normal PASS results.
+The gate has no FLAKY line. Fuzz reports no changed crate with a decoder harness.
+This result covers 79f31be3 only. It accepts neither dc47d2b4 nor the future drain repair.
+
+The earlier 8e2e1add gate retains eight PASS steps, mutants FAIL, and fuzz NOT RUN, with three host mutants missed.
+Log SHA-256: `1b9ed08e34afa50960fc81fb897b6eb40afa8fcee18521b859e847b7f434b329`.
+ff440731 adds the two tests that catch those three host mutations in the completed 79f31be3 gate.
+Those caught mutations do not supply the missing source reversal records for both R-78 input orders.
+PC confirms that the earlier descriptor/driver reversal was observed but not retained. Sol accepts no missing log as evidence.
+
+Sol independently parses all 690 identifiers in each A5-4 table and matches every cell to retained raw records.
+Testkit: explicit seeds 0–31, 230 must-pass PASS results before and after, zero changed cells.
+Real: library default seeds 0–7, must-pass PASS 200→201, pending PASS 6→4, seven changed cells.
+The combined log exactly concatenates the before and after records. Wrapper zero does not erase their raw failures.
+Before raw SHA-256: `ede1ccfce502f24c0748f96023e07834f14999af10d01c486eaa554c603c11ac`.
+After raw SHA-256: `d6da136ae064cdef01d63a432751a6151d9a7de3d9854010d11e36cbc2cba3ae`.
+Real table SHA-256: `67e1c8aeffb9c0d76f319b9455f54c46b187f2381a457093090804938d682a7a`.
+Testkit table SHA-256: `2aa5f64fdb8075e1809974d5da36701e1e91cfe9af8d12c3df6bc01962a670b8`.
+Both tiers use the same .39 contract set. No pending file changes in the reviewed own diff.
+
+The AD-3 must-pass flip remains FAIL at seed 2, step 16: model_rev 1 differs from 2.
+The retained 84b1e9be record without R-78 has the same step, values, and failure at seed 0 on the earlier .36 pin.
+Sol reads the full current transcript and compares the complete failure values. This is no plain-current-base reproduction claim.
+The unfenced first Activity can precede application of all three output bytes before the first terminal snapshot.
+Source review finds no Stop, process loss, or send-error path before the AD-3 comparison.
+This is source attribution plus an earlier exact failure witness, not a recovered trace of the failed current run.
+The steward's R-80 follow-up at 715639eb assigns a sentinel after step 4, replacing the step-6 Activity wait.
+Owner P3 targets .42 if ready. The lead accepts that disposition and requires no pending change in #291.
+Sol reads the complete updated rule-9 record, SHA-256 `099070e0b46a7242d8a509f2de30e538445592a74fefce33dfa44cfd1155a1ee`.
+The AD-3 failure stays recorded as FAIL. This disposition accepts no implementation of its separate fence.
+
+### Both-OS proof scope and remaining evidence
+
+Named Mac logs retain three PASS results each for socket order at ed29e998, facade test 13 at 4eb326d7, and zombie at f97b49bd.
+Sol reads the later socket/facade source deltas: cleanup polling changes to existing process helpers; the zombie source remains unchanged.
+The named logs are intermediate-source records. They contain no clean-command header.
+The later WIP logs contain aggregate results without named test records, command, head, or clean-state header.
+PC confirms that no retained command/clean record supports that later claim beyond the session transcript.
+Sol does not certify a clean exact-head Mac run from those WIP records.
+
+The two completed Linux gates each run the unchanged facade test normally and again in the unmutated slow baseline.
+Those four distinct normal PASS records cover byte-identical test 13 and relevant production source between 8e2e1add and 79f31be3.
+They establish the repeated Linux result for that unchanged proof; no extra repetition campaign is needed for it.
+The revised nonblocking rule changes test 13's premise. The new test and its recorded both-OS evidence remain due.
+The facade proof uses a real process but a test-owned worker link. Production source and driver proofs must establish the later frame order.
+The named socket proof, descriptor ownership, close-on-exec, and production reaper ownership retain their specific source scopes.
+No default-only Mac result substitutes for the required real process proofs.
+
+The body now correctly reports ten PASS steps on 79f31be3 and eight PASS steps before the earlier mutation failure.
+At this read, GitHub names dc47d2b4 and base 5e953398; raw body SHA-256 is `12d303dd0721d6eb4a5b9cd4e0b9984d9d719cff69fe788b8c53b2072bf2cf9a`.
+Its R-78-F1 transfer paragraph is stale under the lead FINAL decision. PC must correct it in the next READY.
+The old-head gates, missing source reversal records, Mac provenance limits, and actual A5-4 failures must remain explicit.
+
+VERDICT: NOT CLEAN (2 MEDIUM source findings on the READY head) at 79f31be3b3213e362539a51c35a1a1273a5aee26 against base 5e953398925351c12e463a7b0a946b79d9841edc
+
+## Round 5 — revision-4 design delta and scoped source fix
+
+Design delta SHA-256: `e8206746aebc91e579efbfdac247ba5979f94c7571436d43ab74dcb1de7d4352`.
+Sol reads the complete delta against accepted revision 3 and the steward/lead decisions above.
+Its new LinkPeerEnded action marks the peer dead; the driver consumes complete frames and closes at would-block or EOF.
+That mechanism addresses the obsolete wait-for-EOF premise without adding a limit or timer.
+The proposed tests change the old R2-1 setup and distinguish a written close from no written close.
+The complete-message drain, trailing partial frame, and chosen session end retain their stated separate outcomes.
+R291-SI-1 closes at source level on dc47d2b4 as recorded above. R291-SI-2 remains open until the fixed source and required evidence arrive.
+
+### R291-SI-3 — MEDIUM, open design finding: a blocked held frame must not make more true
+
+Driver rule 3 says every still-open peer_ended link counts as runnable work and makes pump.more true.
+Rule 2 also preserves a held frame when the engine has no mandatory room for it.
+Existing retry_held restores an unaccepted frame. Existing read_link returns while that frame remains held.
+If peer_ended alone forces more true, repeated pumps cannot release that frame until a client poll frees room.
+The host can spin while the drain is blocked on room. This violates the existing distinction between runnable and parked work.
+Required correction: qualify the new more rule by the held frame's ability to progress.
+A drain stopped by a pump budget remains runnable. A drain blocked on mandatory room waits for poll and unpark_links.
+Preserve existing pump bounds, read interest, and the public wake behavior. Add no timer or new progress limit.
+Sol sends this finding to PC and the package reviewer in messages 1791761035_8b895e and 1791761035_b6ec98.
+
+The original READY head has two source findings. On the scoped dc47d2b4 fix, one source finding and this design finding remain open.
+The corrected design, fixed source, retained reversal proofs, revised both-OS proof, completed new-head gate, and both reviews remain due.
+Sol changes no product source and runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job.
+Never poll. Wait for the doorbell.
+
+VERDICT: NOT CLEAN (2 MEDIUM: R291-SI-2 source and R291-SI-3 design) at dc47d2b474826e99c9c80cacf64b47a031f7e0d7 against base 5e953398925351c12e463a7b0a946b79d9841edc
