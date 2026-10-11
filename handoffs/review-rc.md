@@ -796,3 +796,17 @@ The final-slot procedure still requires the current `v1` import, the applicable 
 The final PR body must name that final head, base, and gate.
 This source gate does not replace the final-slot gate.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — completed integration verdict receipt
+
+Integration message: `msg_plugin-w_1791752475_13050b`.
+Integration verdict: `1c4aacd9ca68abc860103270258ead5d44ec2023`, Round 3 in `verdicts/stage1/rc-oracle-encode.md`.
+The reviewer read the completed integration verdict.
+It is CLEAN with zero open findings at `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Its reviewed base is `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+The head and base match package CLEAN `044e6e8e213afb214b907280568381ec780513df`.
+The integration reviewer checked the completed gate, all 29 catches and citations, their normal PASS records, and the final body delta.
+Both required source reviews are now CLEAN at this exact head and base.
+The final-slot procedure remains due. Neither source verdict accepts a future import or final gate.
+The reviewer ran no test, build, or gate.
