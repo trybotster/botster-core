@@ -33,17 +33,27 @@ Required change: validate that the named function is a registered test selected 
 
 Required evidence: negative fixtures for a removed `#[test]`, a commented-out function, and a test excluded from the required tier. Preserve the current valid library and binary forms. The coverage check must reject each missing proof.
 
+### B13-I3 — LOW — OPEN: the package evidence finding remains open
+
+The package verdict `553fe5df48d74af1abc3103afad8e39cbae43e21`, file `verdicts/gs-gate-speed.md`, reports `GS-B13-R1-3` on the same head.
+
+The evidence script counts `Compiling botster-core` lines but labels the result as all workspace crates. That pattern omits `botster-worker-core`, `botster-test-process`, and `botster-terminal-ghostty`.
+
+Required closure: narrow the evidence label and PR body claim to the measured package names, or supply a complete compilation record. This entry tracks the package prerequisite. The observed conformance refusal remains valid.
+
 ### Evidence and limits
 
 - Full gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-2c0488b8-pool-20261011-155212-66916.log`.
 - The header names the exact reviewed head and base. All ten steps PASS. The gate exits 0.
 - Mutation result: 44 total, 41 caught, 0 missed, 0 timeout, 3 unviable. No stage-1 miss requires stage 2.
 - B13 evidence: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-2c0488b8-pool-20261011-161823-85653.log`.
-- Before the fix, B reuses A's conformance build with zero workspace compilations and exits 0. B's own build fails the newly un-pended `a11_1` id and exits 101.
+- Before the fix, B reuses A's conformance build and exits 0. The evidence reports zero compilations matching `Compiling botster-core`. B's own build fails the newly un-pended `a11_1` id and exits 101.
 - At the reviewed head, the reused conformance binary refuses with exit 101. Prebuild in B refuses an existing A root record with exit 1.
 - The gate proves the implemented paths. It does not close B13-I1 or B13-I2.
-- The package reviewer has not yet supplied a formal verdict. Sol-B requested the exact-head verdict.
+- Package verdict: `553fe5df48d74af1abc3103afad8e39cbae43e21`, `verdicts/gs-gate-speed.md`. It reports NOT CLEAN with the two matching HIGH findings and the LOW evidence finding above. Sol-B read that verdict.
 - The PR head does not contain the current live `v1` tip. The final-slot merge and the required base check remain due.
 - Sol-B ran no local build, test, mutation job, or gate.
 
-VERDICT: NOT CLEAN (2 open)
+This supplement records the package verdict on the same head. It corrects the earlier compilation-count description. It starts no new source-review round.
+
+VERDICT: NOT CLEAN (3 open)
