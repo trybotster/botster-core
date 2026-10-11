@@ -62,6 +62,9 @@ RC-OR-3 is LOW: the prior-art note must state the existing facilities considered
 The supplied gate is green, but it does not close the findings. Its three real ST-6b trials pass.
 The retained Mac proof runs precede the R-69 repair. The Mac crate failures remain explicit in the verdict.
 The reviewer ran no test, build, or gate.
+The integration reviewer reports the same three open findings on this exact head and base.
+Local integration verdict: `05eb66ad5e0bfc5df7336723e6b3d551750bc1ed`, `verdicts/stage1/rc-oracle-resume.md`.
+Message: `msg_plugin-w_1791730003_ebecd9`. The integration verdict is not yet published because its pushes failed on GitHub DNS.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

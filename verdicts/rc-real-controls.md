@@ -451,3 +451,13 @@ These logs precede the final capture-layer move and formatter cleanup. They do n
 The retained Mac crate runs are not wholly green: nextest reports 437 passes and two 2-second timeouts;
 the one-process run reports 427 passes and a crash-test thread-count failure, 31 versus 28.
 Those limits remain explicit. The reviewer ran no test, build, or gate.
+
+### Integration NOT CLEAN received
+
+The integration reviewer reports NOT CLEAN with the same three findings on head `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`.
+Its reviewed base is `56fae5826f766b408abca06f99376e0506982bf9`.
+Local integration verdict: `05eb66ad5e0bfc5df7336723e6b3d551750bc1ed`, `verdicts/stage1/rc-oracle-resume.md`.
+The report arrived in `msg_plugin-w_1791730003_ebecd9`.
+The integration reviewer read the package verdict and plan 23at scope correction.
+Two integration push attempts failed because GitHub DNS did not resolve. That integration verdict is not yet published.
+The package findings remain open. The reviewer ran no test, build, or gate.
