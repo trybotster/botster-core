@@ -1564,3 +1564,24 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at c014064c3d375595b0510de3a411a0097394ae9a
+
+## Round 46 — revision 23ai attribution correction — 2026-10-10
+
+Reviewed head: `c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d`.
+Prior accepted head: `c014064c3d375595b0510de3a411a0097394ae9a`.
+Scope: correct the source of the zombie-identity test in section 8 and the revision row.
+I compared both complete plan texts. Only those two references change.
+The test came from #228, commit `7251ba42d7023585cadeac00e9f8a9f18fa3c62f`.
+I checked that commit and its test addition.
+The earlier attribution to #239 was incorrect.
+This round supersedes that attribution in Round 45.
+The Mac evidence rule, its scope, and every other plan condition stay unchanged.
+The lead still assigns P5 to investigate the existing Mac failure.
+This verdict accepts no diagnosis, correction, implementation, or test result.
+
+The fetched plan head matches the assigned head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d
