@@ -1694,3 +1694,48 @@ This documentation change requires no execution gate.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 4eceef06434d643bf31e965a35a75d4252d27d19
+
+
+## Round 49: revision 23al
+
+VERDICT: NOT CLEAN (1 open)
+
+- Head: `2cb5eba4b93273a142a36adf91c04b883602be84`.
+- Base and sole parent: `4eceef06434d643bf31e965a35a75d4252d27d19`.
+- Request: `msg_plugin-w_1791707641_01498a`.
+- Scope: one new section 8 bullet and its revision row.
+
+### AL-SI-1 MEDIUM: the stated #249 application fails condition 2
+
+Status: OPEN.
+
+Condition 2 requires that the PR diff cannot reach the failing ID's code path.
+The lead applies the exception to #249's EV-5 failure in the request and lead handoff.
+That PR changes LinkTap::observe and the calls from Tap::take_ahead and EdgeTap::link_recv.
+The real EV-5 transcript starts the worker and runs attach and detach through that same tap.
+Its hello and worker reports reach the changed observer. Its await_quiet control also uses the tap.
+Thus Sol cannot confirm that #249's diff cannot reach the ID's code path.
+The changed record may leave the diagnosed worker descriptor defect unchanged. That is a different condition from code-path reach.
+
+Required correction: make the intended eligibility condition and its example agree.
+If condition 2 keeps its present meaning, #249 does not qualify and the example must not imply that it does.
+If the intended condition is about the diagnosed cause, state that condition precisely and submit the revised rule for review.
+The reviewer must check the affected source and the failure evidence before confirming eligibility.
+A shared harness change cannot qualify merely because the failing transcript calls no changed control.
+Keep the one-attempt limit, written approval, retained cause and owner, and the requirement for a green exact-head gate.
+
+### Other checks
+
+The rule requires diagnosis and reproduction on v1. It requires a written reviewer confirmation and written lead approval.
+The rule stops after one further red gate on any ID. It grants no merge of a red head.
+The existing Merge bullet still requires both reviews, the current v1 base, and a green gate on the exact head.
+The new bullet does not skip mutants or fuzz. Its stated purpose is to run steps that the failed slow stage prevented.
+Those limits can support a controlled exception, but they do not resolve AL-SI-1.
+Sol grants no application of this revision to #249 at this record.
+The #249 source CLEAN at 03094697 remains a source review; its failed final gate is not merge approval.
+
+This revision changes no contracts pin, transcript, conformance list, minimum, staffing limit, or Mac evidence rule.
+Sol read the complete two-part diff and checked the example against the already reviewed #249 source and EV-5 transcript.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+The reviewed plan bytes have SHA-256 `8ab4b82bd25c215dd007253aae02b752f308c78ae2562cc0cd148d775dffd549`.
