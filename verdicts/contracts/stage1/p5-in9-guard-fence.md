@@ -43,3 +43,8 @@ VERDICT: NOT CLEAN (3 open).
 - Header: head `174cba2c43a5260412cdda00230dd75a1eb2d1e4`, base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` (BOTSTER_CI_BASE_REF), Linux pool. The PR's merge base is the same commit.
 - Result (read by me): all 10 steps PASS; the new self-test PASS; `botster-gate: exit 0 after 442 s on msa1`.
 - The fixes of F2 change the lint, so the next head needs its own gate.
+
+### 016c's REJECT on the same head (package scope; recorded, not repeated)
+
+- 016c R1-1 is the same defect as my F2 part 1 (a comparison taken as a binding). One fix closes both.
+- 016c R1-2 (MEDIUM): `defs::output_read` gives a `pump_until` the scope of the whole handle, so a wait on `Activity{s2, Output}` clears s1's pending output. That is no wait on s1 under R-77. My round 1 missed it. I check its fix on the next head: the guard rule uses the wait target's session, keeps outputs whose session the target does not name, and has a regression case.
