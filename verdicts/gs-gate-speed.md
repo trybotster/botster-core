@@ -1543,3 +1543,48 @@ Required change: update the current file counts, describe the four deleted exclu
 This finding requires a body correction. It does not require a source change or a repeat gate after the current gate.
 
 Sol must review this HIGH delta separately. I ran no gate, build, or test.
+
+
+### Core PR #262: final delta verdict
+
+- Head: `bbd25214835b4648623cb1e5ac3a89ac50f5d260`, unchanged.
+- Base: `56fae5826f766b408abca06f99376e0506982bf9`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+GS-EC-R2-1 LOW is CLOSED. I read the complete corrected live body and confirmed the unchanged exact head.
+
+The current descriptions now state 81 notes, 203 entries, and 204 checked exclusions against 6458 mutants. Old totals appear only as history.
+
+The body names the four deleted exclusions and retains the earlier failed and passing gate logs. The Changes bullet also states 81 notes.
+
+I read the complete canonical base-merge-check log. Its failures require this source delta review; they do not permit automatic carry-over.
+
+The prior source comparison remains valid. The own logic is unchanged, and the annotation resolution preserves the new base's exact patterns and comments.
+
+I read plan pin `stage1-plan.12ba52e3.md`, section 8, and the final gate's scope, test summaries, mutation results, and final summary.
+
+The final gate identifies this exact head and base. All ten steps pass in 328.3 seconds.
+
+The default suite passes 1690 tests. The slow suite passes 546 tests. The slow-coverage check covers 1049 slow-only tests.
+
+The exclusion check reports 204 exclusions against 6458 workspace mutants. The mutation baseline passes.
+
+The mutation result is 18 mutants: 16 caught, zero missed, zero timeout, and two unviable. Stage 2 does not run because stage 1 misses none.
+
+All 16 catch report identities match the raw catches. The caught identities match the earlier reviewed gate.
+
+One catching test changes for the `check` mutant that returns an empty vector. The new report names `a_cited_decision_is_matched_by_name_and_a_shared_name_fails_closed`.
+
+The old report named `a_decision_mutant_is_never_excluded_and_a_cited_whole_body_exclusion_passes`. Both reports name a catch; no catch identity is lost.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-bbd25214-pool-20261011-071920-20943.log`.
+
+Base check: `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-bbd25214-base-merge-check.log`.
+
+Sol's published round 2, `9e8fea5a6abe6c798ce312a40f9b561635962179`, reports no source defect and waits for body and evidence closure.
+
+Sol owns the final integration closure. The lead owns the merge decision and current-base check. No repeat gate is needed for the body correction.
+
+I ran no gate, build, or test.
