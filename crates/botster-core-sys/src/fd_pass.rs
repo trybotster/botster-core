@@ -47,7 +47,8 @@ pub const MAX_FDS: usize = 4;
 /// `EAGAIN`. `EMSGSIZE` can also mean "this message can never fit", but only for a message larger than the send buffer,
 /// and this send is never larger. So `EMSGSIZE` means "full": it is reported as `WouldBlock`, and the send succeeds once
 /// the reader has made room (`a_full_socket_takes_neither_the_bytes_nor_the_descriptor`). The size check stays as the
-/// guard: an `EMSGSIZE` for a message larger than the send buffer is an error, never a retry ([`no_room`]).
+/// guard: an `EMSGSIZE` for a message larger than the send buffer is an error, never a retry
+/// ([`emsgsize_waits`]). `EAGAIN` needs no decision: its error has the `WouldBlock` kind on every OS.
 ///
 /// # Errors
 /// `InvalidInput` for empty `bytes` (a descriptor needs a byte to ride on) and, on macOS, for a socket without
@@ -73,7 +74,8 @@ pub fn send_with_fd(socket: impl AsFd, bytes: &[u8], fd: BorrowedFd<'_>) -> io::
     }
     match sendmsg(socket, &[IoSlice::new(bytes)], &mut control, send_flags()) {
         Ok(n) => Ok(n),
-        Err(errno) if no_room(errno, bytes.len(), send_buffer) => {
+        #[cfg(target_os = "macos")]
+        Err(rustix::io::Errno::MSGSIZE) if emsgsize_waits(bytes.len(), send_buffer) => {
             Err(io::ErrorKind::WouldBlock.into())
         }
         Err(errno) => Err(errno.into()),
@@ -92,14 +94,13 @@ fn send_flags() -> SendFlags {
     }
 }
 
-/// Whether a refused `sendmsg` of `len` bytes with a descriptor means "no room now" (see [`send_with_fd`]): `EAGAIN`, or
-/// on macOS `EMSGSIZE` for a message that fits the send buffer. `EMSGSIZE` for a larger message means that it can never
-/// fit: an error, so that the caller does not retry forever.
-fn no_room(errno: rustix::io::Errno, len: usize, send_buffer: usize) -> bool {
-    if cfg!(target_os = "macos") && errno == rustix::io::Errno::MSGSIZE {
-        return len <= send_buffer;
-    }
-    errno == rustix::io::Errno::WOULDBLOCK
+/// macOS: whether an `EMSGSIZE` for a refused `sendmsg` of `len` bytes with a descriptor means "no room now" (see
+/// [`send_with_fd`]): the message fits the send buffer. `EMSGSIZE` for a larger message means that it can never fit: an
+/// error, so that the caller does not retry forever. Only macOS compiles the decision, so the Linux gate lists none of its
+/// mutants, and the Mac run tests them.
+#[cfg(target_os = "macos")]
+fn emsgsize_waits(len: usize, send_buffer: usize) -> bool {
+    len <= send_buffer
 }
 
 /// One read of [`recv_with_fds`]: the bytes read into the buffer, and the descriptors that came with the first of them, each
