@@ -392,3 +392,78 @@ P6 reports that the final gate runs. Sol reads no running output and accepts no 
 Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition: RG-SI-FINAL-1) at 95840fd637cd535e4d6d6a5a3b8833b09e8070bd against base 5e953398925351c12e463a7b0a946b79d9841edc
+
+## Round 7 — completed final acceptance, 2026-10-11
+
+Exact head: `95840fd637cd535e4d6d6a5a3b8833b09e8070bd`.
+Reviewed and gate base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `652a92af93e885f1670be80a53048e7c275b8359`.
+The source, import, readiness withdrawal, and fence restoration retain their complete delta reviews in Rounds 4–6.
+This round completes RG-SI-FINAL-1. It grants no automatic carryover from 27cb2cc4.
+
+### Exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-95840fd6-pool-20261011-153740-74638.log`.
+SHA-256: `89fb3ee5e4442912c862e6ff1c21fdee22094c0ae831f8d9aed092e1235baefa`.
+Sol reads the exact head/base headers, stage results, mutation identities, catcher records, relevant normal results, and completed exits.
+All ten steps PASS in 1963.5 seconds. The job and wrapper exit zero after 1971 seconds on msa1.
+The job queues for one second and runs for 1970 seconds.
+Default: 1796 PASS, 460 skipped, 12.104 seconds. Slow: 597 PASS, 2025 skipped, 42.448 seconds.
+The unmutated slow baseline has 597 PASS, ten slow cases, and 2731 skipped, in 41.459 seconds; its interval is 54.4 seconds.
+Fuzz reports no changed crate with a decoder harness. This is no new fuzz or Mac execution claim.
+
+Sol independently matches all 140 unique raw catches to all 140 unique named catches.
+Each catcher passes in a selected normal gate tier. A mutation failure alone supplies no acceptance result.
+Stage 1: 164 mutants, 67 caught, 93 missed, four unviable, zero timeout, 378.0 seconds.
+Stage 2: 93 mutants, 73 caught, 20 unviable, zero missed, zero timeout, 1307.8 seconds.
+All 93 unique second-stage outcomes exactly match the 93 unique first-stage misses.
+The total is 140 caught, including 73 from stage 2, and 24 unviable. Unviable results supply no catch.
+
+OU-5 and OU-12 pass normally in conformance, slow_conformance, and the unmutated slow baseline.
+These results complete the lead's final-PASS condition for the retained three-run proof on each OS.
+Round 5 retains the exact historical heads, mixed aggregate failures, scratch-list scope, and unchanged transcript comparison.
+Neither identifier has a .39 fence-exception entry. Sol accepts exactly these two real-pending removals.
+OU-1, OU-11, and OU-3 remain real-pending. No PASS result here fixes their missing fences.
+
+### Failed canonical check and completed delta reviews
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-95840fd6-pool-20261011-161043-48882.log`.
+SHA-256: `38e23f3fb0721b8b3742a563aa8b5a6b6d9d2490148d45a91c2dd0b2ffff7660`.
+Sol reads the complete 113-line record, decoded command, exact identities, check results, and exits.
+The check compares 27cb2cc4 with this final head. Both ancestry conditions PASS.
+The check returns FAIL for conflicts, four overlapping source paths, a changed own diff, and the real-pending delta.
+The testkit pending file passes. The job exits one after 200 seconds: 191 queued, nine running. The wrapper exits one after 201 seconds.
+This is a completed failed mechanical check. Rounds 4–6 review each reported source and pending delta.
+The package's Rounds 7–10 supply its independent delta reviews. No failed check is reported as PASS.
+The final source equals the reviewed merge plus the test-literal compile correction.
+The later effective delta contains two real-pending removals and four explanatory comment lines.
+
+### New flaky result and final body
+
+Gate line 6296 reports FLAKY for `conf::ev_5_route_closed_retires_route_keyed_events` under deletion of the `client_close` control arm.
+Its first attempt fails. Its one mutation-profile retry passes. EV-5 supplies no catch.
+Line 6297 records OU-5 as the independent catcher for the same mutant.
+The main log retains no first-attempt output. Sol establishes no failing step or exact cause for that attempt.
+The transcript has no `client_close` call. That source fact does not recover the missing failed-attempt signature.
+
+The package relays lead receipt `msg_plugin-w_1791760644_671de3`, which explicitly permits #287 closure with this result recorded.
+The lead assigns the existing R-66 follow-up fence to RC in contracts #69, then to Core through the .42 pin.
+The fence is step-26 `await_control route_reports` with `activity_before_close=true` and `closed=false`.
+The lead cites the accepted 23bl(A) reproduction on v1 f68f26a7 and reviews 017e 1ad1761f and Sol acd9d7f5.
+Sol records that disposition without claiming an independent cause proof for this gate attempt or completion of the future fix.
+The earlier sys flake retains its separate structural follow-up. Its prior exception does not supply this new disposition.
+No reproduction, additional gate, retry change, or timeout change is requested here.
+
+GitHub CLI confirms the exact head/base and supplies the complete final body delta, including both raw mutation lines.
+Raw body SHA-256: `8deb0c68f1bec5956d753d5f2364e564d6542017a81e5c969364da672b9e4840`.
+The CLI form with its trailing newline has SHA-256 `0711eefc0dcea3ea72ac2c973f9583c7f0411cd8c9842596eff181d0da2b9a2f`.
+The body retains the missing failed-attempt output, independent catcher, lead disposition, repair owner, and future pin.
+It preserves stopped gates and the withdrawn readiness proof. It reports the precise final pending delta.
+Sol reads complete package Round 10 at `421a4918c98aa869f36c8fcbfd7ed0282dd8e44e`, `verdicts/p6-real-route-controls.md`.
+That final package CLEAN covers the same head, base, tree, gate, check, body, and permitted removals.
+
+RG-SI-FINAL-1 closes. No required #287 acceptance record or integration finding remains open at this exact head.
+The sys flake repair, EV-5 .42 work, and P3 R-71 transcript follow-up remain outside this closure.
+This verdict accepts no later head or pin. Sol changes no product code and runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open) at 95840fd637cd535e4d6d6a5a3b8833b09e8070bd against base 5e953398925351c12e463a7b0a946b79d9841edc
