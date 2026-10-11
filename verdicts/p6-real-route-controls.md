@@ -511,3 +511,48 @@ This round accepts no unfinished job result, later head, contracts pin, or PR co
 I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN
+
+## Round 9 — 2026-10-11: fence-excepted identifiers restored
+
+Exact head: `95840fd637cd535e4d6d6a5a3b8833b09e8070bd`.
+Imported base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `652a92af93e885f1670be80a53048e7c275b8359`.
+Parent: `d3a60c99ab9165422e469de3323a5be12e55977c`.
+I read the complete commit and the complete effective delta against 75f0fd0d.
+The head restores OU-1 attach, OU-11 ownership, and OU-3 progressing reader to core-real-pending.txt.
+It adds four comment lines that explain their remaining fence exceptions.
+The only effective change after merge plus compile fix is that pending file: two ID removals and those four comments.
+All source entries retain the reviewed merge plus compile-fix identities. The readiness revert remains complete.
+
+I read the full lead disposition recorded in integration commit `da01c7354dd01ee762e5759b5c205e9c21849855`.
+Its lead receipt is `msg_plugin-w_1791758213_87ab78`.
+The earlier per-OS ruling did not override fence exceptions. A pass of an excepted unfenced read supplies no removal evidence.
+The lead requires these three identifiers to stay real-pending until their fences land.
+This head follows that direction. RG-P6-2 closes. RG-P6-1 remains closed.
+
+Only `conf::ou_12_output_bytes_are_unmodified_and_in_order` and `conf::ou_5_peer_fault_closes_only_that_route` remain removed.
+I independently confirm that neither identifier occurs in the imported .39 fence-exception file.
+I read both complete .39 transcripts. They retain their public contract assertions and are byte-identical to their .36 versions.
+OU-12 requires exact output bytes in order after partial route allowances and removal of the gate.
+OU-5 requires PeerClosed for the two closed routes, no duplicate close, a Running session, and exact alive output on the third route.
+The third route must also remain open through the metadata barrier. No assertion of private state substitutes for those outcomes.
+The historical Linux and Mac named three-run passes remain available as recorded in Round 6.
+The lead keeps these two removals eligible, subject to their normal PASS in the completed new-head final gate.
+This round accepts no final PASS from an unfinished job.
+
+I read the complete live body delta from the prior slot body.
+At 22:37:59Z, GitHub identifies the exact head and imported base above.
+Raw body SHA256: `54f891c07815f6b9761164fa33da91ee12a9a97da1e5a0100c309f27201329b1`.
+The body now reports two removals, restores the three exception decisions, and states that their historical passes are not removal evidence.
+It records the stopped prior-head jobs and retains the withdrawn readiness proof as historical only.
+I request one factual wording correction for the final update: the effective pending-file delta also adds four fence comment lines.
+The body currently describes that tree delta as only the two removals. No source change is required for this correction.
+
+No package source or fence-disposition finding remains. The final acceptance condition is still incomplete.
+The completed canonical check, exact-head final gate, and final evidence body remain due.
+The two remaining removals are not approved until their required normal final-gate PASS is verified.
+The separate sys flake fix and R-71 transcript follow-up retain their earlier open scope.
+I accept no result from a stopped or running job, no later head, and no PR completion in this round.
+I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
