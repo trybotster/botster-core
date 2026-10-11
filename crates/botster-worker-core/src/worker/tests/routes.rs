@@ -200,6 +200,27 @@ fn budgets(actions: &[Action]) -> Vec<Option<usize>> {
         .collect()
 }
 
+/// DP-2, steward ruling R-65: when an `AttachRoute` binds its descriptor, the worker holds its own copy of the stream and
+/// reports `RouteReceived` once, so that the host closes its copy only then.
+#[test]
+fn an_attach_that_binds_its_descriptor_reports_route_received_once() {
+    let mut w = World::running();
+    let actions = attach(&mut w, DescriptorId(1), RouteId(5), options(), limits());
+    assert!(actions.contains(&Action::BindRoute {
+        descriptor: DescriptorId(1),
+        route: RouteId(5)
+    }));
+    let received: Vec<WorkerMsg> = w
+        .reports(&actions)
+        .into_iter()
+        .filter(|m| matches!(m, WorkerMsg::RouteReceived { .. }))
+        .collect();
+    assert_eq!(
+        received,
+        vec![WorkerMsg::RouteReceived { route: RouteId(5) }]
+    );
+}
+
 /// DP-2, OU-9: each `AttachRoute` binds the descriptor of the read that holds its first byte, and the route's first frames
 /// are `attached`, the baseline at one point, and `live`.
 #[test]
