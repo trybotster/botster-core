@@ -75,3 +75,33 @@ The known v1 tip is now 80d02327 after #249 and #248. The PR must import the cur
 A verified base-only import can carry this source CLEAN under section 8. Any failed import condition requires a delta review.
 The final gate on the exact reviewed source and current base remains required after both CLEANs.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Round 2: current-v1 import with an overlapping path
+
+VERDICT: CLEAN (0 open)
+
+- Head: afc33981b70834589f93c37d25581c731efda30b.
+- Base: 554d43e890b391cefc9da205c71db6856accb21d.
+- Previous CLEAN head: afd827ebe4074d64d3ba6a92a39b64363bc2a651.
+- Package delta CLEAN: c30732d859fdbbbd45d2131ed9f210eaf5a8c8ab.
+
+The new head merges the current base into the previous CLEAN head.
+Sol read the complete retained check: ~/botster-sessions/gates/botster-core-gs-gate-speed-base-merge-check-afd827eb-new.log.
+The automatic merge and ancestry checks pass. Conditions 2 and 3 fail because both sides change xtask/src/ci.rs.
+Both pending-file checks pass. This import requires source delta reviews; the failed check supplies no automatic review waiver.
+
+Sol read the complete ci.rs import delta and own diff against the new base.
+The base adds mutants_stale's import and its taint-step invocation, already reviewed in #251.
+That addition runs before mutation testing and does not change mutation options, stage arguments, or verdict decisions.
+The imported file preserves that check and the complete reviewed in-place change.
+Sol independently compares both own diffs after removing only Git index lines and hunk headers.
+Every remaining line matches in order. No added or removed source line differs from the previous own change.
+The normalized diff SHA-256 is 6fd35ed5136a3f0bd4575072e02cd77c2094548863a963cba3a4322c1a65c0d8.
+Sol's independent git merge-tree equals the actual imported tree, 5278781bcb33b4d4351f6fb366452210a56c9f96.
+Sol read the complete package delta section. No additional source finding exists.
+
+All preceding source, Prior art, outcome-comparison, and evidence limits remain valid.
+The final full gate on this exact head against this exact base remains pending and required before merge.
+An earlier gate or base-merge check does not replace it. The withdrawn pool instruction supplies no exception.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
