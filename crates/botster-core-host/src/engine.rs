@@ -621,7 +621,16 @@ impl HostEngine {
                 continue;
             }
             match work {
-                Work::Op(op) => out.extend(self.ops.get(&op).and_then(|p| p.session.clone())),
+                // An `AdoptAll` names no session: its room-bound step is the row at the front, which posts that row's state
+                // (R292-SI1).
+                Work::Op(op) => out.extend(self.ops.get(&op).and_then(|p| {
+                    p.session.clone().or_else(|| {
+                        p.rows
+                            .front()
+                            .and_then(|(key, _)| key.strip_prefix(crate::session::ROW_PREFIX))
+                            .map(|id| SessionId(id.into()))
+                    })
+                })),
                 Work::Session(id) => {
                     out.insert(id);
                 }
