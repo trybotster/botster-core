@@ -76,6 +76,10 @@ pub enum StartPhase {
     /// AD-7 step 4: the launch request.
     SendLaunch,
     AwaitLaunched,
+    /// The link of a worker that this host spawned ended before `Running`. The session stays `Starting`, and no event is
+    /// posted, until the first of the worker's exit (`Lost(WorkerGone)`) and the `startup` deadline (the link's failure,
+    /// `Exited`). One death ends one way, whichever edge reports it first (steward ruling R-72; R-50).
+    LinkLost,
     PostRunning,
     /// Posts the state that a failed start reaches.
     PostFailed,
