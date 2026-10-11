@@ -276,3 +276,67 @@ RG-SI-1 stays closed. The separate sys flake and its assigned structural follow-
 Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
 
 VERDICT: NOT CLEAN (2 open: RG-SI-2 MEDIUM and RG-SI-3 LOW) at fdd942db5f3d0aea71c37c33ea993179f42b4f19 against base 5e953398925351c12e463a7b0a946b79d9841edc
+
+## Round 5 — full withdrawal and corrected body, 2026-10-11
+
+Exact head: `d3a60c99ab9165422e469de3323a5be12e55977c`.
+Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `9b0eae8f1b632146d2e488ba4a4a1d1c6aadd17a`.
+Owner receipt: `msg_plugin-w_1791757839_ebb30d`.
+Lead direction: `msg_plugin-w_1791757881_6c75cb` accepts the defect and directs review of this reverted head.
+
+Sol reads the complete revert and compares its effective tree with the earlier import and compile-fix trees.
+The revert removes the entire readiness change, incorrect comment, and raw-route test from 134ad99c.
+The route.rs blob equals the pure import at 90efe15c exactly.
+Against `75f0fd0dfcff45979dccbe03aec62e4463b9a8c2`, the only effective tree delta is the five real-pending removals.
+The accepted #282 readiness function is restored: an open ungated route supplies its descriptor even when taken bytes wait.
+The driver therefore retains the host wake and uses nonblocking reads throughout that route step.
+The driver reads taken bytes before it waits. Its wait follows idle reads, with the host wake still available.
+A gated route still returns taken bytes or Empty without waiting. A closed route returns EOF without waiting.
+RG-SI-2 closes through complete withdrawal of the added behavior and its incorrect premise.
+The requested driver regression applied to a repair that retained new behavior. Sol requires no additional regression for this complete withdrawal.
+Package message `msg_plugin-w_1791758025_dc1b93` independently confirms the revert and withdraws its added regression request.
+Its formal new-head package receipt remains due.
+
+GitHub CLI verifies this exact head and base and supplies the complete corrected body delta.
+Body SHA-256: `9d790cfdde4a39a3d0326983ab3478189974095e5a002547060be68f25a1f845`.
+The Risk tier paragraph now states the five real-pending removals. The earlier evidence heading is explicitly limited to the reviewed head.
+The R-86 paragraph no longer says readiness reads taken or derives ordering from the withdrawn guard.
+It preserves the different byte directions and the requirement that only read supplies taken bytes to the transcript.
+Its future interaction note requires another read before waiting if progress moves bytes into taken.
+This review accepts no future R-86 implementation or contracts driver change.
+RG-SI-3 closes. The body retains the withdrawn fix and states that its older prep proof supplies no final-head evidence.
+P6 reports that the fdd942db gate was stopped. Sol reads no running output and accepts no result from that stopped gate.
+
+### Pending-removal evidence and accounting question
+
+Sol reads the decoded Linux evidence command and all 15 relevant real PASS records, plus the five testkit PASS records.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-722b415a-pool-20261011-115554-74918.log`.
+SHA-256: `2d0da52eff78d44496db9858cf4cb29080201393f92d0921f957038064ebace2`.
+The job names 722b415a. It reports three distinct real trials per proposed removal and one testkit trial per identifier.
+The Mac record in Round 1 likewise supplies three real PASS results per identifier on 2645bfc1.
+Both commands retain aggregate failures from the scratch real-only removals. Wrapper zero does not mean every selected trial passed.
+The evidence uses scratch pending removals and library seed selection, not new-head final-gate evidence.
+Sol independently verifies that all five transcript files are byte-identical between .36 and .39.
+
+The pinned .39 exception file still names three proposed removals:
+
+- OU-1 attach, raw step 9: no `program_ready`, R-60.
+- OU-11 ownership, raw step 9: no `program_ready`, R-60.
+- OU-3 progressing reader, raw step 19: no `await_title`, R-57.
+
+OU-12 and OU-5 have no entry in that file.
+The lead's earlier per-OS rule permits removal only after the repeated proof and this PR's final PASS.
+The lead handoff separately names a proposed R-56-only guard. It does not resolve the scope of these R-60 and R-57 entries.
+Sol asks the lead whether that earlier #287 ruling explicitly permits these three removals or requires retention until the fences land.
+Sol accepts no real acceptance for these three identifiers while that disposition remains due.
+The repeated PASS results alone supply no proof that the missing fences are fixed.
+
+### Remaining final acceptance condition
+
+RG-SI-FINAL-1 — MEDIUM, open: the pending-accounting disposition, completed canonical check, final gate, final body, and matching package verdict remain due.
+The source defect and LOW body finding are closed on the exact reverted head. The final acceptance condition remains open.
+The old source CLEAN does not automatically accept these new pending removals or final execution.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition: RG-SI-FINAL-1) at d3a60c99ab9165422e469de3323a5be12e55977c against base 5e953398925351c12e463a7b0a946b79d9841edc
