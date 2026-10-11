@@ -12565,3 +12565,71 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All earlier verdict history remains preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 177 — #271 R-66 delta and finding closure, 2026-10-11
+
+Exact head: `aa219941014caf6830e3105ce1d038d63f46df4c`.
+Exact base: `1da39f7c9bb99b8cf8c8fd85355e5e48fd7b4c21`.
+Owner source receipt: `msg_plugin-w_1791730729_923eae`.
+Owner closure receipt: `msg_plugin-w_1791730881_bb23e1`.
+Owner final body receipt: `msg_plugin-w_1791731018_166b5d`.
+Risk tier: HIGH, unchanged under BUILD rule 3. Plan 23au remains in force.
+Prior review: Round 176, pushed `8bc6ddba12e09b02b09195ad44aad82e19f665e5`.
+This round reviews the source delta and body corrections. It does not accept a final gate at this new head.
+
+### Base import and source delta
+
+The supplied `shared/core-stage1/evidence/p3-r66-route-reports/base-merge-check-3b9db42f-e61455ab.log` passes every required condition.
+The reviewer reads its complete output and runs no executable merge-check job.
+Read-only Git comparisons confirm the seven base paths are disjoint from the ten own paths.
+The own diff is byte-identical before and after the e61455ab import. All ten transferred source blobs are unchanged.
+e61455ab has parents 3b9db42f and the exact new base. aa219941 has parent e61455ab.
+The new head's merge base is the exact base above.
+Both pending files, Cargo.toml, and Cargo.lock equal the new base.
+
+The reviewer reads the complete e61455ab-to-aa219941 delta and each changed test section at the exact new head.
+Only three paths change: route_reports.rs documentation, edge_tap/tests.rs assertions, and route_controls.rs test name and assertion.
+No runtime control behavior changes. The whole-change consumption assessment and R-66 proof limits from Round 176 remain applicable.
+
+### Finding closure
+
+**F130 LOW — the general event-post promise. CLOSED.**
+The module now defines consumption at the link edge and states that consumption does not prove posting.
+It states the SessionEnded and parked-work exceptions and all three accepted post conditions.
+The initial new body still contained two unqualified posting claims.
+The reviewer requests a body-only correction in `msg_plugin-w_1791730995_64293b` and sends Sol `msg_plugin-w_1791730995_d00536`.
+P3 corrects both claims without changing the exact head.
+Verified final body: `/private/tmp/review-p3-pr271-aa219941-f130-fixed.json`.
+The reviewer verifies the exact head and base and every body change.
+The body now states that feed consumes the frame, while immediate posting depends on the stated conditions.
+The post premise now requires all three R-66 conditions. Every other body line remains unchanged from the prior body receipt.
+
+**F131 MEDIUM — helper-internal assertions. CLOSED.**
+The EdgeTap test replaces the waits assertion with the control answer and the wake edge's signal count.
+It proves no wake before the driver receives a report and no wake after confirmation.
+The existing received-but-unconfirmed case still proves one wake signal.
+The control test removes its waits assertion and uses a name that matches its actual session-instance proof.
+Control answers still prove instance separation, confirmation order, bad arguments, and the unknown-handle refusal.
+These changes remove the internal assertions while keeping the relevant boundary proof.
+
+**F132 LOW — Prior art comparison and custom-record reason. CLOSED.**
+The complete published body now names reused Core decoders, stored-row lookups, and the existing wake pattern.
+It explains why edges_quiet, start_held, and program_ready do not provide the required consumption fence.
+It explains why LinkTap::observe cannot provide the shared record: it reads take-ahead bytes and stops after Launched.
+The reviewer confirms those LinkTap facts in the exact source. SimEdges has no tap.
+The body retains the accepted boundary scope and rejects a general engine event-post query under R-66 correction d.
+
+### Verdict and remaining acceptance
+
+F130, F131, and F132 are CLOSED. No package source finding remains for #271 at this exact head.
+The package source review is CLEAN. Formal integration acceptance remains separate.
+The exact-head gate remains due after CLEANs under BUILD. The 3b9db42f gate does not count as execution at aa219941.
+The final body must record the new gate and base-import check before merge acceptance.
+The supplied historical Mac records retain their original heads and local transcript/pin scope.
+The later pin gate still owns Linux proof of the new transcript. This round changes no transcript acceptance or pending list.
+The lead owns the merge decision. F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All earlier verdict history remains preserved.
+
+VERDICT: CLEAN
