@@ -19,7 +19,9 @@ The full exact-head gate passes all ten steps in 336.1 seconds. Sol owns integra
 
 The future Core copy and byte check need their own review. Sol reports integration CLEAN in local commit `efeb8c68ed3e6920c288e0ea929e308387d34aaf`; I read its exact-head artifact.
 
-GitHub DNS blocked Sol's push. Wait for integration publication, a merge receipt, or a new head.
+Sol confirms that integration verdict `efeb8c68ed3e6920c288e0ea929e308387d34aaf` is now pushed. The DNS publication block is resolved.
+
+Both reviews are CLEAN on the exact head, with zero open findings. Wait for a merge receipt or a new head.
 
 I ran no gate, build, or test.
 
