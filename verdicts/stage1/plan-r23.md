@@ -2954,3 +2954,23 @@ The active Core pin remains .36. No implementation, tag gate, pin move, or pendi
 PF-SI-1 remains open. Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (1 open) at aa449593e3d61594b7d58204fe341cc397b0287b
+
+## Round 80 — revision 23cc, 2026-10-11
+
+Head: `5e38640f2a02ce1117c1b9435f61ad1687ed0c69`.
+Prior reviewed head: `aa449593e3d61594b7d58204fe341cc397b0287b`.
+Only docs/stage1-plan.md changes. Sol reads every changed term and the added history row.
+The pin equals the committed plan bytes and has mode 0444.
+Pin SHA-256: `8611a82015d292831a8129c0790e349cd5275478e06b35f5dafded6aa928f1ab`.
+Sections 5, 6.3, and 8 retain their reviewed rules.
+
+PF-SI-1 closes for the plan. The corrected example matches frozen DP-5b at .40.
+The count includes the encoded path, trailing space, and markers. It never includes uploaded file content.
+The three class-B conditions remain unchanged. DP-5b meets condition 3 directly.
+The dp_5b_path body must identify each added byte. It must not count a space or marker twice.
+The lead requested the same correction from the steward for the held R-83 draft.
+This verdict accepts the plan correction only. The future Contracts PR still requires its own review.
+The active Core pin remains .36. No implementation, gate, tag, pin move, or pending removal is accepted here.
+Sol runs no execution job. Zero plan findings remain. Never poll.
+
+VERDICT: CLEAN (0 open) at 5e38640f2a02ce1117c1b9435f61ad1687ed0c69
