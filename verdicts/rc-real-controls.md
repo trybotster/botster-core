@@ -469,3 +469,80 @@ The report arrived in `msg_plugin-w_1791730159_99754d`.
 The source head, reviewed base, three open findings, and agreed control-only scope remain unchanged.
 The integration reviewer also reports plan 23au CLEAN, which closes only the plan's table citation finding.
 That plan verdict closes no Core #269 finding. The reviewer waits for a corrected READY.
+
+
+## Core #269 — round 2 — NOT CLEAN
+
+Source head: `eba028f6ec2b4f50dae9c1a3bd73d53b72e15077`.
+Reviewed base: `c942593697e856017572977af0405b17de0124e2`.
+Risk: HIGH. Open findings: 1, RC-OR-2 (MEDIUM).
+The reviewer read the repair delta and plan 23au, `stage1-plan.0af4db8d.md`.
+Plan 23au changes only the later pin PR's comparison table and contracts change list.
+
+### RC-OR-1 — CLOSED
+
+The layer holds no event and re-injects no event.
+The second capture pumps with the latest supplied `Now`, without a clock step.
+Any event other than its own completion returns `UnsupportedFor("events_pending")`.
+The success path reads every page and releases its capture, including after a page-read error.
+The real test checks the public capture count and `next_deadline` before and after two successful controls.
+The real negative test queues output activity and requires `events_pending`.
+The PR changes no contracts pin or pending file. The three ST-6b IDs remain real-pending at the reviewed base.
+These changes close the control-only finding under plan 23at and R-69.
+Transcript placement and five Mac passes per ID without refusal remain work for the separate contracts and pin PRs.
+
+### RC-OR-2 — OPEN — MEDIUM
+
+Most prohibited assertions are removed. The real test gets its capture ID from the public completion.
+The real control's `equal` result now proves the output cut and session isolation.
+However, `capture_layer.rs:647` and `656` still assert `Resumed { mark: 4, ... }`.
+`Shared::resume` copies `recorded.mark` unchanged into this result.
+The result therefore exposes the private stored mark for these assertions.
+This violates the prior required change: do not add an accessor that exposes private records for an assertion.
+The integration reviewer confirms this interpretation in `msg_plugin-w_1791731248_758112`.
+
+Required change: remove both assertions of the stored mark.
+Keep the page, error, forwarding, and release checks through boundary results.
+Keep the output-cut and session-isolation proofs through the real control's public `equal` result.
+No production change is required to remove these two assertions.
+
+### RC-OR-3 — CLOSED
+
+The PR body now names the existing facilities considered and explains each custom component.
+It explains the independent comparator, the R-69 capture layer, and the acknowledged output history.
+The capture rationale describes the final refusal form.
+
+### Evidence and exclusions
+
+The exact-head full gate passes all ten steps and ends with exit 0:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-resume-eba028f6-pool-20261011-074849-410.log`.
+It reports 120 mutants: 86 caught, including 28 in stage 2; 34 unviable; 0 missed; 0 timed out.
+The cited-mutant and stale-exclusion checks pass.
+The reviewer compared the parsed mutation configuration with round 1. Every exclusion pattern and setting is identical.
+The inherited #262 delta adds exact-count notes and their enforcement. It changes no excluded mutant set.
+Core #269 changes no mutation exclusion.
+The retained reversal log records five failed reversals at `884fde19` after an earlier surviving cut reversal was repaired:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-r69-reversals-mac-884fde19-20261011-074628.log`.
+That log is not an independent exact-head Mac pass at `eba028f6`.
+The proposed later merge of #250 is outside this verdict. It requires the applicable base-merge or delta review record.
+The green gate does not close RC-OR-2. The reviewer ran no test, build, or gate.
+
+
+## Core #269 — round 3 — source CLEAN
+
+Source head: `c3713dba91e38785eeadeb36444a86f51963a622`.
+Reviewed base: `c942593697e856017572977af0405b17de0124e2`.
+Risk: HIGH. Open findings: 0.
+The reviewer read the complete delta from `eba028f6`: one test file, 13 additions and 19 deletions.
+The delta removes both assertions of the private stored mark.
+The test helper keeps only the capture pages and propagates errors. It does not expose the mark for an assertion.
+The real control's public `equal` result still proves the output cut and session isolation.
+RC-OR-2 is closed. RC-OR-1 and RC-OR-3 remain closed.
+The delta changes no production code, mutation exclusion, contracts pin, or pending file.
+
+This verdict covers the source at this exact head. The reviewer has no exact-head full gate receipt for `c3713dba`.
+The green gate at `eba028f6` does not establish the gate result for this new head.
+The implementer reports that the exact-head gate will run after the contracts #48 gate.
+Merge still requires that gate and the integration CLEAN on the same final head and base.
+A later base merge requires the applicable base-merge or delta review record.
+The reviewer ran no test, build, or gate.

@@ -70,3 +70,17 @@ The three Core findings and agreed control-only scope remain unchanged. The revi
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.
+
+Update: Core #269 round 2 is NOT CLEAN at `eba028f6ec2b4f50dae9c1a3bd73d53b72e15077`.
+Reviewed base: `c942593697e856017572977af0405b17de0124e2`. Risk: HIGH.
+RC-OR-1 and RC-OR-3 are closed. RC-OR-2 remains open (MEDIUM).
+Two assertions in `capture_layer.rs` check the private stored mark through `Resumed { mark: 4, ... }`.
+Remove those mark assertions. Keep the public `equal` proofs of the output cut and session isolation.
+The exact-head full gate is green: 120 mutants, 86 caught, 34 unviable, no miss or timeout.
+The reviewer ran no test, build, or gate. The reviewer waits for a corrected READY and does not poll.
+
+Update: Core #269 round 3 is source CLEAN at `c3713dba91e38785eeadeb36444a86f51963a622`.
+Reviewed base: `c942593697e856017572977af0405b17de0124e2`. All three findings are closed.
+The delta removes both stored-mark assertions. It changes one test file only.
+The exact-head full gate receipt and integration CLEAN remain required before merge.
+The reviewer ran no test, build, or gate. The reviewer waits for a doorbell and does not poll.
