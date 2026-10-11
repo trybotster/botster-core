@@ -1,8 +1,8 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
 use botster_core_link::launch::WorkerLaunch;
-use botster_worker_core::{CandidateId, Input, WorkerConfig};
-use std::collections::VecDeque;
+use botster_worker_core::{CandidateId, DescriptorId, Input, WorkerConfig};
+use std::collections::{BTreeMap, VecDeque};
 use std::io;
 use std::time::{Duration, Instant};
 
@@ -46,17 +46,25 @@ pub struct ReadyState {
     pub endpoint_readable: bool,
     /// A candidate may hold bytes to read.
     pub candidate_readable: bool,
+    /// The PTY read budget (`PtyReadBudget`, OU-3d): `Some(0)` stops every PTY read, a drain's too.
+    pub pty_budget: Option<usize>,
+    /// A route can write or read in the next turn (`route_io::Routes::busy`).
+    pub routes_busy: bool,
 }
 
 impl ReadyState {
     pub fn timeout(&self, deadline: Option<Instant>, now: Instant) -> Option<Duration> {
+        // A budget of zero stops the PTY's reads, so a readable PTY or a drain that still reads waits for the next budget.
+        // A complete drain (`Some(0)`) reports `PtyDrained` without a read.
+        let pty_reads = self.pty_budget != Some(0);
         let busy = (self.link_open && self.control_readable)
-            || (self.pty_registered && self.pty_readable)
-            || self.draining.is_some()
+            || (self.pty_registered && self.pty_readable && pty_reads)
+            || self.draining.is_some_and(|left| left == 0 || pty_reads)
             || self.queued_inputs != 0
             || (self.pending_write && !self.write_blocked)
             || self.endpoint_readable
-            || self.candidate_readable;
+            || self.candidate_readable
+            || self.routes_busy;
         if busy {
             Some(Duration::ZERO)
         } else {
@@ -81,6 +89,13 @@ pub fn read_pty(registered: bool, readable: bool, draining: Option<usize>) -> bo
     (registered && readable) || draining.is_some()
 }
 
+/// The bytes of the next PTY read: one chunk, bounded by what a drain still reads and by the read budget (OU-3d). `0`:
+/// no read now (the budget is spent).
+pub fn pty_read_bytes(chunk: usize, draining: Option<usize>, budget: Option<usize>) -> usize {
+    let want = draining.map_or(chunk, |left| left.min(chunk));
+    budget.map_or(want, |budget| budget.min(want))
+}
+
 pub fn flush(link_open: bool, bytes: usize) -> bool {
     link_open && bytes != 0
 }
@@ -97,8 +112,11 @@ pub fn candidate_token(id: CandidateId) -> usize {
     FIRST_CANDIDATE.saturating_add(usize::try_from(id.0).unwrap_or(usize::MAX))
 }
 
-/// The candidate of a poll token, or `None` for a token below the candidates.
+/// The candidate of a poll token, or `None` for a token below the candidates or a route stream's token.
 pub fn candidate_of(token: usize) -> Option<CandidateId> {
+    if crate::route_io::is_route_token(token) {
+        return None;
+    }
     token
         .checked_sub(FIRST_CANDIDATE)
         .map(|n| CandidateId(n as u64))
@@ -110,6 +128,52 @@ pub fn take_candidate(next: &mut u64) -> CandidateId {
     let id = CandidateId(*next);
     *next += 1;
     id
+}
+
+/// The route streams of the control link (DP-2): each received stream under the id that the machine knows, until the
+/// machine binds it to a route (the route transport takes it, `route_io::Routes`) or closes it. Dropping a stream closes
+/// it. `T` is the stream: `OwnedFd` in the driver.
+#[derive(Debug)]
+pub struct DescriptorTable<T> {
+    next: u64,
+    unbound: BTreeMap<DescriptorId, T>,
+}
+
+impl<T> Default for DescriptorTable<T> {
+    fn default() -> Self {
+        DescriptorTable {
+            next: 0,
+            unbound: BTreeMap::new(),
+        }
+    }
+}
+
+impl<T> DescriptorTable<T> {
+    /// Keeps a received stream under a new id. Ids count up from 1 and never repeat in one worker.
+    pub fn keep(&mut self, stream: T) -> DescriptorId {
+        self.next += 1;
+        let id = DescriptorId(self.next);
+        self.unbound.insert(id, stream);
+        id
+    }
+
+    /// `BindRoute`: the stream of `descriptor` leaves the table for the route's transport. `None` for an id that the table
+    /// does not hold.
+    pub fn take(&mut self, descriptor: DescriptorId) -> Option<T> {
+        self.unbound.remove(&descriptor)
+    }
+
+    /// `CloseDescriptor`, or a read that the adoption fence dropped: the unbound stream closes.
+    pub fn close(&mut self, descriptor: DescriptorId) {
+        drop(self.unbound.remove(&descriptor));
+    }
+
+    /// The streams that the machine will never hear of (the adoption fence dropped their reads) close.
+    pub fn close_all(&mut self, descriptors: Vec<DescriptorId>) {
+        for descriptor in descriptors {
+            self.close(descriptor);
+        }
+    }
 }
 
 /// The endpoint waits for its next event, and the driver accepts nothing from it, while it is not readable. The readiness
@@ -137,18 +201,28 @@ pub fn worker_config(launch: &WorkerLaunch) -> WorkerConfig {
 /// input of the old link is dropped: the machine hears nothing of the old link after the action. An input of the adopted
 /// candidate becomes the same input of the control link. When the driver no longer holds the candidate (`held` is false:
 /// its connection ended), the fence fails closed: the machine hears that its new link ended (`LinkClosed`), and nothing
-/// that it sends can reach the old host.
-pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) {
+/// that it sends can reach the old host. Returns the descriptors of the old link's reads that it dropped: the machine never
+/// hears of them, so the driver closes them (DP-8).
+pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) -> Vec<DescriptorId> {
+    let mut dropped = Vec::new();
     let queued = std::mem::take(inputs);
     inputs.extend(queued.into_iter().filter_map(|input| match input {
-        Input::LinkBytes(_) | Input::LinkClosed | Input::LinkWritten { .. } => None,
-        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes(bytes)),
+        Input::LinkBytes { descriptors, .. } => {
+            dropped.extend(descriptors);
+            None
+        }
+        Input::LinkClosed | Input::LinkWritten { .. } => None,
+        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes {
+            bytes,
+            descriptors: Vec::new(),
+        }),
         Input::CandidateClosed(id) if id == adopted => Some(Input::LinkClosed),
         other => Some(other),
     }));
     if !held && !inputs.contains(&Input::LinkClosed) {
         inputs.push_back(Input::LinkClosed);
     }
+    dropped
 }
 
 /// The result of the removal of the worker endpoint at the worker's end. An endpoint that is not there is no failure: the
@@ -242,29 +316,60 @@ mod tests {
         assert!(!due(Some(now + Duration::from_secs(1)), now));
     }
 
+    /// OU-3d: a PTY read takes one chunk, no more than a drain still reads, and no more than the budget; a spent budget
+    /// reads nothing.
+    #[test]
+    fn a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget() {
+        assert_eq!(pty_read_bytes(64, None, None), 64);
+        assert_eq!(pty_read_bytes(64, Some(10), None), 10);
+        assert_eq!(pty_read_bytes(64, Some(100), None), 64);
+        assert_eq!(pty_read_bytes(64, None, Some(7)), 7);
+        assert_eq!(pty_read_bytes(64, None, Some(100)), 64);
+        assert_eq!(pty_read_bytes(64, Some(10), Some(7)), 7);
+        assert_eq!(pty_read_bytes(64, Some(7), Some(10)), 7);
+        assert_eq!(pty_read_bytes(64, None, Some(0)), 0);
+        assert_eq!(pty_read_bytes(64, Some(10), Some(0)), 0);
+    }
+
+    /// A route stream's token is never a candidate's.
+    #[test]
+    fn a_route_token_names_no_candidate() {
+        assert_eq!(candidate_of(FIRST_CANDIDATE), Some(CandidateId(0)));
+        assert_eq!(candidate_of(crate::route_io::ROUTE_TOKEN | 1), None);
+        assert_eq!(candidate_of(usize::MAX), None);
+    }
+
     #[test]
     fn every_ready_source_prevents_a_blocking_wait() {
         let now = Instant::now();
         let later = now + Duration::from_secs(3);
-        for bits in 0u16..1024 {
+        for bits in 0u16..8192 {
+            let budget_spent = bits & 2048 != 0;
             let state = ReadyState {
                 link_open: bits & 1 != 0,
                 control_readable: bits & 2 != 0,
                 pty_registered: bits & 4 != 0,
                 pty_readable: bits & 8 != 0,
-                draining: (bits & 16 != 0).then_some(0),
+                // A drain that is complete (0 left), or one that still reads (5 left).
+                draining: (bits & 16 != 0).then_some(if bits & 4096 != 0 { 5 } else { 0 }),
                 queued_inputs: usize::from(bits & 32 != 0),
                 pending_write: bits & 64 != 0,
                 write_blocked: bits & 128 != 0,
                 endpoint_readable: bits & 256 != 0,
                 candidate_readable: bits & 512 != 0,
+                routes_busy: bits & 1024 != 0,
+                pty_budget: budget_spent.then_some(0),
             };
             let ready = match bits {
                 b if b & 3 == 3 => true,
-                b if b & 12 == 12 => true,
-                b if b & 48 != 0 => true,
+                // OU-3d: a spent budget stops the PTY's reads, so a readable PTY does not keep the loop busy.
+                b if b & 12 == 12 && !budget_spent => true,
+                // A complete drain reports without a read; a drain that still reads waits for a budget.
+                b if b & 16 != 0 && (b & 4096 == 0 || !budget_spent) => true,
+                b if b & 32 != 0 => true,
                 b if b & 192 == 64 => true,
                 b if b & 768 != 0 => true,
+                b if b & 1024 != 0 => true,
                 _ => false,
             };
             assert_eq!(state.timeout(None, now), ready.then_some(Duration::ZERO));
@@ -395,7 +500,10 @@ mod tests {
     fn the_fence_drops_the_old_link_and_turns_the_adopted_candidate_into_the_link() {
         let (adopted, other) = (CandidateId(2), CandidateId(3));
         let mut inputs = VecDeque::from([
-            Input::LinkBytes(vec![1]),
+            Input::LinkBytes {
+                bytes: vec![1],
+                descriptors: vec![DescriptorId(7)],
+            },
             Input::Timer,
             Input::CandidateBytes(adopted, vec![2]),
             Input::LinkWritten { total: 9 },
@@ -406,12 +514,16 @@ mod tests {
             Input::Candidate(CandidateId(4)),
         ]);
         let mut gone = inputs.clone();
-        fence(&mut inputs, adopted, true);
+        // The old link's read had a descriptor that the machine never heard of: the driver closes it.
+        assert_eq!(fence(&mut inputs, adopted, true), vec![DescriptorId(7)]);
         assert_eq!(
             inputs,
             VecDeque::from([
                 Input::Timer,
-                Input::LinkBytes(vec![2]),
+                Input::LinkBytes {
+                    bytes: vec![2],
+                    descriptors: Vec::new(),
+                },
                 Input::CandidateBytes(other, vec![3]),
                 Input::CandidateClosed(other),
                 Input::LinkClosed,
@@ -453,6 +565,52 @@ mod tests {
         let ids: Vec<CandidateId> = (0..3).map(|_| take_candidate(&mut next)).collect();
         assert_eq!(ids, [CandidateId(0), CandidateId(1), CandidateId(2)]);
         assert_eq!(next, 3);
+    }
+
+    /// A stream that records its close, for the descriptor table.
+    struct Stream(u8, std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+    impl Drop for Stream {
+        fn drop(&mut self) {
+            self.1.borrow_mut().push(self.0);
+        }
+    }
+
+    /// DP-2: received streams get distinct ids that count up from 1. A taken stream is the route transport's; an unbound
+    /// one lives until `CloseDescriptor` or the fence closes it. A stream closes once, and an unknown id closes nothing.
+    #[test]
+    fn the_descriptor_table_keeps_each_stream_until_its_close() {
+        let closed = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let mut table = DescriptorTable::default();
+        let ids: Vec<DescriptorId> = (1..=3)
+            .map(|n| table.keep(Stream(n, closed.clone())))
+            .collect();
+        assert_eq!(ids, [DescriptorId(1), DescriptorId(2), DescriptorId(3)]);
+        let taken = table.take(ids[0]).expect("a kept stream");
+        assert!(table.take(ids[0]).is_none(), "a stream is taken once");
+        table.close(ids[0]);
+        assert!(closed.borrow().is_empty(), "a taken stream is the route's");
+        table.close(ids[1]);
+        assert_eq!(*closed.borrow(), [2]);
+        table.close(ids[1]);
+        table.close(DescriptorId(99));
+        assert!(table.take(DescriptorId(99)).is_none());
+        assert_eq!(*closed.borrow(), [2], "unknown ids close nothing");
+        drop(taken);
+        assert_eq!(*closed.borrow(), [2, 1]);
+        drop(table.take(ids[2]));
+        assert_eq!(*closed.borrow(), [2, 1, 3]);
+        let fenced = [
+            table.keep(Stream(4, closed.clone())),
+            table.keep(Stream(5, closed.clone())),
+        ];
+        assert_eq!(fenced, [DescriptorId(4), DescriptorId(5)]);
+        table.close_all(fenced.to_vec());
+        assert_eq!(
+            *closed.borrow(),
+            [2, 1, 3, 4, 5],
+            "the fence closes every dropped stream"
+        );
     }
 
     /// The endpoint and a candidate wait while they are not readable (edge-triggered readiness).
