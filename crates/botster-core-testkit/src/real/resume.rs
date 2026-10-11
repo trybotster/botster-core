@@ -337,7 +337,7 @@ mod slow_tests {
         .unwrap();
         assert_eq!(
             resume(&mut harness, "s1", capture),
-            Err(ControlError::Unsupported)
+            Err(ControlError::UnsupportedFor("size_or_profile_changed".into()))
         );
 
         let print = json!({ "program": [{ "print": "x" }, { "hold": {} }] }).to_string();
