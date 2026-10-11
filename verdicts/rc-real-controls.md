@@ -124,7 +124,7 @@ Base: `517c2235`.
 Risk: HIGH. The change modifies the shared testkit.
 Authority: R-60 and plan 23am, section 0, item 1. This PR adds the control before the pin moves.
 
-**VERDICT: NOT CLEAN (1 open)**
+**VERDICT: NOT CLEAN (2 open)**
 
 ### RC-PR-1 — MEDIUM — The real control accepts a removed session's historical row
 
@@ -172,4 +172,28 @@ The mutation configuration is byte-identical to the configuration already read i
 The reviewer checked every exclusion against the changed implementation paths. No expression targets those paths.
 The existing test globs do not cover the changed implementation files.
 
-The reviewer ran no test or gate. RC-PR-1 must close before CLEAN.
+### RC-PR-2 — LOW — The hello test duplicates readiness proof through a private helper
+
+Status: OPEN.
+Evidence: `crates/botster-core-testkit/src/real/program.rs:782`, `the_hello_records_the_probe_and_wakes_the_hosts`.
+The test directly asserts `Programs::has_connected` before and after the hello.
+Those assertions read the helper that checks the private probe table.
+The real-session test already proves readiness through the harness's `program_ready` control.
+BUILD.md Testing rule 3 excludes duplicate proof and helper-internal tests.
+
+Required change: Remove the two `has_connected` assertions from the hello test.
+Keep the protocol acknowledgement and the observable `HostWake` signal assertion.
+Update the test name, comment, and PR description to state the remaining wake proof.
+Keep readiness assertions in the tests that call the harness control.
+The integration reviewer identified this finding in `msg_plugin-w_1791713493_733457`. The package reviewer accepts it.
+
+### Later base merge
+
+The implementer then submitted `b013fdeb77341a142321c256ad57d1ecc078aed2`, which merges base `5ac94fab`.
+The PR's four-file change against that base still contains both findings.
+The reviewer read the inherited `real.rs` delta. It does not change either finding's cause.
+Both the PR and the base modify `real.rs`, so the plan's automatic disjoint-path carry-over does not apply.
+Matching patch identifiers and separate hunks do not satisfy that path rule.
+This round remains NOT CLEAN with 2 open findings on the merged head as well.
+
+The reviewer ran no test or gate. Both findings must close before CLEAN.
