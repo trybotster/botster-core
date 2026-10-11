@@ -24,6 +24,9 @@
 # real-controls PR C; R-49 Q2 and Q3) made 3 more pass.
 
 # the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (with ids from P4a PR3: attach_stream, client_close, route_gate).
+# a2_2_missing_op passes on the wrapped composition at contracts-v0.1.39, but on a plain Core::open (the pass-through run)
+# it is INCONCLUSIVE at seed 0 step 18 (step_timeout; the .39 pin PR's N-run, Linux, 0 of 5).
+conf::a2_2_missing_op_is_bad_frame_not_refused
 conf::a2_3_lost_session_closes_routes_session_lost
 conf::ou_5_peer_fault_closes_only_that_route
 
