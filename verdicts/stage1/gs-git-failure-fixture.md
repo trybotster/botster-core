@@ -37,3 +37,24 @@ Both source CLEANs now cover this exact head. Under plan 23bu, GS must send FINA
 With that slot, GS must import current v1 once, supply the applicable base check, and run one final exact-head gate.
 This verdict accepts no later import, gate, timeout change, or unrelated retry.
 Sol ran no build, test, gate, mutation, measurement, or executable probe. Wait for the doorbell. Never poll.
+
+## Round 2 — final base import, 2026-10-11
+
+Verdict: source CLEAN (0 open) at `d7abc589391ed492e27413c05c8489c262377f36`.
+Base: `23bb03a113218a5af24b44d31635dacad43c5981`.
+Reviewed parent: `1f0ab3eb5e8f19b43fed1e34468e86bced9a244b`.
+Sol reads the complete package carry section at `e6f02e6e` and complete canonical check.
+All conditions PASS. Q7 carries the prior source CLEAN.
+The 28 imported paths are disjoint from the one own path, xtask/src/mutants_cited/tests.rs.
+Sol independently compares both complete canonical diffs. They are byte-identical: 1033 bytes.
+SHA-256: `a161c7001ea17f6e8a61a00cf17e9b7810eb1e24f38123e42c1cf1cb8a2f6f9f`.
+All imported blobs equal the base. Both pending files equal the base.
+The exact parents are verified. The static merge tree equals the head tree, `0cfed7dc43a101334878bdcf4dc61fbb010e4e29`.
+
+Check: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-d7abc589-base-merge-check.log`.
+SHA-256: `db7d0e5eef3de44f877132f4a9c7d2e14b35a99409a35eada269e38e7ae301cd`.
+The base merges #278. Its exact parents are f49f7430 and 4b277224.
+Its tree equals the accepted #278 tree, `968f6e533d23625b1ec28026cab8e1e94690aa3e`.
+The owner reports the final #281 gate running under the lead's SLOT.
+This source verdict accepts no result from that running gate. Its final gate and body remain due.
+Sol ran no execution job or executable base check. Earlier evidence limits remain.

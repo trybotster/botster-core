@@ -170,3 +170,46 @@ The green gate does not close the inaccurate boundary-test comments. A corrected
 Sol accepts no future head, merge, pin, or pending removal. Sol ran no execution job.
 
 VERDICT: NOT CLEAN (1 open: RI-SI-1, LOW) at 6161c5c2122e43b4721497ad787814b108f22169
+
+## Round 4 — completed final gate and record review, 2026-10-11
+
+Verdict: NOT CLEAN (2 LOW record findings) at `80c5b50cfd4e94efd65b06ea13c045bab91a476f`.
+Base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+The accepted source and import in Round 3 remain unchanged.
+Sol reads the complete final body. Package reviewer receipt `msg_plugin-w_1791743025_3534fe` reports F140 and F141.
+That reviewer continues final verification; no formal package completion record exists yet.
+
+### RI-SI-2 LOW — incorrect review history (package F140)
+
+The body says "After both CLEANs at 6161c5c2".
+Sol's verdict at 6161c5c2 is NOT CLEAN. Both corrected source CLEANs apply to abcbf164.
+Correct the body to preserve that history. No source change or repeat gate is required.
+
+### RI-SI-3 LOW — incomplete published base-check record (package F141)
+
+The final body names the failed cumulative check and gives a partial summary.
+It does not publish the complete output required by the two source reviews.
+Publish that complete output in the body or a linked PR comment. Preserve all failed conditions and the delta acceptances.
+The complete local check remains read and accepted through Round 3's explicit delta review.
+This finding concerns the published record. No source change or repeat gate is required.
+
+### Final gate evidence
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p3-testkit-route-input-80c5b50c-pool-20261011-110748-77593.log`.
+SHA-256: `67444b1102f66f450942bc6b8cfffd0b9ffda341b6dab1c0115bfd49aa267850`.
+Sol reads the exact-head and base headers, step results, suite summaries, four route proof records, and mutation records.
+All ten steps PASS in 463.1 seconds. Default: 1747 PASS, 474 skipped, 13.729 seconds.
+Slow: 559 PASS, 2030 skipped, 41.429 seconds. Both budgets pass. Four named real proofs pass.
+The testkit input-log proof, unattributed-op relation proof, real input-log proof, and route-control boundary proof all PASS.
+Minimum: testkit 61/69; real 49/68; real accepted 50/69.
+Stage 1: 34 mutants, 9 caught, 24 missed, one unviable, zero timeout, 67.9 seconds.
+Stage 2 baseline: 559 PASS, 2720 skipped, 41.171 seconds; baseline duration 52.4 seconds.
+Stage 2: 24 mutants, 13 caught, 11 unviable, zero missed or timeout, 203.7 seconds.
+Final: 22 caught, 12 unviable, zero missed or timeout. All 22 raw caught identities equal all 22 catcher identities.
+The complete log contains no FLAKY token. Historical ST-6 FLAKY remains separate and contributes no catch.
+Fuzz selects no changed decoder crate. Job and wrapper exit 0 after 475 seconds; queue one second, run 474 seconds.
+
+Merge `f49f74302526a28b6aced1595f74c7d0a1d22836` has the exact base and reviewed head as parents.
+Its tree equals the reviewed tree, `7aae5082be535f92eaae806045bdc788ff4b602f`.
+This verifies the merge object and accepts the final gate evidence. The two record findings still prevent final CLEAN.
+Sol ran no execution job. No future head, gate, pin, or pending removal is accepted.
