@@ -750,7 +750,7 @@ mod slow_tests {
             "setsockopt",
         ];
         let mut dirs = vec![crate::statements::workspace_root().join("crates")];
-        let (mut read, mut found) = (0, vec![]);
+        let (mut read, mut found) = (vec![], vec![]);
         while let Some(dir) = dirs.pop() {
             for entry in std::fs::read_dir(&dir).unwrap() {
                 let path = entry.unwrap().path();
@@ -762,7 +762,7 @@ mod slow_tests {
                         dirs.push(path);
                     }
                 } else if name.ends_with(".rs") && name != "tests.rs" {
-                    read += 1;
+                    read.push(path.clone());
                     let text = std::fs::read_to_string(&path).unwrap();
                     found.extend(
                         SETTERS
@@ -773,7 +773,16 @@ mod slow_tests {
                 }
             }
         }
-        assert!(read > 100, "the walk read the crates' sources: {read}");
+        // The walk reaches the sources that hold the route's socket: the descriptor pass (it names `SO_SNDBUF`), the
+        // worker's route and the facade.
+        for source in [
+            "crates/botster-core-sys/src/fd_pass.rs",
+            "crates/botster-worker-core/src/worker/route.rs",
+            "crates/botster-core/src/lib.rs",
+        ] {
+            let source = crate::statements::workspace_root().join(source);
+            assert!(read.contains(&source), "{} not read", source.display());
+        }
         assert_eq!(found, Vec::<String>::new());
     }
 
