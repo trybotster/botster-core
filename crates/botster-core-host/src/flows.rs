@@ -165,22 +165,19 @@ impl HostEngine {
         }
     }
 
-    /// The link ended before the payload ran. The kernel closes a dead worker's descriptors before its exit is reported, so
-    /// the end of file usually comes first even when the worker died: a spawned worker with a deadline waits for the first
-    /// of its exit and that deadline (`StartPhase::LinkLost`, R-72). Any other start fails at once, as before.
+    /// The link of a worker that this host spawned ended before the payload ran. The kernel closes a dead worker's
+    /// descriptors before its exit is reported, so the end of file usually comes first even when the worker died: the start
+    /// waits for the first of the exit and the `startup` deadline (`StartPhase::LinkLost`, R-72).
+    ///
+    /// Only a spawned start comes here. An adoption's start has its own rule (`on_link_closed`, R-36) and sends its launch
+    /// on the link that it came with. A spawned start has its deadline from the spawn (`flow_spawned`; the driver moves the
+    /// clock before every input, TM-1).
     pub(crate) fn start_link_lost(&mut self, id: &SessionId) {
         let spawned = self.identity_of(id).is_some();
         if let Some(f) = self.start_flow(id) {
-            if spawned && !f.adopted && f.deadline.is_some() {
-                f.phase = StartPhase::LinkLost;
-                return;
-            }
+            debug_assert!(spawned && !f.adopted && f.deadline.is_some(), "{f:?}");
+            f.phase = StartPhase::LinkLost;
         }
-        self.fail_start(
-            id,
-            StartFailReason::WorkerFailed,
-            End::Exited(failed_start_exit()),
-        );
     }
 
     /// The `startup` deadline passed before the payload ran (LC-4).
