@@ -462,7 +462,7 @@ impl RealCoreHarness {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::super::program::Programs;
     use super::super::slow_controls::{created_with, pump_until, sid, state};
     use super::*;
