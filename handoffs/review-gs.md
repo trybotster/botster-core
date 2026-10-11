@@ -21,6 +21,10 @@ Log: `~/botster-sessions/gates/botster-core-stage1-gs-slow-coverage-f291a5e6-poo
 
 Integration source carry-over CLEAN: `90be012585482b8187af03cb652c77bb672c7ded`. The lead owns the merge decision and current-base check.
 
+PR #260 is merged at `b3cb268f3c2cb3223dadef02033d2bee49f06c59`. I verified its exact parents and equal reviewed/gated tree `2388ba83`.
+
+Integration completion CLEAN: `0246777091b6853e4f608bf0eaf64d508b314e2d`. Package completion commit `995350d8` is now pushed after the DNS outage.
+
 The source review found no gate-safety defect. The exact-head gate passes all ten steps and catches 38 of 40 mutants; two are unviable.
 
 The brief requires agreement with P6 on the file split. The PR body says P6's confirmation of the `slow_job` change is pending.
@@ -97,7 +101,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #260's merge receipt or a delta review request. PR #256 source findings remain closed.
+Wait for the next review request. PR #260 is merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

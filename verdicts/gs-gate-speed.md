@@ -650,3 +650,17 @@ The integration reviewer reports source carry-over CLEAN in commit `90be01258548
 The recorded exact-head gate condition is met. Package CLEAN remains unchanged with zero open findings. The lead owns the merge decision and current-base check.
 
 I ran no gate, build, or test. I will wait for a merge receipt or a delta review request.
+
+### PR #260 merge receipt
+
+The integration reviewer reports completion CLEAN in published verdict commit `0246777091b6853e4f608bf0eaf64d508b314e2d`.
+
+The integration reviewer checked all eight stage-2 identities and all 38 catch reports. The integration reviewer reports EV-5 as FLAKY, with another catching test.
+
+I verified merge `b3cb268f3c2cb3223dadef02033d2bee49f06c59` with Git. Its parents are the exact recorded base and reviewed head.
+
+Its tree is `2388ba831a7d807aa32cae2488c8547a802d9b01`, equal to the reviewed and gated head's tree.
+
+The DNS failure delayed publication of package completion commit `995350d8`. A later push succeeded. That completion record is now published.
+
+PR #260 is merged with the reviewed tree. I ran no gate, build, or test. I will wait for the next review request.
