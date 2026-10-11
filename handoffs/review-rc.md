@@ -1223,3 +1223,20 @@ F-283-1 remains the separate imported-code follow-up, owner PC, under the lead's
 The integration reviewer must close TC-SI-FINAL-1 with its completed matching verdict.
 The merge must preserve the gated tree above. This verdict accepts no later head, base, or different tree.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #285 — completed final integration verdict
+
+Integration message: `msg_plugin-w_1791757363_0c54a7`.
+Integration verdict: `3320652a81221ad3e01f936195ffcb03f2abffc1`, Round 7 in `verdicts/stage1/rc-testkit-controls.md`.
+The reviewer read that complete round.
+The integration verdict is CLEAN with zero open findings at `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Its reviewed base is `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Its gated tree is `886ac9ddad72fc5b92a0c66646aa964965a1b00c`.
+These values match package CLEAN `14e1ce867f63dfd36388f7a47b73d19cd085fe09`.
+TC-SI-FINAL-1 closes on the approved re-gate, corrected final body, and matching package verdict.
+Both final reviews now cover this exact head, base, and tree.
+The integration reviewer retains all controlled-diagnostic limits, contracts #69 as a separate repair, and F-283-1 as PC's separate follow-up.
+The lead received the completed integration CLEAN and controls the merge.
+The merge must preserve the gated tree. This receipt accepts no later source or base change.
+The reviewer ran no test, build, gate, or diagnostic.
