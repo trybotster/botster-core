@@ -22,7 +22,7 @@ pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate"];
 /// The client end of one route.
 #[derive(Debug)]
 pub(super) struct RealRoute {
-    /// The client's end of the stream, nonblocking outside a wait; `None` after `client_close`.
+    /// The client's end of the stream, always nonblocking; `None` after `client_close`.
     end: Option<UnixStream>,
     /// The client bytes that wait for room in the stream.
     unsent: Vec<u8>,
@@ -56,6 +56,43 @@ fn read_of(result: io::Result<usize>, buf: &[u8]) -> RouteRead {
     }
 }
 
+/// What a write result means for the unsent bytes: it drains the written bytes, keeps them when the stream is full
+/// (`WouldBlock`, the flush stops) or the write was interrupted (it is tried again), and loses them on any other error,
+/// as with a lost transport (Core OU-5). True: the flush goes on.
+fn after_write(result: io::Result<usize>, unsent: &mut Vec<u8>) -> bool {
+    match result {
+        Ok(n) => {
+            unsent.drain(..n);
+            true
+        }
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock => false,
+        Err(e) if e.kind() == io::ErrorKind::Interrupted => true,
+        Err(_) => {
+            unsent.clear();
+            true
+        }
+    }
+}
+
+/// The poll timeout of a wait.
+fn timespec_of(wait: Duration) -> rustix::event::Timespec {
+    rustix::event::Timespec {
+        tv_sec: i64::try_from(wait.as_secs()).unwrap_or(i64::MAX),
+        tv_nsec: wait.subsec_nanos().into(),
+    }
+}
+
+/// What the wait for the first byte gives: `None` when the stream is readable (bytes, its end or an error), so the read
+/// follows; `Empty` when nothing came by the deadline or a signal ended the wait; the end of the route when the poll
+/// failed.
+fn after_poll(result: rustix::io::Result<usize>) -> Option<RouteRead> {
+    match result {
+        Ok(0) | Err(rustix::io::Errno::INTR) => Some(RouteRead::Empty),
+        Ok(_) => None,
+        Err(_) => Some(RouteRead::Eof { ended: None }),
+    }
+}
+
 impl RealRoute {
     /// The route over `end`, the client's end of the stream.
     ///
@@ -79,32 +116,29 @@ impl RealRoute {
             return;
         };
         while !self.unsent.is_empty() {
-            match end.write(&self.unsent) {
-                Ok(n) => {
-                    self.unsent.drain(..n);
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(_) => self.unsent.clear(),
+            let result = end.write(&self.unsent);
+            if !after_write(result, &mut self.unsent) {
+                return;
             }
         }
     }
 
-    /// One read of at most `max` bytes: a wait of `wait` for the first byte, or no wait.
+    /// One read of at most `max` bytes: a wait of `wait` for the first byte, or no wait. The stream stays nonblocking: the
+    /// wait is a `poll` for readability, so the read never blocks.
     fn read_stream(end: &mut UnixStream, max: usize, wait: Option<Duration>) -> RouteRead {
+        if let Some(wait) = wait {
+            let mut fds = [rustix::event::PollFd::new(
+                &*end,
+                rustix::event::PollFlags::IN,
+            )];
+            // timer: deadline — the wait ends at the step deadline that the driver gave
+            let polled = rustix::event::poll(&mut fds, Some(&timespec_of(wait)));
+            if let Some(read) = after_poll(polled) {
+                return read;
+            }
+        }
         let mut buf = vec![0u8; max];
-        let Some(wait) = wait else {
-            return read_of(end.read(&mut buf), &buf);
-        };
-        if end.set_nonblocking(false).is_err() || end.set_read_timeout(Some(wait)).is_err() {
-            return RouteRead::Eof { ended: None };
-        }
-        // timer: deadline — the wait ends at the step deadline that the driver gave
-        let result = end.read(&mut buf);
-        if end.set_nonblocking(true).is_err() {
-            return RouteRead::Eof { ended: None };
-        }
-        read_of(result, &buf)
+        read_of(end.read(&mut buf), &buf)
     }
 }
 
@@ -211,6 +245,40 @@ mod slow_tests {
 
     /// Before the handoff, an empty read returns at once, so the driver can pump Core; after it, a read waits until the
     /// deadline.
+    /// A write drains what it wrote; a full stream keeps the bytes and stops the flush; an interrupted write keeps them and
+    /// goes on; any other error loses them (Core OU-5) and goes on.
+    #[test]
+    fn a_write_result_drains_keeps_or_loses_the_unsent_bytes() {
+        let failed = |kind: io::ErrorKind| Err(io::Error::from(kind));
+        let mut unsent = b"abcd".to_vec();
+        assert!(after_write(Ok(3), &mut unsent));
+        assert_eq!(unsent, b"d");
+        assert!(!after_write(failed(io::ErrorKind::WouldBlock), &mut unsent));
+        assert_eq!(unsent, b"d");
+        assert!(after_write(failed(io::ErrorKind::Interrupted), &mut unsent));
+        assert_eq!(unsent, b"d");
+        assert!(after_write(failed(io::ErrorKind::BrokenPipe), &mut unsent));
+        assert!(unsent.is_empty());
+    }
+
+    /// The wait for the first byte: nothing by the deadline or a signal gives `Empty`, a readable stream gives the read,
+    /// and a failed poll ends the route. The poll timeout is the wait itself.
+    #[test]
+    fn a_poll_result_reads_gives_empty_or_ends_the_route() {
+        assert_eq!(after_poll(Ok(0)), Some(RouteRead::Empty));
+        assert_eq!(
+            after_poll(Err(rustix::io::Errno::INTR)),
+            Some(RouteRead::Empty)
+        );
+        assert_eq!(after_poll(Ok(1)), None);
+        assert_eq!(
+            after_poll(Err(rustix::io::Errno::BADF)),
+            Some(RouteRead::Eof { ended: None })
+        );
+        let timeout = timespec_of(Duration::new(3, 5));
+        assert_eq!((timeout.tv_sec, timeout.tv_nsec), (3, 5));
+    }
+
     #[test]
     fn the_first_empty_read_returns_at_once_and_a_later_one_waits_for_the_deadline() {
         let (mut route, _worker) = pair();
