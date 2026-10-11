@@ -11644,3 +11644,155 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 166 — PR #243, combined #240 and #243 composition — 2026-10-11
+
+Head: `3cf27c1b0f6941100b096570bb3ca51ade0a7c2e`.
+Base v1: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+Final replacement READY: msg_plugin-w_1791720047_52e481.
+The reviewer verifies the exact head and base in the complete GitHub response.
+Current body record: /private/tmp/review-p3-pr243-3cf27c1b.json.
+Earlier body records: /private/tmp/review-p3-pr243-bbc83015.json and /private/tmp/review-p3-pr243-27d7e821.json.
+HIGH follows BUILD.md rules 1, 3, 4, and 5. All findings must close, including LOW findings.
+Plan 23ar at a2897c12 applies; its verified hash is 2e4d6e962f37ddafe2a68fd50598a1bd218fe3a6a53358f8cccd970884e0daed.
+The lead's combined-merge ruling supersedes the earlier requirement to land #240 separately first.
+
+### Composition and base imports
+
+The combined source retains #240 CLEAN e493ff5f and PR C CLEAN 53502d55, plus the reviewed corrections and imports below.
+The prior package artifacts are 80f9bed0555e21542a0e12d68f9d73e8362f4e91 and b8c7112641fc90ce249c2518e274613a3197eb23.
+Those earlier complete reviews retain their exact-head and evidence limits.
+The reviewer reads every post-53502d55 own delta and the six overlapping paths in the first base import.
+The complete initial import log requires delta review: shared mutation configuration, process allowances, lock, adapter, adapter tests, and driver.
+The merge bb73428bf4fc2dc6935135820abd470654062ed7 has parents 53502d55 and b3cb268f3c2cb3223dadef02033d2bee49f06c59.
+A read-only comparison checks all 308 non-overlapping file objects against the applicable parent. No unexpected object appears.
+The shared adapter keeps descriptor framing and imports the start_held map changes without losing either behavior.
+The shared driver keeps route transport and PTY budget changes and imports the slow_driver_observer rename.
+The process allowance names launch_with_route. The lock retains the route codec test dependency and imports the contracts pin.
+The mutation configuration keeps the preceding reasons and imported checks. The later arithmetic exclusion correction names READ_CHUNK at line 58.
+Its scope remains constant arithmetic; budget decisions retain their behavior proofs.
+
+The final base import is 38635c9e16cb9f83a1544aca441367c3fb3fef7a.
+Its parents are fixture correction dff7e47641436f670d24a64695da6778fe8b88cb and the exact v1 base above.
+The complete second import log passes ancestry, no-conflict, path separation, and line-set checks.
+Its own-diff comparison fails because the fixture correction changes session.rs after the prior inspected head.
+The reviewer reads that actual correction. No overlapping path exists between the fixed composition and the new base delta.
+A read-only comparison checks all 321 merged file objects against the applicable parent. No unexpected object appears.
+The imported #261 gate code is identical to the accepted base. This review does not repeat its separate package review.
+The final own delta removes only the ev_5_repeated entry from ci/known-flaky.toml, as the lead requires.
+The list now contains comments and no entry. This restores that test to mutation eligibility; it adds no test exclusion.
+The complete PR diff has 37 paths. Its source diff check passes, and its merge base equals the named v1 base.
+These comparisons read Git objects only. The reviewer runs no executable merge-check job.
+
+### R-65 source and failure paths
+
+The reviewer reads the complete eighteen-path post-first-import change, its surrounding driver and machine code, and the pinned R-65 ruling.
+The real descriptor edge returns both its byte count and the host's endpoint copy.
+The testkit edge returns None for the copy because the endpoint travels by value. EdgeTap preserves the returned copy.
+The host driver retains real copies by route in each link's sent table.
+Feeding RouteReceived or RouteClosed drops the matching copy for that link.
+The worker queues BindRoute before its RouteReceived report. The real driver performs those actions in order.
+Link loss drops each unacknowledged copy and queues HandoffLost within the existing pump budget.
+The existing state-dependent handling retains R-50 ordering for Starting and Stopping sessions.
+Running sessions close the unacknowledged route HandoffFailed, as the steward's follow-up requires.
+The known caveat remains: the worker may have received the descriptor and lost only the acknowledgement. A21 may refine that case.
+No new timer, test branch, unsafe code, terminal implementation, or external dependency is added.
+Partial descriptor sends, refused descriptors, pending handoffs, and receipt admission retain their reviewed behavior.
+
+The three new driver proofs check copy retention, lost-link closure, and refusal closure through public events and endpoint lifetime.
+The worker proof requires exactly one RouteReceived for the bound route.
+The real receipt proof closes the worker copy first, then requires a successful client write while the host copy remains.
+The worker sends receipt before a capture response on the same link. Capture completion fences the host's receipt handling.
+The client must then observe EOF and EPIPE. This uses real socket results rather than an absence check.
+The DP-2 proof sends client bytes before handoff and ends the client's writing.
+The worker receives every client byte from its own descriptor and sends the client's first line.
+The proof detects a host read or write of route bytes. Those raw route bytes are not terminal expectations.
+The existing process guards retain cleanup on panic. The waits use real events and marked deadlines.
+The reviewer reads the stand-in helper refactor and its changed callers completely.
+
+The final fixture correction consumes Launched and RouteReceived for route 1, once each, in either order.
+A duplicate or different report fails. A launch without a route retains its single Launched response.
+This fixes the five route-fixture failures found when the focused Mac run enables the slow feature.
+The earlier worker run without that feature did not prove these fixtures; the exact-head record below supplies that proof.
+The correction changes twelve test lines and no product behavior.
+
+The API snapshot correction at 27d7e821f69c89f97b1476fd56e5f71e04556798 changes one line.
+It records Result<(usize, Option<StreamEndpoint>), ...>, matching the reviewed RealEdges method.
+The PR description now distinguishes the unchanged PR C machine from the R-65 receipt-report change.
+The description concern closes without a product commit.
+
+### Protocol condition and pin
+
+R-65 permits the new message in protocol 1 only if no released Core worker speaks that protocol.
+The reviewer independently verifies zero GitHub releases, zero repository tags, and workspace publish=false.
+The reviewer reads the complete lead confirmation in PR comment 6108744687:
+https://github.com/trybotster/botster-core/pull/243#issuecomment-6108744687.
+The lead confirms the cold-cut condition and the worker's inherited publish=false. The protocol condition closes.
+Lead receipt: msg_plugin-w_1791719713_0e6b9d. The earlier QUESTION is resolved.
+The reviewer does not independently verify the separate crates.io statement in the body.
+
+The branch pins contracts-v0.1.36 at 96f48d6d3d7a0e75e752d78433eff92efad0e77e.
+The reviewer resolves the remote annotated tag to that exact commit and checks all manifest and lock pin changes.
+The .32-to-.36 diff changes eight transcript fences, fence lint, BUILD rule 9, and steward rulings.
+It changes no contract crate, runner source, manifest, or frozen/current source.
+The reviewer reads all eight transcript deltas. The three in10 await_pty fences and ev_5 completion fence preserve expected values.
+The four program_ready fences implement the accepted R-60 order.
+The three removed in10 IDs have identical .35 and .36 transcript objects.
+Only those three IDs leave core-pending in the current own delta. No ID changes core-real-pending here.
+DP-2 stays pending for the separate named-proof runner mapping. The progressing-reader ID retains its real route_fill obligation.
+The final gate must establish acceptance of all status removals before merge.
+
+### Supplied focused evidence
+
+The reviewer reads all selected R-65 red records, the DP-2 red record, both green records, the in10 record, and the final Mac record completely.
+The three driver tests fail on 719236be before copy retention. The worker test fails without RouteReceived.
+The real receipt test fails without the hold, with EPIPE on the first client write.
+The DP-2 read reversal loses the first client byte. Its write reversal adds h before the worker line.
+The green DP-2/R-65 record names tree cacc29701284724665bba83ee82c7aafbbc260b8, equal to the inspected bbc83015 tree.
+Its thirty complete-suite summaries pass nineteen tests each. The earlier receipt-only record passes eighteen tests thirty times.
+Repeated passes add no distinct behavior coverage. These are selected proof records, not complete exact-head gates.
+The in10 Mac record uses 95ffb505 plus a working .35 pin and the three removals. Each ID passes five times.
+The reviewer verifies those transcript objects equal the final .36 objects.
+The ev_5 Mac record names bbc83015 and reports twenty passes. It adds no distinct coverage beyond the fenced behavior.
+Its earlier head does not establish a green final gate.
+The B12 diagnosis README is read completely. Its XNU collector explanation remains an inference from measured behavior.
+This review claims no independent kernel-source proof or new Linux reproduction.
+
+The final Mac record names this exact head, Darwin 27.0.0, and prebuild of three worker binaries.
+Its worker commands explicitly enable slow and use the slow profile.
+Worker binaries pass 77 tests in 10.714 seconds; slow_cli passes seventeen in 0.234 seconds; slow_session passes 39 in 10.526 seconds.
+Core-sys passes 41 slow tests in 0.132 seconds. This is not the earlier 115-test default-plus-slow record.
+Slow_facade_worker passes nineteen in 0.280 seconds, and slow_real_core passes 25 in 5.105 seconds.
+Worker-core passes 176 in 0.582 seconds; core-host passes 289 in 1.012 seconds; core-link passes 51 in 0.157 seconds.
+Testkit passes 358 in 1.524 seconds. Real must-pass conformance passes 150 with zero failures and 540 ignored in 102.96 seconds.
+The summaries establish the selected suites. They do not provide individual named outcomes or a complete gate.
+P3 reports fmt, lists, taint, and public-api passing; this short Mac record does not print those check results.
+
+### Gate and acceptance limits
+
+The bbc83015 Linux gate fails public-api because its snapshot lacks the changed result.
+The reviewer reads its header, complete failure, CI summary, and exit record.
+fmt, clippy, taint, and lists pass. Prebuild-worker, test-budget, slow, mutants, and fuzz do not run.
+The job exits 1 after 319 seconds, with one second queued and 318 running.
+The reviewed API correction addresses the recorded mismatch. That failed gate remains historical evidence, not acceptance.
+No complete gate result for this head is supplied at verdict time.
+P3 names the running final gate: gates/botster-core-stage1-p4a-real-route-transport-3cf27c1b-pool-20261011-050007-38398.log.
+The final exact-head gate and its mutation results remain required before merge.
+The lead requires the A5-4 before/after job with before = the named v1 base. Its table remains pending at verdict time.
+This source verdict does not accept unreviewed table results, future status removals, or a future base import.
+The separate integration review remains required. The combined merge does not complete the P4a group or Stage 1.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #243 is CLEAN at `3cf27c1b0f6941100b096570bb3ca51ade0a7c2e` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+The complete composition, R-65 correction, pin move, API snapshot, fixture correction, and known-flaky removal have no open package finding.
+F121 and F122 remain CLOSED. No new finding appears.
+This is the first formal combined composition verdict; no NOT CLEAN round-limit escalation applies.
+The verdict applies to this exact source head and base. Integration CLEAN, the final gate, and A5-4 acceptance records remain required.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
