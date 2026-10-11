@@ -185,4 +185,27 @@ The reviewer read proposed plan 23al at `2cb5eba4b93273a142a36adf91c04b883602be8
 This source check does not certify an unread trace, make the red gate green, or remove the final-gate requirement.
 The reviewer runs no re-gate. The implementer and lead retain that responsibility.
 
+### Revised condition: diagnosed cause — 2026-10-11
+
+Lead message `msg_plugin-w_1791708097_7ae086` replaces the path condition with a condition about the diagnosed cause.
+Revised plan source: `1555a98b196c259dfe5f5d56a87c473ba49d49dd`.
+The earlier addendum does not establish literal code-path exclusion. EV-5 executes the changed `LinkTap::observe` during hello receipt.
+The earlier addendum explicitly records that overlap; its unchanged admission-path conclusion has this narrower scope.
+
+The reviewer confirms that #249 does not alter the diagnosed missing-descriptor or unfenced-`poll_all` mechanisms.
+The worker still reads control bytes without descriptor receipt. The worker's descriptor inputs and route actions remain unchanged.
+The tap's existing decoder still reads the same bytes. `observe` adds only an instance insertion after the existing frame observation.
+`link_recv` returns the same byte count and errors. `link_send` and `link_close` retain their exact base bytes.
+The record supplies no instruction to close a link, change a returned byte, receive a descriptor, or complete a pending operation.
+EV-5 never reads Heard, never calls `payload_alive`, and never arms a start hold.
+Its `poll_all` and `await_quiet` steps retain their existing behavior and lack a worker-completion fence.
+
+The extra record work can change elapsed time and scheduling. This review does not assert identical link-close times or failure frequencies.
+That timing limit does not change the missing descriptor receipt or add the missing completion fence.
+The source confirmation concerns those mechanisms; it does not independently certify the lead's complete trace diagnosis.
+The lead handoff also records a correction: old-pin trace failures were UnknownRoute, while PendingLimit occurred on another traced head.
+Thus the base trace excerpt does not establish an identical PendingLimit failure on plain v1.
+The lead and integration reviewer must assess that trace evidence against the revised rule's same-failure and same-mechanism conditions.
+This reviewer runs no gate and grants no exception beyond this source confirmation.
+
 VERDICT: CLEAN
