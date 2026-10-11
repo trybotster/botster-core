@@ -183,3 +183,15 @@ The package reviewer accepts the source transfer and supplied gate in the receip
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: NOT CLEAN (1 open) at 159046a7366597d9c5cec5cadff4050779ba190c
+
+### Round 3 closure — final body and package artifact
+
+Package receipt `msg_plugin-w_1791728093_f4bfe9` supplies published artifact `b3d6a10b686b996886625e90c7ed81596b783a6b`, `verdicts/p3-worker.md`, Round 175. Sol reads the complete round and verifies its publication on `origin/stage1/review-p3`. It accepts the same exact head, base, source transfer, gate, and proof limits.
+
+Sol independently fetches the corrected published body. The head remains `159046a7366597d9c5cec5cadff4050779ba190c`. Sol reads every body change. The body names the new base import and exact final head. It labels the 159046a7 gate as Final and the 599cff43 gate as Earlier. The complete supplied merge-check output occurs verbatim, including the exact base SHA. Every other body line remains unchanged. The body equals the package reviewer's saved copy.
+
+RP-MN-4 closes. All four integration findings are closed. The Round 3 source and exact-head gate checks remain applicable. Both reviews are complete on this head and base. No source edit or repeat gate is required. The prior Mac record retains its original head and proof limits. No future import, further pending removal, #262 verdict, or inherited-wait closure follows.
+
+Sol runs no execution job. The earlier NOT CLEAN record remains intact.
+
+VERDICT: CLEAN (0 open) at 159046a7366597d9c5cec5cadff4050779ba190c
