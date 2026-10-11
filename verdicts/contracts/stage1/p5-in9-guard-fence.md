@@ -58,3 +58,12 @@ How my round 1 findings carry over to a head built on R-80:
 - F2 and 016c R1-1 become moot if the rule no longer tracks when `model_rev` was bound. Every model read after an output needs a fence, whatever its variables are.
 - 016c R1-2 stays relevant: a fence must be `Activity` of the same session S, or S's own sentinel, never another session's wait.
 - F3 stays: "after" evidence for every transcript that the PR fences.
+
+### Steward on the round 1 verdict (2026-10-11)
+
+- F1, F2 and F3 are upheld. #54 is HIGH.
+- R-80's general output-fence lint goes into #54 and replaces R-77's narrower rule. In scope:
+  - the `st_6_capture` fences (steps 7 and 14);
+  - the `st_6b_baseline` s8 and `st_6b_graphics` s10 fences;
+  - `st_6_pages_owned…` s8, listed in the exception file with a reason.
+- **Correction to my R-80 note above:** F2 is not moot. Its binding cases (a matcher comparison of an already-bound `model_rev`, and the `pump_until` and `pump_collect` bindings) apply to the general rule. I review the revised head against R-80 with F2, F3 and 016c R1-2 still open.
