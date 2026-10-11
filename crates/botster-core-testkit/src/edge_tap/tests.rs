@@ -1332,7 +1332,8 @@ fn a_held_hand_over_is_blocked_on_its_link_until_the_release() {
     rig.with(|t| {
         t.release_handoff();
         t.release_handoff();
-        assert_eq!(t.inner.calls, ["descriptor 1 [114, 116]"]);
+        // The first release's interest, then the hand-over; the releases of a hold that met no hand-over call nothing.
+        assert_eq!(t.inner.calls, ["write 1 true", "descriptor 1 [114, 116]"]);
     });
 }
 
