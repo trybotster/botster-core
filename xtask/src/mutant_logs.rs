@@ -179,33 +179,48 @@ pub fn read_run(log: &str) -> Result<TestRun> {
 }
 
 /// The report of a stage from its `outcomes.json` (`json`) and the logs that `read` gives by their `log_path`: one line
-/// for each caught mutant with its catching test, and one for each FLAKY test with its mutant. `flaky` holds the
-/// known-flaky tests (`<binary> <test>`, `ci/known-flaky.toml`): a listed test is never a catch (GS-KF-R1-1), so the
-/// catching test is the first failed test that is not listed. The stage's filter leaves the listed tests out; this rule
-/// holds also where the filter cannot (a test that only the mutated package's own features build).
+/// for each caught mutant with its catching test, one for each FLAKY test with its mutant, and one for each mutant that
+/// a known-flaky test caught first. `flaky` holds the known-flaky tests (`<binary> <test>`, `ci/known-flaky.toml`).
+///
+/// A listed test is never a catch (GS-KF-R1-1; lead settlement, 2026-10-11). Under `--max-fail 1:immediate`, only the
+/// first final failure of a mutant's run can be a catch: the first failure cancels the tests that still run, so a later
+/// failure (a SIGTERM, an ABORT or a FAIL) is never an independent catch. When the first final failure is a listed test,
+/// the mutant is MISSED (`StageReport::missed`), and no later failure is credited. The stage's filter leaves the listed
+/// tests out; this rule holds also where the filter cannot (a test that only the mutated package's own features build).
 ///
 /// # Errors
 /// As text: `outcomes.json` has no outcomes, an outcome has no log path or summary, a log cannot be read or parsed
-/// (`read_run`), an unmutated baseline retried a test, a caught mutant's log names no failed test or only listed ones, or
-/// a missed mutant's log names a failed test.
+/// (`read_run`), an unmutated baseline retried a test, a caught mutant's log names no failed test, or a missed mutant's
+/// log names a failed test.
 pub fn stage_report(
     json: &str,
     flaky: &[String],
     read: impl Fn(&str) -> Result<String>,
-) -> Result<Vec<String>, String> {
+) -> Result<StageReport, String> {
     report(json, flaky, read).map_err(|error| format!("{error:#}"))
+}
+
+/// The report of a stage's logs (`stage_report`).
+#[derive(Debug, PartialEq, Eq)]
+pub struct StageReport {
+    /// The report's lines, in the order of the outcomes.
+    pub lines: Vec<String>,
+    /// The mutants that cargo-mutants reports as caught, but whose first final failure is a known-flaky test: each one
+    /// is MISSED.
+    pub missed: Vec<String>,
 }
 
 fn report(
     json: &str,
     flaky: &[String],
     read: impl Fn(&str) -> Result<String>,
-) -> Result<Vec<String>> {
+) -> Result<StageReport> {
     let v: serde_json::Value = serde_json::from_str(json).context("parse outcomes.json")?;
     let outcomes = v["outcomes"]
         .as_array()
         .context("outcomes.json has no `outcomes`")?;
     let mut lines = Vec::new();
+    let mut missed = Vec::new();
     for outcome in outcomes {
         let path = outcome["log_path"]
             .as_str()
@@ -237,17 +252,20 @@ fn report(
         }
         match summary {
             "CaughtMutant" => {
-                if run.failed.is_empty() {
+                let Some(test) = run.failed.first() else {
                     bail!("`{name}` is CAUGHT, but its log ({path}) names no failed test: a catch must name its test");
-                }
-                let Some(test) = run.failed.iter().find(|test| !flaky.contains(test)) else {
-                    bail!(
-                        "`{name}` is CAUGHT only by the known-flaky tests {:?} (ci/known-flaky.toml; log {path}): a \
-                         known-flaky test is no catch",
-                        run.failed
-                    );
                 };
-                lines.push(format!("caught `{name}` by {test}"));
+                if flaky.contains(test) {
+                    lines.push(format!(
+                        "`{name}` is MISSED: its first failure is the known-flaky test {test} (ci/known-flaky.toml; log \
+                         {path}), which is no catch; the later failures {:?} come after the cancellation starts, so \
+                         none is a catch",
+                        &run.failed[1..]
+                    ));
+                    missed.push(name.to_string());
+                } else {
+                    lines.push(format!("caught `{name}` by {test}"));
+                }
             }
             "MissedMutant" if !run.failed.is_empty() => {
                 bail!(
@@ -258,7 +276,7 @@ fn report(
             _ => {}
         }
     }
-    Ok(lines)
+    Ok(StageReport { lines, missed })
 }
 
 #[cfg(test)]
@@ -408,37 +426,58 @@ mod tests {
         }
     }
 
-    /// GS-KF-R1-1: a known-flaky test is never a catch. The catching test is the first failed test that is not listed; a
-    /// mutant that only listed tests fail is an error of the report, so the step fails.
+    /// GS-KF-R1-1 (lead settlement, 2026-10-11): only the first final failure can be a catch. When it is a listed test,
+    /// the mutant is MISSED, also when a test that it cancelled (`--max-fail 1:immediate`: a SIGTERM or an ABORT) or a
+    /// later FAIL follows. When it is not listed, it is the catch, also when a listed test fails after it.
     #[test]
     fn a_known_flaky_test_is_no_catch() {
         let json = outcomes(&[("log/a.log", "CaughtMutant", Some("a.rs:1:1: replace f"))]);
-        let both = "        FAIL [   0.100s] w t::flaky\n        FAIL [   0.100s] w t::real\n";
-        let only = "        FAIL [   0.100s] w t::flaky\n";
         let listed = ["w t::flaky".to_string()];
-        let map = [("log/a.log", both)];
-        assert_eq!(
-            stage_report(&json, &listed, logs(&map)).unwrap(),
-            ["caught `a.rs:1:1: replace f` by w t::real"]
-        );
-        assert_eq!(
-            stage_report(&json, &[], logs(&map)).unwrap(),
-            ["caught `a.rs:1:1: replace f` by w t::flaky"]
-        );
-        let map = [("log/a.log", only)];
-        let error = stage_report(&json, &listed, logs(&map)).unwrap_err();
-        assert!(
-            error.starts_with(
-                "`a.rs:1:1: replace f` is CAUGHT only by the known-flaky tests [\"w t::flaky\"] (ci/known-flaky.toml; \
-                 log log/a.log): a known-flaky test is no catch"
+        let report_of = |log: &'static str, listed: &[String]| {
+            let map = [("log/a.log", log)];
+            stage_report(&json, listed, logs(&map)).unwrap()
+        };
+        for (log, later) in [
+            ("        FAIL [   0.100s] w t::flaky\n", "[]"),
+            (
+                "        FAIL [   0.100s] w t::flaky\n     SIGTERM [   0.200s] w t::real\n",
+                "[\"w t::real\"]",
             ),
-            "{error}"
-        );
-        // Another binary's test of the same name is not the listed test.
-        assert_eq!(
-            stage_report(&json, &["v t::flaky".to_string()], logs(&map)).unwrap(),
-            ["caught `a.rs:1:1: replace f` by w t::flaky"]
-        );
+            (
+                "        FAIL [   0.100s] w t::flaky\n       ABORT [   0.200s] w t::real\n",
+                "[\"w t::real\"]",
+            ),
+            (
+                "        FAIL [   0.100s] w t::flaky\n        FAIL [   0.200s] w t::real\n",
+                "[\"w t::real\"]",
+            ),
+        ] {
+            assert_eq!(
+                report_of(log, &listed),
+                StageReport {
+                    lines: vec![format!(
+                        "`a.rs:1:1: replace f` is MISSED: its first failure is the known-flaky test w t::flaky \
+                         (ci/known-flaky.toml; log log/a.log), which is no catch; the later failures {later} come after \
+                         the cancellation starts, so none is a catch"
+                    )],
+                    missed: vec!["a.rs:1:1: replace f".to_string()],
+                },
+                "{log}"
+            );
+        }
+        let caught = |test: &str| StageReport {
+            lines: vec![format!("caught `a.rs:1:1: replace f` by {test}")],
+            missed: Vec::new(),
+        };
+        let real_first =
+            "        FAIL [   0.100s] w t::real\n     SIGTERM [   0.200s] w t::flaky\n";
+        assert_eq!(report_of(real_first, &listed), caught("w t::real"));
+        // Unlisted, or another binary's test of the same name: the first failure is the catch.
+        let flaky_first =
+            "        FAIL [   0.100s] w t::flaky\n     SIGTERM [   0.200s] w t::real\n";
+        for other in [&[][..], &["v t::flaky".to_string()][..]] {
+            assert_eq!(report_of(flaky_first, other), caught("w t::flaky"));
+        }
     }
 
     /// The report names each catch's test and each FLAKY test with its mutant; a missed or unviable mutant with no failed
@@ -460,7 +499,7 @@ mod tests {
         ];
         let read = logs(&map);
         assert_eq!(
-            stage_report(&json, &[], read).unwrap(),
+            stage_report(&json, &[], read).unwrap().lines,
             [
                 "caught `a.rs:1:1: replace f` by twostage::slow_triple conf::b".to_string(),
                 "FLAKY w t::x under `b.rs:2:2: replace g`: it failed, then passed on its one retry, so it is no catch; the \
