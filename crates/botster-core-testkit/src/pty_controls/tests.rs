@@ -93,16 +93,17 @@ fn session_in(
     (core, at)
 }
 
-/// Pumps until the host has no runnable work, so its wake is clear.
-fn settle(core: &mut dyn CoreApi, at: Instant) {
+/// Pumps until the host has no runnable work, so its wake is clear. Returns every event that the pumps posted.
+fn settle(core: &mut dyn CoreApi, at: Instant) -> Vec<Event> {
+    let mut events = vec![];
     for _ in 0..PUMPS {
         let report = core.pump(Now {
             monotonic: at,
             unix: 1_000_000,
         });
-        core.poll_events(64);
+        events.extend(core.poll_events(64));
         if !report.more {
-            return;
+            return events;
         }
     }
     panic!("the host did not settle");
@@ -531,11 +532,12 @@ fn a_kernel_queue_holds_the_write_and_pty_queued_reports_it() {
         Ok(Value::Null)
     );
     let op = write(core.as_mut(), b"abcde");
-    settle(core.as_mut(), at);
+    // Every event of every pump until idle (#283 HW-TK-2): none completes the write.
+    let events = settle(core.as_mut(), at);
     assert_eq!(queued(&mut harness), json!({"bytes": 2}));
     assert_eq!(input(&mut harness), json!(""), "the program read none");
     assert!(
-        core.poll_events(64)
+        events
             .iter()
             .all(|e| !matches!(e, Event::Completed { op: o, .. } if *o == op)),
         "the write is held"
@@ -545,6 +547,45 @@ fn a_kernel_queue_holds_the_write_and_pty_queued_reports_it() {
         Ok(Value::Null)
     );
     assert_eq!(queued(&mut harness), json!({"bytes": 0}));
+    assert_eq!(
+        outcome(complete(core.as_mut(), &mut at, op)),
+        (WriteOutcome::Written, 5)
+    );
+    assert_eq!(input(&mut harness), json!("6162636465"));
+}
+
+/// R-74 with `pty_chunk` (#283 HW-TK-1): a spent cap with room left in the kernel queue waits for the next step, so the host
+/// keeps pumping until the queue is full, one chunk per step. The full queue holds the write until the release.
+#[test]
+fn a_chunked_write_fills_the_kernel_queue_before_the_host_settles() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    assert_eq!(
+        harness.control("a", "pty_chunk", &json!({"session": "s1", "bytes": 1})),
+        Ok(Value::Null)
+    );
+    assert_eq!(
+        harness.control(
+            "a",
+            "pty_blocked",
+            &json!({"session": "s1", "on": true, "kernel_bytes": 3})
+        ),
+        Ok(Value::Null)
+    );
+    let op = write(core.as_mut(), b"abcde");
+    let events = settle(core.as_mut(), at);
+    assert_eq!(queued(&mut harness), json!({"bytes": 3}));
+    assert!(
+        events
+            .iter()
+            .all(|e| !matches!(e, Event::Completed { op: o, .. } if *o == op)),
+        "the full queue holds the write"
+    );
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": false})),
+        Ok(Value::Null)
+    );
     assert_eq!(
         outcome(complete(core.as_mut(), &mut at, op)),
         (WriteOutcome::Written, 5)
