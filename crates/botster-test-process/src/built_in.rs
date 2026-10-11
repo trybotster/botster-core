@@ -93,9 +93,8 @@ pub fn check_candidate(candidate: &Path, running: Option<&Path>) -> Result<(), S
     if canonical(Path::new(built)) == here {
         return Ok(());
     }
-    let target = candidate.parent().unwrap_or(candidate).display();
     Err(format!(
-        "the candidate binaries of {} were prebuilt from {built}, and this test runs in {} (bug catalog B13): run `cargo clean --target-dir {target}`, then `cargo xtask prebuild-worker` in this worktree",
+        "the candidate binaries of {} were prebuilt from {built}, and this test runs in {} (bug catalog B13): run `cargo xtask prebuild-worker` in this worktree",
         candidate.display(),
         here.display()
     ))
@@ -236,10 +235,7 @@ mod tests {
             "{error}"
         );
         assert!(
-            error.contains(&format!(
-                "cargo clean --target-dir {}",
-                dir.path().join("target").display()
-            )),
+            error.contains("run `cargo xtask prebuild-worker` in this worktree"),
             "{error}"
         );
         std::fs::write(
