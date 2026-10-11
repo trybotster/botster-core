@@ -11938,3 +11938,76 @@ F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
 The reviewer changes no product code. All prior verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 169 — PR #243, redundant receipt arm removed — 2026-10-11
+
+Head: `850bb78522e43967667ec839d5253e952822eea2`.
+Parent: `bebc95821b4a35a7d5f17663a61569fb1006d739`.
+Base v1: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+P3 receipt: msg_plugin-w_1791721385_8e1470.
+The complete GitHub response verifies this head and base. Body record: /private/tmp/review-p3-pr243-850bb785.json.
+The PR body is unchanged. Its final head and completed gate record remain due before merge.
+The HIGH classification, BUILD.md, real-process rules, plan 23ar, and lead rulings remain as recorded in the preceding rounds.
+
+### Mutation finding F123 — LOW — CLOSED in source
+
+The parent gate misses deletion of WorkerMsg::RouteReceived's empty engine arm in both mutation stages.
+The explicit arm does nothing. The existing final catch-all arm also does nothing.
+RouteReceived has only its route field. Both branches leave engine state unchanged and finish the same match.
+This is a redundant arm, not an uncovered state transition. Its deletion cannot provide a distinct behavior test.
+The correction removes the redundant arm and explains RouteReceived at the existing catch-all.
+This resolves F123 in source. The replacement gate remains required; the failed parent gate stays failed.
+No mutation exclusion, test-value change, retry, timeout change, or private-state test is added.
+
+### Complete delta and retained review
+
+The reviewer reads the complete one-path delta, surrounding engine match, message variant, and driver's feed implementation.
+Only crates/botster-core-host/src/inbound.rs changes: two added lines and three deleted lines.
+The driver still removes and drops the route's host copy before self.engine.input(input).
+The engine still ignores RouteReceived. RouteClosed and all other explicit message branches retain their behavior.
+The comment identifies the driver's role and the unchanged non-exhaustive catch-all.
+Descriptor lifetime, route state, lost-link handling, worker action order, and real-process proofs do not change.
+The source diff check passes. The merge base remains the exact base above.
+No pin change, base import, pending-ID removal, dependency change, or new runtime path occurs.
+Rounds 166 through 168 retain the complete composition review for all unchanged source and their stated evidence limits.
+Parent integration source CLEAN is dde4361141034d2c00e0ece1624e61084becb0f1, already read and verified as published.
+That verdict names the parent; the formal integration delta remains required for this replacement.
+P3 reports 289 local core-host tests passing. No completed supplied log independently establishes that local report in this round.
+
+### Failed parent gate
+
+The reviewer reads the exact header, named receipt and DP-2 proof outcomes, tier summaries, both missed identities, stage-2 outcomes, CI summary, and exit.
+Log: gates/botster-core-stage1-p4a-real-route-transport-bebc9582-pool-20261011-051225-8796.log.
+The gate names the exact parent and base above, Linux pool execution, and cargo xtask ci.
+Default tests pass 1680 with 481 skipped. Slow tests pass 494 with 2009 skipped.
+The real receipt proof and the real no-host-byte proof each report PASS by exact name in the slow tier.
+The stage-2 unmutated baseline passes 494 tests, eleven marked slow, with 2693 skipped.
+Stage 1 reports 167 mutants: 144 caught, two missed, zero timeout, and 21 unviable.
+Its two missed identities are the empty receipt arm and Driver::bind_route replaced with ().
+Stage 2 catches Driver::bind_route through slow_driver::a_real_route_carries_the_attach_the_input_and_the_output.
+Stage 2 still misses the empty receipt arm: inbound.rs:303:13, delete match arm WorkerMsg::RouteReceived{..} in HostEngine::on_worker_msg.
+It reports two mutants: one caught, one missed, zero timeout, and zero unviable.
+fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, and slow pass.
+Mutants fails, and fuzz reports NOT RUN. The CI total is 515.5 seconds.
+Jobq exits 1 after 524 seconds; botster-gate exits 1 after 525 seconds.
+The reviewer does not claim acceptance of every stage-1 catch identity from this summary inspection.
+The replacement full gate and its individual mutation outcomes still require acceptance review.
+The parent named real-process results support unchanged proof source. They do not make the failed parent gate green.
+
+### Verdict and remaining acceptance
+
+PR #243 is CLEAN at `850bb78522e43967667ec839d5253e952822eea2` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+F123 is CLOSED in source. F121 and F122 remain CLOSED. No open package finding remains.
+The replacement removes behavior-equivalent code rather than hiding the missed mutant.
+The full gate is reported running at gates/botster-core-stage1-p4a-real-route-transport-850bb785-pool-20261011-052234-63419.log.
+No completed replacement gate or A5-4 table is supplied at verdict time.
+Formal integration delta CLEAN, the exact-head full gate, named proof and mutation review, and A5-4 acceptance remain required before merge.
+The A5-4 before must be the exact base above. Every failure and pending result requires classification.
+The final PR body must record the replacement head and completed gate result.
+This source verdict accepts no gate, merge, future status removal, base import, or unreviewed table result.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code. All earlier verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
