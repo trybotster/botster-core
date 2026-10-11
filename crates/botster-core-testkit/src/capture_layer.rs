@@ -14,11 +14,11 @@
 //! Only the real harness composes it. It is outside that module so that its tests run in the default tier too: a layer that
 //! drops a call would otherwise stall every real transcript before a test could fail.
 
+use crate::oracle_controls::Changed;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::*;
 use serde_json::Value;
-use crate::oracle_controls::Changed;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -699,11 +699,15 @@ mod tests {
             assert_eq!(layer.poll_events(8), vec![other(id)]);
             assert_eq!(
                 lock(&shared).resume(&sid(session), capture, bound),
-                Err(ControlError::UnsupportedFor("size_or_profile_changed".into()))
+                Err(ControlError::UnsupportedFor(
+                    "size_or_profile_changed".into()
+                ))
             );
             assert_eq!(
                 lock(&shared).check(&sid(session)),
-                Err(ControlError::UnsupportedFor("size_or_profile_changed".into()))
+                Err(ControlError::UnsupportedFor(
+                    "size_or_profile_changed".into()
+                ))
             );
         }
         assert!(
