@@ -653,15 +653,7 @@ impl HostEngine {
                     StartPhase::AwaitHello | StartPhase::SendLaunch | StartPhase::AwaitLaunched
                 ) =>
             {
-                self.fail_start(
-                    &id,
-                    StartFailReason::WorkerFailed,
-                    End::Exited(Exit {
-                        code: None,
-                        signal: None,
-                        cause: ExitCause::Other,
-                    }),
-                );
+                self.start_link_lost(&id);
             }
             // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
             Flow::Adopt(_) => self.adopt_link_closed(&id),
