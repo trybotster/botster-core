@@ -168,3 +168,23 @@ Matching package acceptance and exact-head/final-slot execution remain due; this
 Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (1 open acceptance condition: matching repaired-head package review and completed final-slot gate) at 2e03346020a63cdc9c069a638170e95cb1416177 against base 5e953398925351c12e463a7b0a946b79d9841edc; all three integration findings are closed
+
+## Round 3 — matching source acceptance
+
+Exact head, base, and tree remain those in Round 2.
+Sol reads complete package Round 3 at `f79e822f5e3407dbcd4f1140b96b5a5f3c833740`.
+Its source CLEAN covers the same repair, regression, corrected body, and deferred final gate.
+The package relays P5 receipt 1791761553_ea226d for the local regression runs.
+P5 states that the reversal and 299-test lib run follow a targets/p5 clean of 11261 files, 3.6 GiB.
+Only the same Core worktree path writes that target until both runs complete; branch changes occur within that path.
+No candidate worker participates. The clean output remains in the session transcript, not a retained file.
+This owner statement establishes B13's condition, with that provenance limit. Sol claims no independent clean verification.
+The retained named regression failure and reviewed source fix agree. The earlier unvalidated records remain unvalidated.
+
+Matching source acceptance is complete. All source and body findings are closed, including LOW.
+This source CLEAN permits the lead's FINAL-READY sequence. It does not grant final-slot or merge acceptance.
+The lead must assign SLOT, import current v1, obtain the applicable check and delta reviews, and complete one exact-final-head gate.
+That gate and its mutation result must cover the later fixes. The 6c231801 gate supplies no carryover for those changes.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open source/body findings) at 2e03346020a63cdc9c069a638170e95cb1416177 against base 5e953398925351c12e463a7b0a946b79d9841edc; final-slot acceptance remains due

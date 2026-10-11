@@ -201,3 +201,50 @@ The final body must name that final head, base, and gate. Contracts #60 remains 
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: CLEAN (0 open) at 41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56 against reviewed base 926dfb62f3f7168990b2a48741946932d84b2fbb
+
+## Round 4 — final-slot import and pending moves, 2026-10-11
+
+Exact head: `46c8c5481a3cdf11ec98949227fda32f4d0f0ee0`.
+Base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Tree: `abb16eb98ca2c99349976ea9a72d43a617293501`.
+Reviewed head: 41c1f7e2, base 926dfb62. Owner receipt: `msg_plugin-w_1791761559_28d91d`.
+Sol reads the complete canonical-check log and final-slot body.
+Log: `~/botster-sessions/gates/botster-core-rc-oracle-base-merge-check-46c8c548-20261011-163114.log`.
+SHA-256: `0081f088126d83e2c989da18c76b60d6ecf6f3d3d8246493d24c0fc6ec2203c8`.
+The check names this exact head/base, passes both ancestry conditions, and returns FAIL requiring both delta reviews.
+It reports two pending-file conflicts, real.rs overlap, changed own diff, and line-set changes.
+No automatic Q7 carry applies. Sol performs the required explicit delta review.
+
+Sol independently compares all seven own paths with the 30 changed base paths.
+The four unchanged own files retain their exact blobs: DESIGN.md, oracle_controls.rs, its tests, and real/oracle.rs.
+All own added/deleted lines in real.rs equal their earlier lines. Imported hold_handoff and release_handoff arms remain separate.
+The oracle guards, binding-derived modes, history source, and event-based state retain their prior source review.
+All imported paths outside the own paths equal the new base. No product behavior is added by this import resolution.
+
+Sol reads both complete pending-file import deltas and the subsequent two-file move commit.
+For core-pending, core-real-pending, minimum-core, and core-ledger-ids, Sol independently verifies the three-way identifier formula.
+The merge sets equal the new base minus the original own removals plus the original own additions.
+The six prior base removals remain removed. The real-pending file retains both appended groups.
+The canonical diagnostic names an ev_8 comment as removed or edited; that exact comment exists unchanged at all four comparison heads.
+Sol does not infer a literal removal from that diagnostic. Its failed line-set condition still requires this manual review.
+
+The subsequent commit moves exactly four identifiers from testkit pending to real pending, with five explanatory comment lines.
+They are in_9_key_encoded_by_worker_modes_at_write, in_9_kitty_modifier_keys_need_flag_8, and the two mouse groups.
+Sol reads all of their pinned .39 fence entries.
+They have respectively one, two, nine, and thirteen R-56 entries, and one R-60 entry each.
+The new comments preserve these gaps and P3 ownership. The move grants no real-tier acceptance.
+The source update makes no transcript or timeout change.
+
+The supplied local merge-head log retains 1161 default PASS, prebuild, and a clippy count of zero.
+Its strict section has no completed summary. RC's 245 strict PASS claim at the final head remains an owner report.
+The final exact-head gate must establish the four new testkit removal results.
+Sol reads complete package delta receipt `668b82aeb5364db5afd21fac477dce04cc7a2fdc`, `verdicts/rc-real-controls.md`.
+That review covers the same head, base, tree, conflict resolution, overlap, fence entries, and execution limits.
+No source or body finding remains open in this delta. The completed final gate and matching final body remain due.
+
+GitHub confirms this exact head/base. Body SHA-256: `71d823a67ec7bef4795eaaaae3335e73251b750f724e0867270a3a3ee47c3dc1`.
+Its final-slot section retains the failed check and reports the gate as running.
+Sol reads no running gate output and accepts no result from that unfinished gate.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition: completed exact-head gate, removal evidence, final body, and final package verdict) at 46c8c5481a3cdf11ec98949227fda32f4d0f0ee0 against base f6025aed4cdf7da836e835e0040fc128b7e8f32f

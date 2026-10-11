@@ -314,3 +314,26 @@ R291-SI-2, new-head evidence, both source reviews, and final acceptance remain d
 Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open design findings) for corrected revision-4 delta cf3914bc against base 5e953398925351c12e463a7b0a946b79d9841edc; #291 source remains NOT CLEAN
+
+## Round 7 — equivalent design without drain_due
+
+Current design delta SHA-256: `bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2e811f8d4f`.
+This hash supersedes cf3914bc. Sol reads the complete current delta and verifies its hash.
+Sol reads the complete driver flag-removal delta at `1ff76822fe8d239d9b8cffb63fa096001e59f9b7`.
+Sol reads the full retry_held/read_link paths and the relevant action, draining, and pump conditions at local 2bc8b247.
+These scoped reads establish design equivalence. They do not supply a full source review of that unready head.
+
+The simpler rule requires peer_ended and held.is_none(). It excludes the room-blocked held frame that caused R291-SI-3.
+It also covers the required first read after LinkPeerEnded follows the pump's last link service.
+After a read, an ended link closes at EOF, would-block, a read error, or bad decoding; otherwise it holds a frame or stops at a bound.
+Both budget exits set more_input. The held-frame path preserves existing backpressure and poll/unpark behavior.
+Thus an open ended link without a held frame already denotes runnable drain work; drain_due adds no observable scheduling result.
+The full-queue, budget-delay, and settle-time first-read proof requirements remain unchanged.
+The source review must check these properties on the complete repaired head and its imported driver changes.
+
+Sol reads complete matching package design section at `93eade7e762d949a9ceba6d0de78b22ad536ba4c`.
+It covers the same hash and preserves full source, reversal, both-OS, and gate conditions.
+R291-SI-3 remains closed at design level. R291-SI-2 and revised source/evidence acceptance remain due.
+Sol accepts no new execution result or source head in this design round. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open design findings) for revision-4 delta bb550e41 against base 5e953398925351c12e463a7b0a946b79d9841edc; #291 source remains NOT CLEAN
