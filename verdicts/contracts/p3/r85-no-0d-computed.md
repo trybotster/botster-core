@@ -98,3 +98,10 @@ Commits since round 1: `4fe77f9a6a733ee45b630095334925d7d3934497` (the round 1 f
 - Header: head `7c780843dc9646ea5b14c0a4278aa4d59dba4409`, base `71f01c8812132fa979b8584f12a92ba2efde071e` (BOTSTER_CI_BASE_REF, the main tip), Linux pool.
 - Result (read by me): all 10 steps PASS; mutants 43 tested, 39 caught, 4 unviable, 0 missed; `botster-gate: exit 0 after 496 s on msa1`.
 - Main after the merge base: `7df311e282260b29fadc143fdd0a97c1645bf1e8` (#60: `vocabulary.rs`, `core-testkit-controls.md`), `16fdb77854c1fd3859e4645797c927dfa1a8195f` and `71f01c8812132fa979b8584f12a92ba2efde071e` (#63, #65: `ci/remote/`, a doc). None is a path of this PR, so the merge needs no delta review (Q7). I check that the merge is automatic, and I read the final gate on the merged head.
+
+### 016c's finding after my round 2 CLEAN (package scope; recorded; my CLEAN is not withdrawn)
+
+- MEDIUM (016c, with failing source tests): `input_log_track` loses a log's origin in two `let` forms that `let_step` executes:
+  - a self-assignment: `retain` drops `$log` (its value changed) before the `let` check reads `self.input_logs`, so `let $log = hex_concat ["61", "$log"]`, then `hex_ends_with [$log, "0d"]`, is not checked;
+  - a chain in one `let`: all derived aliases are computed before any is added, so in `$a = hex_concat [$log, ""]`, `$z = hex_concat [$a, ""]`, `$z` is not tracked.
+- My round 2 missed both. I re-check the delta on the next head: the `let` rule reads the input logs from before the step, and it handles the `let`'s variables in order (or to a fixed point), with regression tests for both forms.
