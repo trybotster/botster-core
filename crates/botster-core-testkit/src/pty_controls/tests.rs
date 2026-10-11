@@ -109,23 +109,12 @@ fn settle(core: &mut dyn CoreApi, at: Instant) -> Vec<Event> {
     panic!("the host did not settle");
 }
 
-/// The output bytes of the payload of `s1` on `a` that the worker has not read.
-fn unread(harness: &TestkitHarness) -> usize {
-    let row = session_row(harness, "a", &sid("s1")).unwrap();
-    let (program, _) = harness
-        .workers()
-        .program_edge(row.worker.unwrap().identity())
-        .unwrap();
-    program.output_unread()
-}
-
 fn bad(result: Result<Value, ControlError>) -> bool {
     matches!(result, Err(ControlError::Bad(_)))
 }
 
 /// Core ST-1, OU-7: the bytes of `pty_output` are the payload's output, and the worker reads all of them, in reads that
-/// the seed sizes. Without the control, a `hold` program writes nothing. (The M1 worker reports no output to the host and
-/// serves no terminal read, so the testkit cannot see the bytes past the worker's read yet.)
+/// the seed sizes, into the session's model. Without the control, a `hold` program writes nothing.
 #[test]
 fn pty_output_bytes_are_read_by_the_worker() {
     for seed in 0..8 {
@@ -133,8 +122,8 @@ fn pty_output_bytes_are_read_by_the_worker() {
         let (mut core, at) = session(&mut harness, true);
         settle(core.as_mut(), at);
         assert_eq!(
-            unread(&harness),
-            0,
+            screen_text(core.as_mut(), at).trim(),
+            "",
             "seed {seed}: the program printed nothing"
         );
         for part in ["68656c", "6c6f"] {
@@ -147,16 +136,11 @@ fn pty_output_bytes_are_read_by_the_worker() {
                 Ok(Value::Null)
             );
         }
-        assert_eq!(
-            unread(&harness),
-            5,
-            "seed {seed}: the five bytes wait for the worker"
-        );
         settle(core.as_mut(), at);
         assert_eq!(
-            unread(&harness),
-            0,
-            "seed {seed}: the worker read every byte"
+            screen_text(core.as_mut(), at).trim(),
+            "hello",
+            "seed {seed}: the worker read every byte, in order"
         );
     }
 }
@@ -792,9 +776,10 @@ fn route_fill_after_an_attach_before_the_spawn_writes_once_the_payload_runs() {
             filled["bytes"].as_u64().unwrap() > 0,
             "seed {seed}: {filled}"
         );
+        settle(core.as_mut(), at);
         assert!(
-            unread(&harness) > 0,
-            "seed {seed}: the running payload's edge has the fill"
+            screen_text(core.as_mut(), at).contains("abc"),
+            "seed {seed}: the running payload printed the fill"
         );
     }
 }
@@ -830,12 +815,12 @@ fn route_fill_of_a_route_of_a_removed_session_is_refused_after_a_recreate() {
         OpResult::Ok(_)
     ));
     settle(core.as_mut(), at);
-    let before = unread(&harness);
     let refused = route.control("route_fill", &json!({})).unwrap_err();
     assert!(refused.contains("instance is gone"), "{refused}");
+    settle(core.as_mut(), at);
     assert_eq!(
-        unread(&harness),
-        before,
+        screen_text(core.as_mut(), at).trim(),
+        "",
         "the new payload gets no byte from the old route"
     );
 }
@@ -879,9 +864,10 @@ fn route_fill_after_an_attach_before_the_first_row_belongs_to_that_instance() {
             filled["bytes"].as_u64().unwrap() > 0,
             "seed {seed}: {filled}"
         );
+        settle(core.as_mut(), at);
         assert!(
-            unread(&harness) > 0,
-            "seed {seed}: the running payload's edge has the fill"
+            screen_text(core.as_mut(), at).contains("abc"),
+            "seed {seed}: the running payload printed the fill"
         );
         // The replacement: the first instance ends and is removed, and a new s1 runs. The client closes its end first: the
         // route's unread tail would hold its close, and so the Remove. route_fill does not look at the route's state, so only
@@ -914,15 +900,15 @@ fn route_fill_after_an_attach_before_the_first_row_belongs_to_that_instance() {
             OpResult::Ok(_)
         ));
         settle(core.as_mut(), at);
-        let before = unread(&harness);
         let refused = route.control("route_fill", &json!({})).unwrap_err();
         assert!(
             refused.contains("instance is gone"),
             "seed {seed}: {refused}"
         );
+        settle(core.as_mut(), at);
         assert_eq!(
-            unread(&harness),
-            before,
+            screen_text(core.as_mut(), at).trim(),
+            "",
             "seed {seed}: the new payload gets no byte from the old route"
         );
     }
@@ -1075,4 +1061,80 @@ fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
         .map(|k| botster_route_codec::prelude::hex_encode(&[b'a' + (k % 26) as u8; PAYLOAD]))
         .collect();
     assert_eq!(input(&mut harness), json!(expected), "every byte, in order");
+}
+
+/// The `more` of each of `n` pumps after `controls` and a host write of `bytes` on a settled session, with what the program
+/// read after each. The first pump hands the write to the worker; the second performs it.
+fn more_after_write(
+    controls: &[(&str, Value)],
+    bytes: &[u8],
+    n: usize,
+) -> (TestkitHarness, Vec<bool>) {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    for (op, args) in controls {
+        assert_eq!(harness.control("a", op, args), Ok(Value::Null), "{op}");
+    }
+    write(core.as_mut(), bytes);
+    let more = (0..n)
+        .map(|_| {
+            let report = core.pump(Now {
+                monotonic: at,
+                unix: 1_000_000,
+            });
+            core.poll_events(64);
+            report.more
+        })
+        .collect();
+    (harness, more)
+}
+
+/// `pty_chunk` with `pty_accept` (F53, TM-6): the write spends the step's cap and the accept limit together. The rest is
+/// refused by `pty_accept`, which a new step does not restore, so the pump that writes reports no more work. (Without
+/// `accept != Some(0)` in the edge's refusal, that pump reported `more: true` with nothing runnable.)
+#[test]
+fn a_write_that_spends_the_cap_and_the_accept_limit_reports_no_more_work() {
+    let (mut harness, more) = more_after_write(
+        &[
+            ("pty_chunk", json!({"session": "s1", "bytes": 2})),
+            ("pty_accept", json!({"session": "s1", "bytes": 2})),
+        ],
+        b"abc",
+        3,
+    );
+    assert_eq!(more, [true, false, false]);
+    assert_eq!(input(&mut harness), json!("6162"));
+}
+
+/// `pty_chunk` with a kernel queue (R-74, TM-6): the write spends the step's cap and fills the queue together. Only the
+/// release continues it, so the pump that writes reports no more work.
+#[test]
+fn a_write_that_spends_the_cap_and_fills_the_kernel_queue_reports_no_more_work() {
+    let (mut harness, more) = more_after_write(
+        &[
+            ("pty_chunk", json!({"session": "s1", "bytes": 2})),
+            (
+                "pty_blocked",
+                json!({"session": "s1", "on": true, "kernel_bytes": 2}),
+            ),
+        ],
+        b"abc",
+        3,
+    );
+    assert_eq!(more, [true, false, false]);
+    assert_eq!(queued(&mut harness), json!({"bytes": 2}));
+    assert_eq!(input(&mut harness), json!(""), "the program read none");
+}
+
+/// `pty_accept` with no `pty_chunk` cap (TM-6): a refused write waits for no step.
+#[test]
+fn a_write_that_pty_accept_refuses_with_no_cap_reports_no_more_work() {
+    let (mut harness, more) = more_after_write(
+        &[("pty_accept", json!({"session": "s1", "bytes": 0}))],
+        b"a",
+        3,
+    );
+    assert_eq!(more, [true, false, false]);
+    assert_eq!(input(&mut harness), json!(""));
 }

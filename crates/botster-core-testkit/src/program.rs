@@ -639,7 +639,11 @@ mod tests {
         let sched = SchedulerHandle::with_seed(0);
         let mut held = ScriptedProgram::from_argv(&["/bin/sh".to_string()], &sched).unwrap();
         assert_eq!(held.poll_exit(), None);
-        assert_eq!(held.unread(), 0);
+        assert_eq!(
+            held.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "it printed nothing"
+        );
         let argv = [
             "/x/botster-conformance-probe".to_string(),
             r#"{"program":[]}"#.to_string(),
@@ -878,19 +882,31 @@ mod tests {
     #[test]
     fn the_readable_bytes_are_the_output_that_waits() {
         let mut holds = program(json!({"program": [{"hold": {}}]}), true, 0);
-        assert_eq!(holds.unread(), 0);
+        assert_eq!(
+            holds.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
         let printed = hex_decode("6162").unwrap();
         let mut output = program(
             json!({"program": [{"print": {"bytes_hex": "6162"}}, {"hold": {}}]}),
             true,
             0,
         );
-        assert_eq!(output.unread(), printed.len());
         let mut buf = vec![0; printed.len()];
         let n = output.read(&mut buf).unwrap();
-        assert_eq!(output.unread(), printed.len() - n);
+        assert_eq!(buf[..n], printed[..n]);
+        assert_eq!(
+            read_all(&mut output),
+            printed[n..],
+            "every printed byte, once"
+        );
+        assert_eq!(
+            output.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "then none"
+        );
         let mut ended = program(json!({"program": [{"exit": {"code": 0}}]}), true, 0);
-        assert_eq!(ended.unread(), 0);
+        assert_eq!(ended.read(&mut [0u8; 4]).unwrap(), 0, "the output ended");
     }
 
     fn holds() -> ScriptedProgram {
@@ -992,26 +1008,21 @@ mod tests {
         assert_eq!(&buf[..2], b"ef");
     }
 
-    /// `pty_output_unread`: the bytes that the worker has not read, the injected ones included.
+    /// The worker reads every output byte that it has not read yet, the injected ones included, once and in order.
     #[test]
-    fn output_unread_counts_what_the_worker_has_not_read() {
+    fn the_worker_reads_what_it_has_not_read_the_injected_bytes_included() {
         let mut p = program(
             json!({"program": [{"print": {"bytes_hex": "61626364"}}, {"hold": {}}]}),
             true,
             0,
         );
         let control = p.control();
-        p.control().write_size(Some(1));
-        assert!(p.unread() > 0);
-        assert_eq!(control.output_unread(), 4);
-        p.read(&mut [0u8; 8]).unwrap();
-        assert_eq!(control.output_unread(), 3);
+        control.write_size(Some(1));
+        let mut one = [0u8; 8];
+        assert_eq!(p.read(&mut one).unwrap(), 1);
+        assert_eq!(one[0], b'a');
         control.write_once(b"xy");
-        assert_eq!(
-            control.output_unread(),
-            5,
-            "before the program takes them in"
-        );
+        assert_eq!(read_all(&mut p), b"bcdxy");
     }
 
     /// `uncarriable_sequence`: an open OSC or DCS string longer than the limit, with no terminator.
@@ -1042,11 +1053,11 @@ mod tests {
         let mut buf = vec![0u8; buf_len];
         let mut pieces = Vec::new();
         while let Ok(n) = p.read(&mut buf) {
-            assert!(
-                n > 0 || pieces.is_empty() || p.control().output_unread() == 0,
-                "Ok(0) while output remains"
-            );
             if n == 0 {
+                assert!(
+                    !matches!(p.read(&mut buf), Ok(m) if m > 0),
+                    "Ok(0) while output remains"
+                );
                 break;
             }
             pieces.push(buf[..n].to_vec());
@@ -1067,7 +1078,11 @@ mod tests {
             read_pieces(&mut p, 4),
             [b"abcd".to_vec(), b"ef".to_vec(), b"XYZ".to_vec()]
         );
-        assert_eq!(control.output_unread(), 0);
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "nothing remains"
+        );
         control.write_once(b"pq");
         assert_eq!(
             read_pieces(&mut p, 4),
@@ -1102,7 +1117,6 @@ mod tests {
         let mut p = holds();
         let control = p.control();
         control.write_once(b"");
-        assert_eq!(p.unread(), 0);
         assert_eq!(
             p.read(&mut [0u8; 4]).unwrap_err().kind(),
             io::ErrorKind::WouldBlock
@@ -1111,55 +1125,63 @@ mod tests {
         control.write_once(b"ab");
         control.write_once(b"");
         assert_eq!(read_pieces(&mut p, 8), [b"ab".to_vec()]);
-        assert_eq!(control.output_unread(), 0);
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "the empty write after it is nothing"
+        );
     }
 
-    /// `uncarriable_sequence`: the open string is the start plus exactly `limit + 1` bytes, and the unread count includes them.
+    /// `uncarriable_sequence`: the open string is the start plus exactly `limit + 1` bytes, and the worker reads all of them.
     #[test]
     fn an_unterminated_sequence_is_one_byte_over_the_limit() {
         let mut p = holds();
         let control = p.control();
         control.write_unterminated(UnterminatedKind::Osc, 10);
+        let osc = read_all(&mut p);
         assert_eq!(
-            control.output_unread(),
+            osc.len(),
             4 + 11,
             "the start `ESC ] 0 ;` and limit + 1 bytes"
         );
+        assert!(osc.starts_with(b"\x1b]0;"), "{osc:?}");
         control.write_unterminated(UnterminatedKind::Dcs, 3);
-        assert_eq!(control.output_unread(), 15 + 5 + 4);
-        let mut buf = [0u8; 64];
-        let mut total = 0;
-        while let Ok(n) = p.read(&mut buf) {
-            total += n;
-        }
-        assert_eq!(total, 24);
+        let dcs = read_all(&mut p);
+        assert_eq!(dcs.len(), 5 + 4, "the start and limit + 1 bytes");
+        assert!(dcs.starts_with(b"\x1bP"), "{dcs:?}");
     }
 
-    /// `Output::push`: plain bytes after plain bytes are one piece; an atomic piece is never joined to its neighbours.
+    /// `Output::push`, through the reads (a read takes at most one piece): plain bytes after plain bytes are read in one
+    /// piece; an atomic piece is never joined to its neighbours; an empty write adds nothing.
     #[test]
     fn plain_bytes_merge_and_an_atomic_piece_stands_alone() {
-        let mut output = Output::default();
-        output.push(b"ab", false);
-        output.push(b"cd", false);
-        assert_eq!(output.pieces.len(), 1);
-        output.push(b"EF", true);
-        output.push(b"gh", false);
-        output.push(b"IJ", true);
-        output.push(b"kl", false);
-        output.push(b"mn", false);
-        let shape: Vec<(usize, bool)> = output
-            .pieces
-            .iter()
-            .map(|p| (p.bytes.len(), p.atomic))
-            .collect();
+        let mut p = holds();
+        let control = p.control();
+        control.write_size(Some(16));
+        control.write(b"ab");
+        control.write(b"cd");
+        control.write_once(b"EF");
+        control.write(b"gh");
+        control.write_once(b"IJ");
+        control.write(b"kl");
+        control.write(b"mn");
+        control.write_once(b"");
+        control.write(b"");
         assert_eq!(
-            shape,
-            [(4, false), (2, true), (2, false), (2, true), (4, false)]
+            read_pieces(&mut p, 16),
+            [
+                b"abcd".to_vec(),
+                b"EF".to_vec(),
+                b"gh".to_vec(),
+                b"IJ".to_vec(),
+                b"klmn".to_vec()
+            ]
         );
-        assert_eq!(output.len(), 14);
-        output.push(b"", true);
-        output.push(b"", false);
-        assert_eq!(output.pieces.len(), 5);
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "the empty writes added nothing"
+        );
     }
 
     /// `pty_chunk` (Core AM-2, IN-6): at most the cap reaches the PTY per step; the rest waits for the next step, and the
@@ -1175,9 +1197,7 @@ mod tests {
             io::ErrorKind::WouldBlock
         );
         assert!(!p.is_writable(), "the step's cap is spent");
-        assert!(control.waits_for_next_step());
         control.new_step();
-        assert!(!control.waits_for_next_step());
         assert!(p.is_writable());
         assert_eq!(p.write(b"cde").unwrap(), 2);
         control.new_step();
@@ -1208,35 +1228,21 @@ mod tests {
         assert!(ended.is_writable());
     }
 
-    /// `pty_chunk` (Core AM-2): only a write that finds the step's cap spent waits for the next step; a write that
-    /// `pty_blocked` or `pty_accept` refuses waits for no step.
+    /// `pty_chunk` (Core AM-2): a new step restores a spent cap; it does not lift a block or a spent `pty_accept` limit
+    /// (F53). Whether a refused write waits for the next step is the host's `more`: `pty_controls` tests it through Core.
     #[test]
-    fn only_a_spent_chunk_waits_for_the_next_step() {
+    fn a_new_step_restores_only_the_chunk_cap() {
         let would_block = |r: io::Result<usize>| r.unwrap_err().kind() == io::ErrorKind::WouldBlock;
         let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
         let control = p.control();
         control.input_chunk(Some(1));
         assert_eq!(p.write(b"ab").unwrap(), 1);
         assert!(would_block(p.write(b"b")));
-        assert!(control.waits_for_next_step(), "the cap is spent");
         control.new_step();
-        assert!(!control.waits_for_next_step());
         assert_eq!(p.write(b"b").unwrap(), 1);
         control.set_blocked(true);
-        assert!(would_block(p.write(b"c")));
-        assert!(
-            !control.waits_for_next_step(),
-            "blocked, with the cap spent"
-        );
-
-        let mut q = program(json!({"program": [{"hold": {}}]}), true, 0);
-        let control = q.control();
-        control.accept_at_most(0);
-        assert!(would_block(q.write(b"a")));
-        assert!(
-            !control.waits_for_next_step(),
-            "refused by pty_accept, with no cap"
-        );
+        control.new_step();
+        assert!(would_block(p.write(b"c")), "blocked, after a new step");
 
         // F53: both limits spent together; the next step restores the cap, but pty_accept still refuses.
         let mut r = program(json!({"program": [{"hold": {}}]}), true, 0);
@@ -1245,14 +1251,15 @@ mod tests {
         control.accept_at_most(2);
         assert_eq!(r.write(b"abc").unwrap(), 2);
         assert!(would_block(r.write(b"c")));
+        control.new_step();
         assert!(
-            !control.waits_for_next_step(),
+            would_block(r.write(b"c")),
             "pty_accept refuses after the step too"
         );
+        assert_eq!(control.input_log(), b"ab");
     }
 
-    /// `pty_output` (Core A5-2): plain bytes follow the script's output, every byte arrives in order, and the unread count
-    /// covers them.
+    /// `pty_output` (Core A5-2): plain bytes follow the script's output, and every byte arrives once, in order.
     #[test]
     fn write_plain_adds_plain_output() {
         let mut p = program(
@@ -1262,22 +1269,16 @@ mod tests {
         );
         let control = p.control();
         control.write(b"!!");
-        assert_eq!(p.unread(), 4);
-        assert_eq!(control.output_unread(), 4);
-        let mut out = Vec::new();
-        let mut buf = [0u8; 8];
-        while let Ok(n) = p.read(&mut buf) {
-            if n == 0 {
-                break;
-            }
-            out.extend_from_slice(&buf[..n]);
-        }
-        assert_eq!(out, b"hi!!");
-        assert_eq!(control.output_unread(), 0);
+        assert_eq!(read_all(&mut p), b"hi!!");
+        assert_eq!(
+            p.read(&mut [0u8; 4]).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "nothing remains"
+        );
     }
 
-    /// `pty_chunk` edges: a new step clears a refusal even with no cap; lifting the cap mid-step lets the rest through at
-    /// once; a zero-length write with the cap spent neither fails nor marks pending step work.
+    /// `pty_chunk` edges: lifting the cap lets the rest through; lifting it mid-step lets the rest through at once; a
+    /// zero-length write with the cap spent does not fail.
     #[test]
     fn pty_chunk_edges() {
         let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
@@ -1285,15 +1286,9 @@ mod tests {
         control.input_chunk(Some(1));
         assert_eq!(p.write(b"ab").unwrap(), 1);
         assert_eq!(p.write(b"").unwrap(), 0, "an empty write is not refused");
-        assert!(!control.waits_for_next_step(), "and marks no step work");
         assert_eq!(p.write(b"b").unwrap_err().kind(), io::ErrorKind::WouldBlock);
-        assert!(control.waits_for_next_step());
         control.input_chunk(None);
         control.new_step();
-        assert!(
-            !control.waits_for_next_step(),
-            "a new step clears it with no cap"
-        );
         assert_eq!(p.write(b"bcd").unwrap(), 3, "no cap: the whole write");
         control.input_chunk(Some(1));
         assert_eq!(p.write(b"e").unwrap(), 1);
