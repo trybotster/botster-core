@@ -636,3 +636,30 @@ The reviewer accepts the valid Mac evidence within its recorded scope and accept
 The final SLOT, import retaining the two xtask fixes, applicable check or review, final exact-head gate, and final body remain due.
 This receipt accepts no later pin, pending removal, or PR completion.
 The reviewer ran no test, build, or gate.
+
+
+### B13 supplemental evidence received
+
+Integration receipt: `ffa5076a255c49515e31c56b7f740828255b8c1b`.
+Message: `msg_plugin-w_1791748584_e2ab9d`.
+The reviewer read both reproduction logs and the updated pair-common rule.
+These are supplemental hazard tests with local pending-list edits. They are not PR acceptance gates.
+Both logs report Cargo 1.92.0 and the shared RC target directory.
+
+Same-pin log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-b13-repro-samepin-mac-20261011-124836.log`.
+After a clean, #285 fails at step 16. Without another clean, #284 compiles nothing and fails at step 16 with the same artifact.
+After a clean, #284 compiles and fails at step 9 because `scripted` is unknown.
+This demonstrates the wrong FAIL before the clean. It demonstrates no false PASS.
+The log records absolute dep-info paths into the #285 worktree. It does not trace Cargo's internal freshness decision.
+
+Control log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-b13-repro-4step-mac-20261011-124502.log`.
+The scratch composition uses contracts `.39` and produces a different artifact name.
+It compiles and passes before the second clean, then compiles and passes after that clean.
+The log's expected-hazard label does not describe its actual result.
+Neither log reproduces the original withdrawn scratch PASS. That evidence remains invalid.
+Neither log proves the claimed prebuilt-worker result or a rule for all pin changes.
+
+Pair-common now requires a clean before a build after a worktree change, until the structural refusal lands.
+The reviewer accepts no future structural refusal or source change through this receipt.
+The source CLEAN verdicts for #284 and #285 remain unchanged. Final SLOT, import review or check, and exact-head gates remain due.
+The reviewer ran no test, build, or gate.
