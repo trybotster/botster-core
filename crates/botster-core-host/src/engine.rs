@@ -610,6 +610,11 @@ impl HostEngine {
         !self.ready().is_empty()
     }
 
+    /// Whether an action waits for the driver: a call queued it, and the next `pump` performs it (TM-6).
+    pub(crate) fn has_actions(&self) -> bool {
+        !self.actions.is_empty()
+    }
+
     // ---- the Machine interface ----
 
     pub(crate) fn pop_action(&mut self) -> Option<Action> {

@@ -115,6 +115,24 @@ fn a_handoff_sends_attach_route_with_the_stream_on_its_first_byte_and_the_return
     );
 }
 
+/// TM-6 (lead ruling, plan 23aw): an attach of a running session queues the handoff, which only `pump` performs, and signals
+/// the wake before it returns; the pump that sends the handoff clears it.
+#[test]
+fn an_attach_of_a_running_session_signals_the_wake_and_the_pump_hands_off() {
+    let mut rig = running();
+    rig.settle();
+    assert!(!rig.wake_set());
+    attach(&mut rig, Arc::new(5));
+    assert!(rig.wake_set(), "TM-6: the attach signals");
+    assert!(
+        attach_frames(&rig).is_empty(),
+        "only pump hands off (OR-1, OU-9)"
+    );
+    rig.settle();
+    assert_eq!(attach_frames(&rig).len(), 1);
+    assert!(!rig.wake_set(), "the pump left no work");
+}
+
 /// A link that takes no byte at the mark gives the stream back: the frame stays unstarted, and the next write readiness sends
 /// both once.
 #[test]
