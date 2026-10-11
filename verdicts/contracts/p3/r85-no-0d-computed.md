@@ -119,3 +119,21 @@ Delta against `7c780843dc9646ea5b14c0a4278aa4d59dba4409`: one commit, `013bd44`.
 - **Core evidence** (`evidence/p3-r85/round3/`). The header names Core `6401bb04a70cc7723d0bfee9b9ba2f5ecc1914ac`, contracts `013bd447...` with no local changes, and `BOTSTER_SEEDS=0-31`. Per-id outcomes (`^test +conf::`, name and result) are the same as round2b: green 227 lines, scan 579 lines. The scan has no transcript defect.
 
 016c closed its round 2 item on this head. Still to do: P3 merges main `71f01c88` (Q7: I check that the merge is disjoint, the tree and the patch-id), and the gate runs on the exact merged head.
+
+## Round 4: delta review of the main merges (Q7: a shared path), no finding. Head 6f1019038b6c349b88d8182636276e6130b3427e
+
+**Merge 1: `5c005fb5208b7d717bee1f6f76b1d28c9880d33e`** = `013bd447` + main `6f32006a32cf15b9d74b26b3fefef98221773264` (#54).
+- Merge-base `e2c0ad9c842046454be6da7f5015f1d5b8a7dbb1`.
+- The recomputed merge tree `b8bced884844af764c13f930fd32dd89dc51357d` equals the commit's tree, so the merge is automatic.
+- The only shared path is `conformance/core-fence-exceptions.txt`. Main changes 16 lines in it: #54's R-80 and in_9 entries. The PR changes the renumbered `in_9` entries and removes its three R-56 entries. The merged file is main's file plus exactly the PR's own lines.
+- The gate's corpus test of the fence lint (list = findings) passes on the merged head, so the merged list matches the merged corpus.
+- P3's `q7-delta-own-diff-013bd447-5c005fb5.txt` shows that the PR's own +/- lines are the same before and after the merge. The patch-id differs only in the hunk offsets.
+- **R-85 on main's transcripts.** #54 changed three transcripts that have input-log steps: `a3_2_stall_changes_no_focus_value_and_posts_no_focus_changed`, `dp_12_focus_report_is_independent_of_focus_reporting` and `ev_8_reply_does_not_move_input_rev`. #54 adds only output fences to them: an OSC 2 title sentinel with `await_title` in `a3_2`, and `pump_until Activity{Output}` in the other two. No input bytes and no input-log assertion change. So the R-85 run-time check gives the same result as in P3's scan, which found 0 defects.
+- Gate on `5c005fb5`: `...-5c005fb5-pool-20261011-145415-40044.log` (sha256 `eb4baa6fb1689112f5ce61e5a4726f13ab8df907bcf0b140a631768471a2ca5c`). Ten steps PASS. Mutants: 42 caught, 4 unviable, 0 missed. Exit 0. Base `7c4004a0` (main moved during the gate).
+
+**Merge 2: `6f1019038b6c349b88d8182636276e6130b3427e`** = `5c005fb5` + main `7c4004a0ba6c9734fbe8d2072f68addde2d58596`.
+- The recomputed tree `eab57cddb884edb14811370882f41fdcd9f0c3bb` equals the commit's tree.
+- Main changed only `docs/steward-rulings.md` (+5, R-87 correction), which is disjoint from the PR. So no delta review is needed (Q7). P3's `q7-5c005fb5-6f101903.txt` says PASS.
+- The gate on the exact head is running: `...-6f101903-pool-20261011-150442-77004.log`.
+
+My review has no open finding on `6f1019038b6c349b88d8182636276e6130b3427e`. The final CLEAN line follows when P3 reports that the gate on that exact head is green.
