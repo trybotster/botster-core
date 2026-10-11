@@ -24,6 +24,8 @@ proc-macro2.workspace = true
 # platform-only code reads the outer attributes of any node from its tokens.
 quote = "1"
 regex.workspace = true
+# real_proofs reads the slow tier's JUnit file as an XML tree, so a comment or a broken document is never a test case.
+roxmltree.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 syn = { workspace = true, features = ["full", "visit"] }
