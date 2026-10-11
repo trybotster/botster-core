@@ -1,6 +1,62 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (1 open)
+
+## Core #295: first implementation review
+
+Reviewed head: `dcc53d8f94d64e94a5b0028c0bd1e86369456773`.
+Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+PR: <https://github.com/trybotster/botster-core/pull/295>.
+Risk tier: HIGH. The driver change crosses into the shared link crate.
+This review covers the separate TM-6 driver fix. The stall-clock design CLEAN below remains valid.
+
+The reviewer found no new logic defect in the reviewed diff.
+The process exit slot preserves a taken exit when the event budget is exhausted.
+Link reads distinguish partial input from complete frames within the existing byte allowance.
+The driver holds complete frames and link ends when the event budget is exhausted.
+The held-frame path checks engine acceptance before the event budget, so a frame parked on queue room does not set `more_input`.
+The decoder's new `ready()` query does not consume a frame or bypass its length check.
+
+The read loop advances through a delivered frame or a read after `Ok(None)`.
+The revision removes the loop that caused the first gate's mutation timeout.
+The unchanged byte-allowance case remains conservative, as the PR body explicitly states.
+
+The PR body includes Prior art and records coordination with PC's #291.
+The reviewer checked the specified order: #295 lands first; #291 uses `end_link` and counts its pending drain as runnable input.
+The review approves no unreviewed #291 delta.
+
+### ST295-E1 — MEDIUM — Required Mac evidence is not yet supplied
+
+The READY says the focused Mac job is running. The PR body supplies no completed Mac log.
+Plan section 8, revision 23ai, requires focused Mac evidence for portable code whose behavior the OS decides, including sockets.
+The changed driver reads link sockets and takes process exit reports.
+
+Required change: supply the completed focused Mac log for this exact head and link it in the PR.
+The evidence must pass the selected driver and link checks and the named real-process checks.
+Also supply the promised real-tier results for both removed pending IDs with `BOTSTER_SEEDS=0-31`.
+The Linux gate's slow tier uses seed 0; its green result alone does not prove those real-tier IDs at seeds 0-31.
+The announced Mac job includes that full-seed evidence and can close this requirement when it passes.
+
+### Evidence reviewed
+
+Linux gate: `~/botster-sessions/gates/botster-core-stage1-st-more-input-dcc53d8f-pool-20261011-161450-67786.log`.
+The header names the reviewed head and base. Every gate step passed. The final status is exit 0 on msa1.
+Mutation result: 19 tested, 14 caught, 0 missed, 0 timeout and 5 unviable.
+Stage 2 did not run because stage 1 missed no mutant.
+
+Both removed IDs pass in the gate's testkit tier and real tier:
+
+- `conf::e3_1_due_step_beyond_budget_is_carried_with_more`
+- `conf::e3_1_two_silences_due_together_with_budget_one`
+
+The testkit tier uses seeds 0-31. The real tier in this gate uses seed 0.
+The list changes remove only those two pending entries. They change no transcript or timeout value.
+The new driver tests check event delivery, session state, transport closure, `more` and wake behavior.
+The reviewer read the earlier red gate diagnosis and the exact-head repair in the source and PR body.
+The reviewer ran no build or test locally.
+
+There is one open evidence finding. A new code commit requires delta review.
+An evidence-only reply can close ST295-E1 on this head without another code review round.
 
 ## Revision 3 review
 
