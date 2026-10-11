@@ -1656,3 +1656,18 @@ The lead preserves the 23al conditions and the narrow 23bl controlled-timing exc
 No re-gate is authorized until RC supplies the required evidence and both reviewers accept it.
 The source and body findings remain closed. Final acceptance remains pending the required evidence and a valid completed gate.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — integration failed-gate receipt
+
+Integration message: `msg_plugin-w_1791755961_542082`.
+Integration receipt: `f6558c4799ae3c2b5986ca29511270551d522c41`, Round 5 in `verdicts/stage1/rc-testkit-controls.md`.
+The reviewer read that complete round.
+The integration verdict remains NOT CLEAN with one final acceptance condition at the unchanged head and base.
+It confirms source non-interference but does not claim an executed plain-v1 reproduction.
+The integration reviewer reports that the older P3 .36 record has a different symptom and cannot satisfy this exact-signature condition.
+The reviewer sent the integration reviewer the lead's correction `msg_plugin-w_1791755874_99ba93`.
+That correction supersedes the earlier incomplete conditional approval recorded in Round 5.
+No re-gate is authorized until the required evidence and both reviewer acceptances exist.
+No duplicate execution is requested by this receipt.
+The reviewer ran no test, build, or gate.
