@@ -39,6 +39,7 @@
 
 use crate::route_reports::{RouteReports, Seen};
 use crate::stand_in::StandIn;
+use crate::stream_holders::{socket_id, SocketId};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
@@ -52,6 +53,8 @@ use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, WorkerMsg};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
+use std::os::fd::AsFd;
+use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 /// The bytes that one take-ahead read asks for.
@@ -267,6 +270,9 @@ pub struct Tap<E> {
     fail_handoff: bool,
     /// The held hand-over (`hold_handoff`, Core OU-9).
     handoff: HandoffHold,
+    /// The bytes that Core gave `close_route_stream` to write to a route's stream, by the stream's socket
+    /// (`route_stream_holders`, plan 23bf). It is the only `HostEdges` call that moves bytes through a route's stream.
+    stream_bytes: BTreeMap<SocketId, u64>,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
     /// and the bytes that they gave count, never the tap's take-ahead.
     reports: RouteReports,
@@ -491,6 +497,14 @@ impl<E: HostEdges> Tap<E> {
         self.inner.wake().signal();
     }
 
+    /// The bytes that Core gave `close_route_stream` for the stream of `socket` (`route_stream_holders`, plan 23bf). Core is
+    /// sans-IO: `HostEdges` is its only I/O path, and `close_route_stream` is its only call that writes to a route's stream;
+    /// no call reads one. The count is the bytes that Core asked the edge to write, so an upper bound of what the stream
+    /// took; 0 is exact.
+    pub fn stream_bytes(&self, socket: SocketId) -> u64 {
+        self.stream_bytes.get(&socket).copied().unwrap_or(0)
+    }
+
     /// Whether a descriptor send on `link` meets the hold of `hold_handoff`. An armed hold takes `link`.
     fn handoff_held(&mut self, link: LinkId) -> bool {
         match self.handoff {
@@ -608,6 +622,7 @@ impl<E: HostEdges> EdgeTap<E> {
             holds: BTreeMap::new(),
             fail_handoff: false,
             handoff: HandoffHold::Off,
+            stream_bytes: BTreeMap::new(),
             reports: RouteReports::default(),
         }));
         let weak = Arc::downgrade(&tap);
@@ -795,7 +810,18 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
-        self.tap().inner.close_route_stream(endpoint, bytes);
+        let mut tap = self.tap();
+        // The real harness's endpoint is a `UnixStream`; the inner edge gets the same object back.
+        let endpoint = match endpoint.downcast::<UnixStream>() {
+            Ok(stream) => {
+                if let Ok(socket) = socket_id(stream.as_fd()) {
+                    *tap.stream_bytes.entry(socket).or_default() += bytes.len() as u64;
+                }
+                StreamEndpoint::new(stream)
+            }
+            Err(endpoint) => endpoint,
+        };
+        tap.inner.close_route_stream(endpoint, bytes);
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
