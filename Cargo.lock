@@ -356,6 +356,7 @@ name = "botster-core-sys"
 version = "0.1.0"
 dependencies = [
  "botster-core-edges",
+ "botster-test-process",
  "data-encoding",
  "getrandom 0.4.3",
  "kqueue",
