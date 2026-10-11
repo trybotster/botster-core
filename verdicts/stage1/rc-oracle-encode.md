@@ -374,3 +374,47 @@ Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or e
 
 CONTROLLED ATTRIBUTION: CLEAN within the exact case and limits above.
 VERDICT: NOT CLEAN (1 open final acceptance condition: new-head import review, completed final gate, final body, and final package verdict) for #288; no final merge acceptance
+
+## Round 7 — Q7 source carry after #294
+
+Exact head: `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+Base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Tree: `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+The parents are reviewed 46c8c548 and the new base. RC receipt: `msg_plugin-w_1791762717_e1d2ee`.
+Sol reads the complete canonical PASS record at `~/botster-sessions/gates/botster-core-rc-oracle-base-merge-check-09e9fbc8-20261011-165140.log`.
+SHA-256: `068875fa93cfda316715a68cfdf34ac50548ec703787c341a756f3e12e32f6f3`.
+It names this exact head/base and passes both ancestry conditions and all four Q7 conditions.
+No new source delta round is required under that rule. The completed final gate still must use this head.
+
+Sol independently confirms that the base changes only xtask/src/fsutil.rs and xtask/src/lists.rs.
+Neither path overlaps any of the seven own paths. Both imported blobs equal the new base.
+All seven own blobs, including both pending files, equal the reviewed head exactly.
+The non-list own patch equals the earlier patch byte for byte: 42637 bytes.
+Patch SHA-256: `0b0844ddb5606e1bf9f7823152d1757b9c5b7eef90dbd0fa127925b3538123b1`.
+The reviewed oracle source, corrected tests, four pending moves, fence comments, and inherited exclusions retain their accepted source scopes.
+This static import review runs no executable check and grants no approval of unrelated future gate changes.
+
+The imported #294 source retains .39. It does not remove the ST-6 fence gap.
+Round 6's controlled proof and non-interference therefore retain their unchanged-cause scope on this import.
+The lead's explicit case acceptance supplies the applicable 23an(a) disposition. No repair import is falsely claimed.
+The future R-80/.42 fix remains assigned as recorded in Round 6.
+
+Sol reads the retained strict log through its completed summary and all four moved-ID ok records.
+Log: `~/botster-sessions/gates/botster-core-rc-oracle-strict-09e9fbc8-20261011-165122.log`.
+SHA-256: `d258fa892eb20004daf54787319ef882f510963b289bd643824e2f51a9f3074b`.
+Its header names this head and BOTSTER_SEEDS=0–31/BOTSTER_PENDING_STRICT=1.
+It retains a 245-PASS, zero-failure summary, plus all four moved identifiers passing.
+The same file begins with a refused invocation because NEXTEST_TEST_THREADS is unset.
+Sol preserves that refusal separately; it is not a PASS check.
+The retained file does not show the full command/provenance of its subsequent successful invocation.
+Sol asks RC to clarify that command without running again. This local record does not replace the required final gate.
+
+Sol reads matching package import receipt `5c4048614f24c313c8e5edd06e17ca50cdb19d76`, `verdicts/rc-real-controls.md`.
+Its Q7 scope, retained .39 pin, strict-log refusal, and final-evidence conditions agree.
+Source CLEAN carries to this exact head under Q7. Zero source or body finding is introduced by this import.
+The completed exact-head final gate, final body, and final package verdict remain due.
+The earlier RED gate and accepted controlled proof remain explicit; neither is a green gate for this head.
+Sol reads no running output and runs no execution job. Never poll.
+
+SOURCE CARRY: CLEAN at 09e9fbc8b26456be592ce99d9814fcea4695536e against base 3aacc58d086e55a6b186165ccf9001e2618e2869.
+VERDICT: NOT CLEAN (1 open final acceptance condition: completed exact-head gate, final body, and final package verdict) at that head/base; no final merge acceptance
