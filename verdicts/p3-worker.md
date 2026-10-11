@@ -12699,3 +12699,93 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All prior verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 179 — #273 attach wake and queued cancel, 2026-10-11
+
+Exact head: `0eba8683cee771d456b67df0bd40dc2b54fa1f80`.
+Exact PR and supplied gate base: `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9`.
+Source merge base: `d582853da895688710ab97f8f1a0858599e8ba18`.
+Owner READY receipt: `msg_plugin-w_1791735236_55ca0b`.
+Risk: HIGH under BUILD rule 5. Both changed runtime files are on ci/high-tier-paths.txt.
+Current plan: 23bd, pins/stage1-plan.03c56e26.md, SHA256 885c9816bc027b8779db1b06488b5de05a9ad34a3cf395b2b3b6a401b6a3202e.
+The reviewer reads the lead's 23aw attach-group ruling and the steward's cancel precision.
+
+### Complete change and contract assessment
+
+The reviewer reads all six changed paths, the action queue, attach, cancel, readiness, action drain, and wake-settle paths.
+The source delta adds queued actions to sync_wake's existing runnable-work condition.
+An attach of a session with a terminal queues HandoffRoute through flush_handoffs.
+That action now signals before attach returns. Only a pump performs the handoff, as OR-1 and OU-9 require.
+The pump's action drain and more computation remain unchanged. The pump clears the signal after it leaves no work.
+Held route input and other parked work do not become actions merely because they wait for room.
+The parked-only driver test confirms more is false and a call with no new work does not set the wake.
+
+HostDriver::cancel no longer drains actions inside the call. A forwarded write's Cancel stays queued for the next pump.
+The call signals through the same queued-action condition. The body states the one-pump delivery cost.
+The engine still gives every cancel result through the existing admission path.
+An unsent write's cancellation still creates a ready completion step. A forwarded cancellation queues SendMsg when its link exists.
+The change follows the lead's form (a): queue, signal, then perform in pump.
+Only cancel returning Admitted needs the positive signal proof under the steward's precision.
+The tests require neither a signal nor no signal for AlreadyAdmitted, TooLate, UnknownOp, or Refused.
+No Refused(Full) behavior is added. The body records the later owner's obligation to count queued Cancel frames in control-queue room.
+That pending feature is outside this authorized change.
+
+The three new tests use wake-edge state, pump reports, and decoded host link frames.
+They prove an attach signals before its handoff, a forwarded cancellation signals before its message, and parked work alone does not signal.
+They assert no production helper internals and add no child process, sleep, or real-time polling loop.
+Prior art identifies the existing helper and wake-settle rule and rejects immediate attach handoff and a narrower pending_handoffs condition.
+The PR changes no transcript, timeout, pin, unsafe code, or public API.
+
+### Pending-list move and supplied evidence
+
+Exactly one identifier leaves core-pending.txt and enters core-real-pending.txt: tm_6_begin_and_attach_signal_wake.
+The reviewer reads its complete contracts-v0.1.36 transcript. It requires no_spurious_wakes and pty_blocked.
+It checks attach at step 12 and cancel returning Admitted before its final wake assertion.
+The real harness lacks no_spurious_wakes. The real-pending comment states the R-43(5) reason and later transcript tag.
+The move therefore accepts only the testkit PASS. No real TM-6 transcript PASS is claimed.
+tm_6_parked_work_does_not_spin remains pending. The testkit wrapper sets more while an in-process worker has ready input.
+The reviewer confirms that wrapper path in exact-head source. Its separate fix is not accepted here.
+
+Gate: gates/botster-core-stage1-p3-attach-wake-0eba8683-pool-20261011-090728-90026.log.
+The header matches this exact head and the supplied gate base. All ten steps pass.
+Default: 1716 passed, 480 skipped. Slow: 550 passed, 2011 skipped.
+All three new driver tests and the named testkit TM-6 transcript pass.
+The gate reports testkit minimum 57/69 and real minimum 46/68 passing, 47/69 accepted.
+Six mutants are selected. Five are caught; zero are missed or timeout; one cancel body returning Default is unviable.
+The reviewer reads all six raw outcomes and all five catcher records. The forwarded-write cancel test catches all five.
+Stage 2 is unnecessary because stage 1 misses no mutant. No FLAKY record appears.
+The gate selects no changed decoder harness. Total step time is 276.0 seconds.
+Jobq exits zero after 355 seconds. The wrapper exits zero after 356 seconds.
+Existing named real tests pass: a2_2_cancel_is_ok_cancelled_never_err, in_6_repeat_cancel_is_idempotent_no_slot, and both ou_9 tests.
+The worker's existing real PTY cancel test also passes. Those proofs retain their original clauses and do not replace the unavailable real TM-6 wake transcript.
+
+The reviewer reads the complete supplied shared/core-stage1/evidence/p3-attach-wake/reverts-macos.log.
+It names historical Core 8f97cf9d50b84da503db0da6a4911c60d8726254 on Darwin 27.0.0.
+Removing queued-action counting fails the attach and cancel tests. Restoring immediate cancel action drain fails the cancel test.
+Always signalling fails the parked test. The log repeats that specific mutant at 2712a57f after changing the negative test's call.
+Read-only source comparison confirms the runtime blobs are unchanged between the historical head and READY.
+The only test change replaces UnknownOp cancel with set_silence_threshold, as the steward's precision requires.
+The historical five-id testkit comparison changes from three pass/two fail to four pass/one fail.
+The attach/cancel wake transcript changes from seed-zero step-12 failure to PASS. The parked transcript fails step 10 before and after.
+These are supplied historical records. The reviewer performs no reversal or repeat execution.
+
+### Body correction and verdict
+
+**F133 LOW — stale current plan pin. CLOSED.**
+The initial body names 23bb as current; the active pin and READY use 23bd.
+Finding receipts: P3 msg_plugin-w_1791735406_bab167; Sol msg_plugin-w_1791735406_f7bd80.
+P3 corrects only that body line in msg_plugin-w_1791735496_50b88c.
+Verified final body: /private/tmp/review-p3-pr273-0eba8683-f133-fixed.json.
+The reviewer verifies the unchanged exact head/base and every body change. The line now names 23bd and its pin file.
+No source change or repeat gate is needed.
+
+No package finding remains for #273 at this head. The supplied pre-review gate counts at the unchanged CLEAN head under BUILD.
+The PR base advanced from d582853d only in testkit/src/real.rs, outside this six-path source delta.
+This record accepts no future import or gate. A later head retains BUILD's merge-transfer and exact-head gate rules.
+Formal integration acceptance remains separate. The lead owns the merge decision.
+F39 and F61/F62 retain separate scopes. No other pending removal or future contracts pin is accepted.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All prior verdict history remains preserved.
+
+VERDICT: CLEAN
