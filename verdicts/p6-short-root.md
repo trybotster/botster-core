@@ -179,3 +179,42 @@ This round closes the package review's final-evidence and body requirements. It 
 I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-11: oracle_resume base import
+
+Exact head: `7e07b775fd420debc664792f6416a5997e5228de`.
+Base: `d582853da895688710ab97f8f1a0858599e8ba18`.
+Parents: `61211358870fccaebc064424134f82e1d82c55d6` and the base above.
+Tree: `999bd68f85420be82f0bc36e9a27cdfac80f7b10`.
+
+I read the complete current own delta, shared real.rs import, program.rs import, ownership contexts, and current body.
+The lead records #269 as merged at c2dd1fbfe801f3b9e43256071b01081eb75a0592, with both CLEAN reviews and its final gate.
+The current base imports that accepted control. The nine imported paths outside real.rs match the exact base tree entries.
+The shared-file import declares resume, adds the weak record handle, and wraps the tapped driver in CaptureLayer before Crashable.
+I read the layer's construction and forwarding context. The layer owns the driver; the handle retains only a weak reference.
+The crash slot drops the layer with the driver. The layer obtains the existing program marks through an Arc-backed view.
+The import adds the oracle_resume capability and dispatch arm, exposes four existing test helpers, and initializes the test's weak handle.
+The plain open path stays unchanged. Root creation and removal stay outside this open path.
+The root test opens no Core and starts no process. Every root assertion remains intact.
+
+Both complete own patches match after removal of only index lines and hunk-position lines.
+They contain 3248 normalized bytes, SHA256 `c6d18a603c4bc2b577c8fa86d321b6caac80117ecb44bc480de484caf4f4dd96`.
+SHORT_ROOT, short_root, the make correction, and the public parent, mode, address, uniqueness, and removal assertions remain unchanged.
+The own diff changes only real.rs. Cargo.lock, mutants.toml, and both pending files match the current base.
+The own change adds no process owner, reap, wait, deadline, sleep, or loop. SR-R1-1 remains closed. No finding remains.
+
+Base-check log: `~/botster-sessions/gates/botster-core-stage1-p6-short-root-7e07b775-pool-20261011-084527-12903.log`.
+I read the full log. Its exact head and base match this round.
+Both ancestry checks, condition 1, and both condition-4 lists pass.
+Condition 2 fails on shared real.rs. Condition 3 reports the changed index line.
+The job exits one after 152 seconds, with 137 queued and 15 running. The wrapper exits one after 153 seconds.
+The failed check requires this manual delta review. It does not supply automatic CLEAN transfer.
+
+I read only the exact-head header of the reported running final gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-short-root-7e07b775-pool-20261011-084813-17823.log`.
+The final gate result and body update remain pending at this head. The current body still records the completed parent-head gate.
+The prior focused Mac proof and failed reversal retain their reviewed head and scope for the unchanged short-root implementation.
+This verdict completes source delta review. It accepts no future import, gate result, or pending-list removal.
+GitHub names this exact head and base. The PR remains open. I changed no product code and ran no execution job.
+
+VERDICT: CLEAN
