@@ -474,3 +474,51 @@ The source and body findings remain closed. TC-SI-FINAL-1 remains open for valid
 Sol runs no build, test, gate, mutation, reversal, measurement, or diagnostic. Never poll.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
+
+## Round 7 — completed final acceptance, 2026-10-11
+
+Exact head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Reviewed base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Gated tree: `886ac9ddad72fc5b92a0c66646aa964965a1b00c`.
+Open integration findings: 0. TC-SI-FINAL-1 closes.
+
+Lead message `msg_plugin-w_1791756395_2c4ec6` accepts the controlled case and approves one re-gate after both reviewer acceptances.
+The lead handoff also records that acceptance, RC ownership, and the R-66 activity fence in contracts #69, into .42.
+The retained red gate and controlled reproduction keep all Round 5 and Round 6 limits.
+This acceptance claims no uninstrumented v1 reproduction, original-gate trace, later input release, or completed fence repair.
+
+Completed gate: `~/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-3cf46071-pool-20261011-150748-99309.log`.
+SHA-256: `3938552fd89a1cc2bed74e1cd931a7175eb3e754095c45facbc592446277cf26`.
+Sol reads the exact header, suite summaries, raw mutation results, citations, normal PASS records, final summary, and exits.
+The header names the exact head and base above. All ten steps PASS in 237.6 seconds.
+The job queues for one second and runs for 247 seconds. The job exits zero after 248 seconds on msa1.
+The outer wrapper exits zero after 249 seconds.
+Default: 1788 PASS, 460 skipped, 12.702 seconds. Slow: 584 PASS, 2019 skipped, 42.634 seconds.
+The unmutated stage-2 baseline passes all 584 tests in 41.880 seconds; its baseline interval is 49.9 seconds.
+EV-5 route-closed passes on the testkit and in both unmutated slow runs.
+All seven testkit removals have normal PASS. Minimum: testkit 63/69, real-passing 55/68, real-accepted 56/69.
+The new bytes-and-text identifier remains real-pending for its R-60 fence exception, owner P3.
+
+Stage 1 catches two of six mutants and misses four, with zero timeout or unviable result, in 20.9 seconds.
+Stage 2 tests those exact four missed identities and catches all four in 43.8 seconds.
+Sol independently compares all six unique raw catches with all six unique citation identities; the sets agree exactly.
+Every cited test has normal PASS. The complete log contains no FLAKY token.
+Fuzz selects no changed decoder crate. This receipt claims no fuzz execution or Mac execution from this Linux gate.
+
+Final body SHA-256: `82dede65d0758b62c86607a5c429f1b7f585b282d43169ffbb18e78016bd7d09`.
+GitHub MCP fails. The GitHub CLI fallback verifies the unchanged head, current base, and complete final body delta.
+The body correctly names the red mutants baseline, earlier slow PASS, and fuzz not run.
+It states that `real/route.rs` changes while the relevant route write/flush and other recorded behavior remain unchanged.
+It separates the step total, job duration, and outer wrapper duration. Package LOW RC-TK-DELTA-2 closes.
+The body retains the red gate, controlled reproduction, both reviewer acceptances, lead approval, and contracts #69 repair.
+The body retains the earlier evidence limits, seed-10 partial-paste failure, pending entries, and B13 provenance.
+
+Sol reads the complete final package section at `14e1ce867f63dfd36388f7a47b73d19cd085fe09`, `verdicts/rc-real-controls.md`.
+Its final CLEAN matches this exact head, base, tree, and completed gate. All package findings, including LOW, close.
+The source import and canonical-check review in Round 4 remain valid. The failed canonical check stays failed.
+Both explicit delta reviews supply the required reviews. This receipt claims no automatic Q7 carry.
+F-283-1 remains PC's separate follow-up under the lead's scope ruling.
+The merge must preserve the gated tree above. This receipt accepts no later head, base, or different tree.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open; final acceptance complete) at 3cf460714016af6683ea6c60f1753dfc0055c660 against base f68f26a7b12738f2b19ab39fe76a93f3d1a72f12
