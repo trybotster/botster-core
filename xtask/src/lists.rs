@@ -815,8 +815,8 @@ pub fn changed_transcripts(
     let Some(old) = old else {
         return Ok(BTreeSet::new());
     };
-    // Explicit format flags: the user's git configuration cannot change the parsed names. The diff runs in its own process
-    // group, within the cleanup bound (#236 EX-R1-1).
+    // Explicit format flags: the user's git configuration cannot change the parsed names. A local diff of two commits, run
+    // as the other git commands of the xtask run (`Command::output`).
     let mut diff = Command::new("git");
     diff.arg("-C")
         .arg(checkout)
@@ -836,11 +836,9 @@ pub fn changed_transcripts(
             new,
         ])
         .args(["--", TRANSCRIPT_DIR]);
-    let out = botster_test_process::run_to_completion(
-        &mut diff,
-        botster_test_process::Deadline::cleanup(),
-    )
-    .context("run git diff of the contracts transcripts")?;
+    let out = diff
+        .output()
+        .context("run git diff of the contracts transcripts")?;
     anyhow::ensure!(
         out.status.success(),
         "git diff {old} {new} of the pinned botster-contracts checkout {} failed (the checkout must hold the base's \
