@@ -57,3 +57,9 @@ conf::ou_3_progressing_reader_lossless
 # real tier at contracts-v0.1.39 it fails at seed 5 step 21: the pump posts 1 event where the transcript expects
 # {"more":false,"events_posted":0} (A5-4 of the .39 pin PR, Linux). Owner: GS (the tm_6 probe).
 conf::tm_6_begin_and_attach_signal_wake
+
+# oracle_screen and oracle_screen_payload pass on the testkit (RC, plans 23ax to 23ba). On the real tier, ou_9 needs hold_handoff,
+# release_handoff and route_stream_written, which the real tier lacks (unowned; the lead assigns them). st_5's program prints, so
+# condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
+conf::ou_9_attach_is_sync_baseline_in_pump
+conf::st_5_reads_after_exit
