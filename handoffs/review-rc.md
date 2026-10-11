@@ -663,3 +663,53 @@ Pair-common now requires a clean before a build after a worktree change, until t
 The reviewer accepts no future structural refusal or source change through this receipt.
 The source CLEAN verdicts for #284 and #285 remain unchanged. Final SLOT, import review or check, and exact-head gates remain due.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — oracle encode, modes, and state, round 1
+
+VERDICT: NOT CLEAN (2 open)
+Source head: `622db05f9e24e6a62196a13a43e66e2e060e3c5e`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Branch: `stage1/rc-oracle-encode`. Tier: HIGH, because the PR changes the shared testkit crate.
+The reviewer read all seven delta paths, the current PR body, the design note, and R-84 with both corrections.
+
+RC-OE-1 — MEDIUM — Tests fix terminal mode values as literals.
+Evidence: `oracle_controls/tests.rs:501-502` asserts that a fresh binding terminal has `dec_1035` and `dec_1036` equal to true.
+At lines 771-774, `oracle_modes_are_the_raw_oracles` asserts three modes as true and cursor visibility as false.
+These checks encode terminal expectations in the testkit instead of obtaining the expected values from the pinned oracle.
+BUILD's architecture rule 2 gives terminal state to the real oracle. Corrected R-84 (1) requires the fresh base at run time.
+Required change: remove these literal mode assertions. Keep the independent binding comparison and the merge-sensitivity checks.
+If the test needs a changed mode, derive the expected mode state from an independent binding terminal.
+The explicit empty-OSC binding test remains allowed: R-84 (5) specifically requires that measurement.
+
+RC-OE-2 — LOW — The real-pending owner count is inconsistent.
+The body lists five unfenced `in_9` IDs, then says `Four in this bullet plus in_9_application_cursor_and_keypad below`.
+The bullet names five IDs; the keypad ID makes six `in_9` IDs in the nine-ID real-pending move.
+Required change: correct or remove the parenthetical count. Keep the per-ID causes and owners explicit.
+
+### Other checks for Core #288
+
+The production control obtains the fresh base from libghostty. It merges `other_modes` by key and rejects unknown keys.
+The key, mouse, focus, and paste results come from the pinned binding. The testkit adds no encoder table.
+The explicit size wins over the stored size, as the R-84 follow-up permits.
+A missing `modes` remains an explicit unsupported scope limit. This PR claims no implementation of that optional form.
+Both history controls use O_raw and retain the size-or-profile refusal.
+The real form uses the known probe history; the testkit uses the model-log replay under R-67.
+R-84 (5) authorizes the independent event-sourced title and cwd form. No subject title or cwd cache supplies the oracle result.
+A replay that drops events refuses the state read. The last replayed title and cwd events determine the optional fields.
+The tests observe control results, public Core state, PTY input, and binding results. No new test asserts private state.
+The real-tier test calls all three controls and checks the resize refusal.
+The mutation configuration is unchanged. No exclusion covers the new control decisions or oracle reads.
+
+Exact-head gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-622db05f-pool-20261011-132210-26921.log`.
+The header names the exact source and reviewed base above. All ten steps pass. The wrapper exits 0 after 395 seconds.
+It reports 32 mutants: 29 caught, including 11 in stage 2; three unviable; no miss or timeout.
+The earlier slow failure and stopped mutation run remain explicit in the body.
+Eleven IDs leave testkit pending. Two pass on both tiers; nine retain explicit real-pending limits.
+The body and pending comments name the unfenced reads, line-discipline difference, model fence, and undiagnosed event limits.
+The 27 remaining IDs keep their named control or worker gaps.
+The corrected base and the event-sourced state have governing steward rulings; neither is an unapproved model.
+
+Both findings must close before CLEAN, including the LOW finding.
+The reviewer ran no test, build, or gate.
