@@ -747,6 +747,15 @@ mod slow_tests {
         assert!(route
             .control("route_accept", &json!({"bytes": -1}))
             .is_err());
+        // `on: true` keeps an allowance in effect: bytes that come after it are taken under the new gate.
+        let (mut kept, mut writer) = pair();
+        kept.control("route_accept", &json!({"bytes": 3})).unwrap();
+        kept.control("route_gate", &json!({"on": true})).unwrap();
+        writer.write_all(b"abcde").unwrap();
+        assert_eq!(
+            kept.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"abc".to_vec())
+        );
         // `on: false` ends an allowance that is not used up: under a new gate, the client takes nothing more.
         route.control("route_accept", &json!({"bytes": 8})).unwrap();
         route.control("route_gate", &json!({"on": false})).unwrap();

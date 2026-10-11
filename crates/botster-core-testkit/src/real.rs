@@ -1285,7 +1285,6 @@ impl CoreHarness for RealCoreHarness {
             .map_err(|e| stream_failed(e.into()))?;
         // Plan 23bf: the identity of the worker end's socket, read before Core takes the end (`route_stream_holders`).
         let socket = holders::socket(worker_end.as_fd()).map_err(stream_failed)?;
-        let id = socket.id;
         let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
         let result = core
             .attach(
@@ -1295,28 +1294,50 @@ impl CoreHarness for RealCoreHarness {
                 options,
             )
             .map_err(|refused| refused.error)?;
-        // Only the tapped harness keeps handles (`open`), so a route of the plain harness gets no fill and no holders.
-        let tap = self.handles.get(handle).map(|h| h.tap.clone());
-        let route = match tap {
-            Some(tap) => route
-                .with_fill(route::Fill {
-                    requests: self.programs.requests(),
-                    worker: session_worker(tap.clone(), session.clone()),
-                    worker_send_buffer,
-                    max_frame_bytes: usize::try_from(result.limits.max_frame_bytes)
-                        .unwrap_or(usize::MAX),
-                })
-                .with_holders(route::Holders {
-                    socket,
-                    host_bytes: Box::new(move || {
-                        let tap = tap.upgrade().ok_or("the route's handle is closed")?;
-                        let bytes = lock(&tap).stream_bytes(id);
-                        Ok(bytes)
-                    }),
-                }),
-            _ => route,
-        };
+        let max_frame_bytes = usize::try_from(result.limits.max_frame_bytes).unwrap_or(usize::MAX);
+        let route = self.tapped_route(
+            handle,
+            route,
+            session,
+            worker_send_buffer,
+            max_frame_bytes,
+            socket,
+        );
         Ok((result, Box::new(route)))
+    }
+}
+
+impl RealCoreHarness {
+    /// A route of the handle's host serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf). Only the tapped
+    /// harness keeps handles (`open`), so a route of the plain harness, or of a handle that is not open, serves neither.
+    fn tapped_route(
+        &self,
+        handle: &str,
+        route: route::RealRoute,
+        session: &SessionId,
+        worker_send_buffer: usize,
+        max_frame_bytes: usize,
+        socket: holders::Socket,
+    ) -> route::RealRoute {
+        let Some(tap) = self.handles.get(handle).map(|h| h.tap.clone()) else {
+            return route;
+        };
+        let id = socket.id;
+        route
+            .with_fill(route::Fill {
+                requests: self.programs.requests(),
+                worker: session_worker(tap.clone(), session.clone()),
+                worker_send_buffer,
+                max_frame_bytes,
+            })
+            .with_holders(route::Holders {
+                socket,
+                host_bytes: Box::new(move || {
+                    let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+                    let bytes = lock(&tap).stream_bytes(id);
+                    Ok(bytes)
+                }),
+            })
     }
 }
 
@@ -2677,6 +2698,33 @@ mod slow_tests {
         );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+    }
+
+    /// A route of an open handle serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf); a route of a
+    /// handle that is not open serves neither. Here the handle's host is gone, so each control fails at the host.
+    #[test]
+    fn only_a_route_of_an_open_handle_serves_the_fill_and_the_holders() {
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        harness.handles.insert(
+            "h".into(),
+            Handle {
+                data_dir: PathBuf::from("/nonexistent/d/h"),
+                tap: Weak::new(),
+                resume: Weak::new(),
+                crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
+            },
+        );
+        let session = SessionId("s1".into());
+        for (handle, served) in [("h", true), ("other", false)] {
+            let (worker_end, client_end) = UnixStream::pair().unwrap();
+            let socket = holders::socket(worker_end.as_fd()).unwrap();
+            let route = route::RealRoute::new(client_end).unwrap();
+            let mut route = harness.tapped_route(handle, route, &session, 1, 1, socket);
+            for op in ["route_stream_holders", "route_fill"] {
+                let error = route.control(op, &json!({})).unwrap_err();
+                assert_eq!(error.contains("tapped"), !served, "{handle} {op}: {error}");
+            }
+        }
     }
 
     /// Core E1-1: a worker may have any file name, the probe's too (#220 RH-F1). The role selects the binary, and the
