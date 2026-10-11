@@ -1360,4 +1360,16 @@ mod tests {
         assert_eq!(real_only_text(r#"{"ids": []}"#, &ledger).unwrap(), "");
         assert!(real_only_text("{}", &ledger).is_err());
     }
+
+    /// The pinned job-common.sh is the contracts' shared gate job at the tag that Cargo.lock pins, and Core's checked-in
+    /// copy is byte-equal to it. The checkout comes from `cargo metadata` (Cargo.lock and the Cargo home), not from git,
+    /// so the test also runs in a cargo-mutants copy, which has no `.git`.
+    #[test]
+    fn the_pinned_job_common_is_the_checked_in_copy() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let meta = crate::fsutil::metadata(root).unwrap();
+        let copy = std::fs::read_to_string(root.join(JOB_COMMON_COPY)).unwrap();
+        assert!(!copy.is_empty(), "an empty copy would hide an empty read");
+        assert_eq!(pinned_job_common(&meta.contracts_root).unwrap(), copy);
+    }
 }
