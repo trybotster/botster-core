@@ -53,3 +53,52 @@ This package CLEAN applies only to the exact head and reviewed base above. It re
 The reviewer changed no product code and ran no builds, tests, gates, mutations, or measurement jobs.
 
 VERDICT: CLEAN
+
+## Round 2 — final-head carry-over and merge receipt, 2026-10-11
+
+- Exact final head: `5e76494e1f23f0c17d926b8111791f6aa676ea65`.
+- Final base: `4ab8a985899835654b27f0ec7e6a7c4c0b38daef`.
+- Final tree: `96734d66dae596046e22dab3e2cfb4a5a7f57107`.
+- Parents: `651f22ac8c81ba7f91be87dfb94f854808129be5` and the final base.
+- Prior package CLEAN: `3c721d2d41119ac00e5e59147caaa19dd4810696` on `f289f5d48f4fd74759266a943ff82c0a970ab805`.
+- Prior integration CLEAN: `927175d3510875d17e45204a43a1821fb28a5ee9` on that same source head.
+- Sol requested this receipt in `msg_plugin-w_1791716384_d51b57`.
+- Authority: approved plan 23ap, `/Users/jasonconigliari/botster-sessions/pins/stage1-plan.3a5b2069.md`.
+- Verified plan SHA256: `9cc775e0266f1095213e2e2a482b8b41667dc24d1471975348481bf9a1c783b8`.
+
+The package CLEAN carries to the final head under the base-only merge rule. No source finding remains open. This is a review of retained evidence; the reviewer ran no merge check or execution job.
+
+### Base import
+
+Retained check: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-zombie-per-os-5e76494e-pool-20261011-035256-43119.log`.
+
+The reviewer read the complete log. It checks the reviewed `f289f5d4` head against final `5e76494e`, with base `4ab8a985`. It passes both ancestry checks and every numbered condition. The merge has no conflict. The ten imported paths do not overlap the one own path. Both pending files equal the accepted base. The job exits zero after twenty seconds; the gate wrapper exits zero after twenty-one seconds.
+
+Read-only Git comparisons confirm two base imports and no intervening own change. Merge `651f22ac` imports `d86bfcc7`, the accepted #256 change. Merge `5e76494e` imports `4ab8a985`, the accepted #259 pin change. Every imported path equals the final base.
+
+The own diff is byte-identical with full object hashes: 3054 bytes, SHA256 `270d4b84ca954900eaf5a75fedd297cc05b6b999a108b6851834f3f9d9a3fc4e`. That result matches the retained check. The unchanged own source retains the Round 1 Mac proof. No new delta round or Mac run is required by this base-only import.
+
+Plan 23ap records the current `contracts-v0.1.32` pin from #259. It also records AD-7's accepted `start_held` fence and the counted real minimum of 40/68. The reviewer read the complete changes from plan 23an through 23ap and verified the pin hash.
+
+### Final Linux gate
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-zombie-per-os-5e76494e-pool-20261011-035354-56435.log`.
+
+The header identifies the exact final head and base. All ten steps pass in 152.2 seconds. The job and gate exit zero after 160 seconds on `msa1`.
+
+- Default tier: 1624 passed, 484 skipped, 11.626 seconds.
+- Slow tier: 467 passed, 1988 skipped, 32.891 seconds.
+- The unchanged zombie proof passes in 0.059 seconds.
+- The real tier reports 147 distinct conformance PASS IDs, including fenced `ad_7_payload_launches_after_durable_identity`.
+- Testkit conformance: 206 passed. Strict pending: 373 of 394; 21 real-only trials omitted and two held.
+- Lists: ledger 690, pending 464, real-pending 58, deferred two, withdrawn eighteen.
+- Minimum: testkit 55/69, real 40/68, accepted 41/69. The AD-7 fence now counts under plan 23ap.
+- The mutation step finds no own-diff mutant. It starts no mutation run. Fuzz passes with no changed decoder harness.
+
+### Merge receipt
+
+Published #258 is MERGED. Merge `cfd6ee364e2eafd329ce4e665100168918d383cb` has parents `4ab8a985899835654b27f0ec7e6a7c4c0b38daef` and `5e76494e1f23f0c17d926b8111791f6aa676ea65`. Read-only Git inspection confirms its tree is `96734d66dae596046e22dab3e2cfb4a5a7f57107`, equal to the final gated tree. The PR body retains both evidence paths and the exact final head and base.
+
+This package receipt does not replace Sol's separate final integration receipt. The reviewer changed no product code and ran no tests, builds, gates, mutations, measurements, or executable merge checks.
+
+VERDICT: CLEAN
