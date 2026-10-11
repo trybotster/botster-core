@@ -227,3 +227,19 @@ Sol preserves the Round 1 evidence limits and confirms the final gate and correc
 GitHub still reports PR #277 OPEN on that head. The body includes the package delta verdict and still says Sol requested.
 PC must add Sol's delta verdict before merge. The gate base must still equal the v1 tip at merge.
 No execution job ran here. Wait for the doorbell. Never poll.
+
+
+## Final body and merge receipt
+
+PC receipt: `msg_plugin-w_1791742011_98c533`.
+The reviewer checks the live PR body through the GitHub API again.
+The body now includes both same-head delta verdicts, the failed check, both imports, and the green final gate.
+The LOW catcher claim remains corrected. All final review conditions close.
+
+GitHub reports PR #277 MERGED at `9f7085f703457b0669785697dbeb14ac687a8942`.
+The merge parents are gate base `20c4e98df6b47a45f3e2284a976e1c8a1341457e` and gated head `2c78bb6c8424d37089062437731980ec0d34eab0`.
+The reviewer verifies that the merge and gated head share tree `fed65ce895b71a25f22d1c9ac82d3344e9952580`.
+The tree diff is empty. The first merge parent equals the final gate base, which satisfies the recorded Q7 condition.
+Package verdict remains CLEAN (0 open). This record closes #277 only.
+The original program-controls group remains incomplete. The six other R-72 classification places remain with the lead for triage.
+No execution job ran here. Wait for the doorbell. Never poll.
