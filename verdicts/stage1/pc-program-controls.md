@@ -1,8 +1,8 @@
 # Integration review: #233 program controls
 
-Current verdict: CLEAN source at `a596c945111ae5df7db757e53ef945d238873c75`.
-Round 4 closes SI-5 and accepts the two pending-ID removals.
-The required final gate on this head remains pending.
+Current verdict: CLEAN source at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+Round 5 reviews the #246 import after Round 4 closes SI-5 and accepts the two pending-ID removals.
+The required final gate and package delta verdict on this imported head remain pending.
 
 ## Source inspection before Round 1 — 2026-10-10
 
@@ -521,3 +521,54 @@ The package reviewer confirms all 79 identities, the caught guard mutation, and 
 The package reviewer keeps all six steward-held IDs pending and retains the R-59 minimum limit.
 The package reviewer also requires the full final gate on the removal head before merge.
 Both source verdicts are now CLEAN. The final exact-head gate remains pending.
+
+## Round 5 — #246 import and control composition
+
+VERDICT: CLEAN (source delta; final exact-head gate remains required).
+
+- Head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+- Previous source CLEAN: `a596c945111ae5df7db757e53ef945d238873c75`.
+- Base: `9ef7e57b857a551e5b66a84d0953630186cb51e7`.
+- Head tree: `18499e6f335eb2f124d6b4a822a2c64c551ceaa9`.
+- Request: `msg_plugin-w_1791710909_b27b16`.
+
+The new base is the #246 merge.
+Sol independently checked its parents and tree: the tree equals reviewed and gated `b168c192`.
+The new head has the previous PC head and this base as its two parents.
+
+Sol read the complete completed check:
+`~/botster-sessions/gates/botster-core-pc-base-merge-check-a596c945-a7be76d5-20261011.log`.
+Conditions 1, 2, and 3 fail on shared `real.rs`.
+The real-pending condition fails because #246 changes a group comment.
+The ancestry conditions pass. The ordinary pending file retains the base contents.
+The source verdict cannot carry automatically. This round reviews the composition directly.
+
+Sol read the complete merge resolution and the complete `real.rs` delta from the previous reviewed head.
+The delta adds exactly #246's argument type, method, documentation, control name, dispatch arm, and control-list assertions.
+The resolved control set retains the named controls, `program::CONTROLS`, and `route::CONTROLS` under the tapped guard.
+`fail_handoff` is outside the five program control names.
+Its guarded dispatch precedes the guarded program dispatch. Both precede the unsupported fallback.
+The merged control-list test checks the added fault control and the program set.
+It retains the route set and the plain-harness rejection checks.
+The unsupported `pty_fail_after` and `wait_worker_exit` checks remain.
+
+The complete import changes only the four #246 base paths.
+The tap and its test file equal the base files; they add no PC resolution change.
+The program module, testkit manifest, and process allowance equal the preceding reviewed versions.
+The program module retains SHA-256 `502b0def622ce62ab80a29140c0e601eb61ea70924daa89387bcf1975122aaa6`.
+The unchanged socket proof retains its completed Linux mutation and focused Mac evidence from Round 4.
+No new timeout, exclusion, pin, process path, or terminal control implementation is added.
+The complete PC own diff still has five files.
+
+Sol independently compared the ID sets and all non-ID lines in the real-pending file.
+The current own removal set equals the preceding own removal set: exactly 18 PC IDs.
+No ID is added. The base's separate DP-2 removal is retained.
+Every non-ID line equals the new base, including #246's new group comment.
+EV-2 and IN-5 remain removed with their Round-4 evidence.
+All six steward-controlled IDs remain pending. The R-59 minimum limit remains unchanged.
+
+No open integration finding remains in this source delta.
+The package CLEAN `119acf92` covers the preceding head; the package delta verdict is still required for this merge.
+PC reports a final gate running on `a7be76d5`. Sol has not read or polled that running log.
+The completed full gate must pass on this exact head before merge.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
