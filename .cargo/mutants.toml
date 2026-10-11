@@ -220,7 +220,7 @@ exclude_re = [
     # The exact-head slow baseline also proves the shared Worker's launch, signal, exit, and removal through Driver.
     # Changed chunking can change the schedule without changing these contract results.
     # This entry covers only the constant arithmetic. Read decisions in io_decisions remain mutation-tested.
-    'crates/botster-worker/src/main\.rs:53:55: replace \* with \+$',
+    'crates/botster-worker/src/main\.rs:58:55: replace \* with \+$',
     # P3 main: process glue only. It reads arguments/token, calls command_line::execute with the real Driver,
     # prints its diagnostic, and returns its status. WorkerLaunch owns parsing; execute owns status decisions.
     # Default execute tests catch all three generated mutations and prove refusal, identity, success, and driver failure.
