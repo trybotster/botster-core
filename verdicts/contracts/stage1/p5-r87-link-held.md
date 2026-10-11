@@ -98,3 +98,10 @@ Checks:
 - **Tier.** HIGH (a new control). The body states the prior art.
 
 No finding. Still to do: main is now `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7` (#67, `fence_lint.rs` only, disjoint from this PR). P5 merges it once (Q7), and the gate runs on that exact head.
+
+## Final: CLEAN on merged head a4ded2169fa4ed7c3b1472bfbdeddc6a99cff45e
+
+- `a4ded216` = `df66aafa` (my round 2 CLEAN) + main `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7`.
+- Main changed only `crates/botster-core-conformance/tests/fence_lint.rs` (#67). The PR's 4 files do not include it, so the merge is disjoint (Q7).
+- The recomputed tree `5f0d952482796981d96a8ad8f167a063b935ba57` equals the commit's tree. The head fast-forwards main, and main is still `52f1b07f`.
+- Gate on the exact head: `...-a4ded216-pool-20261011-151255-31950.log` (sha256 `21ca26a5c25258f510337ba814e44bafadbbd3136a6fbd2abe30c4df93d9b9d3`). The header names head `a4ded216...` and base `52f1b07f...`. msa1, allocation `9991fe78`. Ten steps PASS. Exit 0.
