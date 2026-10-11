@@ -12789,3 +12789,74 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All prior verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 180 — #273 disjoint merge transfer and final gate, 2026-10-11
+
+Exact head: `035baf2c1609526c2388d921a3d8742126e7d67a`.
+Exact base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Parents: source-CLEAN `0eba8683cee771d456b67df0bd40dc2b54fa1f80` and the exact base above.
+Owner final receipt: `msg_plugin-w_1791737408_9e1814`.
+Owner body correction receipt: `msg_plugin-w_1791737511_8041a2`.
+Risk: HIGH, unchanged. This is a disjoint merge-transfer and supplied gate record, not a source delta round.
+Package source verdict: pushed `83aa3637df809f9167ab210ef06ee5d98f671a46`, Round 179.
+Earlier integration verdict: `beb9a10b8647170de9fef3a2ec228040d5758b4b` at that source head.
+
+### Disjoint merge transfer
+
+The reviewer reads the complete supplied shared/core-stage1/evidence/p3-attach-wake/base-merge-check-0eba8683-035baf2c.log.
+The check reports valid ancestry, no conflicts, disjoint paths, byte-identical own source diff, and preserved line-set changes.
+Every required condition passes. BUILD Q7 requires no new source delta round for this base import.
+The complete check appears in the PR at issuecomment-6111148903, with its log path.
+The reviewer verifies that the published check matches the supplied output from its base header through its final result.
+The reviewer runs no executable merge-check job.
+
+Read-only Git comparisons independently confirm that all 20 changed base paths are outside the six-path own diff.
+All six own blobs equal the previously reviewed blobs. The complete own diff is byte-identical before and after the import.
+Both pending files equal the previously reviewed files because the base does not change them.
+Cargo.toml and Cargo.lock equal the new base. The new head's merge base is the exact base above.
+The wake/cancel source conclusions, one-pump cost, steward precision, and proof limits from Round 179 transfer unchanged.
+No future import is accepted here.
+
+### Supplied exact-head gate
+
+Log: gates/botster-core-stage1-p3-attach-wake-035baf2c-pool-20261011-094156-56422.log.
+Verified SHA256: 9140eb7d57589e600c1e31e0789239fc271fe256cabcc2e5fa4c6bf4a4c86531.
+The header names this exact head and base and runs the full Linux gate. All ten steps pass.
+Default: 1729 passed, 480 skipped. Slow: 553 passed, 2022 skipped.
+The three new driver tests and tm_6_begin_and_attach_signal_wake pass on the testkit.
+Six mutants are selected. Five are caught, zero are missed or timeout, and one cancel body returning Default is unviable.
+The reviewer reads all six raw outcomes and all five named catcher records.
+The forwarded-write cancel test catches all five. Stage 2 is unnecessary because stage 1 misses no mutant.
+No FLAKY record appears. The gate selects no changed decoder harness.
+Total step time is 138.1 seconds. Jobq exits zero after 469 seconds, with 318 queued and 151 running.
+The wrapper exits zero after 470 seconds.
+The named testkit transcript remains real-pending because its pinned no_spurious_wakes control is unavailable on the real tier.
+No real TM-6 wake transcript PASS follows from this gate. The future R-43(5) transcript pin remains separate.
+The parked-work wrapper gap and pending Refused(Full) accounting remain separate.
+Historical Mac reversal evidence retains its original heads. It is not relabeled as execution at this imported head.
+
+### Final PR record and finding closure
+
+**F134 LOW — the PR lacks the completed final gate record. CLOSED.**
+The initial body is byte-identical to the source-CLEAN body and names only the earlier 0eba8683 gate.
+The published base-check comment says the final gate follows.
+The reviewer requests the completed gate record in P3 receipt msg_plugin-w_1791737476_1f007d and Sol receipt msg_plugin-w_1791737476_e81b36.
+P3 corrects the body and adds issuecomment-6111371592 without changing source or the exact head.
+Verified final body: /private/tmp/review-p3-pr273-035baf2c-f134-fixed.json.
+Verified comments: /private/tmp/review-p3-pr273-035baf2c-f134-fixed-comments.json.
+The reviewer verifies the unchanged exact head/base and every body and comment change.
+The body now names the exact final head/base, correct gate log, passing suite counts, mutation counts, and absence of FLAKY.
+It links the complete existing base-check comment and labels the 0eba8683 gate Earlier.
+The new comment records the completed final gate. Every other body line remains unchanged.
+No duplicate base-check body, source change, or repeat gate is required.
+
+F133 and F134 are CLOSED. No package finding remains for #273 at this head.
+The package CLEAN transfers with the accepted supplied exact-head gate and final PR record.
+Formal integration acceptance at this new head remains separate. The lead owns the merge decision.
+The one-id move retains its testkit-only scope. No additional pending removal, future pin, or future gate is accepted.
+F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
