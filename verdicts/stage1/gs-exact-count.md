@@ -71,3 +71,26 @@ The lead owns the merge decision and current-base check.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at de819474f8f0cdf590d9d15638fb9e2a271f5a47
+
+## Delta source inspection — bbd25214
+
+- Head: `bbd25214835b4648623cb1e5ac3a89ac50f5d260`.
+- Base: `56fae5826f766b408abca06f99376e0506982bf9`.
+- Parents: `c5cfdde84f79179328e7b9db19dbf603ca919d14` and the exact base above.
+- Tree: `401afd40ba6e49c934a03f34ad360f5bfa777456`.
+- Previously reviewed head: `de819474f8f0cdf590d9d15638fb9e2a271f5a47`.
+- Owner receipt: `msg_plugin-w_1791728370_5ec176`.
+
+The owner requests a delta round and reports a running gate. This receipt is not final READY. The owner reports failed base-check conditions 1, 2, and 3 on `.cargo/mutants.toml`, with condition 4 passing. Sol requests the saved log. Sol does not yet claim to have read that log or the owner's local check output.
+
+Sol independently inspects the exact head and base. The permitted static merge-tree check of its parents reports one conflict, `.cargo/mutants.toml`. That file is also the only shared path between the base changes since the previously reviewed base and the four own paths.
+
+Sol reads all 81 added count lines. Each line equals a previously reviewed added line exactly. The four removed annotations belong to the entries that accepted #267 removed: `Driver::run`, `Driver::read_pty_chunk`, `Driver::read_control`, and `link_send_descriptor`. No replacement exclusion appears.
+
+A standard TOML parse gives identical values at the new head and exact base. Removing the 81 count comments restores the exact base bytes. Thus the resolution retains every base exclusion, reason, timeout, glob, and configuration value. It adds only the retained count comments.
+
+The three xtask own diffs equal their previously reviewed diffs after removal of Git index lines. No implementation or test line changes. All 54 imported-only paths equal the exact base entries. Both pending files equal base. The Git diff check passes.
+
+The source has zero new findings. The earlier parser review, prior-art check, ecosystem rationale, and count-versus-identity limit remain applicable. This inspection approves no exact-head execution evidence, pending removal, or merge. Formal CLEAN waits for READY, the final published body, the supplied full gate, the saved base-check log, and the published package artifact.
+
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.

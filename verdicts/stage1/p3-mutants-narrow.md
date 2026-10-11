@@ -195,3 +195,7 @@ RP-MN-4 closes. All four integration findings are closed. The Round 3 source and
 Sol runs no execution job. The earlier NOT CLEAN record remains intact.
 
 VERDICT: CLEAN (0 open) at 159046a7366597d9c5cec5cadff4050779ba190c
+
+### Round 3 merge verification
+
+During the later #262 source inspection, Sol reads v1 merge `56fae5826f766b408abca06f99376e0506982bf9`. Its parents are the reviewed base `a47f4b86c36b78f03862e14f65ea7324b294552d` and accepted #267 head `159046a7366597d9c5cec5cadff4050779ba190c`. Its tree is `9e11810b53a8e27da7e48782053b6ec83d2a4529`, equal to the reviewed and gated tree. This static verification runs no execution job.
