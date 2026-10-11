@@ -49,6 +49,13 @@ impl Crashable {
 }
 
 impl CrashHandle {
+    /// True while the slot still holds its Core: no crash, and the driver still owns the `Crashable`.
+    pub fn is_live(&self) -> bool {
+        self.slot
+            .upgrade()
+            .is_some_and(|slot| lock(&slot).is_some())
+    }
+
     /// Drops the Core of the slot, outside the slot's lock. False when it was dropped already, by a crash or with the
     /// `Crashable`.
     pub fn crash(&self) -> bool {
