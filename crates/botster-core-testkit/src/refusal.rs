@@ -1234,6 +1234,32 @@ pub(crate) mod tests {
         assert!(handle.is_empty());
     }
 
+    /// The service calls with nothing scripted reach the Core behind the layer and the crash slot, and their results come back
+    /// unchanged.
+    #[test]
+    fn the_service_calls_without_a_script_reach_the_core() {
+        let (mut layer, handle, reached) = layer();
+        let service = ServiceId([1; 32]);
+        let frame = OutboundFrame {
+            frame_type: 1,
+            payload: Default::default(),
+        };
+        assert_eq!(layer.service_send(&service, 0, &frame), Ok(()));
+        assert_eq!(layer.service_recv(&service, 0), Ok(None));
+        assert_eq!(layer.service_report(&service).unwrap_err().detail, "behind");
+        assert_eq!(layer.service_log_tail(&service, 1), Ok(Vec::new()));
+        assert_eq!(
+            *reached.lock().unwrap(),
+            [
+                "service_send",
+                "service_recv",
+                "service_report",
+                "service_log_tail"
+            ]
+        );
+        assert!(handle.is_empty());
+    }
+
     #[test]
     fn the_sync_calls_with_a_row_are_scripted_in_the_layer() {
         let (mut layer, handle, reached) = layer();
