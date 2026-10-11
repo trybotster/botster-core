@@ -47,6 +47,17 @@ Integration verdict: `aa76bc183ac652775b15aa2f17d4a4aba5dc2513`, `verdicts/stage
 Message: `msg_plugin-w_1791715910_b5cd6f`.
 Both CLEAN verdicts cover the supplied green gate. Q8 requires no repeat for this unchanged head.
 No merge receipt has arrived for #259.
+Core #269 is NOT CLEAN at `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`, with 2 open findings.
+The gate base is `56fae5826f766b408abca06f99376e0506982bf9`. Risk: HIGH.
+RC-OR-1 is HIGH: the second capture polls unrelated events and holds them outside Core, changing EV-5 admission and retirement.
+The steward's R-69 requires `events_pending` refusal, no held or re-injected events, and success cleanup.
+The three transcript fences need a contracts PR reviewed by 016c. Core #269 then pins that tag.
+Closure needs a real Activity negative test and five Mac passes per ID without refusal.
+RC-OR-2 is MEDIUM: proofs assert private capture records, marks, changed sets, and history counters.
+Replace those assertions with public completions, control results, and boundary observations.
+The supplied gate is green, but it does not close either finding. Its three real ST-6b trials pass.
+The retained Mac proof runs precede the R-69 repair. The Mac crate failures remain explicit in the verdict.
+The reviewer ran no test, build, or gate.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

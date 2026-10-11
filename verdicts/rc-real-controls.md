@@ -340,3 +340,100 @@ Integration verdict: `aa76bc183ac652775b15aa2f17d4a4aba5dc2513`, `verdicts/stage
 The report arrived in `msg_plugin-w_1791715910_b5cd6f`. It has 0 open findings.
 Both CLEAN verdicts now cover the supplied green gate's exact head and base. Q8 requires no repeat for this unchanged head.
 No merge receipt has arrived. The reviewer ran no test or gate.
+
+## #269: round 1
+
+Date: 2026-10-11.
+Head: `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`.
+Gate base: `56fae5826f766b408abca06f99376e0506982bf9`.
+Risk: HIGH.
+
+**VERDICT: NOT CLEAN (2 open)**
+
+The reviewer read the complete ten-file change against the gate base.
+GitHub confirms this source head. Its current PR base is later: `c942593697e856017572977af0405b17de0124e2`.
+The current head's gate does not cover a later base import.
+
+### RC-OR-1 — HIGH — The second capture changes event retirement and operation admission
+
+Evidence: `capture_layer.rs:129` calls the inner Core's `poll_events(usize::MAX)`.
+It moves unrelated events into `Shared::held`. `CaptureLayer::poll_events` later delivers those events to the transcript.
+This changes the subject before the transcript polls it:
+
+- `botster-core-host/src/engine.rs:542` removes a polled completion from `ops` and frees its `WriteInput` counts.
+- `botster-core-host/src/queue.rs:377` retires only events that remain in Core's queue.
+- An `Activity` in `Shared::held` survives a later `RouteClosed`, although the transcript has not polled that activity.
+
+The layer therefore frees operation slots early and prevents Core from retiring held events.
+Adding the held count to `events_posted` does not restore EV-5 admission or retirement.
+R-62 authorizes the second capture. It does not authorize this change to Core's observable behavior.
+The integration reviewer independently confirms this finding in `msg_plugin-w_1791729359_ba487f`.
+
+Required change: implement steward ruling R-69, supplied by the lead in `msg_plugin-w_1791729519_9eaa06`.
+The reviewer read `/Users/jasonconigliari/botster-sessions/shared/steward/drafts/r69.md`.
+The control begins its capture, pumps without a clock step, and polls.
+Any event other than that capture's own `Completed` must give `ControlError::UnsupportedFor("events_pending")`.
+That refusal is never a pass. Hold and re-inject no drained event.
+On success, read every page and release the capture. Restore the open-capture count and `next_deadline`.
+Do not add a harness model of queue retirement or admission.
+
+The current three transcripts do not consume their final output events before the control.
+Their final sentinel output is followed by `await_quiet`, `await_title`, and `oracle_resume`; those waits do not poll.
+The lead supplied the steward's placement decision in `msg_plugin-w_1791729601_826e63`.
+RC must add a waiting step on the last caused event in one contracts PR, reviewed by reviewer 016c.
+The waiting step must derive its event from the clauses. Core #269 must then pin that tag.
+The PR body must show that each control runs after the transcript consumes every event that it causes.
+
+Closure evidence: a real-tier negative test with an already queued `Activity` must return `events_pending`.
+Each of the three IDs needs at least five Mac runs with no refusal, plus the Linux gate.
+The success proof must check the public capture count and deadline before and after the control.
+
+### RC-OR-2 — MEDIUM — The proofs assert private records and counters
+
+Evidence:
+
+- `capture_layer.rs:599` to `602` assert `recorded.session`, `recorded.mark`, `recorded.pages`, and `shared.begun`.
+- `capture_layer.rs:619` and `623` assert the private capture map and its mark.
+- The same test asserts the private `changed` set after `Resize` and `SetColorProfile`.
+- `real/program.rs:769` to `785` assert the internal marks and the `Programs::output` record.
+- The real resume test waits for `shared.captures` to become nonempty and obtains its capture ID from that private map.
+- The inherited `resume_controls/tests.rs` test also asserts `ModelLog::revs` directly.
+
+These checks violate the user's rule: no test may assert private state.
+They couple the proofs to records that the harness may change without changing control behavior.
+
+Required change: prove capture recording, the output cut, session isolation, and resize/profile refusal through control results and public completions.
+Obtain capture IDs from `Completed`, not from the private map.
+Use public boundary observations for forwarding, releases, event order, and capture cleanup.
+Remove assertions of private maps, sets, and counters. Do not add an accessor that exposes those records for an assertion.
+Private writes that inject a missing-field fault are distinct from assertions of private state.
+The negative comparison proofs may keep that fault injection and assert the control's result.
+The pure `known_output_history` decision tests are not private-state assertions by themselves.
+
+### Other source and evidence checks
+
+R-62 authorizes the comparator and real form. R-67 authorizes the two-comparison testkit form.
+The testkit still fills `ModelLog` at the program edge before `Input::PtyOutput`.
+The comparator reads libghostty fields and applies DECRC only to harness-owned oracle terminals.
+The new C keys match the pinned header. The pinned snapshot encoder's 41 source files import no formatter.
+The reviewer read the completeness cases and the negative saved-cursor comparisons.
+
+The reviewer checked every exclusion change since the earlier complete exclusion review.
+The current PR changes no exclusion. The inherited delta adds the reasoned slow-coverage shell entry and removes four broad driver exclusions.
+The inherited constant-line and reaper-name updates retain their stated evidence.
+No exclusion covers the new comparator, capture layer, resume form, output history, or inspection reads.
+The gate's citation and decision checks pass.
+
+The supplied exact-head gate passes all ten steps and ends with exit 0:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-resume-2a0c4922-pool-20261011-071917-20743.log`.
+It reports 121 mutants: 88 caught, including 29 in stage 2; 33 unviable; 0 missed; 0 timed out.
+All three removed ST-6b IDs pass on the real slow tier in that gate.
+This green gate does not close the source findings.
+
+The retained Mac log at `8169f53f` reports five passes for each of the three IDs:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-r62-real-mac-x5-8169f53f-20261011-062716.log`.
+The reviewer also read the five reversal results at `ad87b507`; each reversal caused a failed test.
+These logs precede the final capture-layer move and formatter cleanup. They do not prove the R-69 repair.
+The retained Mac crate runs are not wholly green: nextest reports 437 passes and two 2-second timeouts;
+the one-process run reports 427 passes and a crash-test thread-count failure, 31 versus 28.
+Those limits remain explicit. The reviewer ran no test, build, or gate.
