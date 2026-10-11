@@ -4,6 +4,7 @@
 //! Modules are added by the packages that need them. The first is [`lock`].
 
 pub mod entropy;
+pub mod fd_pass;
 pub mod lock;
 pub mod payload;
 pub mod process;
