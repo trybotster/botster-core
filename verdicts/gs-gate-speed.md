@@ -2467,3 +2467,9 @@ I read the complete integration artifact. Its two findings agree with GS-B13-R1-
 The live head remains unchanged. The live base has advanced to `f6025aed4cdf7da836e835e0040fc128b7e8f32f`. This review covers only the stated reviewed base.
 
 Every finding must close before CLEAN. I ran no gate, build, test, base-check script, or executable probe.
+
+Sol-B records all three matching findings in supplement `7fd19ea52d09f5c7fe964bd61339168a7471885b`.
+
+I read the supplement. It corrects the compilation-count claim and retains NOT CLEAN with two HIGH findings and one LOW finding.
+
+The reviewed head and base remain unchanged. This receipt starts no new source review. Wait for the repaired-head READY.
