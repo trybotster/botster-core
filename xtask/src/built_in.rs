@@ -333,4 +333,35 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
         command(root, &[]).unwrap();
     }
+
+    /// The command reads `crates/*`, `xtask` and the suite, and fails on a gap: a library of `crates/` without the const.
+    #[test]
+    fn the_command_fails_on_a_crate_without_the_const() {
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        let write = |path: &str, text: &str| {
+            let file = root.path().join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        };
+        write("xtask/Cargo.toml", "[package]\nname = \"xtask\"\n");
+        write("xtask/src/main.rs", MAIN);
+        write(
+            "crates/botster-core/Cargo.toml",
+            "[package]\nname = \"botster-core\"\n",
+        );
+        write("crates/botster-core/src/lib.rs", LIB);
+        write(SUITE, &format!("{SELF_ENTRY}\n{}\n", entry(CORE)));
+        command(root.path(), &[]).unwrap();
+        write(
+            "crates/botster-core/src/lib.rs",
+            &LIB.replace(CONST_LINE, ""),
+        );
+        let error = command(root.path(), &[]).unwrap_err().to_string();
+        assert!(
+            error.contains(&format!(
+                "botster-core: src/lib.rs has no line `{CONST_LINE}`"
+            )),
+            "{error}"
+        );
+    }
 }

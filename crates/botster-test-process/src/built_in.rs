@@ -251,6 +251,26 @@ mod tests {
         assert!(check_candidate(&candidate, None).is_err());
     }
 
+    /// The `_here` forms read this process's runtime `CARGO_MANIFEST_DIR` (this crate's directory): a crate built in
+    /// another workspace, and a candidate directory with no record, are refused.
+    #[test]
+    #[should_panic(expected = "elsewhere was built in /elsewhere/crates/x")]
+    fn the_unit_test_form_panics_for_a_crate_of_another_workspace() {
+        assert_built_here("elsewhere", "/elsewhere/crates/x");
+    }
+
+    #[test]
+    fn the_here_forms_use_the_runtime_manifest_directory() {
+        assert_eq!(check_here(&[("self", env!("CARGO_MANIFEST_DIR"))]), Ok(()));
+        assert!(check_here(&[("other", "/elsewhere/crates/x")]).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let error = check_candidate_here(dir.path()).unwrap_err();
+        assert!(
+            error.contains("run `cargo xtask prebuild-worker`"),
+            "{error}"
+        );
+    }
+
     #[test]
     fn a_test_without_the_variable_is_refused() {
         let error = check(None, &[("core", "/w/crates/core")]).unwrap_err();
