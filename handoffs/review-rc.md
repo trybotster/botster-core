@@ -768,3 +768,31 @@ The reviewer claims no independent raw clean verification.
 All four reversals fail their named behavior assertions. No new comparison run is required.
 The corrected exact-head gate and completed package verdict remain pending.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — corrected source verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/288`.
+Source head: `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Gate message: `msg_plugin-w_1791751998_0266ff`.
+
+RC-OE-1 and RC-OE-2 are closed. Open findings: 0, including LOW findings.
+The source correction and body correction match the receipts above.
+The reviewer read the exact-head gate header, step summary, mutation results, and named catches.
+Gate log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-41c1f7e2-pool-20261011-133549-59239.log`.
+The header names the exact source head and reviewed base above.
+All ten steps pass. The step total is 409.7 seconds; the wrapper exits 0 after 418 seconds.
+The gate reports 32 mutants: 29 caught, including 11 in stage 2; three unviable; no miss or timeout.
+The catches cover the fresh base, overlay validation, event state, history reads, and real-tier control dispatch.
+The reversal results and their reported build provenance remain as recorded above.
+The integration correction receipt is `4ad5e8d5b669134eba7db24b7d1f3f1cffc8348f`; both integration finding conditions are closed.
+The integration reviewer must publish its completed CLEAN after it checks this exact-head gate and package verdict.
+
+This verdict covers this source head and this reviewed base.
+The final-slot procedure still requires the current `v1` import, the applicable review and checks, and one final exact-head gate.
+The final PR body must name that final head, base, and gate.
+This source gate does not replace the final-slot gate.
+The reviewer ran no test, build, or gate.
