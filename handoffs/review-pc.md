@@ -1349,3 +1349,15 @@ Sol final record 4ad5e8d5b669134eba7db24b7d1f3f1cffc8348f is read and verified o
 Sol receipt msg_plugin-w_1791751368_16378a confirms import carry, final gate, exact-tree merge, and its body closure.
 Both reviews are CLEAN on 4daf627b54739f847dd2448bf660a6a45c1b714a. No #283 review condition remains open.
 PART B and R-78 design remain separate. No execution job runs here. Never poll.
+
+## R-78 design review before code
+
+Receipt: msg_plugin-w_1791751282_685365. Base: 670e5fc799a25794910a1847fc41b3e089bf03f4. Plan 23cm.
+Design verdict: NOT CLEAN (4 open), verdicts/pc-r78-design.md.
+R78-D1 MEDIUM: the driver flushes before reading and closes on send failure, which can drop buffered Exited despite engine retention.
+R78-D2 MEDIUM: the plan needs a named real-process proof and the required A5-4 table, with accurately scoped reversal evidence.
+R78-D3 LOW: the design needs the required Prior art note.
+R78-D4 MEDIUM: the declared zombie limit is rejected by lead answer msg_plugin-w_1791751430_24e8ed.
+Use nonblocking OS process state without a second waitpid. Cover reaped, zombie, live broken-link, and deadline-first queued-exit cases.
+The reviewer traces the host engine, driver, identity check, and reaper. Orchestrate-delivery applies to the lifecycle and ordering premise.
+PC has the findings and lead answer. No source change, executable result, or gate is accepted. Wait for the corrected design. Never poll.
