@@ -1337,6 +1337,89 @@ fn a_held_hand_over_is_blocked_on_its_link_until_the_release() {
     });
 }
 
+/// `hold_start` (Core LC-4, A2-1; steward ruling, plan 23bg): the tap reads a new link's hello while a hold is armed. The
+/// link of the held instance is kept from the driver, and the edges stay quiet; a link of another instance passes. The
+/// release gives the held link to the next accept with every byte in order, and wakes the host. A release of an armed hold
+/// disarms it. A link whose hello is not complete waits, and keeps the edges busy.
+#[test]
+fn a_held_start_keeps_the_workers_link_from_the_driver_until_the_release() {
+    const C: LinkId = LinkId(3);
+    const D: LinkId = LinkId(4);
+    let held_hello = hello_frame("1-1");
+    let mut fake = Fake::default();
+    fake.accepts.extend([A, B]);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Data(held_hello[..3].to_vec()),
+            Read::Data(held_hello[3..].to_vec()),
+        ]
+        .into(),
+    );
+    fake.reads
+        .insert(B, vec![Read::Data(hello_frame("2-2"))].into());
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    assert!(rig.with(|t| t.hold_link(one.clone())));
+    assert!(
+        !rig.with(|t| t.hold_link(one.clone())),
+        "one hold of a start"
+    );
+    assert!(!rig.with(|t| t.link_held(&one)), "armed only");
+    assert_eq!(
+        rig.edges.accept_link(),
+        Some(B),
+        "the held link is not given"
+    );
+    assert!(rig.with(|t| t.link_held(&one)));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert_eq!(rig.recv(B, 256).unwrap(), hello_frame("2-2"));
+    assert!(rig.with(|t| t.quiet()), "a held link is not a report");
+    let before = rig.signals();
+    assert!(rig.with(|t| t.release_link(&one)));
+    assert_eq!(rig.signals(), before + 1, "the release wakes the host");
+    assert!(!rig.with(|t| t.release_link(&one)), "no hold left");
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert_eq!(
+        rig.recv(A, 256).unwrap(),
+        held_hello,
+        "every byte, in order"
+    );
+
+    // A release of an armed hold disarms it: the later link goes to the driver.
+    let three = InstanceId("3-3".into());
+    assert!(rig.with(|t| t.hold_link(three.clone())));
+    assert!(rig.with(|t| t.release_link(&three)));
+    rig.with(|t| {
+        t.inner.accepts.push_back(C);
+        t.inner
+            .reads
+            .insert(C, vec![Read::Data(hello_frame("3-3"))].into());
+    });
+    assert_eq!(rig.edges.accept_link(), Some(C));
+
+    // A link whose hello is not complete waits for the rest, and the edges are busy meanwhile.
+    let four = InstanceId("4-4".into());
+    let hello = hello_frame("4-4");
+    assert!(rig.with(|t| t.hold_link(four.clone())));
+    rig.with(|t| {
+        t.inner.accepts.push_back(D);
+        t.inner
+            .reads
+            .insert(D, vec![Read::Data(hello[..3].to_vec())].into());
+    });
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(!rig.with(|t| t.link_held(&four)));
+    assert!(!rig.with(|t| t.quiet()), "a link in transit");
+    rig.with(|t| {
+        t.inner
+            .reads
+            .insert(D, vec![Read::Data(hello[3..].to_vec())].into())
+    });
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.link_held(&four)));
+}
+
 /// `route_stream_holders` (plan 23bf): the tap counts the bytes that Core gives `close_route_stream` for a stream, by the
 /// stream's socket, and gives the inner edge the same stream. Another endpoint type is passed on and not counted.
 #[test]
