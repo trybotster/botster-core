@@ -12,7 +12,8 @@
 //! link and every descriptor of that read once: [`Action::CloseDescriptor`] for each unbound one, and the route that took
 //! one of them ends `HandoffFailed` (its transport closes, and the host is told once). The bind happens in frame order, when
 //! each `AttachRoute` frame is complete, so a later frame of the same read already sees the route; a fault found after the
-//! bind ends that route.
+//! bind ends that route. A read leaves the table when it is checked; every close of the link closes each read that is left
+//! in the same way, because no read that is left was proven (F117).
 
 use super::route::DescriptorId;
 use super::{Action, LinkState, Worker};
@@ -61,7 +62,7 @@ impl Worker {
                 false
             }
             LinkState::Closing | LinkState::Closed => {
-                self.close_unbound();
+                self.close_unchecked();
                 false
             }
         }
@@ -144,12 +145,13 @@ impl Worker {
         }
     }
 
-    /// The descriptors of a link that ended, was replaced or broke (DP-8): none of them will be bound. A read whose
-    /// descriptor a route took keeps its route. Every close of the link calls this, also a close for a frame above the
-    /// bound (F117).
-    pub(super) fn close_unbound(&mut self) {
+    /// The reads with descriptors of a link that ended, was replaced or broke (DP-8). A read leaves the table when it is
+    /// checked, so no read that is left was proven: each one closes once, and a route that took its descriptor ends
+    /// `HandoffFailed` (lead ruling Q1). Every close of the link calls this, also a close for a frame above the bound
+    /// (F117). The routes of checked reads are not here, and stay.
+    pub(super) fn close_unchecked(&mut self) {
         let reads = std::mem::take(&mut self.handoffs.reads);
-        for read in reads.into_values().filter(|read| read.route.is_none()) {
+        for read in reads.into_values() {
             self.close_read(read);
         }
         self.handoffs.frame_start = 0;

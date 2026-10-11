@@ -393,3 +393,126 @@ fn two_descriptor_reads_of_one_other_frame_close_each_descriptor_once() {
         "{actions:?}"
     );
 }
+
+/// The route closes of `actions`, as the host is told them.
+fn route_closes(w: &mut World, actions: &[Action]) -> Vec<WorkerMsg> {
+    w.reports(actions)
+        .into_iter()
+        .filter(|m| matches!(m, WorkerMsg::RouteClosed { .. }))
+        .collect()
+}
+
+fn handoff_failed(route: u64) -> WorkerMsg {
+    WorkerMsg::RouteClosed {
+        route: RouteId(route),
+        reason: RouteCloseReason::HandoffFailed,
+        route_tag: None,
+    }
+}
+
+/// F117, the bound case: a descriptor read holds a complete `AttachRoute` frame, then a frame above the link's bound. The
+/// route takes the descriptor, and the frame above the bound closes the link before the read is checked: the route ends
+/// `HandoffFailed` once (lead ruling Q1), on both forms, with no `LinkClosed` input.
+#[test]
+fn a_frame_above_the_bound_after_a_bound_attach_route_ends_the_route() {
+    let mut header = Vec::new();
+    header.extend_from_slice(&(spec().link_frame_bound + 1).to_le_bytes());
+    header.push(FrameType::HOST_MSG.0);
+    let both = [attach_frame(1), header].concat();
+    for form in FORMS {
+        let mut w = World::running();
+        let inputs = reads(
+            form,
+            &other_frame(),
+            &both,
+            &[DescriptorId(1)],
+            &[],
+            both.len(),
+            3,
+        );
+        let fed = feed_all(&mut w, inputs);
+        let actions = with_link_written(&mut w, fed);
+        assert_eq!(
+            binds(&actions),
+            vec![(DescriptorId(1), RouteId(1))],
+            "{form:?}"
+        );
+        assert!(
+            actions.contains(&Action::LinkClose),
+            "{form:?}: {actions:?}"
+        );
+        assert_eq!(
+            descriptor_closes(&actions),
+            BTreeMap::from([(DescriptorId(1), 1)]),
+            "{form:?}"
+        );
+        assert_eq!(
+            route_closes(&mut w, &actions),
+            vec![handoff_failed(1)],
+            "{form:?}"
+        );
+    }
+}
+
+/// F117, a frame that closes the link: a descriptor read holds a complete `AttachRoute` frame, then a `Remove` of a
+/// worker whose payload ended, which closes the link before the read is checked. The route ends `HandoffFailed` once.
+#[test]
+fn a_frame_that_closes_the_link_after_a_bound_attach_route_ends_the_route() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    w.feed(Input::PtyDrained);
+    let bytes = [attach_frame(1), World::msg(&HostMsg::Remove)].concat();
+    let fed = w.feed(World::read(bytes, vec![DescriptorId(1)]));
+    let actions = with_link_written(&mut w, fed);
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert!(actions.contains(&Action::LinkClose), "{actions:?}");
+    assert_eq!(
+        descriptor_closes(&actions),
+        BTreeMap::from([(DescriptorId(1), 1)])
+    );
+    assert_eq!(route_closes(&mut w, &actions), vec![handoff_failed(1)]);
+}
+
+/// A descriptor read that holds a complete `AttachRoute` frame and the first bytes of another frame is not checked until
+/// that frame is complete. The link of each world ends before it is.
+fn bound_with_an_open_frame(w: &mut World) -> Vec<Action> {
+    let bytes = [attach_frame(1), other_frame()[..3].to_vec()].concat();
+    w.feed(World::read(bytes, vec![DescriptorId(1)]))
+}
+
+/// F117: a terminate that ends the link at once, before the read of a bound route is checked, ends the route
+/// `HandoffFailed` once.
+#[test]
+fn a_terminate_before_the_read_is_checked_ends_its_route() {
+    let mut w = World::running();
+    w.feed(Input::PayloadExited(ExitStatus::Code(0)));
+    w.feed(Input::PtyDrained);
+    let mut actions = bound_with_an_open_frame(&mut w);
+    actions.extend(w.feed(Input::Terminate));
+    assert_eq!(binds(&actions), vec![(DescriptorId(1), RouteId(1))]);
+    assert!(actions.contains(&Action::LinkClose), "{actions:?}");
+    assert_eq!(
+        descriptor_closes(&actions),
+        BTreeMap::from([(DescriptorId(1), 1)])
+    );
+    assert_eq!(route_closes(&mut w, &actions), vec![handoff_failed(1)]);
+}
+
+/// DP-8: a link that ends before the read of a bound route is checked ends that route once; the route of a checked read
+/// stays.
+#[test]
+fn a_link_end_before_the_read_is_checked_ends_only_its_route() {
+    let mut w = World::running();
+    let mut actions = w.feed(World::read(attach_frame(2), vec![DescriptorId(2)]));
+    actions.extend(bound_with_an_open_frame(&mut w));
+    actions.extend(w.feed(Input::LinkClosed));
+    assert_eq!(
+        binds(&actions),
+        vec![(DescriptorId(2), RouteId(2)), (DescriptorId(1), RouteId(1))]
+    );
+    assert_eq!(
+        descriptor_closes(&actions),
+        BTreeMap::from([(DescriptorId(1), 1)])
+    );
+    assert!(!actions.contains(&Action::RouteClose { route: RouteId(2) }));
+}
