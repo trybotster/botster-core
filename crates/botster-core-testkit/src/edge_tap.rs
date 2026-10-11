@@ -39,6 +39,7 @@
 
 use crate::route_reports::{RouteReports, Seen};
 use crate::stand_in::StandIn;
+use crate::stream_holders::{socket_id, SocketId};
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
     ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, StorageError,
@@ -52,6 +53,8 @@ use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, WorkerMsg};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io;
+use std::os::fd::AsFd;
+use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
 /// The bytes that one take-ahead read asks for.
@@ -219,6 +222,20 @@ struct Hold {
     write_interest: bool,
 }
 
+/// A hand-over that the tap holds (`hold_handoff`, Core OU-9, A5-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HandoffHold {
+    Off,
+    /// The next `link_send_descriptor` meets the hold.
+    Armed,
+    /// Core's hand-over met the hold on `link`: every descriptor send there is `Blocked` until the release.
+    Held {
+        link: LinkId,
+        /// The last write interest that Core asked for on that link during the hold.
+        write_interest: bool,
+    },
+}
+
 /// The registry rows that passed through the taps of one data directory, by session: Core's own decoding of each row.
 /// They outlive the handle and the row's removal, so a later handle of the directory can name a session's processes.
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
@@ -249,8 +266,18 @@ pub struct Tap<E> {
     stand_ins: Vec<(StandIn, Option<usize>)>,
     /// The held starts, by instance (`hold_start_at`, R-49 Q2).
     holds: BTreeMap<InstanceId, Hold>,
+    /// The held control links of starts, by instance (`hold_start`, plan 23bg): `None` while the hold is armed, and the
+    /// worker's link once it arrived and is held from the driver.
+    link_holds: BTreeMap<InstanceId, Option<LinkId>>,
+    /// The new links whose hello the tap has not read yet, while a `hold_start` is armed, in the order of their accept.
+    unnamed: VecDeque<LinkId>,
     /// The next hand-over of a route's stream endpoint fails, once (`fail_handoff`, Core DP-2).
     fail_handoff: bool,
+    /// The held hand-over (`hold_handoff`, Core OU-9).
+    handoff: HandoffHold,
+    /// The bytes that Core gave `close_route_stream` to write to a route's stream, by the stream's socket
+    /// (`route_stream_holders`, plan 23bf). It is the only `HostEdges` call that moves bytes through a route's stream.
+    stream_bytes: BTreeMap<SocketId, u64>,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
     /// and the bytes that they gave count, never the tap's take-ahead.
     reports: RouteReports,
@@ -271,11 +298,10 @@ impl<E: HostEdges> Tap<E> {
     /// nothing, and at most one new link, one exit and one read chunk for each link. When the tap holds something, it
     /// signals the wake edge, so that the host pumps and reads it (TM-6).
     pub fn quiet(&mut self) -> bool {
+        self.sort_unnamed();
         let mut quiet = !self.holds_anything();
         if quiet {
-            if let Some(link) = self.inner.accept_link() {
-                self.links.insert(link, LinkTap::accepted());
-                self.accepts.push_back(link);
+            if self.take_link() {
                 quiet = false;
             }
             if let Some(exit) = self.inner.poll_process_exit() {
@@ -284,20 +310,19 @@ impl<E: HostEdges> Tap<E> {
             }
             let mut buf = vec![0u8; READ_CHUNK];
             for (link, tap) in &mut self.links {
-                loop {
-                    match self.inner.link_recv(*link, &mut buf) {
-                        Ok(0) => tap.end = Some(End::Closed),
-                        Ok(n) => {
-                            tap.observe(&buf[..n], &mut self.launches, &self.heard);
-                            tap.held.extend(&buf[..n]);
-                        }
-                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                        Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                        Err(e) => tap.end = Some(End::Failed(e.kind())),
+                match self.inner.link_recv(*link, &mut buf) {
+                    Ok(0) => tap.end = Some(End::Closed),
+                    Ok(n) => {
+                        tap.observe(&buf[..n], &mut self.launches, &self.heard);
+                        tap.held.extend(&buf[..n]);
                     }
-                    quiet = false;
-                    break;
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                    // No progress: the edges are not quiet, the wake signals, and a later call reads again (#287
+                    // RC-R2-1: no retry without progress). The link and its bytes stay.
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(e) => tap.end = Some(End::Failed(e.kind())),
                 }
+                quiet = false;
             }
         }
         if !quiet {
@@ -306,10 +331,122 @@ impl<E: HostEdges> Tap<E> {
         quiet
     }
 
+    /// A link that a `hold_start` holds is not a report: its bytes wait for the release, and the edges can be quiet.
     fn holds_anything(&self) -> bool {
         !self.accepts.is_empty()
             || !self.exits.is_empty()
-            || self.links.values().any(LinkTap::holds_anything)
+            || !self.unnamed.is_empty()
+            || self
+                .links
+                .iter()
+                .any(|(link, tap)| tap.holds_anything() && !self.link_held_for_start(*link))
+    }
+
+    /// Whether `link` is held by a `hold_start`.
+    fn link_held_for_start(&self, link: LinkId) -> bool {
+        self.link_holds.values().any(|held| *held == Some(link))
+    }
+
+    /// Takes the next new link of the inner edge: to `accepts`, or, while a `hold_start` is armed, to `unnamed` until its
+    /// hello names its instance ([`Tap::sort_unnamed`]). False when the inner edge has no new link.
+    fn take_link(&mut self) -> bool {
+        let Some(link) = self.inner.accept_link() else {
+            return false;
+        };
+        self.links.insert(link, LinkTap::accepted());
+        if self.link_holds.values().any(Option::is_none) {
+            self.unnamed.push_back(link);
+            self.sort_unnamed();
+        } else {
+            self.accepts.push_back(link);
+        }
+        true
+    }
+
+    /// Reads ahead on each unnamed link until its hello names its instance (plan 23bg). A link of an armed `hold_start`
+    /// is held from the driver; any other link goes to `accepts`, in order: a link whose first frame is no hello, one that
+    /// ended first, or one of an instance with no armed hold. With no armed hold left, every unnamed link goes to
+    /// `accepts`. The bytes read ahead stay in the link's record, in order, for the driver.
+    fn sort_unnamed(&mut self) {
+        let Tap {
+            inner,
+            links,
+            accepts,
+            launches,
+            heard,
+            link_holds,
+            unnamed,
+            ..
+        } = self;
+        let mut buf = vec![0u8; READ_CHUNK];
+        let mut waiting = VecDeque::new();
+        while let Some(link) = unnamed.pop_front() {
+            let Some(state) = links.get_mut(&link) else {
+                continue;
+            };
+            let armed = link_holds.values().any(Option::is_none);
+            while armed && state.instance.is_none() && state.frames.is_some() && state.end.is_none()
+            {
+                match inner.link_recv(link, &mut buf) {
+                    Ok(0) => state.end = Some(End::Closed),
+                    Ok(n) => {
+                        state.observe(&buf[..n], launches, heard);
+                        state.held.extend(&buf[..n]);
+                    }
+                    // A read that makes no progress ends this call's reading; the link waits, and the next call reads
+                    // again (#287 RC-R1-1: no retry without progress).
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        break
+                    }
+                    Err(e) => state.end = Some(End::Failed(e.kind())),
+                }
+            }
+            if armed && state.instance.is_none() && state.frames.is_some() && state.end.is_none() {
+                waiting.push_back(link);
+                continue;
+            }
+            match state.instance.as_ref().and_then(|i| link_holds.get_mut(i)) {
+                Some(slot) if slot.is_none() => *slot = Some(link),
+                _ => accepts.push_back(link),
+            }
+        }
+        *unnamed = waiting;
+    }
+
+    /// Arms `hold_start` for `instance` (Core LC-4, A2-1; steward ruling, plan 23bg): the worker's control link is held from
+    /// the driver when it arrives, so Core sees no link of the worker and the session stays `Starting`. False when a hold of
+    /// `instance` is already set.
+    pub fn hold_link(&mut self, instance: InstanceId) -> bool {
+        if self.link_holds.contains_key(&instance) {
+            return false;
+        }
+        self.link_holds.insert(instance, None);
+        true
+    }
+
+    /// Whether the hold of `instance` holds the worker's link (`start_held`): false while it is only armed.
+    pub fn link_held(&self, instance: &InstanceId) -> bool {
+        matches!(self.link_holds.get(instance), Some(Some(_)))
+    }
+
+    /// Ends the hold of `instance` (`release_start`). A held link goes to the driver's next `accept_link`, with every byte
+    /// that the tap read ahead, in order, and the wake edge signals. An armed hold is disarmed, and the later link goes to the
+    /// driver as usual. False when no hold of `instance` is set.
+    pub fn release_link(&mut self, instance: &InstanceId) -> bool {
+        let Some(held) = self.link_holds.remove(instance) else {
+            return false;
+        };
+        if let Some(link) = held {
+            self.accepts.push_back(link);
+        }
+        self.sort_unnamed();
+        self.inner.wake().signal();
+        true
     }
 
     /// What the driver consumed of the reports of `route` from the worker of `instance` (`route_reports`, R-66). While a report
@@ -433,7 +570,10 @@ impl<E: HostEdges> Tap<E> {
             return false;
         };
         if let Some(link) = hold.link {
-            self.inner.set_write_interest(link, hold.write_interest);
+            let handoff_held =
+                matches!(self.handoff, HandoffHold::Held { link: held, .. } if held == link);
+            self.inner
+                .set_write_interest(link, hold.write_interest && !handoff_held);
         }
         true
     }
@@ -443,6 +583,56 @@ impl<E: HostEdges> Tap<E> {
     /// end of its stream, and the route closes `HandoffFailed`.
     pub fn fail_next_handoff(&mut self) {
         self.fail_handoff = true;
+    }
+
+    /// Arms `hold_handoff` (Core OU-9, A5-1): the next `link_send_descriptor` is `Blocked`, and so is every later one on
+    /// its link until [`Tap::release_handoff`]. The driver keeps the frame and the endpoint in order, so `attach` returns
+    /// and the worker has no transport for the route. A held hand-over is not a report, so it does not make the edges
+    /// busy. False when a hand-over is already armed or held.
+    pub fn hold_handoff(&mut self) -> bool {
+        if self.handoff != HandoffHold::Off {
+            return false;
+        }
+        self.handoff = HandoffHold::Armed;
+        true
+    }
+
+    /// Ends the hold of `hold_handoff` (Core OU-9, A5-2). The write interest that Core asked for on the held link reaches
+    /// the inner edge, and the wake edge signals, so the next pump sends the held frame with its endpoint first.
+    pub fn release_handoff(&mut self) {
+        if let HandoffHold::Held {
+            link,
+            write_interest,
+        } = std::mem::replace(&mut self.handoff, HandoffHold::Off)
+        {
+            let launch_held = self.holds.values().any(|hold| hold.link == Some(link));
+            self.inner
+                .set_write_interest(link, write_interest && !launch_held);
+        }
+        self.inner.wake().signal();
+    }
+
+    /// The bytes that Core gave `close_route_stream` for the stream of `socket` (`route_stream_holders`, plan 23bf). Core is
+    /// sans-IO: `HostEdges` is its only I/O path, and `close_route_stream` is its only call that writes to a route's stream;
+    /// no call reads one. The count is the bytes that Core asked the edge to write, so an upper bound of what the stream
+    /// took; 0 is exact.
+    pub fn stream_bytes(&self, socket: SocketId) -> u64 {
+        self.stream_bytes.get(&socket).copied().unwrap_or(0)
+    }
+
+    /// Whether a descriptor send on `link` meets the hold of `hold_handoff`. An armed hold takes `link`.
+    fn handoff_held(&mut self, link: LinkId) -> bool {
+        match self.handoff {
+            HandoffHold::Armed => {
+                self.handoff = HandoffHold::Held {
+                    link,
+                    write_interest: false,
+                };
+                true
+            }
+            HandoffHold::Held { link: held, .. } => held == link,
+            HandoffHold::Off => false,
+        }
     }
 
     /// The hold whose `Launch` met it on `link`.
@@ -545,7 +735,11 @@ impl<E: HostEdges> EdgeTap<E> {
             signals: Vec::new(),
             stand_ins: Vec::new(),
             holds: BTreeMap::new(),
+            link_holds: BTreeMap::new(),
+            unnamed: VecDeque::new(),
             fail_handoff: false,
+            handoff: HandoffHold::Off,
+            stream_bytes: BTreeMap::new(),
             reports: RouteReports::default(),
         }));
         let weak = Arc::downgrade(&tap);
@@ -609,12 +803,15 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn accept_link(&mut self) -> Option<LinkId> {
         let mut tap = self.tap();
-        if let Some(link) = tap.accepts.pop_front() {
-            return Some(link);
+        tap.sort_unnamed();
+        loop {
+            if let Some(link) = tap.accepts.pop_front() {
+                return Some(link);
+            }
+            if !tap.take_link() {
+                return None;
+            }
         }
-        let link = tap.inner.accept_link()?;
-        tap.links.insert(link, LinkTap::accepted());
-        Some(link)
     }
 
     fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
@@ -689,14 +886,23 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn set_write_interest(&mut self, link: LinkId, on: bool) {
         let mut tap = self.tap();
-        let on = match tap.hold_on(link) {
-            Some(hold) => {
-                hold.write_interest = on;
-                false
+        // A held link keeps Core's interest for its release; the inner edge gets none.
+        let mut held = false;
+        if let Some(hold) = tap.hold_on(link) {
+            hold.write_interest = on;
+            held = true;
+        }
+        if let HandoffHold::Held {
+            link: handoff_link,
+            write_interest,
+        } = &mut tap.handoff
+        {
+            if *handoff_link == link {
+                *write_interest = on;
+                held = true;
             }
-            None => on,
-        };
-        tap.inner.set_write_interest(link, on);
+        }
+        tap.inner.set_write_interest(link, on && !held);
     }
 
     fn set_read_interest(&mut self, link: LinkId, on: bool) {
@@ -710,7 +916,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         endpoint: StreamEndpoint,
     ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         let mut tap = self.tap();
-        if tap.hold_on(link).is_some() {
+        if tap.hold_on(link).is_some() || tap.handoff_held(link) {
             return Err((endpoint, DescriptorSendError::Blocked));
         }
         if std::mem::take(&mut tap.fail_handoff) {
@@ -724,7 +930,18 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
     }
 
     fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
-        self.tap().inner.close_route_stream(endpoint, bytes);
+        let mut tap = self.tap();
+        // The real harness's endpoint is a `UnixStream`; the inner edge gets the same object back.
+        let endpoint = match endpoint.downcast::<UnixStream>() {
+            Ok(stream) => {
+                if let Ok(socket) = socket_id(stream.as_fd()) {
+                    *tap.stream_bytes.entry(socket).or_default() += bytes.len() as u64;
+                }
+                StreamEndpoint::new(stream)
+            }
+            Err(endpoint) => endpoint,
+        };
+        tap.inner.close_route_stream(endpoint, bytes);
     }
 
     fn wake(&self) -> Arc<dyn HostWake> {
