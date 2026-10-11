@@ -1163,3 +1163,23 @@ Keep the Core implementation based on stream room and real socket readiness.
 
 Two LOW findings remain open. Both must close before CLEAN.
 The source corrections and exact-head green gate remain as recorded. The reviewer ran no test, build, or gate.
+
+
+### Core #285 — body correction, round 3
+
+VERDICT: CLEAN
+Exact source remains `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Gate comparison base remains `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Open findings: 0. This verdict supersedes the round 2 record correction.
+The reviewer read the complete current PR body and confirmed the unchanged GitHub source head.
+
+RC-TK-3 is closed. The body labels B13 as the owner's reported diagnosis, not a proved cause.
+It states the cited log's FAIL, executable-path, and FAIL results. It states that the log proves no withdrawn PASS or dep-info choice.
+The withdrawal, valid trial counts, and clean-build provenance remain explicit.
+RC-TK-5 is closed. The prior-art section correctly cites FakeRoute's control at `.36` and `.40`.
+It explains that FakeRoute reads its own admission state, while Core's control observes only the client-side stream boundary.
+RC-TK-1, RC-TK-2, and RC-TK-4 remain closed. No source changed for these body corrections.
+
+The recorded exact-head green gate still applies; a body correction requires no repeat execution.
+Integration CLEAN remains required on this exact head. The final slot, import review or check, and exact-head gate remain due.
+The reviewer ran no test, build, or gate.
