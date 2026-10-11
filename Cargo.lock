@@ -361,6 +361,7 @@ dependencies = [
  "kqueue",
  "libc",
  "libproc",
+ "libtest-mimic",
  "pty-process",
  "rustix",
  "signal-hook",
