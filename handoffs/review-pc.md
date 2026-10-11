@@ -9,11 +9,11 @@
 - Verified plan SHA-256: `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
 - Required contracts pin: `contracts-v0.1.27`, commit `b161db8`. The PC pair owns the pin move.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+- Current reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Current reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package CLEAN, zero open findings, for PR #233 at `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`. Integration CLEAN and the final gate remain required.
+- Status: package NOT CLEAN (1 open) for PR #233 at `8cfdd6715c6a69c419d9819636e185bfff74bb24`. SI-5 awaits normal-run and gate evidence.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -269,3 +269,65 @@ No reviewer delta round is required. The final gate must run on the new head aft
 The reviewer ran no execution job.
 Next: push renewed CLEAN and send the verdict commit. Then wait for the integration verdict or final-gate doorbell.
 The 22 pending PC IDs remain pending. The PC group is not complete.
+
+Push record: renewed CLEAN verdict `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` is on `origin/stage1/review-pc`.
+The verdict clears PR #233 logic at `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`, with zero open findings.
+The reviewer worktree is clean. Integration CLEAN and the final gate remain required before merge.
+Next: wait for the doorbell. Never poll.
+
+Integration CLEAN received: `msg_plugin-w_1791699461_e607b0` from Sol.
+Head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`. Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Integration verdict commit: `a7d8d900992deda9846573487dde2ab578d76df0`.
+File: `verdicts/stage1/pc-program-controls.md`. The package reviewer read the complete artifact.
+Both reviewers report CLEAN on this head. SI-1 through SI-4 are closed.
+The final gate remains required before merge. The 22 pending PC IDs remain pending.
+The focused PC Mac evidence passes. The broader run retains the unchanged P5 zombie-identity failure.
+The reviewer ran no execution job. Next: wait for the final-gate or new-head doorbell. Never poll.
+
+Additional review assignment: Core #242, tests only, LOW, with no integration review.
+The implementer supplied the lead's exact instruction in `msg_plugin-w_1791699652_879436`.
+Lead instruction: `msg_plugin-w_1791699598_53afe2` from the lead session.
+The lead assigns #242 to the PC package reviewer alone.
+The implementer must gate it after #233's final gate ends, with one Core gate at a time from that implementer.
+This assignment does not transfer the contracts PR review to the PC reviewer.
+
+Source inspection before READY: #242 head `75cb8b37c2691bf156d15f62b06b45fb3879b010`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`. Branch: `stage1/pc-title-order`.
+The reviewer read the complete one-file delta, the existing Rig, the host driver, observe, sync terminal_state, and event queue.
+The reviewer read R-57 and its condition 3 follow-up, the PR body, and the old Core references.
+The two tests use pump_events 1. The helper reads terminal_state after each pump and does not poll events during the wait.
+The first test requires a pump split before the title and later checks Bell before TitleChanged.
+The full-queue test requires the loss marker to name Bell and Notification when the title appears.
+The title observation sets the cache and posts TitleChanged in one call. The driver checks its budget between frames.
+The launch and adoption baseline exception remains in the PR body and R-57.
+No production code, transcript, status list, pin, or timeout value changes.
+No source finding is open. The source inspection grants no formal verdict before the pre-review gate arrives.
+
+The reviewer read `~/botster-sessions/gates/botster-core-pc-title-order-reversal-20261010-231854.log`.
+The selected record reports both tests failing when observe(Title) omits the TitleChanged post.
+The record is not a green gate and does not replace the gate's normal test results.
+The reviewer ran no execution job.
+Next: wait for #242 READY with the exact head and green pre-review gate. Also wait for #233's final-gate result.
+Never poll.
+
+#233 final-gate failure and correction: `msg_plugin-w_1791702764_c88491`.
+The gate on `ec317eaedbfa29467ceb68cb61b0919b717f3a3f` failed on one missed send_line guard mutant.
+Stage 2: 79 mutants, 58 caught, 1 missed, 0 timeout, 20 unviable. Eight earlier steps passed; fuzz did not run.
+Gate log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-ec317eae-pool-20261010-231846-63449.log`.
+Corrected head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`. Base remains `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+The reviewer read the complete 17-line test delta and its send_line error path.
+The added closed-peer test requires BrokenPipe or ConnectionReset, which rejects a retry until TimedOut.
+No production code, transcript, timeout value, status list, pin, or mutation exclusion changes.
+The selected reversal fails with TimedOut after 10 seconds. It contains no passing normal run.
+Reversal log: `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-20261011-001126.log`.
+SI-5 MEDIUM records the mutation proof gap. It remains open pending normal-run and gate evidence.
+SI-1 through SI-4 remain closed. No additional source issue exists in this delta.
+The reviewer requested focused Mac evidence for the added socket test under plan 23ai.
+The implementer reports that the corrected Linux gate is running. The reviewer did not read or poll that running gate.
+Current verdict: NOT CLEAN (1 open), superseding package CLEAN `3ebf5746` for the current PR.
+The reviewer ran no execution job. Next: push the verdict, then wait for the gate and Mac-evidence doorbells.
+The #242 formal verdict still awaits its pre-review gate. The 22 pending PC IDs remain pending.
+
+Sol read the new proof and reversal in `msg_plugin-w_1791702833_e83760`.
+Sol finds no new source defect and also requests a focused Mac normal-run result with the exact head and operating system.
+Sol will read the failed gate and the package artifact when supplied. Sol ran no execution job.

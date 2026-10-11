@@ -1,4 +1,57 @@
-# PC package review: PR #233
+# PC package delta review: PR #233
+
+VERDICT: NOT CLEAN (1 open)
+
+- Reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
+- Reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
+- Previous reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+- Risk tier: HIGH. This delta belongs to the shared testkit PR.
+- Open findings: 1.
+- Binding plan: revision 23ai, `stage1-plan.c7cbc474.md`. The contracts pin remains contracts-v0.1.27.
+
+The final gate failed after package and integration CLEAN on the previous head.
+This verdict supersedes package CLEAN commit `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` for the current PR.
+SI-1 through SI-4 remain closed. The previous review below remains the source record for unchanged code.
+
+## SI-5 MEDIUM — The socket error guard lacks a reliable mutation proof
+
+Evidence: the final Linux gate missed one mutant in stage 2.
+The mutant replaces the WouldBlock or Interrupted match guard in `send_line` with true, at real/program.rs:269.
+That change retries permanent socket errors until the cleanup deadline instead of returning the socket error.
+The previous tests did not reliably reject that behavior.
+Plan section 8 treats a missed mutant as a review finding.
+
+Gate head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+Gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-ec317eae-pool-20261010-231846-63449.log`.
+The reviewer read the header, missed-mutant record, mutation result, and final summary.
+Stage 2 reports 58 caught, 1 missed, 0 timeout, and 20 unviable among 79 mutants.
+Eight earlier steps passed. Mutation failed. Fuzz did not run. The gate exited with code 1.
+
+Required change: supply a behavior test that rejects retries of a permanent socket error.
+Supply a passing normal run and evidence that the missed mutant fails that test.
+The final Linux gate must pass on the corrected head. Plan 23ai also requires focused Mac evidence for this socket test.
+
+Status: OPEN, pending normal-run and gate evidence. The source correction is present on the reviewed head.
+The delta adds one 17-line test, `a_request_write_to_a_closed_probe_fails_with_its_error_not_at_the_bound`.
+It creates a socket pair, makes the harness end non-blocking, and drops the peer.
+It requires BrokenPipe or ConnectionReset from `send_line`. TimedOut fails that assertion.
+The test uses the existing cleanup deadline. It changes no production code, transcript, timeout value, list, pin, or mutation exclusion.
+The reviewer found no additional source issue in this delta.
+
+The reviewer read the selected reversal record.
+Log: `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-20261011-001126.log`.
+With the missed mutant, the test fails with TimedOut after 10 seconds.
+The record contains no passing normal run. The implementer reports that the corrected Linux gate is running.
+The reviewer requested a retained normal-run Mac log for the added test.
+
+The reviewer ran no build, test, gate, mutation, reversal, or executable merge-check job.
+The verdict grants no merge approval. The 22 pending PC IDs remain pending.
+Next: wait for the corrected gate and focused Mac evidence. Never poll.
+
+---
+
+# Earlier PC package review: PR #233
 
 VERDICT: CLEAN
 
