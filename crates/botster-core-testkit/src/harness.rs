@@ -41,6 +41,11 @@ pub struct TestkitHarness {
 /// What the controls reach of one handle: its data directory and the process table of its host.
 /// The edge failures of one host and its wake object, which a control that releases held work signals.
 pub(crate) type HostFaults = (Arc<Mutex<crate::core::Faults>>, Arc<dyn HostWake>);
+/// The record of the worker's route reports that one host consumed (`route_reports`, R-66), and its host's wake object.
+pub(crate) type HostReports = (
+    Arc<Mutex<crate::route_reports::RouteReports>>,
+    Arc<dyn HostWake>,
+);
 
 struct HandleEdges {
     dir: String,
@@ -53,6 +58,8 @@ struct HandleEdges {
     route_instances: crate::route_client::RouteInstances,
     /// The failures that a control injects at its host's edges (`fail_handoff`, `hold_handoff`).
     faults: Arc<Mutex<crate::core::Faults>>,
+    /// The worker's route reports that its host consumed (`route_reports`, R-66).
+    reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The wake object of its host: a control that releases held work signals it.
     wake: Arc<dyn HostWake>,
 }
@@ -120,6 +127,13 @@ impl TestkitHarness {
             .map(|h| (Arc::clone(&h.faults), Arc::clone(&h.wake)))
     }
 
+    /// The worker's route reports that the host of `handle` consumed, and its wake object, once `open` built it.
+    pub(crate) fn reports_of(&self, handle: &str) -> Option<HostReports> {
+        self.handles
+            .get(handle)
+            .map(|h| (Arc::clone(&h.reports), Arc::clone(&h.wake)))
+    }
+
     /// The process table of the host of `handle`, once `open` built it.
     pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
         self.handles.get(handle).map(|h| &h.processes)
@@ -175,7 +189,7 @@ impl CoreHarness for TestkitHarness {
             Some(Box::new(spawner)),
         )?;
         table.set_wake(Arc::clone(&opened.wake));
-        let (faults, wake) = (opened.faults, Arc::clone(&opened.wake));
+        let (faults, reports, wake) = (opened.faults, opened.reports, Arc::clone(&opened.wake));
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
@@ -190,6 +204,7 @@ impl CoreHarness for TestkitHarness {
                 route_ends: core.route_ends(),
                 route_instances: core.route_instances(),
                 faults,
+                reports,
                 wake,
             },
         );

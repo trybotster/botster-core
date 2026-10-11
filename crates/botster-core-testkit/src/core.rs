@@ -182,6 +182,8 @@ pub struct SimEdges {
     links: BTreeMap<LinkId, LinkEnd>,
     next_link: u64,
     link_capacity: usize,
+    /// The worker's route reports that the driver consumed (`route_reports`, R-66).
+    reports: Arc<Mutex<crate::route_reports::RouteReports>>,
 }
 
 impl SimEdges {
@@ -298,10 +300,14 @@ impl HostEdges for SimEdges {
     }
 
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
-        match self.links.get_mut(&link) {
-            Some(end) => end.recv(buf),
-            None => Ok(0),
-        }
+        let mut reports = lock(&self.reports);
+        reports.call(link);
+        let n = match self.links.get_mut(&link) {
+            Some(end) => end.recv(buf)?,
+            None => 0,
+        };
+        reports.received(link, &buf[..n]);
+        Ok(n)
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
@@ -312,6 +318,7 @@ impl HostEdges for SimEdges {
     }
 
     fn link_close(&mut self, link: LinkId) {
+        lock(&self.reports).closed(link);
         if let Some(mut end) = self.links.remove(&link) {
             end.close();
         }
@@ -420,6 +427,8 @@ pub struct RunInputs {
 pub struct Opened {
     pub driver: HostDriver<SimEdges>,
     pub faults: Arc<Mutex<Faults>>,
+    /// The worker's route reports that the driver consumed (`route_reports`, R-66).
+    pub reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The testkit's `Core` also signals it for its in-process workers.
     pub wake: Arc<dyn HostWake>,
 }
@@ -508,6 +517,7 @@ impl Directories {
             epoch
         };
         let faults = Arc::new(Mutex::new(Faults::default()));
+        let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
@@ -519,6 +529,7 @@ impl Directories {
             links: BTreeMap::new(),
             next_link: 1,
             link_capacity: LINK_CAPACITY,
+            reports: Arc::clone(&reports),
         };
         let identity = botster_terminal_ghostty::terminal_identity();
         let cfg = EngineConfig {
@@ -537,6 +548,7 @@ impl Directories {
         Ok(Opened {
             driver: HostDriver::open(cfg, edges)?,
             faults,
+            reports,
             wake,
         })
     }
