@@ -339,3 +339,47 @@ fn a_paste_that_is_open_at_the_close_writes_nothing() {
     assert!(writes(&all).is_empty());
     assert!(all.contains(&Action::RouteClose { route: RouteId(1) }));
 }
+
+/// DP-5: the route's read allowance counts the caller's bytes of its held input: a `text` frame and a committed paste at the
+/// admission point. The chunks of an open paste are outside the input bound (`max_paste_bytes` bounds them).
+#[test]
+fn held_text_and_a_committed_paste_count_in_the_allowance() {
+    let (mut w, mut client, _) = attached(limits());
+    let bound = limits().route_input_queue_bytes as usize;
+    let mut all = send(&mut w, &mut client, &[bytes_frame(1, &[b'a'; 100])]);
+    assert_eq!(writes(&all), [vec![b'a'; 100]], "the write is out");
+    all.extend(send(
+        &mut w,
+        &mut client,
+        &[ToWorker::Text {
+            op: Op(2),
+            text: "xyz".into(),
+        }],
+    ));
+    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3));
+    all.extend(send(&mut w, &mut client, &[begin(3), chunk(3, b"pq")]));
+    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3));
+    all.extend(send(&mut w, &mut client, &[commit(3, None)]));
+    assert_eq!(allowance(&all, RouteId(1)), Some(bound - 100 - 3 - 2));
+}
+
+/// Codec TS-5: `bytes` and `text` have no success acknowledgement. An empty one with an op is written as nothing, and gets no
+/// `input_done`.
+#[test]
+fn empty_bytes_and_text_get_no_input_done() {
+    let (mut w, mut client, _) = attached(limits());
+    let all = send(
+        &mut w,
+        &mut client,
+        &[
+            bytes_frame(1, b""),
+            ToWorker::Text {
+                op: Op(2),
+                text: String::new(),
+            },
+        ],
+    );
+    assert!(writes(&all).is_empty());
+    assert!(dones(&client).is_empty());
+    assert!(refusals_written(&client).is_empty());
+}
