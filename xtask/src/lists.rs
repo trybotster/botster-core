@@ -740,7 +740,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
             std::fs::write(root.join(path), text)?;
         }
         println!(
-            "ledger-ids: wrote {} ids, the two status files and the real-only ids",
+            "ledger-ids: wrote {} ids, the two status files, the real-only ids and job-common.sh",
             ledger.len()
         );
         return Ok(());
@@ -762,7 +762,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     );
     anyhow::ensure!(problems.is_empty(), "{}", problems.join("\n"));
     println!(
-        "ledger-ids: {} ids, the status files and the real-only ids match the pin",
+        "ledger-ids: {} ids, the status files, the real-only ids and job-common.sh match the pin",
         ledger.len()
     );
     Ok(())
