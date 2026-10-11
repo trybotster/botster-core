@@ -243,3 +243,54 @@ The reviewer checked the local merge object. Its parents are the recorded gate b
 Its tree is identical to the reviewed and gated source head.
 The review and completion record is CLEAN with zero open findings.
 The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
+
+
+### Core #284 — paste, round 1
+
+VERDICT: CLEAN
+Source head: `e062de537d534b89336ef276b2ddd3e1694abc52`.
+Reviewed base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+Branch: `stage1/rc-paste`. Tier: HIGH. Open findings: 0.
+
+The reviewer read the complete own diff, the imported production delta, the design note, and the PR description.
+The review uses plan 23bt, its 23bp approval, and R-75.
+The lead explicitly permits the three prior-art test scenarios for this PR.
+The steal commit has both required trailers. The PR explains each rejected old behavior and each new piece.
+
+The route assembles one paste with the configured bound. A wrong op preserves the open paste.
+The first oversized chunk discards the paste and writes nothing. An abort before commit writes nothing and sends no frame.
+The commit enters the existing input queue as one transaction. The existing libghostty encoder runs at admission.
+The mode check therefore uses the modes at the transaction's start. Query replies use the same serialized admission point.
+Success sends `input_done` only when requested. Partial refusals count encoded PTY bytes, including markers.
+The queue allowance counts held input. The existing refusal reservation also bounds the success result frame.
+R-75 supplies the field-rule refusal mapping. Parseable invalid fields leave the route open with zero write effect.
+The tests observe actions, client frames, and host results. They assert no private state.
+The PR adds no real control and no model of a real control. Files remain outside this PR's scope.
+
+The reviewer checked the inherited shared testkit capability addition and the R-72 start-link delta.
+The shared addition declares the existing `worker_file_name` capability; it adds no simulated process behavior.
+The mutation configuration is unchanged from the reviewed #275 configuration. There is no new exclusion.
+No inherited exclusion covers the new paste decisions or input results.
+
+### Evidence for Core #284
+
+Exact-head gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-paste-e062de53-pool-20261011-111708-28617.log`.
+The header names the source head and reviewed base above. All ten steps pass, and the gate exits 0.
+The mutation result has 53 mutants: 50 caught, three unviable, no miss, and no timeout.
+All caught mutants fail in the default tier. Stage 2 is therefore not required.
+
+The historical Mac evidence records 14 caught manual reversals and the full 34-ID testkit comparison.
+The testkit comparison has five new PASS results and no PASS regression.
+Four IDs leave testkit pending. The query-retirement ID stays pending with the lead-approved budget hold.
+The reviewer read the four minimum real-tier before/after results.
+`conf::ev_8_no_route_shadow_answers_at_once` changes from a timeout to PASS.
+The other three retain their earlier raw-output or unsupported-control limits; this PR does not claim their completion.
+The named real-tier trials also pass for output negotiation, query retirement, and `in_3_no_result_crossover`.
+The real `in_3_route_reports_only_exceptions_on_the_route` still fails on echoed output and stays real-pending.
+The pending moves match these limits. No result from an earlier source is presented as the exact-head gate.
+
+Integration CLEAN remains required on this exact head and base.
+Under Q8, the supplied green gate is the merge gate when both CLEAN verdicts cover this unchanged head and base.
+A later source head requires the applicable review and exact-head gate.
+The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
