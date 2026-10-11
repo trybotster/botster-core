@@ -9,10 +9,10 @@
 //! Clause: steward ruling R-78 item 4 (drain before classify).
 #![cfg(feature = "slow")]
 
+use botster_test_process::OwnedChild;
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
-use botster_test_process::OwnedChild;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
