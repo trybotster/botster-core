@@ -647,3 +647,41 @@ I claim no independent precise assertion site or final-head reversal execution f
 One MEDIUM admission-parity finding remains open. The exact-head package verdict is pending.
 I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 The source merge comparison uses Git objects only.
+
+### F114 correction source inspection — 2026-10-10 — Gate and READY pending
+
+Inspected head: `4ede303f8b41adb703bafab683120cbc25a582d7`.
+Parent: `d1e00be37ea9b7830041e043186659f682e985a9`.
+The complete correction changes only `worker/input.rs` and `worker/tests/routes.rs`.
+
+R5-1 / F114 closes its reported source path.
+`enqueue_route_input` queues empty input with its route and op, so the input reserves refusal room and retains its admission order.
+At its turn, every route input calls `admission(Source::Route)` before either refusal or an accepted no-op.
+An accepted empty input starts no PTY transaction. It cannot block the next input on an active transaction with zero bytes.
+Session-end and stop refusals retain the exact op and omit written-byte counts.
+The receipt and revision code is unchanged.
+
+The public proof covers empty bytes and empty text.
+It requires silence on an accepting live session and checks that the next nonempty input starts.
+It requires SessionEnded refusal after Stop, Kill, and payload exit, both directly and behind an active host write.
+Only the host's existing bytes reach the PTY in each queued case.
+The proof does not assert receipt revisions separately. The unchanged receipt path still reports each decoded frame once.
+
+I read `evidence/p3-pr3/pr3-round5-empty-input-reverts.log` completely.
+The old early-return reversal fails the new proof: 157 passed, one failed.
+Starting an empty PTY transaction also fails the new proof: 157 passed, one failed.
+The log contains result summaries and failed test names, without a final-head header or full assertion output.
+I claim no independent precise assertion site or final-head reversal execution.
+`git diff --check` passes. No product code outside the two-file correction changes.
+
+The implementer reports that its gate runs. No replacement READY or completed exact-head gate is supplied yet.
+The same-head package artifact remains pending. This source inspection completes no round and grants no CLEAN verdict.
+
+The lead authorizes Round 6 in `msg_plugin-w_1791688865_193452`.
+Scope: F114 plus the implementer's list of every return and early exit in host-write, route-input, and reply paths.
+The rule forbids outcomes, refusals, and no-ops before admission. The lead permits no Round 7.
+I requested clarification for waiting exits and the receipt-time route decisions required by plan 23ad.
+I also flagged `enqueue_reply`'s existing empty-byte return for the implementer's audit.
+That expanded audit remains pending; this source closure accepts only the reported F114 path.
+
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
