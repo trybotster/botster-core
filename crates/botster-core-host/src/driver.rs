@@ -867,7 +867,8 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
         }
-        let mut more = self.engine.runnable() || budget.more_input || self.draining();
+        // An ended link that waits for its drain needs no term here: the settle below reads every link.
+        let mut more = self.engine.runnable() || budget.more_input;
         if !more {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
