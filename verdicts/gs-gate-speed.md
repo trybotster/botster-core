@@ -993,3 +993,13 @@ Sol read all four changed files and the complete package addition. Sol independe
 Sol also confirmed the exact-head full gate and the signed-count correction. This unchanged head requires no repeat gate under section 8.
 
 The lead owns the merge decision and current-base check. I will wait for a merge receipt or a new head.
+
+### Lead merge hold
+
+The lead holds #262 until #243 merges. The #243 gate and A5-4 table use base `0c5ac80e`.
+
+GS must then merge the new `v1` into #262, supply a base-merge-check, and run one gate on the new exact head.
+
+The current CLEAN applies only to `de819474f8f0cdf590d9d15638fb9e2a271f5a47`. I will check whether the base-merge rules permit CLEAN to carry over.
+
+The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.

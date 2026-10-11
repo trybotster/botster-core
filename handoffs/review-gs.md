@@ -32,6 +32,10 @@ Sol independently confirmed the full gate, unchanged TOML values, all 16 catch i
 
 This unchanged head requires no repeat gate under section 8. The lead owns the merge decision and current-base check.
 
+The lead holds #262 until #243 merges. GS must then merge the new `v1`, supply a base-merge-check, and run one exact-head gate.
+
+The current CLEAN applies only to `de819474f8f0cdf590d9d15638fb9e2a271f5a47`. I will check CLEAN carry-over on the new head.
+
 I ran no gate, build, or test.
 
 ## Previous PR #261
@@ -138,7 +142,11 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #262's merge receipt or new head. PR #261 and PR #260 are merged. PR #256 source findings remain closed.
+Wait for PR #262's new head, base-merge-check, and exact-head gate after #243 merges.
+
+The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
+
+PR #261 and PR #260 are merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
