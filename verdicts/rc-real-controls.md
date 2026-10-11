@@ -584,3 +584,30 @@ The integration reviewer confirms the parents, ten disjoint base paths, identica
 Both source CLEAN verdicts cover this exact head and base. All findings remain closed.
 The final exact-head gate remains required. This receipt accepts no future gate or pending removal.
 The reviewer ran no test, build, or gate.
+
+
+## Core #269 — base import delta review — source CLEAN
+
+Source head: `c2dd1fbfe801f3b9e43256071b01081eb75a0592`.
+Reviewed base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Risk: HIGH. Open findings: 0.
+The base-merge-check fails Q7 because `lib.rs` and `real.rs` overlap. This verdict performs the required package delta review.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-r69-base-merge-check-c2dd1fbf-20261011-082659.log`.
+The reviewer read every changed line in both overlapping files.
+Both files add only the imported `route_reports` registration, implementation, argument type, and control tests.
+The imported added and deleted lines equal the base patch in each file.
+The import leaves the resume dispatch, capture layer construction, and existing control checks unchanged.
+The reviewer also read the imported edge, harness, route-control, and report implementation changes for interactions.
+The report reader changes no returned link byte and holds no Core event.
+It does not replace the resume control's event polling or capture cleanup.
+The other eight reviewed PR files retain identical blobs.
+Both pending files equal the new base. The mutation configuration is unchanged.
+All three findings remain closed at this exact head.
+
+The reviewer checked the earlier exact-head full gate at `1efe84734e6297e1b5c79f123e2161f923dc233d`:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-resume-1efe8473-pool-20261011-081221-93103.log`.
+Its base is `010f2a49952f9b77581f304dbaa41006b115d40b`.
+All ten steps pass. It ends with exit 0 and reports 120 mutants: 86 caught, 28 in stage 2, 34 unviable, no miss or timeout.
+That gate does not cover the new source head.
+The final exact-head gate and integration delta CLEAN remain required before merge.
+The reviewer ran no test, build, or gate.
