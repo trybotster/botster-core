@@ -245,19 +245,44 @@ fn a_capture_is_bounded_by_the_snapshot_bytes_and_has_its_own_id() {
     assert_eq!(w.complete(read), OpResult::Ok(OpOutput::Capture(odd)));
 }
 
-/// Core LC-4, AD-2: a link that closes while the start waits for the launch fails the start; a link that closes after the
-/// session runs leaves its state.
+/// Core LC-4, AD-2, R-72: a link that closes while the start waits for the launch, with the worker alive, fails the start at
+/// the `startup` deadline with the link's failure (`WorkerFailed`, `Exited` with no code), as the end of file did before
+/// R-72; until then the session stays `Starting` and nothing is posted. A link that closes after the session runs leaves
+/// its state.
 #[test]
-fn a_link_closing_before_the_launch_fails_the_start_and_after_it_changes_nothing() {
-    let mut w = World::default();
+fn a_link_closing_before_the_launch_fails_the_start_at_the_deadline_and_after_it_changes_nothing() {
+    let mut w = World::new(limits(|l| l.startup = Duration::from_secs(2)));
     w.autopilot = Autopilot::Silent;
     let (start, link) = starting(&mut w);
+    settle(&mut w);
     w.feed(Input::LinkClosed { link });
-    assert!(matches!(w.complete(start), OpResult::Err(_)));
-    assert!(matches!(
+    let quiet = settle(&mut w);
+    assert!(quiet.is_empty(), "nothing is posted for the end of file: {quiet:?}");
+    assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,
-        SessionState::Exited(_)
-    ));
+        SessionState::Starting
+    );
+    w.advance(Duration::from_secs(2));
+    let result = w.complete(start);
+    assert!(
+        matches!(
+            result,
+            OpResult::Err(CoreError {
+                code: ErrorCode::StartFailed(StartFailReason::WorkerFailed),
+                ..
+            })
+        ),
+        "{result:?}"
+    );
+    assert_eq!(
+        w.engine.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(Exit {
+            code: None,
+            signal: None,
+            cause: ExitCause::Other,
+        })
+    );
+    assert!(w.signals.is_empty(), "the worker is not signalled: {:?}", w.signals);
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -402,6 +427,75 @@ fn a_lost_session_closes_its_routes_session_lost_after_its_state() {
         vec![one, two]
     );
     assert!(closed.iter().all(|(i, _)| *i > lost), "{events:?}");
+}
+
+/// A2-3, R-50, R-72: one death of a spawned worker before `Running` ends one way, whichever edge reports it first. The
+/// kernel closes a dead worker's link before its exit is reported, so the end of file usually comes first: the start then
+/// waits, posts nothing, and the exit ends it `Lost(WorkerGone)`. Either order fails the start `WorkerFailed`, and the
+/// attached route closes `SessionLost` after the state, once.
+#[test]
+fn a_worker_death_before_running_is_lost_whichever_edge_reports_it_first() {
+    for eof_first in [true, false] {
+        let mut w = World::default();
+        w.autopilot = Autopilot::Silent;
+        let (start, link) = starting(&mut w);
+        let route = attach(&mut w);
+        settle(&mut w);
+        if eof_first {
+            w.feed(Input::LinkClosed { link });
+            let quiet = settle(&mut w);
+            assert!(quiet.is_empty(), "nothing is posted for the end of file: {quiet:?}");
+            assert_eq!(
+                w.engine.get(&sid("s1")).unwrap().state,
+                SessionState::Starting
+            );
+            w.exited("s1");
+        } else {
+            w.exited("s1");
+            w.feed(Input::LinkClosed { link });
+        }
+        let events = settle(&mut w);
+        assert_eq!(
+            states(&events),
+            vec![(
+                "s1".to_string(),
+                SessionState::Lost(LostReason::WorkerGone)
+            )],
+            "eof first: {eof_first}"
+        );
+        let lost = events
+            .iter()
+            .position(|e| matches!(e, Event::SessionState { .. }))
+            .expect("the state");
+        let closes: Vec<(usize, RouteCloseReason)> = events
+            .iter()
+            .enumerate()
+            .filter_map(|(i, e)| match e {
+                Event::RouteClosed { route: r, reason, .. } if *r == route => Some((i, reason.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            closes.iter().map(|c| c.1.clone()).collect::<Vec<_>>(),
+            vec![RouteCloseReason::SessionLost],
+            "eof first: {eof_first}"
+        );
+        assert!(closes[0].0 > lost, "{events:?}");
+        let result = events.iter().find_map(|e| match e {
+            Event::Completed { op, result } if *op == start => Some(result.clone()),
+            _ => None,
+        });
+        assert!(
+            matches!(
+                result,
+                Some(OpResult::Err(CoreError {
+                    code: ErrorCode::StartFailed(StartFailReason::WorkerFailed),
+                    ..
+                }))
+            ),
+            "eof first: {eof_first}: {result:?}"
+        );
+    }
 }
 
 /// The index of the session's `Exited` state in `events`.
