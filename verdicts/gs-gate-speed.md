@@ -851,3 +851,43 @@ If that identity is known-flaky, the mutant is MISSED. No later failure in that 
 Round four covers this rule and two cases: listed first failure followed by cancellation gives MISSED; unlisted first failure gives a catch.
 
 The lead directs other new findings to follow-up PRs unless they are HIGH. I will apply that scope to the next review.
+
+## PR #261: round 4, first-failure settlement
+
+- Head: `727a1c5043ad007f5b2d0a3353be657cf240e403`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Previous reviewed head: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
+- VERDICT: CLEAN.
+- Open findings: 0.
+
+GS-KF-R1-1 HIGH is CLOSED. I reviewed this delta within the lead's round-four scope.
+
+`StageReport` now records each raw CAUGHT identity whose first final failure is known-flaky. It gives that identity a MISSED report line.
+
+The report uses only `run.failed.first()`. It gives no catch credit to a later failure in that run.
+
+`parse_stage_outcomes` moves the corresponding occurrence from caught to missed. It preserves the total and tested identities.
+
+The code rejects an unmatched reclassification and a move count larger than the raw caught count. A report error still fails the step.
+
+`stage_outcomes` changes exit code 0 to 2 when the adjusted result has misses. It preserves other exit codes and failures.
+
+Stage 1 therefore sends the reclassified identity to stage 2. Stage 2 still fails on a remaining miss. The selection checks remain unchanged.
+
+The first required fixture case contains listed FAIL followed by unlisted SIGTERM. The result has one fewer catch and one additional miss.
+
+The second case contains unlisted FAIL first. That identity remains the catcher, even when a listed test is terminated later.
+
+The decision test checks both stages: listed-first in both stages fails; listed-first in stage 1 and unlisted-first in stage 2 passes.
+
+The report unit test also covers ABORT and later FAIL after the listed first failure. Both produce MISSED rather than an independent catch.
+
+The real-tool tests now expect reclassified counts and missed names. The feature-unification fixture also checks the adjusted exit code.
+
+GS-KF-R2-2 MEDIUM remains CLOSED from the previous delta. No other source finding is open.
+
+The implementer reports that the exact-head gate is running. No full gate for this correction has been supplied or accepted yet.
+
+Source CLEAN does not accept the superseded gates. The final exact-head gate and integration review remain required before merge.
+
+I ran no gate, build, or test. I will wait for the gate receipt or a new head.

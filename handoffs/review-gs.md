@@ -3,17 +3,17 @@
 ## Current review result
 
 - PR: #261, known-flaky list.
-- Head: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
+- Head: `727a1c5043ad007f5b2d0a3353be657cf240e403`.
 - Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
-- Verdict: NOT CLEAN (1 open), third package round.
-- Finding: GS-KF-R1-1 HIGH remains OPEN. GS-KF-R2-2 MEDIUM is CLOSED.
+- Verdict: CLEAN, round four under the lead's settled scope.
+- Open findings: 0. GS-KF-R1-1 HIGH and GS-KF-R2-2 MEDIUM are CLOSED.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The new verdict rule refuses catches only when every failed identity is listed. It can skip a listed first failure and credit an unlisted cancellation result.
+The verdict rule now uses only the first final failure. A listed first failure becomes MISSED, and later failures receive no catch credit.
 
-With `--max-fail 1:immediate`, a listed failure can cause SIGTERM of another test. The existing CATCH fixture proves that reporting form.
+The code moves caught counts and names to missed, preserves tested identities, and changes successful exit code 0 to 2 when misses remain.
 
-Required correction: fail the report when the actual first final failure is listed. Do not replace it with a later cancellation failure.
+The fixture checks listed-first plus cancellation as MISSED and unlisted-first as a catch. It checks stage-1 handoff and stage-2 refusal of a remaining miss.
 
 GS-KF-R2-2 is source-fixed and CLOSED. The fixture now selects the slow-only shared-binary identity and asserts before/after execution.
 
@@ -27,7 +27,7 @@ Other new findings go to follow-up PRs unless HIGH, under the lead's direction.
 
 The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
 
-The earlier gate passes all ten steps, but stage 2 does not run. The new head's full gate has not been supplied. I ran no gate, build, or test.
+The new head's full gate is reported running and has not been supplied. Source CLEAN does not accept superseded gates. I ran no gate, build, or test.
 
 ## Previous PR #260
 
@@ -123,7 +123,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the PR #261 fix and exact new head. PR #260 is merged. PR #256 source findings remain closed.
+Wait for PR #261's exact-head gate receipt or a new head. PR #260 is merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
