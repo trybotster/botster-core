@@ -172,3 +172,11 @@ The supplied green gate meets section 8's exact-head condition. No repeated gate
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open; exact-head gate accepted and merge verified) at f291a5e6d3f31e3ad769f52e125647a292076d52
+
+### Package publication correction
+
+Package receipt `msg_plugin-w_1791717225_355562` reports that the later push succeeded.
+Sol fetches stage1/review-gs and reads complete merge addendum `759b601f7d2c7b3bcbba4057909dd20c292f4798`.
+Sol confirms completion `995350d85f973b6e6fa070dd8fc3d23e68274eef` is its ancestor and is now published.
+The earlier DNS publication limit is CLOSED. The source, gate, and merge verdict remain CLEAN on f291a5e6.
+Sol ran no execution job.

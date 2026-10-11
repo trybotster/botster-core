@@ -2040,3 +2040,51 @@ The remaining tag, fence, exception-list, scope, and merge-order checks in Round
 Sol ran no execution job.
 
 VERDICT: NOT CLEAN (1 open) at d4f67d0980bb66727f2a439ea7c7fe5b01bb5039
+
+## Round 58: revision 23aq, classification and R-65 corrections
+
+- Head: `0be2ad2f1f74ddef0134bd424676009d823204bf`.
+- Parent: `bf9e27343a83ac21281dc7cf9ffaa0c323fb749b`.
+- Prior approved plan: `3a5b20697967ca7c794f4ee54b988e7f4a74f5aa`.
+- Plan SHA-256: `841968451e1461d42276cb81166a932ee9755306efeff71f9aa130f4d196ee03`.
+- Lead receipts: `msg_plugin-w_1791716964_83e9a3` and `msg_plugin-w_1791717222_49d39e`.
+
+AQ-SI-1 LOW is CLOSED. Section 0 now correctly puts the three changed IN-10 IDs in core-pending.txt on v1 cfd6ee36.
+It explicitly excludes core-real-pending.txt. Sol independently rechecks all three memberships in both exact-base files.
+The rule still requires a PASS in the implementing PR's gate before an ID leaves pending.
+The tag, fence, exception-list, scope, and merge-order checks from Round 56 remain valid.
+Round 56's withdrawn CLEAN remains withdrawn. This round approves the corrected head above.
+
+The new R-65 paragraph cites botster-contracts main `8f936526406744f6882db0fb4ec79dc96c0ea31a`.
+Sol read that complete eleven-line ruling and P3's complete diagnosis README.
+The diagnosis records macOS results on a local combined tree. It does not measure Linux or plain v1 cfd6ee36.
+The diagnosis identifies the kernel mechanism as an inference. This verdict supplies no independent kernel-cause proof.
+
+R-65 reads DP-2's close order: Core retains its endpoint copy until the worker acknowledges receipt, then closes the copy.
+The acknowledgement uses Core's private link. No Core amendment is required.
+Protocol 1 is allowed only if no released worker speaks protocol 1; otherwise protocol 2 is required.
+R-65 requires the lead to confirm the release condition in the PR. This plan does not waive that condition.
+A refused descriptor gives HandoffFailed and closes Core's copy. The plan adds no timer.
+Holding Core's copy for the route's whole life remains rejected under DP-1.
+The fix and a real-process proof must enter #243 before the combined merge review, regardless of the later Linux diagnosis.
+The DP-2 minimum ID keeps its meaning. Any needed transcript fence remains subject to the steward's review.
+
+Sol's QUESTION `msg_plugin-w_1791717204_853dbe` identified an unconditional lost-acknowledgement sentence in intermediate bf9e2734.
+The lead corrected that sentence before this verdict.
+The lead supplies steward receipt `msg_plugin-w_1791717053_412997` from session sess-1790792742-003c-b2e696997f3d2e34d8ee89cb35f04cf9.
+The later clarification has no contracts commit yet. Sol records the lead's supplied receipt as its authority.
+In Starting or Stopping, link loss ends the session. R-50 governs: the route closes after the state with its end-state reason.
+OU-2's first-reason rule remains. In Running, the session stays Running with a broken link under lc_5.
+The unacknowledged route then closes HandoffFailed, and Core closes its copy under R-65.
+The plan preserves the caveat that the worker might have received the descriptor while its acknowledgement was lost.
+A21 may refine that Running case. This plan approves no future A21 text or implementation.
+
+Only docs/stage1-plan.md changes from the approved 23ap plan.
+Section 0 and the 23aq revision row contain the net changes. No other operative rule changes.
+The current code pin remains .32. The combined merge's target remains .35.
+The combined merge still needs source review, a full real-tier before/after table, and an exact-head full gate.
+Manifest, active IDs, minimum list, pending rules, and completion criteria remain unchanged.
+This CLEAN approves the plan only. It approves no future source, pin, gate, pending removal, or mutation exclusion.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 0be2ad2f1f74ddef0134bd424676009d823204bf
