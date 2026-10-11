@@ -265,7 +265,6 @@ pub struct ScriptedProgram {
     exit_taken: bool,
     ignores_sigterm: bool,
     controls: ProgramControl,
-    size: Option<WindowSize>,
     scheduler: SchedulerHandle,
 }
 
@@ -329,16 +328,8 @@ impl ScriptedProgram {
             exit_taken: false,
             ignores_sigterm: false,
             controls: ProgramControl(Arc::default()),
-            size: None,
             scheduler: scheduler.clone(),
         })
-    }
-
-    /// True once execution has reached a step that ignores `SIGTERM` (the steps run in order, and a waiting step holds the
-    /// later ones back, Core A5-1).
-    pub fn ignores_sigterm(&mut self) -> bool {
-        self.advance();
-        self.ignores_sigterm
     }
 
     /// A signal that reaches the program's process group (Core LC-5, LC-6), with its default disposition: `SIGKILL` ends the
@@ -376,11 +367,6 @@ impl ScriptedProgram {
     /// The handle on this program's controls.
     pub fn control(&self) -> ProgramControl {
         self.controls.clone()
-    }
-
-    /// The size that the worker last set.
-    pub fn window_size(&self) -> Option<WindowSize> {
-        self.size
     }
 
     /// True when a write would not return `WouldBlock`: it takes a byte, or fails at once (the write readiness of the program
@@ -537,8 +523,9 @@ impl Program for ScriptedProgram {
         Ok(n)
     }
 
-    fn resize(&mut self, size: WindowSize) -> io::Result<()> {
-        self.size = Some(size);
+    /// The in-process program has no terminal driver and no step that reads its size, so a resize changes nothing that it
+    /// does. Core's resize is observed through the worker's model (`ReadScreen`), not through the program.
+    fn resize(&mut self, _size: WindowSize) -> io::Result<()> {
         Ok(())
     }
 
@@ -773,33 +760,57 @@ mod tests {
             Err(ProgramError::Script(_))
         ));
         let sigterm: Script =
-            serde_json::from_value(json!({"program": [{"ignore_sigterm": {}}]})).unwrap();
-        assert!(ScriptedProgram::new(&sigterm, true, &sched)
-            .unwrap()
-            .ignores_sigterm());
+            serde_json::from_value(json!({"program": [{"ignore_sigterm": {}}, {"hold": {}}]}))
+                .unwrap();
+        let mut ignores = ScriptedProgram::new(&sigterm, true, &sched).unwrap();
+        ignores.signal(15);
+        assert_eq!(
+            ignores.poll_exit(),
+            None,
+            "the parsed step keeps SIGTERM out"
+        );
     }
 
     /// A5-1: `ignore_sigterm` takes effect when execution reaches it, not before. A waiting step before it holds it back, and a
-    /// step after a `hold` is never reached.
+    /// step after a `hold` is never reached. Each case is seen through the signal's effect on the program's exit.
     #[test]
     fn ignore_sigterm_applies_at_its_script_step() {
-        let mut waits = program(
-            json!({"program": [
-                {"print_after_input": {"match_hex": "61", "bytes_hex": "62"}},
-                {"ignore_sigterm": {}},
-                {"hold": {}}]}),
-            true,
-            0,
+        let waits = || {
+            program(
+                json!({"program": [
+                    {"print_after_input": {"match_hex": "61", "bytes_hex": "62"}},
+                    {"ignore_sigterm": {}},
+                    {"hold": {}}]}),
+                true,
+                0,
+            )
+        };
+        let mut before = waits();
+        before.signal(15);
+        assert_eq!(
+            before.poll_exit(),
+            Some(ExitStatus::Signal(15)),
+            "the step is not reached before the input"
         );
-        assert!(!waits.ignores_sigterm());
-        waits.write(b"a").unwrap();
-        assert!(waits.ignores_sigterm());
+        let mut after = waits();
+        after.write(b"a").unwrap();
+        after.signal(15);
+        assert_eq!(
+            after.poll_exit(),
+            None,
+            "the input lets execution reach the step"
+        );
         let mut never = program(
             json!({"program": [{"hold": {}}, {"ignore_sigterm": {}}]}),
             true,
             0,
         );
-        assert!(!never.ignores_sigterm());
+        never.signal(15);
+        assert_eq!(
+            never.poll_exit(),
+            Some(ExitStatus::Signal(15)),
+            "a step after a hold is never reached"
+        );
     }
 
     /// The text of each error names the step or the script fault.
@@ -845,21 +856,6 @@ mod tests {
         let mut done = program(json!({"program": [{"exit": {"code": 4}}]}), true, 0);
         done.signal(9);
         assert_eq!(done.poll_exit(), Some(ExitStatus::Code(4)));
-    }
-
-    /// The window size is the last size that the worker set.
-    #[test]
-    fn the_window_size_is_kept() {
-        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
-        assert_eq!(p.window_size(), None);
-        let size = WindowSize {
-            cols: 80,
-            rows: 24,
-            width_px: 0,
-            height_px: 0,
-        };
-        p.resize(size).unwrap();
-        assert_eq!(p.window_size(), Some(size));
     }
 
     /// The readable bytes are the output that waits: none while the program holds or after it ended with nothing written,
