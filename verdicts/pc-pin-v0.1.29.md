@@ -1,12 +1,12 @@
 # PC package review: PR #245
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
 - Reviewed head: `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`.
 - Reviewed base: `5c480db457797fa7ebecb33835a52e26a5a8490d` (`v1`).
 - Branch: `stage1/pc-pin-v0.1.29`.
 - Risk tier: HIGH. BUILD.md rule 4 applies to the contracts pin move.
-- Open findings: 1.
+- Open findings: 0.
 - Scope: the four changed files and the effects of the contracts dependency changes.
 - READY: `msg_plugin-w_1791706164_dd4bfa`.
 
@@ -18,7 +18,8 @@ The reviewer used BUILD.md and the relevant R-56 through R-59 conditions.
 
 ## Delta review
 
-This verdict supersedes package NOT CLEAN (2 open) commit `f774f13238d3499e9af5ae45811ff8488435ebeb`.
+This verdict supersedes package NOT CLEAN (1 open) commit `c139fc773768b27213418f43ef11edd0eb46b459`.
+That verdict superseded the earlier two-finding supplement at `f774f13238d3499e9af5ae45811ff8488435ebeb`.
 Previous reviewed head: `df991fdf57122c7b59b06069ab7da01c992ca175`, base `f6778ad85c01266ac49e2ededd97487da689e920`.
 Delta message: `msg_plugin-w_1791706585_c829c9`.
 The new head merges #247 from the current base, then corrects the ruling-range comment.
@@ -36,19 +37,18 @@ The source diff has no whitespace error. No additional source finding exists in 
 
 The previous green Linux gate covers df991fdf. It does not establish CI on c57ec826.
 The implementer plans one final gate after both reviewers report CLEAN, under the lead's pool rule.
-PC-PIN-1 remains open before that stage.
-The implementer reports 13 failures in 30 trace runs, all at step 21. The reviewer has not received those retained logs.
-The lead requested equal-load comparisons on the same base profile: old pin at 5c480db4 and new pin at c57ec826.
-The implementer reports that comparison job is running. The reviewer did not read or poll the running job.
+Both findings are now closed for this pin review. The separate EV-5 item remains open.
+The reviewer received and checked all completed comparison logs and their raw run files.
+The closure section below records the results and the lead's scope disposition.
 The earlier Mac evidence predates #247's sha2 optimization. The comparison must account for that changed build profile.
 
 ## PC-PIN-1 MEDIUM — An active EV-5 test fails on the real Mac tier
 
 The focused Mac run fails `conf::ev_5_repeated_attach_detach_without_polling_stays_bounded` at seed 6, step 21.
 The transcript expects success. Core returns PendingLimit, with detail `pending_ops is 4`.
-This is an active must-pass ID. The cause is not known.
+This is an active must-pass ID. The first evidence did not identify its cause.
 The transcript is byte-identical between contracts-v0.1.27 and contracts-v0.1.29.
-The pin review cannot yet classify this failure as a dependency regression or a separate Core defect.
+The later comparison reproduces an EV-5 failure on the old pin. Its exact error differs from the original failure.
 
 Evidence head: `f5bb74ceab93cbb8e12d070fb15806375ce0d791`, before the final base merge and comment correction.
 Log: `~/botster-sessions/gates/botster-core-pc-pin-v0.1.29-mac-f5bb74ce-20261011-005918.log`.
@@ -59,14 +59,55 @@ The pending-real run reports no pass. The current Linux gate passes this ID on b
 
 Five isolated Mac runs pass in `~/botster-sessions/gates/botster-core-pc-pin-v0.1.29-ev5-repeat-mac-f5bb74ce-20261011-010317.log`.
 The reviewer read all five results. Those passes do not explain the failure under the full run's load.
-The PR body records the open failure. The implementer reports a separate 30-run trace job to determine its cause.
-The reviewer did not read or poll that running job.
+The PR body records the failure and the later completed comparison. The reviewer waited for the evidence doorbell.
 
 Required closure: determine the cause and record the evidence.
 Resolve the failed contract check through the correct owner and retain evidence under the conditions that produced the failure.
 If the resolution needs a transcript change, obtain the lead and steward instruction first.
 Do not change an expectation or treat the isolated passes as proof that the failure is resolved.
-Status: OPEN. PIN-SI-1 below is closed after the description correction.
+Status: CLOSED for this pin review under the lead's scope disposition. The EV-5 failure remains a separate open item.
+
+### Comparison and scope disposition
+
+The reviewer read all three completed job logs, all 90 raw run files, and both trace patches.
+The jobs run EV-5 30 times under a looping full real-tier load on macOS 27.0.1.
+The trace copies use the stated contracts commits and add step, event, and diagnostic output.
+They execute each step once and change no expectation or fence. Trace output can change scheduling.
+
+- Old pin, Core `5c480db457797fa7ebecb33835a52e26a5a8490d`, contracts b161db8: 1 failure among 30 runs.
+  Log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-old-pin-v1-5c480db4-20261011-011611.log`.
+- New pin, Core `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`, contracts 65f76ab: 2 failures among 30 runs.
+  Log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-new-pin-c57ec826-20261011-011611.log`.
+- Earlier new-pin head df991fdf, before #247: 13 failures among 30 runs.
+  Log: `~/botster-sessions/gates/botster-core-pc-pin-ev5-trace-mac-df991fdf-20261011-010924.log`.
+
+Every failed run has pending_ops 4 and queued_events 0 at the step-19 diagnostic.
+The old-pin failure and both current-head failures return UnknownRoute at step 21.
+The earlier df991fdf failures include seven PendingLimit results and six UnknownRoute results.
+Thus all 16 failed runs fail the same success expectation, but they do not all return PendingLimit.
+The comparison does not reproduce the exact original PendingLimit error on the old pin in this sample.
+The traces contain no observed Completed for op 3 in the 472 combined old/new seeds.
+The trace records no polled event between steps 19 and 21. That absence does not prove that Core posts no event.
+The title wait and route-close mapping changes do not edit this EV-5 transcript's steps or expectations.
+
+The lead's rule is `msg_plugin-w_1791706429_0cb9a5`: a failure on both pins lets #245 proceed, with EV-5 tracked separately.
+The lead accepted that scope disposition in `msg_plugin-w_1791707306_5b703d`.
+The implementer supplied both messages verbatim in `msg_plugin-w_1791707329_40c4aa`.
+The lead assigns the missing d1 completion to P3 and the step-19 fence question to the steward.
+The reviewer sent the exact error distinction to the lead, Sol, and the implementer.
+The reviewer read R-63's published correction. It keeps the fence and treats UnknownRoute as a separate open fact.
+The reviewer changes no transcript or expectation and does not clear either EV-5 issue.
+
+The implementer corrected the PR record in `msg_plugin-w_1791707439_a03590`.
+The reviewer confirmed the same head and base and read that corrected record.
+It now states the two errors, counts, diagnostic state, and old-pin sample limit accurately.
+The implementer supplied P3's later diagnosis in `msg_plugin-w_1791707489_49d0c7`, citing `msg_plugin-w_1791707467_209cb3`.
+P3 attributes UnknownRoute to a worker link close after step 19, without #240's descriptor support.
+P3 says `on_handoff_lost` closes the routes as HandoffFailed during step 20's `await_quiet`.
+P3 keeps the missing d1 completion separate. P3 owns that Core fix; the steward's R-63 requires the fence.
+The PR records that diagnosis at the same head. The reviewer records P3's conclusion and does not independently prove it here.
+This closes the pin finding through classification and the lead's explicit scope rule. It does not establish a green Mac suite.
+PIN-SI-1 remains closed after the description correction.
 
 ## PIN-SI-1 LOW — The pin description omits R-59
 
@@ -139,5 +180,7 @@ The reviewer read the header, EV-5 PASS records on both tiers, mutation result, 
 The reviewer also checked the current PR head, base, body, and source diff.
 
 The reviewer ran no build, test, gate, mutation, reversal, or executable merge-check job.
-The integration reviewer must review this HIGH PR. This verdict grants no merge approval.
+The integration reviewer must report CLEAN on this exact head.
+The final Linux gate on the CLEAN head remains required before merge, under the lead's pool rule.
+The older green gate does not establish CI on c57ec826. This package verdict grants no merge approval by itself.
 The #233 mutation finding remains open in its separate verdict. The PC group is not complete.

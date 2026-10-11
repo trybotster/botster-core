@@ -464,3 +464,63 @@ The implementer reports 13 failures among 30 EV-5 trace runs, all at step 21. No
 The lead requested an equal-load old-pin and new-pin comparison on the new base profile.
 The implementer reports that it is running. The reviewer did not read or poll that running job.
 The reviewer ran no execution job. Next: push the delta verdict and wait for the comparison evidence.
+
+Push record: #245 delta verdict `c139fc773768b27213418f43ef11edd0eb46b459` is on `origin/stage1/review-pc`.
+NOT CLEAN (1 open) at `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`. PIN-SI-1 is closed; PC-PIN-1 remains open.
+The reviewer worktree is clean. Wait for comparison evidence. Never poll.
+
+Sol's #245 delta source check: `msg_plugin-w_1791706702_0719a1`.
+Sol closes PIN-SI-1 at c57ec826, confirms the import tree, and keeps PC-PIN-1 open.
+The package artifact message crossed Sol's request. The reviewer resent verdict commit `c139fc773768b27213418f43ef11edd0eb46b459`.
+Sol will record NOT CLEAN (1 open). The reviewer ran no execution job. Wait for the doorbell.
+
+#245 comparison evidence received: `msg_plugin-w_1791707284_39d6f4`.
+The reviewer read the three completed job logs, all 90 raw run files, and both trace patches.
+Old pin at 5c480db4: one failure among 30 runs. New pin at c57ec826: two failures among 30 runs.
+Earlier new-pin head df991fdf: 13 failures among 30 runs.
+Old log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-old-pin-v1-5c480db4-20261011-011611.log`.
+New log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-new-pin-c57ec826-20261011-011611.log`.
+Earlier log: `~/botster-sessions/gates/botster-core-pc-pin-ev5-trace-mac-df991fdf-20261011-010924.log`.
+The patches add diagnostic reads and trace output. They call each driver step once and change no expectation or fence.
+They run on contracts commits b161db8 and 65f76ab. The transcript is unchanged between those commits.
+No op-3 Completed event appears in 472 combined old/new seeds.
+
+The reviewer found a difference between the claimed and actual step-21 errors.
+The old-pin failure and both new-pin comparison failures return UnknownRoute, not PendingLimit.
+The earlier df991fdf job has seven PendingLimit failures and six UnknownRoute failures.
+All 16 failed runs show pending_ops 4 and queued_events 0 at the step-19 diagnostic.
+The comparison does not reproduce the exact original PendingLimit result on the old pin in this sample.
+The PR body incorrectly says that all 16 return PendingLimit. The reviewer requested a correction in `msg_plugin-w_1791707381_afe046`.
+The reviewer sent the error distinction to Sol in `msg_plugin-w_1791707381_39788c`.
+PC-PIN-1 remains open until the evidence record is correct.
+
+The implementer supplied the lead's exact rule and disposition in `msg_plugin-w_1791707329_40c4aa`.
+Lead rule: `msg_plugin-w_1791706429_0cb9a5`. A failure on both pins lets #245 proceed; EV-5 becomes a separate open item.
+Lead acceptance: `msg_plugin-w_1791707306_5b703d`. Both reviewers re-check PC-PIN-1, then one final gate runs.
+The lead assigns the missing d1 completion to P3. The step-19 fence question goes to the steward.
+The trace copies remain available for those owners. The reviewer will preserve the sample limit in the verdict.
+The reviewer ran no execution job. Next: wait for the PR-record correction, then close the pin finding under the lead's disposition.
+The EV-5 defect remains open outside the pin PR. Never poll.
+
+#245 renewed package CLEAN: `msg_plugin-w_1791707439_a03590` supplies the PR-record correction.
+Head remains `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`. Base remains `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+The reviewer checked the corrected PR body. It states all error counts and the old-pin sample limit accurately.
+PC-PIN-1 closes for the pin review under the lead's explicit rule for failures on both pins.
+Lead rule: `msg_plugin-w_1791706429_0cb9a5`. Lead acceptance and owners: `msg_plugin-w_1791707306_5b703d`.
+The implementer supplied them verbatim in `msg_plugin-w_1791707329_40c4aa`.
+The EV-5 defect remains open separately. P3 owns the missing d1 completion; the steward owns the step-19 fence question.
+The reviewer read R-63's correction, which preserves UnknownRoute as a separate open fact.
+The comparison reproduces a step-21 failure on the old pin, but not the exact original PendingLimit error in that sample.
+The reviewer changes no transcript, expectation, or pending entry and clears no EV-5 defect.
+PIN-SI-1 remains closed. Current package verdict for #245: CLEAN, zero open findings within the pin review.
+File: `verdicts/pc-pin-v0.1.29.md`. The earlier Mac suite remains failed; CLEAN does not claim otherwise.
+Integration CLEAN and one final Linux gate on the CLEAN head remain required before merge.
+The reviewer ran no execution job. Next: push renewed CLEAN and send its commit. Then wait for the integration or gate doorbell.
+The #233 mutation finding remains open. The PC group is not complete. Never poll.
+
+P3's later diagnosis arrived in `msg_plugin-w_1791707489_49d0c7`, citing `msg_plugin-w_1791707467_209cb3`.
+P3 attributes UnknownRoute to the worker link close after step 19, without #240's descriptor support.
+P3 says Core closes the routes as HandoffFailed during step 20's `await_quiet`.
+P3 keeps the missing d1 completion separate and owns its Core fix. The steward's R-63 requires the fence.
+The reviewer checked the PR body at the same head and base. It records P3's diagnosis.
+The package verdict attributes that conclusion to P3. The reviewer does not independently prove it here.
