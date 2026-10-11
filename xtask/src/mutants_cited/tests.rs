@@ -450,7 +450,16 @@ fn the_tracked_files_come_from_git() {
         tracked_with_submodules(repo.path()).unwrap(),
         ["a/b.rs", "c.toml"]
     );
+    // A plain temporary directory is "not a repo" only when no parent directory is a repository, which depends on where the
+    // test runs (the pool's TMPDIR once sat inside a checkout). A `.git` file that names a missing git directory makes git
+    // fail in this directory whatever its parents are.
     let not_a_repo = tempfile::tempdir().unwrap();
+    let missing = not_a_repo.path().join("missing");
+    std::fs::write(
+        not_a_repo.path().join(".git"),
+        format!("gitdir: {}\n", missing.display()),
+    )
+    .unwrap();
     assert!(tracked_with_submodules(not_a_repo.path()).is_err());
 }
 

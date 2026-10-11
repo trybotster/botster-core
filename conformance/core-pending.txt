@@ -208,7 +208,6 @@ conf::dp_3_history_is_paged_within_max_history_page_bytes
 conf::dp_3_output_deflate_frames_share_no_state
 conf::dp_3_output_deflate_inflated_payload_is_at_most_the_frame_bound_minus_the_type_byte
 conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
-conf::dp_3_output_deflate_only_when_negotiated
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
@@ -221,8 +220,6 @@ conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
 conf::dp_5_input_done_only_for_want_result_true
-conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
-conf::dp_5_lane_full_is_not_a_route_reason
 conf::dp_5_mode_precondition_zero_effect_reported_on_the_route
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
 conf::dp_5_no_input_has_a_success_acknowledgement
@@ -231,7 +228,8 @@ conf::dp_5_op_is_optional_except_on_a_paste
 conf::dp_5_paste_is_assembled_and_written_contiguously_at_commit
 conf::dp_5_refusals_survive_a_resync
 conf::dp_5_resize_has_no_answer_size_arrives_in_modes
-conf::dp_5_route_op_namespace_is_separate_from_host_opids
+# After the contracts-v0.1.39 merge: the testkit fails it at seed 10 step 15 (gate dfc38b47, seeds 0-31: route_closed session_ended
+# before input_refused session_ended), and the real tier at seed 0 step 15. Not diagnosed. Owner: RC.
 conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
 conf::dp_5_silent_not_reported_is_omitted_not_written
 conf::dp_5_stalled_route_with_repeated_queries_stays_bounded
@@ -309,7 +307,6 @@ conf::ev_8_exactly_one_reply_under_every_interleaving
 conf::ev_8_fallback_started_means_admitted_refused_fallback_stays_pending
 conf::ev_8_full_query_capacity_backpressures_parser_in_order
 conf::ev_8_late_client_reply_is_refused
-conf::ev_8_no_route_shadow_answers_at_once
 conf::ev_8_open_query_survives_host_restart
 conf::ev_8_oversize_query_answered_by_shadow_with_marker
 conf::ev_8_query_goes_to_latest_route_with_host_deadline
@@ -328,8 +325,6 @@ conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
 conf::ev_9_every_session_event_carries_instance_id
 conf::in_1_host_write_and_route_frames_share_payload_kinds
-conf::in_3_no_result_crossover
-conf::in_3_route_reports_only_exceptions_on_the_route
 conf::in_6_cancel_result_kinds
 conf::in_6_refused_full_wakes_on_room
 conf::in_9_application_cursor_and_keypad
