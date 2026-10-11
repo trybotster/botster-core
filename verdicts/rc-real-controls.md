@@ -557,3 +557,18 @@ Message: `msg_plugin-w_1791731482_f3af9f`.
 The integration reviewer read package verdict `48e76c5f` and both complete correction deltas.
 Both reviewers require the exact-head gate and any applicable current-base import review before merge.
 The earlier-head gate supports no pending removal. The reviewer ran no test, build, or gate.
+
+
+### Base-only source CLEAN carryover
+
+Source head: `1efe84734e6297e1b5c79f123e2161f923dc233d`.
+New base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+The implementer's base-merge-check reports PASS in:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-r69-base-merge-check-1efe8473-20261011-081147.log`.
+It reports no conflict, no overlapping path, an identical own diff, and unchanged pending files.
+The reviewer checked both parents in the local Git objects.
+The reviewer independently compared all changed paths and the complete binary diff.
+The base paths do not overlap the PR paths. The complete own diff is byte-identical before and after the merge.
+Under plan section 8 Q7, the package source CLEAN carries to this exact head without a delta round.
+All three findings remain closed. The exact-head full gate receipt remains required before merge.
+The reviewer ran no test, build, or gate.
