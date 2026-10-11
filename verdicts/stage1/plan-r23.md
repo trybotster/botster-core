@@ -1420,3 +1420,49 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 4f6516bd638bcf835dae5d7496e6ed9dc660bf5a
+
+## Round 42 — revision 23ag — 2026-10-10
+
+Reviewed head: `cbbdb74e27b0492ddf99104f6076546d00e8ea8f`.
+Prior accepted head: `4f6516bd638bcf835dae5d7496e6ed9dc660bf5a`.
+Scope: the section 8 admission rule and its revision row.
+The revision changes one plan file in two commits on the prior accepted head.
+I compared the complete plan texts. The new admission paragraph and revision row are the only final changes.
+
+The rule makes `Worker::admission(source)` the first session decision for host writes, route input, and EV-8 replies.
+No accepted input path may write, become a no-op, or discard its input before that session check.
+This includes empty bytes, empty text, and empty replies.
+The reply source keeps only R-54's typed Stopping exception. It still takes the shared Live/exit check.
+The rule addresses both F114-class empty-input exits without duplicating the session checks.
+
+The plan names three permitted classes of earlier exits:
+
+- Receipt-time route decisions: readiness, role, validity, and a bad-frame close retain the final receipt outcomes under revision 23ad.
+- Scheduling waits: Spawning or no pending input gives no outcome and waits for further work.
+- Contract retirements: queued host cancellation, the adoption fence, and route-close discard retain their required behavior.
+
+I checked IN-6 and DP-8 at contracts-v0.1.27 and section 3, step 4, of `botster-core-host/DESIGN.md`.
+A queued cancel retains Cancelled with exact zero. It does not become a session-state refusal.
+An adoption fence discards queued requests of the old host without sending their results to the new host.
+A route close discards waiting route frames as the accepted receipt rule requires.
+Those retirements do not admit a new transaction. They need no renewed session admission.
+Started transactions retain their original admission and AM-2 ordering.
+
+The receipt exception resolves my scope question, `msg_plugin-w_1791688931_e810f9`.
+An input received before Live retains NotReady even if the session is already stopping when application becomes possible.
+The rule adds no later session decision that could replace that receipt outcome.
+Invalid and malformed receipt paths also remain exceptions. The required source audit must name their actual producer functions and lines.
+Scheduling waits cannot be treated as an admission failure or a completed no-op.
+
+P3 must list every return and early exit in the three paths, with its source line and decision order.
+Round 6 must verify that list against the source and the permitted exceptions.
+The lead permits no Round 7. If Round 6 is not CLEAN, the lead must split or replan.
+This verdict accepts the plan rule only. It accepts no replacement source, completed audit, gate, or proof for #227.
+
+The revision changes no code pin, contract text, conformance ID, coverage list, passing count, staffing limit, or stage acceptance condition.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `b7c41291e83b89b8224cc7b18f383912440555e999f729c1cfcb1111ce922bcb`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at cbbdb74e27b0492ddf99104f6076546d00e8ea8f
