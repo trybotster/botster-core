@@ -5,9 +5,9 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.6dbe1c43.md`, revision 23aj.
-- Verified plan SHA-256: `25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9`.
-- Current code pin: `contracts-v0.1.27`, commit `b161db8`. Plan 23aj requires the PC pair to move it to `contracts-v0.1.28`, commit `94b63b8`, in a separate HIGH PR.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.4eceef06.md`, revision 23ak.
+- Verified plan SHA-256: `db7ba8e5c0748aa53257fb53a5e6f8923a9549c6c9871127a7d2ef2c97000813`.
+- Current code pin: `contracts-v0.1.27`, commit `b161db8`. Plan 23ak requires the PC pair to move it to `contracts-v0.1.29`, commit `65f76ab`, in separate HIGH PR #245.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Current reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Current reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` on `v1`.
@@ -399,3 +399,33 @@ The reviewer ran no execution job. Next: push the verdict and send its commit to
 The #233 verdict remains NOT CLEAN (1 open), pending the P5 fix and green corrected gate.
 This #242 verdict removes no pending ID and does not complete the PC group.
 Then wait for the doorbell. Never poll.
+
+Push record: #242 CLEAN verdict `2e23e264812097f1cdcd12bd7bf0bcb1c008f20a` is on `origin/stage1/review-pc`.
+File: `verdicts/pc-title-order.md`. The reviewer worktree is clean.
+#233 remains NOT CLEAN (1 open). Wait for the next doorbell. Never poll.
+
+#245 pin review: READY `msg_plugin-w_1791706164_dd4bfa`.
+Head: `df991fdf57122c7b59b06069ab7da01c992ca175`. Base: `f6778ad85c01266ac49e2ededd97487da689e920`.
+Risk HIGH. Both PC and Sol review this pin move.
+The current brief names plan 23ak. The reviewer verified its full SHA-256 and read its changes from 23aj.
+The seven manifest pins and nine lock sources match contracts-v0.1.29 at `65f76ab9829d7a0fda2835c10abc7ffae2c35215`.
+No other dependency value changes. No Core or contracts status list changes. The frozen manifest is unchanged.
+The reviewer read the dependency driver changes, seven transcript changes, and relevant rulings.
+The PR flips no ID. EV-2 and IN-5 still require #233 and its final PASS evidence on this pin.
+The reviewer awards no minimum progress for the unfenced AD-7 proof under R-59.
+The later R-60 and R-61 controls and lint remain separate work.
+
+The exact-head Linux gate passes all ten steps and exits with code 0 after 254 seconds.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-pin-v0.1.29-df991fdf-pool-20261011-010434-15999.log`.
+The diff has no mutant. Pending-real has zero passes among 77 IDs. EV-5 passes on both Linux tiers.
+Mac evidence head: `f5bb74ceab93cbb8e12d070fb15806375ce0d791`, before the base merge and comment correction.
+Log: `~/botster-sessions/gates/botster-core-pc-pin-v0.1.29-mac-f5bb74ce-20261011-005918.log`, plus the retained step2 raw output.
+Testkit strict passes 206 tests. Real conformance has 127 passes and one failure.
+EV-5 repeated attach/detach fails at seed 6, step 21: PendingLimit instead of success, pending_ops 4.
+The EV-5 transcript is unchanged between the two contracts tags. Five isolated Mac runs pass.
+The cause remains unknown. The implementer reports a running 30-run trace job. The reviewer did not poll it.
+PC-PIN-1 MEDIUM remains open for the unexplained active Mac failure.
+Verdict: NOT CLEAN (1 open). File: `verdicts/pc-pin-v0.1.29.md`. No additional pin-source finding exists.
+Sol requested the committed artifact in `msg_plugin-w_1791706271_3e9cd6`.
+The reviewer ran no execution job. Next: push the verdict, send its commit, then wait for cause evidence.
+The #233 SI-5 finding remains open. The PC group is not complete. Never poll.
