@@ -277,3 +277,96 @@ The future GS structural refusal remains unimplemented and unaccepted in this re
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: CLEAN (supplemental B13 evidence within the stated limits; source verdict unchanged) at 6363d55936ff193c2c1164943b80a3f1adc90ada
+
+## Round 4 — final import and body correction, 2026-10-11
+
+Head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Tree: `886ac9ddad72fc5b92a0c66646aa964965a1b00c`.
+Previous reviewed head: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Previous source ancestor: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+
+### Explicit import review
+
+The new base merges #284. Sol verifies its parents and that its tree equals #284's reviewed and gated tree.
+That tree is `5b13e06270096dfad3b73ea8cf87136c26da0261`. This receipt completes #284's merge verification.
+The imported base also retains #282, #283, and both earlier xtask test fixes.
+Sol reviews merge `9d4c7d074044e4268489dd8755115e841d94e7f6` and the subsequent pending change.
+The previous own delta has seven files. The imported base delta has 24 files.
+Five paths overlap: both pending files, `pty_controls.rs`, its tests, and `real/route.rs`.
+All five own code files preserve their previous added and deleted lines against their respective bases.
+All 335 tree entries outside the overlaps match the previous own source or the new base, as applicable.
+The subsequent commit changes only the two pending files.
+
+Sol reads the affected control, parser, route, and test-helper context.
+The shared `PtyOutput` parser retains the one ignored `scripted` field and refuses other unknown fields.
+The real `input_blocked` control retains the stream writability check. It changes no route readiness descriptor or read deadline.
+The imported R-68 readiness method continues to expose the open client stream and returns none for a gated or closed end.
+The testkit stream control still flushes and runs ready work before it observes stream room.
+The merged settle helper retains all pump events for #283's held-write proofs; the existing #285 tests remain intact.
+The real socket test retains its EOF failure, no-progress bound, byte-order proof, and closed-end check.
+No own production code, private-state assertion, terminal encoder, process owner, or mutation exclusion is added by this import.
+F-283-1 remains the separate follow-up for the imported assertions in `program.rs`.
+
+The pending-file conflict resolution preserves all base text and the exact own `in_8` comment and identifier group.
+The own group precedes both imported #284 groups. No comment or identifier from those groups is lost.
+Both merged identifier sets equal the new base minus previous own removals plus previous own additions.
+The final delta removes seven testkit identifiers and adds two real-pending identifiers against the new base.
+Those seven comprise the five previous both-tier identifiers, `in_8_no_recheck_after_start`, and the new bytes-and-text identifier.
+The two real-pending additions are the previous no-recheck identifier and the new bytes-and-text identifier.
+
+Canonical check: `~/botster-sessions/gates/botster-core-rc-testkit-base-merge-check-3cf46071-20261011-143954.log`.
+SHA-256: `5146a7fd1e573e691bf1ecf8ecd5de8cab16a00b90d60e815f98b26b3aa69b86`.
+Sol reads the complete check. Ancestry passes. All four conditions fail, including the pending-file conflict. The command exits one.
+The body contains the complete output exactly. Both explicit delta reviews are required; Sol grants no automatic Q7 carry.
+
+### New pending move and local evidence
+
+Sol reads the bytes-and-text transcript and its exception at contracts commit `ddce507e2c08e740f899e97dcfec566f3d2275b8` (.39).
+The exception names raw step 13, `no program_ready, R-60`.
+The new comment retains that fence gap and P3 owner despite the single local real PASS.
+The identifier leaves testkit pending and enters real pending. The partial-paste session-ended identifier remains testkit-pending.
+
+Sol reads all three supplied local records in full. Each is a filtered record, without complete build output.
+Local check: `gates/botster-core-rc-testkit-local-check-mac-9d4c7d07-20261011-143602.log` under `~/botster-sessions`.
+SHA-256: `e6c4b7e8166513c2f629fe558f00a140c0b0ff3998d01a168040d10267f0f633`.
+It reports 397 testkit passes and 192 worker passes. Its strict check uses seeds 0-31.
+The strict check fails because bytes-and-text passes while pending: 229 passes, one pending-status failure, 460 ignored identifiers.
+Real record: `gates/botster-core-rc-testkit-dp5-bytes-text-real-mac-9d4c7d07-20261011-143826.log` under `~/botster-sessions`.
+SHA-256: `75d7967bd5c7117987f0d4434a3a44160e884f8629c6a9eb75d215c5ee6db50b`.
+It names the merge head plus a local pending edit and the slow suite's default seeds. One test passes.
+Strict correction: `gates/botster-core-rc-testkit-strict-mac-20261011-143935.log` under `~/botster-sessions`.
+SHA-256: `7c1fff47cb116b2c24567b3d3db5024e1cb453f281e1c009012c67511e20a9d5`.
+It names the merge head plus a local list edit: 230 passes, zero failures, 460 ignored identifiers. Lists passes.
+The body identifies this uncommitted edit as the later committed list change and states seeds 0-31.
+Sol does not label that local record a committed-head gate.
+
+RC reports a target clean at 14:36, with 3.9 GiB removed, and only this worktree's builds thereafter in `~/botster-sessions/targets/rc`.
+The record headers support that reported single-worktree sequence. Sol does not claim independent raw clean verification.
+The prior B13 reproduction retains its previously reviewed limits. The withdrawn scratch evidence remains invalid.
+
+### TC-SI-6 — LOW, closed: superseded all-seed claim
+
+The initial final-slot body still claims partial-paste session-ended PASS at every seed with .39 and R-82.
+It also states that the identifier waits only for the .39 pin, which is now in the imported base.
+The #284 dfc38b47 gate disproves that all-seed claim at seed 10, step 15.
+Sol requests a body correction in `msg_plugin-w_1791754945_d1855c`. Package RC-TK-DELTA-1 identifies the same condition.
+The corrected body labels the historical scratch result as one run with the default seeds, not seeds 0-31.
+It preserves the current seed-10 testkit failure and seed-0 real failure, pending status, undiagnosed cause, and RC owner.
+It removes the future-pin fix claim. No new execution or source change is required for this correction.
+Sol verifies the unchanged live head through the GitHub CLI fallback after GitHub MCP fails.
+Corrected body SHA-256: `4200ab5e366eeec5e0b968eb8403f8d4334818800676bb611c8a0b8b603c3112`.
+Only the Stop section changes after the complete body read.
+Sol reads the complete package import section at `5480a940abc4fde52a9c2d656b0de559f5a56de4`.
+Sol also reads the complete correction section at `5c202137371c17567dd3c5eec75fbb1ba25c3061`.
+Package findings now total zero. The completed exact-head gate and final body gate result remain due.
+
+### Remaining final acceptance condition
+
+TC-SI-FINAL-1 — MED, open: completed exact-head final gate, final evidence body, and matching completed package verdict remain due.
+The source delta adds no integration source finding. TC-SI-1 through TC-SI-6 remain closed.
+This receipt accepts no running or future gate result. RC reports that the gate waits for its separate Contracts job.
+Sol requests no extra local run. Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check script.
+Never poll. Wait for the doorbell.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
