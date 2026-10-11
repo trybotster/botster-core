@@ -121,3 +121,59 @@ Both findings must close before CLEAN. The corrected final head needs its own fu
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (2 open) at b013fdeb77341a142321c256ad57d1ecc078aed2
+
+
+## Round 2: current row and public readiness proof
+
+- Head: `15633946e020a9d092ff2fcb8d0bf20560efd202`.
+- Previous head and sole parent: `b013fdeb77341a142321c256ad57d1ecc078aed2`.
+- Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Tree: `c3ff9d9412fa5d96a0289adb9d3ec0fbf6e845f6`.
+- Correction receipt: `msg_plugin-w_1791713750_217702`.
+- Package CLEAN: `e33b773945b18c50abc6836abd62d1c3a9b7f424`, #255 Round 2 in verdicts/rc-real-controls.md.
+- Package receipt: `msg_plugin-w_1791713880_361a32`.
+
+Sol read the complete correction, the complete package round, and the updated GitHub body at this exact head.
+The correction changes three files. It adds 66 lines and deletes 27 lines.
+
+PR-SI-1 / RC-PR-1 MEDIUM is CLOSED.
+The real control calls `stored`, which reads the current storage edge and decodes the row with Core's decoder.
+An absent or invalid row returns `Bad`. The decoded worker identity supplies the probe lookup.
+The historical process record no longer determines whether the session exists.
+The testkit proof completes Remove with `OpResult::Ok` and checks `Bad` through the control.
+The real proof removes a never-started session, drains the host pump, and checks `Bad` through the control.
+Its public `session_processes` read establishes that the historical record remains. It reads no private table.
+Sol checked the unchanged host removal path: storage deletion precedes release; release schedules completion as the next pump step.
+The helper drains all reported pump work and polls events before it checks the absent session.
+
+The real readiness proof now arms the payload hold before Start.
+It observes the recorded identity through `registry_row`, then checks `{ready: false}` through `program_ready`.
+The hold prevents payload launch even if the launch action is not yet due.
+After release, the proof pumps until `{ready: true}`. No helper membership assertion supplies that readiness proof.
+This test claims no crash or adoption at a held lifecycle step.
+
+PR-SI-2 / RC-PR-2 LOW is CLOSED.
+The hello test removes both direct `has_connected` assertions.
+It retains the acknowledged protocol fence and the observable one-signal HostWake assertion.
+Its name, comment, and PR body describe the wake proof.
+
+The inherited #254 controls remain intact. The prior manual source-import review remains applicable.
+No pin, transcript, pending file, minimum ID, dependency, exclusion, timeout, or production crate changes in this correction.
+The prior OLD CORE search and reuse assessment remain applicable.
+
+Sol read the exact-head Mac checks' header, relevant checks, corrected proofs, failure, and summary:
+`~/botster-sessions/gates/botster-core-rc-program-ready-15633946-mac-checks-20261011-031421.log`.
+The header identifies the full head, zero changed files, and macOS 27.0.1.
+Formatting, crate clippy, taint, and lists pass. The three corrected public readiness and wake proofs pass.
+The crate reports 410 passes and one failure in 12.202 seconds.
+The unchanged zombie assertion still returns `Absent` instead of `Matches`.
+The retained plain-v1 comparison from Round 1 reproduces that failure. Neither Mac crate run is entirely green.
+The log's ad hoc merge metadata does not prove the plan's four automatic carry-over conditions.
+Sol uses the prior manual source review, not that metadata, for the import.
+
+The body reports two reversal checks. No named retained reversal log was supplied; Sol records no independent execution claim for them.
+The initial 81304f85 Linux gate does not cover this correction.
+A full green gate on this exact head and current base remains required before merge. Sol awaits its completion receipt.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 15633946e020a9d092ff2fcb8d0bf20560efd202
