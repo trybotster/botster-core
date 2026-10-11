@@ -30,8 +30,8 @@ pub(super) const CONTROLS: &[&str] = &[
     "route_stream_holders",
 ];
 
-/// The most bytes that one read of a `route_accept` drain takes.
-const DRAIN_CHUNK: usize = 64 * 1024;
+/// The most bytes that one read of a `route_accept` drain takes: 64 KiB.
+const DRAIN_CHUNK: usize = 1 << 16;
 
 /// What the `route_fill` of a route needs (R-47 item 3, the control row): the requests to the probes, the worker of the
 /// route's session as Core's stored row names it now, the `SO_SNDBUF` of the worker's end read before the handoff, and the
@@ -267,10 +267,11 @@ impl RealRoute {
         Ok(json!({ "bytes": bytes }))
     }
 
-    /// `route_accept` (the control row; R-47 (A)): takes up to the allowance from the stream into `taken`, with no wait. The
-    /// room that these reads free in the kernel's buffers is the worker's progress (Core OU-3a: the bytes that the kernel
-    /// accepted from the worker's write). A read that gives no bytes (nothing yet, the end, an error) ends the drain, and
-    /// the next call of the route drains again; the end or the error then reaches a read of the stream.
+    /// `route_accept` (the control row; R-47 (A)): takes up to the allowance from the stream into `taken`, with one read and
+    /// no wait. The room that these reads free in the kernel's buffers is the worker's progress (Core OU-3a: the bytes that
+    /// the kernel accepted from the worker's write). Each later call of the route drains again, so bytes that come later, or
+    /// that one read did not give, are taken then. A read that gives no bytes (nothing yet, the end, an error) takes nothing;
+    /// the end or the error then reaches a read of the stream.
     fn drain(&mut self) {
         let RealRoute {
             end,
@@ -282,16 +283,11 @@ impl RealRoute {
         let (Some(end), Some(left)) = (end.as_mut(), accept.as_mut()) else {
             return;
         };
-        while *left > 0 {
-            let mut buf = vec![0u8; (*left).min(DRAIN_CHUNK)];
-            match end.read(&mut buf) {
-                Ok(n) if n > 0 => {
-                    taken.extend_from_slice(&buf[..n]);
-                    *left -= n;
-                    *received += n as u64;
-                }
-                _ => return,
-            }
+        let mut buf = vec![0u8; (*left).min(DRAIN_CHUNK)];
+        if let Ok(n) = end.read(&mut buf) {
+            taken.extend_from_slice(&buf[..n]);
+            *left -= n;
+            *received += n as u64;
         }
     }
 
@@ -751,6 +747,16 @@ mod slow_tests {
         assert!(route
             .control("route_accept", &json!({"bytes": -1}))
             .is_err());
+        // `on: false` ends an allowance that is not used up: under a new gate, the client takes nothing more.
+        route.control("route_accept", &json!({"bytes": 8})).unwrap();
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        route.control("route_gate", &json!({"on": true})).unwrap();
+        worker.write_all(b"op").unwrap();
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"lmn".to_vec())
+        );
+        assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
     }
 
     /// OU-3a on the real tier: the bytes that a `route_accept` takes free room in the kernel, so a worker whose writes were
@@ -893,6 +899,12 @@ mod slow_tests {
             worker_send_buffer: 1,
             max_frame_bytes: 1,
         });
+        // A failed trial prints the route: the fill names its sizes, and the requests name themselves.
+        assert_eq!(
+            format!("{:?}", route.fill.as_ref().unwrap()),
+            "Fill { worker_send_buffer: 1, max_frame_bytes: 1, .. }"
+        );
+        assert_eq!(format!("{:?}", programs.requests()), "Requests");
         assert!(route
             .control("route_fill", &json!({}))
             .unwrap_err()
@@ -913,6 +925,11 @@ mod slow_tests {
             socket,
             host_bytes: Box::new(|| Ok(7)),
         });
+        let debug = format!("{:?}", route.holders.as_ref().unwrap());
+        assert!(
+            debug.starts_with("Holders { socket: Socket {") && debug.ends_with(".. }"),
+            "{debug}"
+        );
         let answer =
             |route: &mut RealRoute| route.control("route_stream_holders", &json!({})).unwrap();
         assert_eq!(answer(&mut route), json!({"holders": 1, "host_bytes": 7}));
