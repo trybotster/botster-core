@@ -74,3 +74,46 @@ The later pin gate owns Linux proof of the changed transcript. This source verdi
 I ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+## Final transfer and gate — 2026-10-11
+
+Head: `eda6efc927d3b53471c7693e6e73f802301e1dd3`.
+Base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parents: source-CLEAN `aa219941014caf6830e3105ce1d038d63f46df4c` and the base.
+Tree: `4b07c85a40098941ad1cfdb597e3b4c0f985c925`.
+Earlier source verdict: `a979e62e61e61f49b056f1c5ed36b9328cce9d2f`.
+Package completion: `d4b06c33c83b92f8f07b3873236669f1c2c32e03`, `verdicts/p3-worker.md`, Round 178. I read the complete round.
+
+I read the complete supplied base check and final body. Every check condition passes.
+Independent static comparisons confirm four disjoint base paths and ten unchanged own source blobs.
+The complete own diff is byte-identical: 40748 bytes, SHA256 `c77fa02ba5815131c1b073f4d14a0a9fab69fb4c250349a9a948c6b855816028`.
+Both pending files, Cargo.toml, Cargo.lock, and .cargo/mutants.toml equal the base.
+The independent static merge produces the exact reviewed tree without a conflict. No executable base check ran.
+The three source findings remain closed. The source CLEAN transfers under Q7.
+
+I read the supplied exact-head Linux gate header, summaries, all 36 stage-1 outcomes, and all six stage-2 outcomes.
+I read all 33 catcher records. Each stage's catcher identities match its raw caught identities exactly.
+Stage 1 reports 27 caught, six missed, three unviable, and zero timeout mutants.
+Stage 2 catches all six remaining mutants. Its unmutated slow baseline passes 548 tests in 41.401 seconds.
+The final result is 33 caught, zero missed, zero timeout, and three unviable mutants.
+The new observer assertions catch the observer record mutants through control answers and wake signals.
+The session-instance control test catches the record lookup and control-body mutants.
+The real control and tapped-guard mutants fail named existing slow controls and conformance tests.
+No FLAKY record appears. The gate selects no changed decoder harness.
+
+All ten gate steps pass in 390.9 seconds. Default passes 1700 tests; slow passes 548 tests.
+Jobq exits zero after 498 seconds: 97 queued and 401 running. The gate wrapper exits zero after 499 seconds.
+The minimum remains 56/69 testkit, 46/68 real-passing, and 47/69 real-accepted.
+Five of 30 pending-real identifiers pass. Neither pending file changes, and no removal follows.
+I do not claim to read every ordinary passing test line.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p3-route-reports-eda6efc9-pool-20261011-081237-93666.log`.
+SHA256: `80276dc79ab836a1194c86fb22d9f63d3842d917ef78b1c57031f553177cd1fc`.
+Check: `~/botster-sessions/shared/core-stage1/evidence/p3-r66-route-reports/base-merge-check-aa219941-eda6efc9.log`.
+The final body contains this check verbatim and the exact final gate. It labels the old gate Earlier.
+GitHub identifies this exact head and base and reports merge `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+The historical Mac evidence retains its original heads and local patch/list scope.
+The later Core pin gate still owns Linux proof of the changed transcript. This verdict accepts no future pin or import.
+I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; source, final body, and supplied exact-head gate accepted)
