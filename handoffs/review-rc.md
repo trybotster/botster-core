@@ -1143,3 +1143,17 @@ That re-gate may start only after the integration reviewer also accepts the repr
 Package acceptance is `1ad1761f78871340bc7745580755080544203d8e`.
 This decision accepts no future gate result. Final acceptance remains pending.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #285 — both controlled-reproduction reviews complete
+
+Integration message: `msg_plugin-w_1791756386_c9e307`.
+Integration receipt: `acd9d7f5809f83e6c5da91be89ddc0e722675d05`, Round 6 in `verdicts/stage1/rc-testkit-controls.md`.
+The reviewer read that complete round.
+It accepts the exact-signature controlled reproduction with the same limits as package receipt `1ad1761f78871340bc7745580755080544203d8e`.
+Both reviews confirm non-interference and preserve the test exit 101, wrapper-zero limit, and absence of a release trace.
+Both reviewers claim no uninstrumented reproduction or original-gate trace.
+The lead's explicit case acceptance is `msg_plugin-w_1791756275_141a13`, recorded above.
+Both reviewer acceptances and the lead's approval now permit the one same-head re-gate.
+TC-SI-FINAL-1 remains open. The record supplies no gate PASS or final acceptance.
+The reviewer ran no test, build, gate, or diagnostic.
