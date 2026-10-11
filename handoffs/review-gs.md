@@ -2,6 +2,22 @@
 
 ## Current review result
 
+- Repository and PR: `trybotster/botster-core#270`.
+- Head: `9298549099b9636b7297fb341b21f0b98e3a0433`.
+- Base: `c942593697e856017572977af0405b17de0124e2`.
+- Risk tier: STANDARD, assigned by the lead.
+- Verdict: NOT CLEAN (1 MEDIUM open).
+
+I accept the process-check entry for the nonblocking reap after bounded status observation. The source has no finding.
+
+The Linux gate passes all ten steps in 261.4 seconds. The corrected proof passes; the plain wait times out on reversal.
+
+GS-BW-1 MEDIUM requires the exact-head focused Mac pool log under section 8, revision 23ai. The current body has only local Mac claims.
+
+Wait for that log and the updated body. Do not repeat the green Linux gate. I ran no gate, build, or test.
+
+## Previous Core PR #262
+
 - Repository and PR: `trybotster/botster-core#262`.
 - Head: `bbd25214835b4648623cb1e5ac3a89ac50f5d260`.
 - Base: `56fae5826f766b408abca06f99376e0506982bf9`.

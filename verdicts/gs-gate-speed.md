@@ -1603,3 +1603,65 @@ Both reviews are complete with zero open findings. The failed canonical base-che
 The exact-head gate remains valid. No repeat gate is required. The lead owns the merge decision and current-base check.
 
 I ran no gate, build, or test.
+
+
+## Core PR #270: bounded worker waits
+
+- Head: `9298549099b9636b7297fb341b21f0b98e3a0433`.
+- Base: `c942593697e856017572977af0405b17de0124e2`.
+- Risk tier: STANDARD, as assigned by the lead.
+- VERDICT: NOT CLEAN (1 MEDIUM open).
+
+I read the complete two-file delta, the changed call contexts, both platform adapters, the shared status observer, the check's matching logic, and the body.
+
+The helper observes an exact unreaped child through the existing bounded `await_status`. It reaps only after a status is available.
+
+The Linux adapter waits on a pidfd. The Mac adapter waits on SIGCHLD through kqueue and checks status again after each event.
+
+The helper returns an error on a deadline, observation error, missing status, or reap error. The three ordinary call sites panic on that error.
+
+The observer-parent drop reports an error during an existing panic. Otherwise it panics. This avoids a second panic that would abort the test process.
+
+The proof uses a Blocker payload and a marked 100 ms deadline. It checks the exact report, then stops and removes the unreaped worker.
+
+The change preserves the existing cleanup bound at the four sites. It changes no product code, testkit adapter, mutation scope, binary build, or verdict logic.
+
+A worker that stays alive produces a failure instead of an unbounded wait. I found no source path that converts the old timeout into a pass.
+
+### Ruling on the new process-check entry
+
+I accept the single `status_within | child-wait` entry for this exact source. It covers one nonblocking `try_wait` after bounded status observation.
+
+The check classifies `try_wait` as child-wait by syntax. It cannot infer the preceding observation or this test's ownership of the unreaped child.
+
+The entry's comment states both facts. The entry replaces four entries for unbounded waits and introduces no polling loop or unbounded wait.
+
+This is a reviewed false-positive exception. It does not authorize another raw wait or a future change to this helper.
+
+### Supplied Linux evidence
+
+The exact-head gate identifies the base above and passes all ten steps in 261.4 seconds. Process-check reports 112 allowed sites.
+
+The default suite passes 1690 tests. The slow suite passes 548 tests. The new proof passes in both worker fixtures.
+
+The mutation step finds no mutant because the source change is in test code. The earlier taint failure remains recorded in the body.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-92985490-pool-20261011-074238-70139.log`.
+
+I decoded and read the Linux reversal script without executing it. The corrected proof passes in 0.108 seconds.
+
+Replacing the observer with `Child::wait` makes the same proof time out in 2.002 seconds. The evidence script restores the source afterward.
+
+Evidence: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-92985490-pool-20261011-074127-66951.log`.
+
+### GS-BW-1 MEDIUM: OPEN — required Mac pool evidence is missing
+
+Plan pin `stage1-plan.70cf75fb.md`, section 8, revision 23ai, requires a focused Mac pool run for portable code whose behavior depends on signals or reaping.
+
+The run's log must appear in the PR. This change depends on the Mac status adapter and real worker cleanup.
+
+The body states local Mac results without a named Mac pool log on this exact head. Older-head proof claims do not supply that evidence.
+
+Required change: supply an exact-head focused Mac pool log for the proof and four changed sites. Add the log and results to the body.
+
+Do not repeat the green Linux gate. The source needs no change for this finding. I ran no gate, build, or test.
