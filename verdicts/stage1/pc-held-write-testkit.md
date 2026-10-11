@@ -127,3 +127,24 @@ Lead handoff 07:38 chooses FINAL-READY now and SLOT after #282. No separate same
 The approved current-v1 import must remove the diagnosed cause and receive its applicable review or proven carry.
 A complete final exact-head green gate and updated body remain due. This record accepts no unseen import or gate.
 Sol ran no execution job or executable base check. Never poll.
+
+## Evidence receipt — B13 replacement, 2026-10-11
+
+Head remains `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+PC withdraws the earlier local positive and reversal runs. They did not satisfy the lead's B13 build condition.
+PC replaces them with runs after a clean of targets/pc. Only this worktree built there after that clean, by owner report.
+The README retains the clean command and copied terminal output: 76194 files removed, 16.3 GiB.
+No raw clean log exists. PC reports that dependency files name no other worktree. Sol does not repeat that scan.
+Sol reads the complete README, scratch patch, head record, four result summaries, and both complete failure details.
+Evidence directory: ~/botster-sessions/shared/core-stage1/evidence/pc-held-write-testkit/.
+
+- clean-lib-bd4c6f16.log: 394 PASS, zero failures; SHA-256 5288f1fec2233ebcbfea9cb5a1140c519778909343afc99405d81dd3468a8878.
+- clean-conformance-bd4c6f16.log: 212 PASS, zero failures, minimum 60/69; SHA-256 054e17a32cec4751ce85335582325aee681dcdbcade0f2c504e96a5e26994017.
+- revert-hw-tk-1.log: 392 PASS, two failures; SHA-256 3b0eee6937b9b5a05f700fa49b17fb992f4cf52dd24c69c0da6965f12999fe50.
+- restored-bd4c6f16.log: 394 PASS, zero failures; SHA-256 a35c0b9258708863d90655da279816beabcaa2e2ed6b8127493b3e6b10f243ef.
+
+The scratch patch removes only controls.kernel_room > 0 from the corrected guard.
+The two failures are only_a_spent_chunk_waits_for_the_next_step and a_chunked_write_fills_the_kernel_queue_before_the_host_settles.
+The first reports room for two bytes. The second reports one queued byte against the expected three.
+HW-SI-2 remains a test-strength correction with no source reversal. The README states that limit.
+The source CLEAN verdict remains. No final import or gate is accepted by this receipt. Sol runs no execution job.
