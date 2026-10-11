@@ -68,11 +68,16 @@ fn program_alive(
         .is_some_and(|worker| harness.workers().payload_alive(worker.identity())))
 }
 
+/// The arguments of `pty_output`, on both tiers. Steward ruling R-76: `scripted` (the fake's mode script) is the one field
+/// that Core ignores, as it ignores the `fake` field of a `Create` request. libghostty derives the modes from the bytes alone
+/// (R-7). Every other unknown field is still `Bad`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PtyOutput {
-    session: SessionId,
-    bytes_hex: String,
+pub(crate) struct PtyOutput {
+    pub(crate) session: SessionId,
+    pub(crate) bytes_hex: String,
+    #[serde(default, rename = "scripted")]
+    _scripted: Option<serde::de::IgnoredAny>,
 }
 
 /// The payload of the session writes these bytes to its terminal (Core ST-1, OU-7). They are plain output: the worker reads
