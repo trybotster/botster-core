@@ -110,3 +110,15 @@ The base paths do not overlap the PR paths. The complete own diff is byte-identi
 Under plan section 8 Q7, the package source CLEAN carries to this exact head without a delta round.
 All three findings remain closed. The exact-head full gate receipt remains required before merge.
 The reviewer ran no test, build, or gate.
+
+
+### Integration carryover received
+
+The integration reviewer carries source CLEAN under Q7 to `1efe84734e6297e1b5c79f123e2161f923dc233d`.
+Base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Integration receipt: `51838b763f1a884ed920381a6342dbc60a11c6be`.
+Message: `msg_plugin-w_1791731744_a2bca1`.
+The integration reviewer confirms the parents, ten disjoint base paths, identical own diffs, and unchanged transferred blobs.
+Both source CLEAN verdicts cover this exact head and base. All findings remain closed.
+The final exact-head gate remains required. This receipt accepts no future gate or pending removal.
+The reviewer ran no test, build, or gate.
