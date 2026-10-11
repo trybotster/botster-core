@@ -248,3 +248,68 @@ Sol reads no running gate output and accepts no result from that unfinished gate
 Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition: completed exact-head gate, removal evidence, final body, and final package verdict) at 46c8c5481a3cdf11ec98949227fda32f4d0f0ee0 against base f6025aed4cdf7da836e835e0040fc128b7e8f32f
+
+## Round 5 — completed RED final gate, 2026-10-11
+
+Exact head, base, and tree remain those in Round 4.
+RC receipt: `msg_plugin-w_1791762337_921adf`.
+Package receipt: `msg_plugin-w_1791762366_3c7fda`.
+Log: `~/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-46c8c548-pool-20261011-163127-84246.log`.
+SHA-256: `887ba42df9e718f5c3a278de38b9a236d59d11fd0a8dedd15855646cb0c874a4`.
+Sol reads the completed exact-head/base headers, tier results, all mutation outcomes and citations, full failure, summary, and final exits.
+
+Eight steps PASS. Mutants FAIL at the unmutated stage-2 slow baseline. Fuzz is NOT RUN because an earlier step failed.
+The step total is 658.2 seconds. The Linux job exits one after 769 seconds: one queued, 768 running.
+The wrapper exits one after 771 seconds.
+Default: 1822 PASS, 445 skipped, 20.357 seconds. Slow: 599 PASS, 2034 skipped, 61.260 seconds.
+Stage 1: 32 mutants, 18 caught, twelve missed, zero timeout, two unviable, 153.7 seconds.
+Sol independently matches all 18 unique raw catches to all 18 unique citations; each catcher has a normal gate PASS.
+The unmutated baseline runs 599 tests: 598 PASS, one FAIL, 2740 skipped, 61.240 seconds; its interval is 81.4 seconds.
+Stage 2 tests no mutant and supplies no catch. The twelve stage-1 misses remain unresolved in this gate.
+They are not a completed combined-stage survival verdict. No final green mutation result or fuzz result exists.
+The log contains no FLAKY token. That wording does not erase its baseline failure.
+
+The failed baseline test is `conf::st_6_capture_is_frozen_at_model_rev`, seed 0, step 17.
+The expected expression is `{"ne":[1,1]}`. The received text is `the relation does not hold`.
+The same identifier passes normally in both default and the earlier real slow run of this gate.
+Sol retains the failed baseline as FAIL. The earlier normal PASS does not replace it.
+
+All four identifiers moved from testkit pending have normal conformance PASS records in this completed gate.
+They are worker-mode keys, kitty modifier keys, and both mouse groups named in Round 4.
+These records supply their required testkit PASS evidence. They grant no real-tier acceptance or final merge acceptance from this RED gate.
+Their real-pending fence gaps and P3 owner remain recorded.
+
+### Static attribution and the proposed controlled proof
+
+Sol reads the complete ST-6 transcript at contracts .39, ddce507e.
+Its first pty_output writes 41 before CaptureSnapshot, with only await_quiet between them.
+Its second pty_output writes 42 before ReadScreen, again with only await_quiet between them.
+Step 17 requires the snapshot and later screen model_rev values to differ.
+No model-read fence proves that the worker applies the second output before the later ReadScreen result.
+The observed 1/1 values are consistent with that missing fence. The failed log does not contain the worker-read trace that proves this timing.
+
+Sol independently compares the PR with plain base f6025aed.
+The program controls, real program-control implementation, production host, worker core, and Core real facade have no own delta.
+The changed real.rs dispatch adds only distinct oracle control names, with their tapped guards.
+pty_output still dispatches through program::CONTROLS and program_control to the existing write_output request.
+The ST-6 transcript calls no oracle control. The reviewed own oracle source does not alter its model feed or output fence.
+This establishes static non-interference with the proposed missing-fence mechanism. It does not establish the required plain-v1 failure.
+The package independently reaches the same limited conclusion in its receipt above.
+
+RC stops after the RED result and reports no re-gate.
+RC proposes one controlled reproduction on plain v1 f6025aed under plan 23bl(A).
+No completed controlled proof or case-specific lead approval is supplied at this review.
+A valid proof must retain the exact identifier, step, and symptom, plus the scratch timing delta and source/cache provenance.
+The scratch delta must only widen an existing timing window; it must neither add missing behavior nor change the result under test.
+Both reviewers must assess the completed evidence and non-interference before any exception is accepted.
+The lead must record its case-specific decision, repair owner, and removing PR before it authorizes one same-head re-gate.
+The re-gate must pass every step. A second RED result requires a source repair before another gate.
+The previous 23al/23bl decisions for other failures supply no exception for this ST-6 baseline.
+
+The final body must replace RUNNING with this completed RED result and retain its log, failing identifier, and stage limits.
+Sol requests that update. No corrected final body is accepted through RC's message alone.
+No new source defect in the oracle controls is established. The final acceptance condition remains open.
+Sol requests no execution job and runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base check.
+Never poll. Wait for the doorbell.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition: RED baseline attribution and disposition, complete final gate, final body, and final package verdict) at 46c8c5481a3cdf11ec98949227fda32f4d0f0ee0 against base f6025aed4cdf7da836e835e0040fc128b7e8f32f
