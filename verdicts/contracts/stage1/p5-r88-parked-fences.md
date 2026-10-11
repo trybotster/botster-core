@@ -42,3 +42,16 @@ At #68 I wrote that the three `e3_1` ids need no `parked_work` fence, because th
 ### 016c's round 1 on the same head (package scope; recorded, not repeated)
 
 - LOW (body): the prior-art section says that the `st_6_pages` R-57 title fence is in #67. It landed in #54; #67 adds the CSI push/pop lint self-tests. P5 corrects the PR number. My round 1 missed this. I check the corrected body at the final step.
+
+## Merge 1 delta review: no finding on c548c06f129a32f33165ac194940b0b5daa30b1c (the final CLEAN waits for two items)
+
+- `c548c06f` = `00e28fd9` + main `715639eb220e33892253f57c41619ece15cc490f`. The recomputed tree `867ee891b0e80996c9448cfb80c8fe27df3c891d` equals the commit's tree.
+- The shared path is `core-fence-exceptions.txt`. The merged file equals main's file minus exactly the PR's three `e3_1 ... step 17 no await_title, R-57` lines. Main's own edits there (the `in_9_kitty`, `ad_3` and other entries) are kept.
+- The diff between the merged head and main is the PR's 8 files (+104/-6). The patch-id equals the patch-id of the reviewed diff.
+- Main's transcript changes since `5a83c853` (`in_9_*`, `ad_3`) are other ids. They do not touch the seven transcripts of this PR.
+- Gate on `c548c06f`: `...-c548c06f-pool-20261011-162001-92488.log` (sha256 `e43a8c3ce88e3c610754ba951d2e0e3d47dcd7cb84b1900652a85eb24dad660c`). The header names head `c548c06f...` and base `d0a69c1e`. Linux node. Ten steps PASS. Exit 0.
+- 016c's body LOW is fixed (P5).
+
+Still to do before the final CLEAN:
+1. **Main moved again, and not by rulings only.** Main is now `17f8a6e94cf3fff61c4eb2aff4a02f1e5dfd4b3e`. Commit `185e558` changes `conf::ad_3_adopted_equals_started.json`, so BUILD.md's rulings-only exception (one file, `docs/steward-rulings.md`) does not apply. `c548c06f` does not fast-forward main. That merge is disjoint (`ad_3` is not a path of this PR), so it needs no delta review. But the gate and the verdict must be on the exact head that main fast-forwards to.
+2. **B13 disclosure (P5).** `e31-whose-parked-probe.log` and `r88-groupA-tiers-mac.log` ran in the shared `targets/p5` with no `cargo clean` and no record that only one worktree built there. A stale binary of another worktree could have run. P5 reruns both from a cleaned `targets/p5` (`r88a-clean-evidence.log`). I check that the rerun gives the same results: 32 of 32 for s2 on `carried_transition`, PASS on both tiers for the four ids, and the `e3_1` failures where they were before.
