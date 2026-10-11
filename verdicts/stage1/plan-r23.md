@@ -2739,3 +2739,54 @@ This review accepts no future implementation, PR, gate, tag, pin, pending remova
 Sol ran no test, build, gate, measurement, or mutant.
 
 VERDICT: NOT CLEAN (1 open: BQ-SI-1, LOW) at d1ec3a9ba60af9f051e354d423cffca7ca2fe400
+
+## Round 76 — revisions 23bs through 23bu, 2026-10-11
+
+Head: `133ea0b268878ed29a9cf9b0994ad8b04498f1fc`.
+Prior reviewed head: `d1ec3a9ba60af9f051e354d423cffca7ca2fe400`.
+Intermediate heads: `1acba268b78783f8b7d6da60e1884fce336b7216` and `a730792dd0137d4aefa9b41fd31e3959aaccb652`.
+Sol reads every changed term in all three sequential deltas. All three pins equal their committed plan bytes and have mode 0444.
+Their SHA256 values, in order, are:
+
+- `1209ec1cb4b5c38070266fa31d143a9f9ad01986b0de0fa6a5b1fdf865a0a538`
+- `a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca`
+- `f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815`
+
+### BQ-SI-1 closes
+
+23bs corrects the active paste-body rule to permit every byte except `0d`.
+It preserves the two `contains 610a62` assertions, fallback on every subject, run order, negative proof, and frozen fake.
+The 23bs history row explicitly records the correction. The unchanged 23bq history row describes the superseded rule.
+The corrected section 0 and explicit later history row resolve the active requirement.
+
+### BU-SI-1 — LOW — the .40 stall rule has no remaining third PR
+
+Section 0 says: "when the second of #52 and R-73 merges, the third gets ONE more review round".
+The same paragraph states that #51 has already merged. After both #52 and R-73 merge, all three named PRs have merged.
+There is no remaining third PR to review or omit from the tag. The earlier .38 rule starts when two of three have merged.
+The lead's 03:31 handoff entry repeats the new wording. Sol cannot infer a different binding trigger.
+
+Required correction: state which merge starts the final review round and which remaining PR can miss .40.
+If the intended rule equals .38, count merged #51 as the first of the three.
+Then the first merge of #52 or R-73 starts the last PR's one-round window.
+Keep the optional text PR's separate merge-ready condition and the one Core pin move.
+
+### Checked, no additional finding
+
+23bs records the three R-74 lint conditions: earlier binding, same session, and the permitted written-count field.
+23bt correctly removes three R-56 exceptions, not four. The four R-60 entries only change step numbers.
+Sol reads the R-74 lint ruling and the steward's held text corrections. The held documentation change remains due after .40.
+23bu's IN-7 fence waits for Lost without polling events. It asserts no order between write completion and worker exit.
+Sol reads the full pending ruling addition. The fence does not change the Running state while only the link is broken.
+
+The new Contracts seat replaces Sol for Contracts reviews. Sol keeps Core and plan reviews.
+The final-gate slot rule assigns one Core final gate at a time. First-READY and Contracts gates remain outside that rule.
+The lead's approved #277 second import and stopped stale gate remain recorded exceptions.
+Each subsequent Core final import requires its slot, applicable base check, required delta reviews, and exact-head gate.
+No package source CLEAN approves a later head automatically when the base check fails.
+
+BU-SI-1 is the only open plan finding. The active Core pin remains .36.
+This review accepts no future PR, implementation, gate, tag, pin, pending removal, or diagnostic change.
+Sol runs no execution job.
+
+VERDICT: NOT CLEAN (1 open: BU-SI-1, LOW) at 133ea0b268878ed29a9cf9b0994ad8b04498f1fc
