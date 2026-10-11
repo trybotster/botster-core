@@ -93,3 +93,38 @@ VERDICT: NOT CLEAN (3 open).
 - 016c item 1 (MEDIUM) is my F3. 016c's example uses two sessions: r1 on s1 sends a 1-byte paste, and r2 on s2 sends a 5-byte paste, both with op 1. The valid `await_pty` of 1 on s1 then gets a 6-byte finding. One fix closes both. I check it on the next head as 016c asks: open pastes keyed by route and op, a safe floor for the read's session, and a regression test.
 - 016c item 2 (MEDIUM): `least > 0` also skips a non-empty sequence whose floor is 0, for example `[{"var": "$e"}]` after a key send, with no `await_pty`. R-83 exempts only an empty sequence. A `var` part counts 0 toward the floor, but the read still needs a fence of its session. My round 1 missed it. I check the fix on the next head: the empty-sequence test is separate from the floor, a non-empty sequence with a floor of 0 needs a valid fence of its session, and a regression test covers it.
 - 016c item 3 (LOW): the module comment of `fence_lint.rs` (line 23) still allows exceptions for three rules only, and it does not name R-83.
+
+## Round 2: head `53c44a709a0030a0347d3b1c9e9badb628b320d8` (gate not yet run)
+
+VERDICT: NOT CLEAN (1 open). Lint-only delta: `6d310b968d44046284fdd003aaaebb610d70bcf9` and `53c44a709a0030a0347d3b1c9e9badb628b320d8` change only `fence_lint.rs`. No transcript and no exception changes.
+
+### F1 closed
+
+- A route read now accepts `covers(Some(least))` or `Fence::Bound(Num::Run)` only, so a fixed `let` must cover the floor, as a literal must.
+- `a_known_fence_covers_the_floor_of_a_route_read`: a literal one byte below the floor is flagged and one equal to it is clean; a fixed `let` of 1 and of 2 below a 3-byte floor is flagged, and one of 3 is clean.
+
+### F2 closed
+
+- `the_floor_of_a_route_read_counts_each_part` finds the least clean literal fence for each case: `hex` plus `var` = 2, a `bytes` op 3, a `text` op 4, a committed two-chunk paste 3, an aborted paste 1, an op with no known bytes 1, `one_of` takes the least (1 of 3, 1 and 2), and an empty sequence (alone or in a `one_of`) needs no fence.
+- Hand mutants (`~/botster-sessions/shared/core-stage1/evidence/p3-am2/f2-hand-mutants-53c44a70-macos.log`, macOS): each of my five changes and each reverted fix is CAUGHT. One line is a SKIP (a pattern miss), and the last line runs that mutant: CAUGHT.
+
+### F3 closed (and 016c item 1)
+
+- `KnownRuns::open` is keyed by route and op, as the driver keys it. `done` is keyed by session, then op, so a read counts only the runs of its own session. The session of a paste is taken at its `paste_begin`.
+- Tests: `an_open_paste_is_keyed_by_its_route` (two open pastes of op 1 on r1 and r2 of s1: the r1 floor is 4, not 5) and `a_known_run_of_another_session_does_not_raise_the_floor` (016c's example: s2's 5-byte paste does not raise s1's floor of 1).
+
+### 016c items 2 and 3
+
+- Item 3 is fixed: the module doc names R-83, its rule, and the route read rule's single exception.
+- Item 2 is fixed in its first form: `route_pty_least` gives `None` only when a sequence is empty, so a read of `var` parts only is checked. `a_read_of_var_parts_only_needs_a_fence`: no fence is flagged, and `min_bytes: 1` is clean. F4 below is what remains.
+
+### F4 (MEDIUM, open): a 0-byte fence fences a read of `var` parts only
+
+- **Evidence.** The floor of `[{"var": "$e"}]` is 0, and `Fence::Literal(0).covers(Some(0))` is true. So `{"await_pty": {"session": "s1", "min_bytes": 0}}` is accepted as the fence of that read, and so is a fixed `let` of 0. The driver (`botster-core-conformance/src/driver.rs`, `await_pty`) waits for "at least `min_bytes`" bytes, so a value of 0 returns at once and waits for nothing. That is the race of 016c item 2 again, with a fence step that does nothing. The new self-test locks it in: `the_floor_of_a_route_read_counts_each_part` asserts `floor(vec![], read(json!([{"var": "$x"}]))) == Some(0)`, so a fence of 0 is clean there.
+- R-83 exempts only an empty sequence. The R-56 capture rule already refuses a fixed value of 0 (`Bound(Num::Fixed(n))` covers a capture only when `n >= 1`).
+- **Required.** A known fence covers at least one byte for any non-empty sequence: accept `covers(Some(least.max(1)))` or a `Bound(Num::Run)` fence. Change that assertion to `Some(1)`, and add a case where a fixed `let` of 0 before a `var`-only read is flagged.
+- **Effect today.** None. No committed fence has `min_bytes: 0`.
+
+### Gate
+
+- P3 runs the gate on the head that closes F4. I read it before any CLEAN.
