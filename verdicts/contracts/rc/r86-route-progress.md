@@ -77,3 +77,15 @@ Gate: `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-6c22bc91
 
 - The A5-4 real-tier sides ran on different nodes (before on `linux`, after on msa1). The two ids that changed (`am_2_no_interleave_across_paste_markers` ok → FAIL, `in_9_text_is_one_transaction_and_utf8` FAIL → ok) are both listed unfenced R-56 reads, and a one-byte send moves no client byte. I accept this explanation.
 - The A5-4 port has R-86 and R-81, not R-89. R-89 can turn a wait that outran its step deadline and then passed into INCONCLUSIVE. Core's `.42` pin PR gate, which runs every live id with R-89, is the check for that.
+
+### 016c's round 1 finding on the same head (package scope; recorded, not repeated)
+
+- **MEDIUM (R-89).** `next_event` checks the deadline only on its `more` or posted path. `idle_wait` returns `Pending` with no deadline check in two paths:
+  - after `clock.jump_to(at)` (lines 666-667);
+  - on `Wake::Woken` (line 680).
+
+  So a Core that keeps giving future deadlines under a jumping clock, or a wake handle that keeps giving spurious `Woken` with no work, keeps `pump_until` and `pump_collect` alive past the step deadline. 016c's two exact-function proofs return `Pending` for an already-expired deadline.
+- **My round 1 missed this.** I checked the deadline in each loop and in `next_event`'s `more` path, but not in `idle_wait`'s `Pending` returns.
+- On the next head I check two things:
+  - every `Pending` return of `next_event` and `idle_wait` is behind an expiry check (or the check is at the start of `next_event`, after the queued-event pop);
+  - regression cases (a repeating future deadline under a jumping clock, and a spurious `Woken`) end INCONCLUSIVE `step_timeout`, and are red on revert.
