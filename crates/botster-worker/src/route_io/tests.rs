@@ -228,6 +228,8 @@ fn a_write_of_no_byte_waits_and_a_write_error_is_terminal() {
             result: Ok(0)
         }]
     );
+    // A readable event is not the end of the wait (F122).
+    assert_eq!(routes.event(token, true, false, false, false), None);
     assert_eq!(
         routes.event(token, false, true, false, false),
         Some(Input::RouteWritable { route: R })

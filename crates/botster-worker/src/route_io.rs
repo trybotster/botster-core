@@ -171,6 +171,8 @@ fn write_once<S: Write>(route: RouteId, io: &mut RouteIo<S>, inputs: &mut VecDeq
         },
     };
     if result == Ok(0) && !bytes.is_empty() {
+        // The stream took no byte, so this write used up the readiness, as `WouldBlock` does (F122).
+        io.writable = false;
         io.wait_writable = true;
     }
     inputs.push_back(Input::RouteWritten { route, result });

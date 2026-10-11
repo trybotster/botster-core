@@ -543,7 +543,9 @@ impl Driver {
         if !io_decisions::read_pty(self.pty_registered, self.pty_readable, draining) {
             return;
         }
-        // OU-3d: a spent budget stops the read, a drain's too, until the routes take bytes.
+        // OU-3d: a spent budget stops the read, a drain's too, until the routes take bytes. The budget needs no decrement
+        // here: the machine handles each read's `PtyOutput` in the next `settle`, before any other PTY read, and sends a new
+        // budget then.
         let want = io_decisions::pty_read_bytes(self.read_chunk.get(), draining, self.pty_budget);
         if want == 0 {
             return;
@@ -556,9 +558,6 @@ impl Driver {
                 self.inputs.push_back(Input::PtyOutput(buf[..n].to_vec()));
                 if let Some(left) = self.drain_left.as_mut() {
                     *left = left.saturating_sub(n);
-                }
-                if let Some(budget) = self.pty_budget.as_mut() {
-                    *budget = budget.saturating_sub(n);
                 }
             }
             Err(error) => match io_decisions::failure(&error) {
