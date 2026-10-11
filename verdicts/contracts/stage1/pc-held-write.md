@@ -42,3 +42,10 @@ VERDICT: NOT CLEAN (1 open).
 - Header: head `06acbd8221efaf1e91c049809920d3141d6e1fb5`, base `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` (BOTSTER_CI_BASE_REF), Linux pool. The PR's merge base is the same commit, so this head already holds main.
 - Result (read by me): all 10 steps PASS; `pty_queued_counts_the_unread_bytes_and_reads_none_of_them` PASS on Linux; mutants 2 tested, 2 caught; no FLAKY line; `botster-gate: exit 0 after 357 s on linux`.
 - A docs-only fix of F1 gets a delta review. The merge rule still needs a green gate on the new exact head.
+
+## Round 2 (delta): head `4b7c2bb044b7d0e74b31d04cc0b3e9d1517ec08f`
+
+VERDICT: CLEAN (0 open) on this exact head. The gate on this head is still to come; I read it before I send CLEAN to the lead.
+
+- The parent is the reviewed head `06acbd8221efaf1e91c049809920d3141d6e1fb5`. The delta is one line in `docs/core-testkit-controls.md`: "FakeCore's" becomes "on the Core testkit and the real tier" in the `kernel_bytes` row. **F1 is closed.**
+- The rest of the row does not change. "Real tier: ignored, because the kernel buffers" agrees with R-74 ("On the real tier, n is ignored") and with the probe section of the same doc.
