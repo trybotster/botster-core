@@ -54,7 +54,7 @@ const SIGNALS: Token = Token(2);
 const EXIT: Token = Token(3);
 const ENDPOINT: Token = Token(4);
 
-/// The bytes of one read of the control socket or the PTY.
+/// The bytes of one read of the control socket, the PTY or a route stream.
 const READ_CHUNK: NonZeroUsize = NonZeroUsize::new(64 * 1024).expect("positive driver read bound");
 
 fn main() -> ExitCode {
@@ -197,7 +197,7 @@ impl Driver {
             inputs: VecDeque::new(),
             exit: false,
             descriptors: io_decisions::DescriptorTable::default(),
-            routes: route_io::Routes::default(),
+            routes: route_io::Routes::new(read_chunk),
             pty_budget: None,
         })
     }

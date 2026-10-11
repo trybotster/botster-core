@@ -201,6 +201,7 @@ exclude_re = [
     # NonZeroUsize enforces positivity in all builds; a zero default fails const evaluation.
     # control_and_pty_reads_retain_bytes_at_each_positive_bound proves control-frame and program-byte retention
     # and readiness clearing at 65536, 1088, and 1 through the same Driver constructor and read functions.
+    # Route stream reads take the same bound: a_read_takes_at_most_one_chunk proves the bound of each read at those values.
     # The exact-head slow baseline also proves the shared Worker's launch, signal, exit, and removal through Driver.
     # Changed chunking can change the schedule without changing these contract results.
     # This entry covers only the constant arithmetic. Read decisions in io_decisions remain mutation-tested.

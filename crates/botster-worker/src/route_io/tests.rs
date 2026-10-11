@@ -37,8 +37,12 @@ impl Write for Scripted {
 
 const R: RouteId = RouteId(7);
 
+fn routes(read_chunk: usize) -> Routes<Scripted> {
+    Routes::new(NonZeroUsize::new(read_chunk).unwrap())
+}
+
 fn bound(stream: Scripted) -> (Routes<Scripted>, usize) {
-    let mut routes = Routes::default();
+    let mut routes = routes(64 * 1024);
     let token = routes.bind(R, stream);
     (routes, token)
 }
@@ -84,21 +88,28 @@ fn a_route_reads_only_within_its_allowance() {
     assert_eq!(routes.close(R).unwrap().read_lens, [5, 2]);
 }
 
-/// One read of a route takes at most `ROUTE_READ_BYTES`, whatever its allowance.
+/// One read of a route takes at most the driver's read bound, whatever its allowance: at the driver's bound and at the
+/// other bounds of its read tests.
 #[test]
 fn a_read_takes_at_most_one_chunk() {
-    let (mut routes, _) = bound(Scripted {
-        reads: VecDeque::from([Ok(usize::MAX)]),
-        ..Scripted::default()
-    });
-    routes.allow(R, usize::MAX);
-    let inputs = turn(&mut routes);
-    assert!(
-        matches!(&inputs[..], [Input::RouteRead { bytes, .. }] if bytes.len() == ROUTE_READ_BYTES),
-        "{}",
-        inputs.len()
-    );
-    assert_eq!(routes.close(R).unwrap().read_lens, [ROUTE_READ_BYTES]);
+    for chunk in [65536, 1088, 1] {
+        let mut routes = routes(chunk);
+        routes.bind(
+            R,
+            Scripted {
+                reads: VecDeque::from([Ok(usize::MAX)]),
+                ..Scripted::default()
+            },
+        );
+        routes.allow(R, usize::MAX);
+        let inputs = turn(&mut routes);
+        assert!(
+            matches!(&inputs[..], [Input::RouteRead { bytes, .. }] if bytes.len() == chunk),
+            "{chunk}: {}",
+            inputs.len()
+        );
+        assert_eq!(routes.close(R).unwrap().read_lens, [chunk]);
+    }
 }
 
 /// `WouldBlock` clears the read readiness until the next readable event; `Interrupted` reads again in the next turn.
@@ -269,7 +280,7 @@ fn an_error_event_makes_both_directions_ready() {
 /// Each bind gives a new route token, and no route token is a candidate's.
 #[test]
 fn route_tokens_are_new_and_never_a_candidates() {
-    let mut routes = Routes::default();
+    let mut routes = routes(1);
     let a = routes.bind(RouteId(1), Scripted::default());
     let b = routes.bind(RouteId(2), Scripted::default());
     routes.close(RouteId(1));
