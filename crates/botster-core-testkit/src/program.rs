@@ -445,8 +445,10 @@ impl Program for ScriptedProgram {
         let taken = {
             let mut controls = self.controls.lock();
             if controls.fail_after == Some(0) {
+                // An OS error while the program's side of the PTY still exists: ENOSPC, not in steward ruling R-82's table
+                // of the errnos that mean that side is gone (EIO, EPIPE), so Core reports it `Failed` (Core IN-2).
                 return Err(io::Error::from_raw_os_error(
-                    rustix::io::Errno::IO.raw_os_error(),
+                    rustix::io::Errno::NOSPC.raw_os_error(),
                 ));
             }
             let mut room = bytes.len();
@@ -810,7 +812,7 @@ mod tests {
         control.fail_after(2);
         assert_eq!(p.write(b"abc").unwrap(), 2);
         let error = p.write(b"c").unwrap_err();
-        assert_eq!(error.raw_os_error(), Some(5));
+        assert_eq!(error.raw_os_error(), Some(28), "ENOSPC (R-82)");
         assert_eq!(control.input_log(), b"ab");
     }
 
