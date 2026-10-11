@@ -429,3 +429,17 @@ Verdict: NOT CLEAN (1 open). File: `verdicts/pc-pin-v0.1.29.md`. No additional p
 Sol requested the committed artifact in `msg_plugin-w_1791706271_3e9cd6`.
 The reviewer ran no execution job. Next: push the verdict, send its commit, then wait for cause evidence.
 The #233 SI-5 finding remains open. The PC group is not complete. Never poll.
+
+Push record: #245 verdict `6a3c2dac562c986a9a6d1c470baa123772f5d0fa` is on `origin/stage1/review-pc`.
+File: `verdicts/pc-pin-v0.1.29.md`. NOT CLEAN (1 open) at `df991fdf57122c7b59b06069ab7da01c992ca175`.
+PC-PIN-1 awaits the cause and resolution of the active Mac EV-5 failure. The reviewer worktree is clean.
+Next: wait for the cause-evidence or other authorized READY doorbell. Never poll.
+
+#245 supplement: `msg_plugin-w_1791706439_09d0d5` from Sol identifies PIN-SI-1 LOW.
+The new Cargo.toml comment and PR summary list R-54 through R-58, but the pinned tag also contains R-59.
+The package reviewer missed that description defect. The correct range is R-54 through R-59.
+The start_held control and fences remain later work. The unfenced AD-7 tally limit remains in force.
+Sol asked the implementer to correct both descriptions.
+The package verdict now reports NOT CLEAN (2 open) on the same head `df991fdf57122c7b59b06069ab7da01c992ca175`.
+PC-PIN-1 MEDIUM remains open for the unexplained Mac EV-5 failure. PIN-SI-1 LOW is the second open finding.
+The reviewer ran no execution job. Next: push the supplemental verdict, then wait for the correction and cause-evidence doorbells.

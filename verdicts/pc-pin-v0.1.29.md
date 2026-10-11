@@ -1,12 +1,12 @@
 # PC package review: PR #245
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: NOT CLEAN (2 open)
 
 - Reviewed head: `df991fdf57122c7b59b06069ab7da01c992ca175`.
 - Reviewed base: `f6778ad85c01266ac49e2ededd97487da689e920` (`v1`).
 - Branch: `stage1/pc-pin-v0.1.29`.
 - Risk tier: HIGH. BUILD.md rule 4 applies to the contracts pin move.
-- Open findings: 1.
+- Open findings: 2.
 - Scope: the four changed files and the effects of the contracts dependency changes.
 - READY: `msg_plugin-w_1791706164_dd4bfa`.
 
@@ -40,7 +40,21 @@ Required closure: determine the cause and record the evidence.
 Resolve the failed contract check through the correct owner and retain evidence under the conditions that produced the failure.
 If the resolution needs a transcript change, obtain the lead and steward instruction first.
 Do not change an expectation or treat the isolated passes as proof that the failure is resolved.
-Status: OPEN. No additional source finding exists in the pin changes.
+Status: OPEN. PIN-SI-1 below records the separate description defect.
+
+## PIN-SI-1 LOW — The pin description omits R-59
+
+The new Cargo.toml comment and the PR summary list the added rulings as R-54 through R-58.
+The pinned contracts-v0.1.29 also contains R-59. Plan 23ak names that ruling explicitly.
+The dependency description must identify that ruling and preserve its AD-7 tally limit.
+The package reviewer missed this detail in the first verdict.
+Sol identified it in `msg_plugin-w_1791706439_09d0d5` and asked the implementer to correct both descriptions.
+
+Required change: correct the ruling range to R-54 through R-59 in the new Cargo.toml comment and PR summary.
+Keep the new start_held control and transcript fences identified as later work.
+Keep the R-59 limit on unfenced AD-7 minimum progress in force.
+Status: OPEN. This is a description correction. No runtime-code change is required.
+Every LOW finding must close before CLEAN on this HIGH PR.
 
 ## Pin and list checks
 
