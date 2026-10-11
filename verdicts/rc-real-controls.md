@@ -1671,3 +1671,42 @@ That correction supersedes the earlier incomplete conditional approval recorded 
 No re-gate is authorized until the required evidence and both reviewer acceptances exist.
 No duplicate execution is requested by this receipt.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — controlled reproduction review
+
+Message: `msg_plugin-w_1791756195_f6306f`.
+Plain base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`; #285 is absent from that base.
+Pool evidence log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-f68f26a7-f68f26a7-pool-20261011-150206-64641.log`.
+Log SHA-256: `b0fa78606981a6fe0621558c35d473d7c0aac59452fa402790443904caedcc8c`.
+Scratch diff: `gates/rc-ev5-repro-scratch-f68f26a7.diff` under `~/botster-sessions`.
+Diff SHA-256: `027d7d7aad29ad7cd084dd9081f76001d837a3d07671debae1ac858e339f5397`.
+The reviewer read the complete 192-line log, complete diff, and affected unmodified worker-loop context.
+
+The evidence job uses the plain base with an uncommitted diagnostic snapshot, `9c44c653e9d71c32f276842b870a4c6a8a8dc203`.
+The header marks `--allow-dirty` and states that this is not a merge gate.
+The worker and test binaries compile in the pool job. The test exits 101.
+The shell then prints the trace and exits zero. That wrapper zero is not a test PASS.
+The failure exactly matches the final gate: `conf::ev_5_route_closed_retires_route_keyed_events`, seed 0, step 28.
+It receives `activity_before_close: false, closed: true` where activity is expected true.
+
+The diagnostic changes only `crates/botster-worker/src/route_io.rs`.
+It postpones delivery of the selected second-route read for one second and keeps the loop runnable while that input waits.
+It retains the input value. It changes no terminal bytes, result predicate, report implementation, or transcript.
+The control link continues to run while delivery of that route input waits.
+The trace records the second-route read at millisecond 1791756150757 and RouteClose in that same millisecond with one held input.
+The test fails after 0.09 seconds, before the delayed input is released. The record proves no later release behavior.
+The unmodified worker loop reads the control link before it reads routes. Scheduling can leave that route input pending when Detach arrives.
+The transcript's `await_quiet` does not fence the worker's client-input report before Detach.
+The diagnostic widens that existing scheduling window; it adds no missing behavior or changed assertion result.
+RC reports that the diagnostic was never committed or pushed to a delivery branch. The temporary evidence snapshot is not an implementation change.
+
+The reviewer accepts this exact-signature controlled reproduction under plan 23bl A, subject to the lead's explicit acceptance for this case.
+The reviewer confirms non-interference: #285 changes no transcript, worker code, or `route_reports` behavior on this path.
+The transcript calls neither new control; the route write and flush remain unchanged by #285.
+This acceptance does not claim an uninstrumented plain-v1 reproduction or a trace from the original failed gate.
+The controlled trace supports the pre-existing unfenced window as the failure mechanism.
+The lead must approve one same-head re-gate and retain the cause, owner, and repair PR before RC runs it.
+Both reviewers must accept the evidence. A second red gate requires a repair commit under the plan.
+Final acceptance remains pending. The reviewer ran no test, build, gate, or diagnostic.
