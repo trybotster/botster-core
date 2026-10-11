@@ -251,9 +251,10 @@ impl Worker {
                     continue;
                 }
                 Pending::Route(RouteInput { route, op, bytes }) => {
-                    // A client's input advanced its revision on receipt (IN-4). On a payload that ended it is refused
-                    // `session_ended`, with nothing written (DP-5).
-                    if self.payload_takes_input() {
+                    // A client's input advanced its revision on receipt (IN-4). On a payload that ended or is being
+                    // stopped it is refused `session_ended`, with nothing written (DP-5: `NotWritten(SessionEnded)` and
+                    // `NotWritten(Stopping)`).
+                    if self.payload_takes_input() && !self.stopping() {
                         self.start_unowned(Owner::Route(route, op), bytes);
                     } else {
                         self.refuse(route, op, RefusalReason::SessionEnded, None);
@@ -330,6 +331,12 @@ impl Worker {
         matches!(self.payload, PayloadState::Live(_)) && self.exit.is_none()
     }
 
+    /// The payload is being stopped: a `SIGTERM` or a `SIGKILL` went to its group, or the grace of the worker-control
+    /// signal runs (IN-2: `Stopping`).
+    fn stopping(&self) -> bool {
+        self.termed || self.killed || self.grace.is_some()
+    }
+
     /// Starts a transaction that no host request owns: a reply, or a client's input.
     fn start_unowned(&mut self, owner: Owner, bytes: Vec<u8>) {
         let len = bytes.len();
@@ -355,7 +362,7 @@ impl Worker {
                 "the payload has ended",
             ));
         }
-        if self.termed || self.killed || self.grace.is_some() {
+        if self.stopping() {
             return Err(not_written(
                 NotWrittenReason::Stopping,
                 "the payload is being stopped",
