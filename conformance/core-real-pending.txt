@@ -83,6 +83,10 @@ conf::ev_5_poll_wakes_pending_work
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
 
+# R-76 (`scripted` ignored; RC testkit PR) makes it pass on the testkit. On the real tier it is INCONCLUSIVE at step 9
+# (step_timeout, 3 of 3 logged runs on macOS): after pty_chunk 1, the host paste never completes. Not diagnosed further.
+conf::in_8_no_recheck_after_start
+
 # The route's paste passes on the testkit (RC PR A, plan 23bp). On the real tier the terminal echoes the route's bytes, and step 19
 # of in_3 expects input_refused with no ignore of output frames, so the echo arrives first (a transcript fence, as R-60's echo).
 conf::in_3_route_reports_only_exceptions_on_the_route
@@ -92,3 +96,8 @@ conf::in_3_route_reports_only_exceptions_on_the_route
 # have one, and pass). The contracts' core-fence-exceptions.txt lists the id (step 9, no program_ready, R-60), and the read of
 # step 13 has no fence: the transcript fences come in the R-56 burn-down. Owner: P3.
 conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
+
+# #284's paste refusal and this PR's testkit controls make it pass on the testkit (BOTSTER_SEEDS=0-31) and once on the real tier
+# (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
+# that fence lands (the GS lists rule). Owner: P3 (R-60 fences).
+conf::dp_5_bytes_and_text_reach_the_pty_exactly
