@@ -160,3 +160,13 @@ A delta re-review follows on the next head. If the next head changes only the bo
 
 - REJECT, one LOW: the same evidence gap as F7. 016c also requires a correction of the body's claim that the fake tier runs every changed transcript: `st_6_pages` is `fake: structural`, so the gate does not execute it. That is why F7 needs the Core tier runs.
 - 016c sent the round-limit QUESTION to the steward: an evidence-only review on this head. F8 needs a self-test change, so it needs a new head. The steward rules whether F8 goes into this PR or into a follow-up.
+
+### Steward ruling on F8 (after round 3)
+
+- F8 is **deferred-by-steward**: option (a) is accepted. The code is correct. The gap is two missing positive self-tests: a kitty `u` whose first parameter byte is `3e`, and one whose first byte is `3c`.
+- The tests go into a test-only follow-up PR. Its tier is STANDARD, its owner is P5, and 016c reviews it.
+- Conditions:
+  - P5 opens the follow-up before #54 merges.
+  - #54's body names the follow-up.
+  - The follow-up is in the same contracts tag as #54 (.42), so no tag ships the lint without those tests.
+- F8 does not block CLEAN on `50fd7f4c`. CLEAN on `50fd7f4c` needs F7 closed in the scoped round 4, and the follow-up named in the body.
