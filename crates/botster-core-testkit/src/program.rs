@@ -62,6 +62,14 @@ enum Op {
 struct Controls {
     /// Writes return `WouldBlock` (`pty_blocked`).
     blocked: bool,
+    /// While blocked, the PTY still takes this many bytes of input into `queued` (`pty_blocked` with `kernel_bytes`, steward
+    /// ruling R-74): the kernel buffer of a real PTY whose program does not read.
+    kernel_room: usize,
+    /// Input that the PTY took while blocked and the program has not read (`pty_queued`). `pty_blocked` with `on: false`
+    /// delivers it, in order.
+    queued: Vec<u8>,
+    /// Delivered input that the script has not matched against yet (`print_after_input`).
+    delivered: Vec<u8>,
     /// At most this many more bytes of input are taken, then none (`pty_accept`).
     accept: Option<usize>,
     /// This many more bytes are taken, then the next write fails (`pty_fail_after`).
@@ -91,13 +99,30 @@ impl ProgramControl {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `pty_blocked`: writes return `WouldBlock` while on. Turning it off also lifts a `pty_accept` limit.
+    /// `pty_blocked`: writes return `WouldBlock` while on. Turning it off also lifts a `pty_accept` limit, and delivers the
+    /// input that the PTY queued (`kernel_bytes`) to the program, in order.
     pub fn set_blocked(&self, on: bool) {
         let mut controls = self.lock();
         controls.blocked = on;
+        controls.kernel_room = 0;
         if !on {
             controls.accept = None;
+            let queued = std::mem::take(&mut controls.queued);
+            controls.input_log.extend_from_slice(&queued);
+            controls.delivered.extend_from_slice(&queued);
         }
+    }
+
+    /// `pty_blocked` with `on: true` and `kernel_bytes`: the program reads nothing, and the PTY takes up to `bytes` more bytes
+    /// of input into a queue, then none (steward ruling R-74). A worker's write into the queue is written: it counts them.
+    pub fn block_with_kernel(&self, bytes: usize) {
+        self.set_blocked(true);
+        self.lock().kernel_room = bytes;
+    }
+
+    /// `pty_queued`: the bytes of input that the PTY took and the program has not read.
+    pub fn queued(&self) -> usize {
+        self.lock().queued.len()
     }
 
     /// `pty_accept`: the program takes at most `bytes` more bytes of input, then none until `set_blocked(false)`. A write that
@@ -381,7 +406,9 @@ impl ScriptedProgram {
         let controls = self.controls.lock();
         let step_spent = controls.input_cap.is_some() && controls.input_left == 0;
         controls.fail_after == Some(0)
-            || (!controls.blocked && controls.accept != Some(0) && !step_spent)
+            || ((!controls.blocked || controls.kernel_room > 0)
+                && controls.accept != Some(0)
+                && !step_spent)
     }
 
     /// The bytes that a read can take now: the output that the program wrote and the worker has not read (the readiness of
@@ -401,6 +428,9 @@ impl ScriptedProgram {
 
     /// Runs every step that can proceed.
     fn advance(&mut self) {
+        // Input that `pty_blocked` with `on: false` delivered: the program reads it now.
+        let delivered = std::mem::take(&mut self.controls.lock().delivered);
+        self.seen.extend_from_slice(&delivered);
         // The script's output that can run now comes first; the bytes that a control injected follow it.
         self.run_steps();
         self.take_injected();
@@ -461,9 +491,13 @@ impl Program for ScriptedProgram {
             if let Some(left) = controls.fail_after {
                 room = room.min(left);
             }
-            if (controls.blocked || room == 0) && !bytes.is_empty() {
-                // Only a spent `pty_chunk` cap waits for the next step: the step restores it, and nothing else that refuses.
-                if !controls.blocked
+            if controls.blocked {
+                room = room.min(controls.kernel_room);
+            }
+            if room == 0 && !bytes.is_empty() {
+                // Only a spent `pty_chunk` cap waits for the next step: the step restores it, and nothing else that refuses. A
+                // block with room in its kernel queue (R-74) takes more input then too; a full queue waits for the release.
+                if (!controls.blocked || controls.kernel_room > 0)
                     && controls.accept != Some(0)
                     && controls.input_cap.is_some()
                     && controls.input_left == 0
@@ -480,6 +514,12 @@ impl Program for ScriptedProgram {
             }
             if controls.input_cap.is_some() {
                 controls.input_left -= room;
+            }
+            if controls.blocked {
+                // The PTY queues them; the program reads them when `pty_blocked` turns off.
+                controls.kernel_room -= room;
+                controls.queued.extend_from_slice(&bytes[..room]);
+                return Ok(room);
             }
             controls.input_log.extend_from_slice(&bytes[..room]);
             room
@@ -626,6 +666,67 @@ mod tests {
         assert_eq!(p.write(b"a").unwrap_err().kind(), io::ErrorKind::WouldBlock);
         p.set_blocked(false);
         assert_eq!(p.write(b"a").unwrap(), 1);
+    }
+
+    /// R-74: with `kernel_bytes`, a blocked PTY takes that many bytes into a queue that the program does not read, then none.
+    /// The worker counts them as written; `on: false` delivers them to the program, in order, before any later write.
+    #[test]
+    fn a_kernel_queue_takes_its_bytes_unread_and_delivers_them_on_release() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.block_with_kernel(3);
+        assert!(p.is_writable(), "the queue has room");
+        assert_eq!(p.write(b"abcde").unwrap(), 3);
+        assert_eq!(control.queued(), 3);
+        assert_eq!(control.input_log(), b"", "the program read none of them");
+        assert!(!p.is_writable(), "the queue is full");
+        assert_eq!(
+            p.write(b"de").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(control.queued(), 3);
+        control.set_blocked(false);
+        assert_eq!(control.queued(), 0);
+        assert_eq!(control.input_log(), b"abc");
+        assert_eq!(p.write(b"de").unwrap(), 2);
+        assert_eq!(control.input_log(), b"abcde");
+    }
+
+    /// R-74: the program reads the queue only on release, so a script that waits for the bytes runs then.
+    #[test]
+    fn the_script_sees_the_queued_bytes_only_on_release() {
+        let mut p = program(
+            json!({"program": [{"print_after_input": {"match_hex": "6162", "bytes_hex": "6f6b"}}, {"hold": {}}]}),
+            true,
+            0,
+        );
+        let control = p.control();
+        control.block_with_kernel(2);
+        assert_eq!(p.write(b"ab").unwrap(), 2);
+        assert_eq!(p.unread(), 0, "the program has not read the bytes");
+        control.set_blocked(false);
+        assert_eq!(p.unread(), 2, "the program read them and printed");
+    }
+
+    /// A block without `kernel_bytes` takes nothing, also after a block that had a queue; a queue of 0 bytes is a plain block.
+    #[test]
+    fn a_block_without_kernel_bytes_takes_nothing() {
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        control.block_with_kernel(5);
+        control.set_blocked(true);
+        assert!(!p.is_writable());
+        assert_eq!(p.write(b"a").unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        control.block_with_kernel(0);
+        assert_eq!(p.write(b"a").unwrap_err().kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(control.queued(), 0);
+        control.set_blocked(false);
+        assert_eq!(p.write(b"a").unwrap(), 1);
+        assert_eq!(
+            control.queued(),
+            0,
+            "an unblocked write is read, not queued"
+        );
     }
 
     /// A5-2: a seed chooses the size of each chunk that the program writes. Every byte arrives, in order.
@@ -1138,6 +1239,42 @@ mod tests {
         assert!(
             !control.waits_for_next_step(),
             "pty_accept refuses after the step too"
+        );
+
+        // R-74 (#283 HW-TK-1): a block whose kernel queue has room takes the rest of the write in later steps, so a spent cap
+        // waits for the next step; a full queue, or a spent accept limit, waits for no step.
+        let mut k = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = k.control();
+        control.input_chunk(Some(1));
+        control.block_with_kernel(3);
+        assert_eq!(k.write(b"abcd").unwrap(), 1);
+        assert!(would_block(k.write(b"bcd")));
+        assert!(control.waits_for_next_step(), "the queue has room for 2");
+        for queued in [2, 3] {
+            control.new_step();
+            assert!(!control.waits_for_next_step());
+            assert_eq!(k.write(b"bcd").unwrap(), 1);
+            assert_eq!(control.queued(), queued);
+        }
+        assert!(would_block(k.write(b"d")));
+        assert!(
+            !control.waits_for_next_step(),
+            "the queue is full: the release continues it"
+        );
+        control.new_step();
+        assert!(would_block(k.write(b"d")), "a full queue takes nothing");
+        assert!(!control.waits_for_next_step());
+
+        let mut a = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = a.control();
+        control.input_chunk(Some(1));
+        control.block_with_kernel(3);
+        control.accept_at_most(1);
+        assert_eq!(a.write(b"ab").unwrap(), 1);
+        assert!(would_block(a.write(b"b")));
+        assert!(
+            !control.waits_for_next_step(),
+            "pty_accept refuses with the cap spent and room in the queue"
         );
     }
 
