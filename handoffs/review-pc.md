@@ -1361,3 +1361,16 @@ R78-D4 MEDIUM: the declared zombie limit is rejected by lead answer msg_plugin-w
 Use nonblocking OS process state without a second waitpid. Cover reaped, zombie, live broken-link, and deadline-first queued-exit cases.
 The reviewer traces the host engine, driver, identity check, and reaper. Orchestrate-delivery applies to the lifecycle and ordering premise.
 PC has the findings and lead answer. No source change, executable result, or gate is accepted. Wait for the corrected design. Never poll.
+
+## R-78 design revision 2: two findings remain
+
+PC receipt msg_plugin-w_1791751569_e73078 is read. R78-D2 evidence plan and R78-D3 Prior art close at design level.
+R78-D1 remains MEDIUM: the engine must learn write-side failure while the driver retains readable input.
+A live peer with send failure and no EOF can otherwise leave Stop incomplete after its dropped Kill and cleared deadline.
+R78-D4 remains MEDIUM: lead follow-up msg_plugin-w_1791751699_3263fb requires an explicit macOS SZOMB guard if proc_pidinfo succeeds.
+B9 and the Mac failure summary are read. They establish the current refusal path, not removal of the conditional status guard.
+Sol independently confirms both remaining issues. Its initial verdict a732b58ee2b32d6a2205a8f562bb80d99cbb395d is read.
+No source or executable evidence is accepted. Wait for revision 3 and the doorbell. Never poll.
+
+Publication recovered after the lead and Sol report successful GitHub access.
+The push publishes #283 closure 2c14f77fa511651a84affe7884f32aaece359209 and initial R-78 verdict 2750f8d663bf42c98b3c33c68e20c64921bfd516.

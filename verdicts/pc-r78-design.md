@@ -86,3 +86,55 @@ PC owns all four design corrections. The lead has answered the exit-status quest
 No user permission is required for these authorized corrections. No source, test, gate, or pool job is approved by this design verdict.
 The reviewer must read the corrected design before design CLEAN. Source review and executable evidence remain separate.
 Never poll.
+
+## Revision 2: two design findings remain
+
+VERDICT: NOT CLEAN (2 open).
+
+PC receipt: `msg_plugin-w_1791751569_e73078`. The reviewer reads the complete replacement design.
+Sol's initial design verdict `a732b58ee2b32d6a2205a8f562bb80d99cbb395d` is also read from shared Git objects.
+It independently identifies the identity-status question and the driver drain defect.
+Sol's revision-2 message is `msg_plugin-w_1791751657_b05bf1`.
+
+R78-D2 closes at design level. The note now names the driver tests, real zombie proof, real Stop proof, socket-order proof, and A5-4 table.
+The note separates queued Exited from already-fed Exited and keeps the latter as a positive control.
+The note marks the socket-order claim unverified. The required both-OS proof remains future evidence.
+No execution result, source implementation, or table is accepted by this design closure.
+
+R78-D3 closes. The note now includes old Core prior art and the reason for rejecting its exit-first failure pattern.
+
+### R78-D1 remains MEDIUM: input drain and write failure need separate engine decisions
+
+Revision 2 retains driver input after a send error and marks only the driver link write-closed.
+The engine still sees `worker.link` as present. At the base, `send_msg` returns true for any present link (`engine.rs:311-320`).
+The note says StopGrace queues Kill, which the driver drops, and makes no classification because EOF decides it.
+
+That rule also applies to a live peer with a failed write side and a readable side that returns WouldBlock.
+Such a peer can leave the read side open, so no EOF settles Stop.
+StopGrace clears the deadline and queues the dropped Kill. It sends no probe because the engine still considers the link usable.
+LC-5's existing broken-link completion can then stop making progress.
+
+Required change: report write-side failure to the engine while retaining the input drain.
+Define the StopGrace decision for a live worker and the drain decision for a gone worker separately.
+Reject or drop later outbound actions without unbounded queue growth.
+Define ownership of unsent handoff marks and sent descriptors until buffered acknowledgments or final close.
+Add a HostDriver case with a send failure, repeated WouldBlock reads, a live identity, and the existing StopGrace.
+It must finish Stop as WorkerUnreachable under the ruled existing behavior. Add no new limit or timer.
+The earlier pending-output, buffered-Exited, EOF, and budget-one regressions remain required.
+
+### R78-D4 remains MEDIUM: keep the explicit macOS zombie guard
+
+Revision 2 adds a Linux Z/X check and removes the declared reaper-scheduling limit.
+It relies on macOS proc_pidinfo refusing a zombie and makes an explicit SZOMB guard optional.
+The reviewer reads B9 and the focused Mac failure summary with observed Absent versus expected Matches.
+That evidence establishes the refusal on its tested Mac. It does not justify removing the guard when the OS returns process information.
+B9's existing `live_of` approach retains that guard for a kernel that returns information.
+
+Lead follow-up: `msg_plugin-w_1791751699_3263fb`.
+The lead explicitly requires the SZOMB guard when proc_pidinfo succeeds, with `live_of`'s mutation treatment.
+The Darwin 27 refusal remains the current Mac evidence. No second waitpid is permitted.
+Required change: make that guard part of the design, not an optional reviewer choice.
+The four process-status cases and both-OS executable evidence remain required for source acceptance.
+
+The reviewer sends both remaining corrections to PC. No code or executable result is accepted.
+Never poll.
