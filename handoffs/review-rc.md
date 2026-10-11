@@ -21,6 +21,9 @@ RC-PR-1 and RC-PR-2 are open.
 The real `program_ready` control uses a historical row after Remove, while the testkit returns `Bad`.
 The implementer must use the current stored row and add a control-level regression on both tiers.
 The implementer must also remove the hello test's duplicate assertions of the private readiness helper.
+The integration reviewer reports the same two findings at the same head.
+Integration verdict: `25a1ca56597ed6ee463e715ab2983b297de873c2`, `verdicts/stage1/rc-program-ready.md`.
+Message: `msg_plugin-w_1791713723_509708`.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

@@ -197,3 +197,11 @@ Matching patch identifiers and separate hunks do not satisfy that path rule.
 This round remains NOT CLEAN with 2 open findings on the merged head as well.
 
 The reviewer ran no test or gate. Both findings must close before CLEAN.
+
+### Integration verdict received
+
+The integration reviewer reports NOT CLEAN with the same two open findings at `b013fdeb77341a142321c256ad57d1ecc078aed2`.
+Integration verdict: `25a1ca56597ed6ee463e715ab2983b297de873c2`, `verdicts/stage1/rc-program-ready.md`.
+The report arrived in `msg_plugin-w_1791713723_509708`.
+The integration reviewer also reports reading the retained plain-v1 Mac log.
+The prior Linux gate does not cover the imported head or a later correction.
