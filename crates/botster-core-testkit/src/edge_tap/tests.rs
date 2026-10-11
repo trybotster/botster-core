@@ -1237,9 +1237,10 @@ mod held_starts {
 
 #[test]
 fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes_nothing() {
-    let mut fake = Fake::default();
-    fake.take_descriptors = true;
-    let mut rig = rig(fake);
+    let mut rig = rig(Fake {
+        take_descriptors: true,
+        ..Fake::default()
+    });
     rig.with(|t| t.fail_next_handoff());
     // Core DP-2: the endpoint comes back with `Failed`, as from a `sendmsg` that fails.
     let (endpoint, why) = rig
