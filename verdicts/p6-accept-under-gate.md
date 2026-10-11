@@ -104,3 +104,43 @@ The source and retained first-gate review otherwise keep their Round 1 scope.
 Two findings remain. I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-11: documentation and CI seed proof corrections
+
+Exact head: `7e3457fc53e8c78db41fa385c697448fdc410d8e`.
+Parent: `0201489c095733651e1241355af23ba77774066d`.
+Actual source merge base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Tree: `983ea75f4205e10c9f80ab8dd37620d77d263719`.
+
+I read the complete correction delta and updated body.
+The source correction changes only the route_fill summary and matching harness-test documentation.
+Both now state that a gate with no accept limit has zero room. Runtime code and all test assertions remain unchanged.
+AG-SI-1 closes. No new source finding remains.
+
+New evidence: `~/botster-sessions/gates/botster-core-stage1-p6-accept-under-gate-0201489c-pool-20261011-090750-91245.log`.
+The checkout prints the exact parent head, matching tree `6b2f8d604b43a6a54497a350b09ace8bb0d31387`, and zero tracked changes.
+The script explicitly sets BOTSTER_SEEDS=0-31 and clears BOTSTER_SEED, BOTSTER_ONLY, and BOTSTER_CLAUSE.
+The log prints those values. Both test executions print the complete effective seed set 0–31 and pass its exact equality assertion.
+I decoded the retained command without executing it. Its script and Rust test match job2.sh and the updated a54_testkit.rs.
+The before checkout is the actual source base above. The after checkout is the parent above.
+Both use the same pinned Ghostty commit `39a68e822e505685d1e7fa9c6abeff21125b489c`.
+
+I compare every complete retained outcome text. Each tree has 600 unique ids, no duplicates, and identical outcome text for every id.
+Each has 210 PASS, 265 UNSUPPORTED_CONTROL, 123 FAIL, and two NOT_APPLICABLE outcomes.
+Both ou_12_output_bytes_are_unmodified_and_in_order and ou_3_progressing_reader_lossless pass in both trees.
+The new table has exactly those 600 ids. Each displayed cell matches or shortens its full log record.
+The before evidence test passes in 49.26 seconds. The after evidence test passes in 48.72 seconds.
+Job exit zero: 174 seconds, with one queued and 173 running. Wrapper exit zero: 175 seconds.
+Log SHA256: `44827fce457c592e41ea137c4a67957056538523e0322aa6fd46d58066afadff`.
+Table: `~/botster-sessions/shared/core-stage1/evidence/p6-accept-under-gate/testkit-a54-table-seeds-0-31.md`.
+The body identifies the old local-seed evidence as 0–7 and records this new CI-seed proof. AG-R1-1 closes.
+
+The complete first gate remains the parent-head gate reviewed in Round 1; this documentation correction changes no executable code.
+The body distinguishes the source merge base from the gate base reference and identifies both corrections.
+Cargo.lock, mutants.toml, and both pending files still match the source base. No pin or list removal is approved.
+Zero findings remain. This verdict completes source and correction-evidence review.
+The final merged head, required final gate, and final body update remain pending under the lead's pool rule.
+GitHub names this exact head and keeps the PR open. This review accepts no future import or gate result.
+I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
+
+VERDICT: CLEAN
