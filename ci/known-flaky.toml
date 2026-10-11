@@ -1,0 +1,10 @@
+# The known-flaky tests (flake guard PR 2; xtask/src/known_flaky.rs). No mutation stage runs a listed test (each stage
+# removes the listed tests that its own build has), so its flake cannot catch a mutant; the slow step and the stage-2
+# baseline still run it. The slow step fails on an entry that no tier builds. Each entry needs every field; `cargo xtask
+# lists` checks them. The Stage 1 exit needs this list empty.
+#
+# binary      the nextest binary id
+# test        the exact test name
+# diagnosis   the diagnosed cause
+# owner       the owner of the fix
+# removed_by  the pull request that removes the cause and this entry

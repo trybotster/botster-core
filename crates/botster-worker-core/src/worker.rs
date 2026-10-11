@@ -103,8 +103,13 @@ pub struct CandidateId(pub u64);
 /// An input of the worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
-    /// Bytes that the control link delivered, in order.
-    LinkBytes(Vec<u8>),
+    /// One read of the control link: its bytes, in order, and the descriptors that came with them (DP-2: a route's stream
+    /// rides on its `AttachRoute` frame; plan revision 23ae). The read boundary matters: the descriptors belong to the one
+    /// `AttachRoute` frame whose first byte is in `bytes`.
+    LinkBytes {
+        bytes: Vec<u8>,
+        descriptors: Vec<DescriptorId>,
+    },
     /// The control link ended: the peer closed it, or it failed. Bytes that the driver still held for it are lost.
     LinkClosed,
     /// The driver has written `total` bytes of `LinkSend`s to the link, counted from the first one. A staged close and the
@@ -138,8 +143,6 @@ pub enum Input {
     CandidateBytes(CandidateId, Vec<u8>),
     /// A candidate's connection ended.
     CandidateClosed(CandidateId),
-    /// The control link delivered a descriptor (a route's stream, DP-2), before the link bytes that it rides with.
-    Descriptor(DescriptorId),
     /// The answer to [`Action::RouteWrite`]: `Ok(n)` is the bytes that the transport accepted (OU-3a), and `Ok(0)` waits for
     /// [`Input::RouteWritable`]. `Err(errno)` is a terminal write error; the driver writes again on `Interrupted` and
     /// reports `WouldBlock` as `Ok(0)`.
@@ -304,6 +307,8 @@ pub struct Worker {
     limits: CoreLimits,
     /// The stream routes (P4a).
     routes: route::Routes,
+    /// The descriptors of the control link's reads (DP-2).
+    handoffs: handoff::Handoffs,
     actions: VecDeque<Action>,
 }
 
@@ -351,6 +356,7 @@ impl Worker {
             model: None,
             limits: CoreLimits::default(),
             routes: route::Routes::default(),
+            handoffs: handoff::Handoffs::default(),
             actions: VecDeque::new(),
         };
         if !worker.send_hello() {
@@ -465,10 +471,21 @@ impl Worker {
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
     fn close_link(&mut self) {
+        // No read of a closed link can be checked, so each close ends the reads that are left (F117).
+        self.close_unchecked();
         if matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
             self.link = LinkState::Closing;
         }
         self.finish_close();
+    }
+
+    /// Closes the link at once, with no wait for the bytes already sent (an end that does not wait for the host).
+    fn close_link_now(&mut self) {
+        self.close_unchecked();
+        if self.link != LinkState::Closed {
+            self.link = LinkState::Closed;
+            self.actions.push_back(Action::LinkClose);
+        }
     }
 
     /// A staged close completes when nothing sent is left in the driver; a staged end follows the close.
@@ -499,10 +516,28 @@ impl Worker {
 
     // ---- the control link ----
 
-    fn on_link_bytes(&mut self, now: Instant, mut bytes: &[u8]) {
-        while !bytes.is_empty() && matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
-            let took = self.decoder.push(bytes);
-            bytes = &bytes[took..];
+    fn on_link_bytes(&mut self, now: Instant, bytes: &[u8], descriptors: Vec<DescriptorId>) {
+        if !self.link_read_begins(descriptors) {
+            return;
+        }
+        let mut rest = bytes;
+        // Each pass takes at least one byte (the decoder hands out every complete frame before the next push), or the read
+        // ends: the bound only keeps the loop finite.
+        for _ in 0..=bytes.len() {
+            if rest.is_empty() {
+                break;
+            }
+            if !matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
+                break;
+            }
+            // The decoder holds no part of a frame, so the first byte of `rest` is a frame's first byte: the frame starts in
+            // this read. `push` takes no byte past a complete frame, so a frame that ends in this read never shares a push
+            // with the next one.
+            if self.decoder.buffered() == 0 {
+                self.frame_starts();
+            }
+            let took = self.decoder.push(rest);
+            rest = &rest[took..];
             loop {
                 match self.decoder.next_frame() {
                     Ok(Some(frame)) => self.on_frame(now, frame.kind, &frame.payload),
@@ -518,6 +553,7 @@ impl Worker {
                 }
             }
         }
+        self.link_read_ends(self.decoder.buffered() > 0);
     }
 
     fn on_frame(&mut self, now: Instant, kind: FrameType, payload: &[u8]) {
@@ -833,10 +869,7 @@ impl Worker {
             return;
         }
         self.terminating = false;
-        if self.link != LinkState::Closed {
-            self.link = LinkState::Closed;
-            self.actions.push_back(Action::LinkClose);
-        }
+        self.close_link_now();
         self.exit_pending = false;
         self.end();
     }
@@ -892,10 +925,7 @@ impl Worker {
         }
         if self.orphan.is_some_and(|at| at <= now) {
             // AD-7: no payload and no host for `startup`. The worker ends; no unregistered payload can follow.
-            if self.link != LinkState::Closed {
-                self.link = LinkState::Closed;
-                self.actions.push_back(Action::LinkClose);
-            }
+            self.close_link_now();
             self.end();
         }
     }
@@ -963,7 +993,6 @@ impl Worker {
         self.epoch = epoch;
         // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
         self.actions.push_back(Action::AdoptLink(id));
-        self.close_unbound();
         self.queued_total = 0;
         self.written_total = 0;
         // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
@@ -976,8 +1005,11 @@ impl Worker {
         self.send_hello();
         let report = self.adoption_report();
         self.report(&report);
+        // The old link's reads that were not checked close on the new link, after its hello and `Adopted` (F120): a route
+        // that took a descriptor of one ends `HandoffFailed`, and the new host is told after the hello.
+        self.close_unchecked();
         // Bytes that came after the hello in the same read belong to the new link.
-        self.on_link_bytes(now, rest);
+        self.on_link_bytes(now, rest, Vec::new());
     }
 
     /// DESIGN.md part 4: the live state, never values remembered from the spawn.
@@ -1045,12 +1077,12 @@ impl Machine for Worker {
     fn handle(&mut self, now: Instant, input: Input) {
         self.expire_adoption(now);
         match input {
-            Input::LinkBytes(bytes) => self.on_link_bytes(now, &bytes),
+            Input::LinkBytes { bytes, descriptors } => self.on_link_bytes(now, &bytes, descriptors),
             Input::LinkClosed => {
                 // DP-8: the worker keeps its payload and its model when the host is gone. Unwritten bytes are lost with
                 // the link, so a staged close is complete, and a staged end follows.
                 self.link = LinkState::Closed;
-                self.close_unbound();
+                self.close_unchecked();
                 self.finish_close();
             }
             Input::LinkWritten { total } => {
@@ -1082,7 +1114,6 @@ impl Machine for Worker {
                     self.candidate = None;
                 }
             }
-            Input::Descriptor(id) => self.routes.descriptor(id),
             Input::RouteWritten { route, result } => self.on_route_written(route, result),
             Input::RouteWritable { route } => self.on_route_writable(route),
             Input::RouteRead { route, bytes } => self.on_route_read(route, &bytes),
@@ -1146,6 +1177,7 @@ fn op_name(op: &Op) -> String {
         .unwrap_or_else(|| "this operation".to_string())
 }
 
+mod handoff;
 mod input;
 mod model;
 mod route;

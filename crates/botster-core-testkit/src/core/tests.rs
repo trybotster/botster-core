@@ -34,6 +34,13 @@ fn a_held_handoff_blocks_its_link_and_a_failed_one_fails_once() {
     let send = |edges: &mut SimEdges, link, n: u64| {
         edges
             .link_send_descriptor(link, b"f", StreamEndpoint::new(n))
+            .map(|(sent, held)| {
+                assert!(
+                    held.is_none(),
+                    "the endpoint travels by value: the host keeps no copy"
+                );
+                sent
+            })
             .map_err(|(back, why)| (back.downcast::<u64>().unwrap(), why))
     };
     lock(&faults).handoff_hold = HandoffHold::Armed;
@@ -179,11 +186,13 @@ fn links_forward_bytes_descriptors_interests_and_close() {
     edges.link_send(link, b"answer").unwrap();
     let n = peer.recv(&mut bytes).unwrap();
     assert_eq!(&bytes[..n], b"answer");
-    assert_eq!(
-        edges
-            .link_send_descriptor(link, b"frame", StreamEndpoint::new(71u64))
-            .unwrap(),
-        5
+    let (sent, held) = edges
+        .link_send_descriptor(link, b"frame", StreamEndpoint::new(71u64))
+        .unwrap();
+    assert_eq!(sent, 5);
+    assert!(
+        held.is_none(),
+        "the endpoint travels by value: the host keeps no copy"
     );
     let descriptor = peer.recv_descriptor().unwrap();
     let transport = descriptor.downcast::<StreamEndpoint>().unwrap();

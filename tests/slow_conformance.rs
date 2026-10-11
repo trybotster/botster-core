@@ -10,10 +10,22 @@ mod suite;
 
 use botster_core_testkit::candidate::Candidate;
 use botster_core_testkit::real::RealCoreHarness;
+use std::sync::OnceLock;
 
+/// The candidate binaries, verified once per test process: `Candidate::locate` checks every sha256 against
+/// `manifest.json` before the first harness, and each harness gets a clone. A failed verification fails every harness of
+/// the process, with the same message. Each verification of the 60 MB debug worker cost 0.1 to 1.4 s, and each id builds
+/// two harnesses for each seed (GS L0 evidence, 2026-10-11).
 fn candidate() -> Candidate {
-    let dir = Candidate::beside_test_binary().expect("the candidate directory");
-    Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"))
+    static VERIFIED: OnceLock<Result<Candidate, String>> = OnceLock::new();
+    VERIFIED
+        .get_or_init(|| {
+            let dir = Candidate::beside_test_binary()
+                .map_err(|error| format!("the candidate directory: {error:?}"))?;
+            Candidate::locate(&dir).map_err(|error| error.to_string())
+        })
+        .clone()
+        .unwrap_or_else(|error| panic!("{error}"))
 }
 
 fn main() {

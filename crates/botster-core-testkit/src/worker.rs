@@ -10,7 +10,7 @@
 //! scripted program, deliver signals and report exits (plan 2.1: a difference between the two runs is a bug in an edge).
 
 use crate::core::{SimEdges, Spawner};
-use crate::net::{EndControl, Interest, LinkEnd, StreamEnd};
+use crate::net::{DescriptorForm, EndControl, Interest, LinkEnd, StreamEnd};
 use crate::program::{ProgramControl, ScriptedProgram};
 use crate::resume_controls::{CaptureLog, CaptureRecord, ModelLog};
 use crate::scheduler::SchedulerHandle;
@@ -207,6 +207,10 @@ type Endpoint = Arc<Mutex<VecDeque<Connection>>>;
 /// until the host's `Remove` or a cleaner removes it. Every handle of the run reaches it, as a path in one file system.
 type Endpoints = Arc<Mutex<BTreeMap<InstanceKey, Option<Endpoint>>>>;
 
+/// The run's held starts (`hold_start_at`, AD-7 step 4), each with whether its hold has stopped its step: the worker asked
+/// for the payload's spawn and kept it (`start_held`, R-59). False while the hold is only armed.
+type HeldStarts = Arc<Mutex<BTreeMap<InstanceKey, bool>>>;
+
 /// The field of the handshake that an impostor gets wrong (`impostor_worker`, Core A10-1), or the protocol that a stand-in
 /// for the worker announces (`announce_protocol`, Core A6-2, AD-4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -392,7 +396,7 @@ pub struct Workers {
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
     /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
-    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    held_starts: HeldStarts,
     endpoints: Endpoints,
     /// `withhold_control_link`: the sessions whose live worker does not take a host's connection. The connections wait in
     /// `withheld_links`, never read, so the host's deadline ends the adoption (Core A6-1, AD-2).
@@ -603,11 +607,18 @@ impl Workers {
     /// The start of `key` is already held.
     pub(crate) fn hold_start(&self, key: InstanceKey) -> Result<(), String> {
         let text = format!("{} in {}", key.instance.0, key.dir);
-        if lock(&self.held_starts).insert(key) {
-            Ok(())
-        } else {
-            Err(format!("the start of {text} is already held"))
+        let mut held = lock(&self.held_starts);
+        if held.contains_key(&key) {
+            return Err(format!("the start of {text} is already held"));
         }
+        held.insert(key, false);
+        Ok(())
+    }
+
+    /// Whether the hold of the start `key` has stopped its step (`start_held`, R-59): its worker asked for the payload's
+    /// spawn and kept it. False while the hold is only armed, and when no hold of `key` is set.
+    pub(crate) fn start_held(&self, key: &InstanceKey) -> bool {
+        lock(&self.held_starts).get(key).copied().unwrap_or(false)
     }
 
     /// Ends the hold of [`Workers::hold_start`]. A worker that kept a spawn, the process `worker`, spawns its payload at its
@@ -620,7 +631,7 @@ impl Workers {
         key: &InstanceKey,
         worker: Option<ProcessIdentity>,
     ) -> Result<(), String> {
-        if !lock(&self.held_starts).remove(key) {
+        if lock(&self.held_starts).remove(key).is_none() {
             return Err(format!(
                 "no hold of the start of {} in {}",
                 key.instance.0, key.dir
@@ -861,6 +872,9 @@ impl Spawner for WorkerSpawner {
             read_chunk: self.workers.read_chunk,
             descriptors: BTreeMap::new(),
             next_descriptor: 0,
+            // General runs use the macOS form (plan 23ae): a draw from the seeded stream would move every later draw of a
+            // run (A5-2). Each framing proof sets both forms on its edges.
+            descriptor_form: DescriptorForm::StopsBeforeTheSegment,
             routes: BTreeMap::new(),
             pty_budget: None,
         };
@@ -1021,7 +1035,7 @@ struct WorkerEdges {
     /// The session instance that the worker serves.
     key: InstanceKey,
     /// The run's held starts (`hold_start_at`).
-    held_starts: Arc<Mutex<BTreeSet<InstanceKey>>>,
+    held_starts: HeldStarts,
     /// The payload spawn that the worker asked for while its start was held (AD-7 step 4).
     held_spawn: Option<PayloadSpec>,
     /// This worker's endpoint, and the run's table of endpoints (the worker's exit removes its own).
@@ -1054,6 +1068,8 @@ struct WorkerEdges {
     /// The route streams that the link delivered and no `AttachRoute` bound yet, by the id the machine has.
     descriptors: BTreeMap<DescriptorId, StreamEnd>,
     next_descriptor: u64,
+    /// Where a link read with a descriptor stops (the kernel form, plan 23ae).
+    descriptor_form: DescriptorForm,
     /// The bound route streams.
     routes: BTreeMap<RouteId, RouteEdge>,
     /// The PTY bytes that the worker may still read (`PtyReadBudget`, OU-3d); `None`: no limit.
@@ -1061,6 +1077,22 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
+    /// Keeps a route stream that the link delivered, under a new id for the machine.
+    fn keep_descriptor(&mut self, descriptor: crate::net::Descriptor) -> DescriptorId {
+        let end = descriptor
+            .downcast::<StreamEndpoint>()
+            .and_then(|endpoint| {
+                endpoint
+                    .downcast::<StreamEnd>()
+                    .map_err(crate::net::Descriptor::new)
+            })
+            .expect("the host hands over a testkit stream end");
+        self.next_descriptor += 1;
+        let id = DescriptorId(self.next_descriptor);
+        self.descriptors.insert(id, end);
+        id
+    }
+
     /// The end of the worker process: the OS closes its descriptors, so its link, its endpoint and every connection on it
     /// close, and its payload's PTY is gone. A worker that exits (`exited`) removes its endpoint; a killed one leaves it,
     /// and no worker listens on it. A spawn that a hold kept is dropped with its hold: no payload runs for the session later.
@@ -1100,7 +1132,15 @@ impl WorkerEdges {
     }
 
     fn start_held(&self) -> bool {
-        lock(&self.held_starts).contains(&self.key)
+        lock(&self.held_starts).contains_key(&self.key)
+    }
+
+    /// Keeps the payload's spawn of a held start: the hold has stopped its step (`start_held`, R-59).
+    fn keep_spawn(&mut self, spec: PayloadSpec) {
+        if let Some(met) = lock(&self.held_starts).get_mut(&self.key) {
+            *met = true;
+        }
+        self.held_spawn = Some(spec);
     }
 
     /// Queues the payload's exit for the worker once its process ended. From then on, the payload is not alive.
@@ -1280,26 +1320,22 @@ impl Binding<SharedWorker> for WorkerEdges {
                 Input::Terminate
             }
             Ready::Link => {
-                // A descriptor rides on its byte, so it comes before the bytes of its frame (DP-2, `SCM_RIGHTS`).
-                if let Some(descriptor) = self.link.recv_descriptor() {
-                    let end = descriptor
-                        .downcast::<StreamEndpoint>()
-                        .and_then(|endpoint| {
-                            endpoint
-                                .downcast::<StreamEnd>()
-                                .map_err(crate::net::Descriptor::new)
-                        })
-                        .expect("the host hands over a testkit stream end");
-                    self.next_descriptor += 1;
-                    let id = DescriptorId(self.next_descriptor);
-                    self.descriptors.insert(id, end);
-                    return Input::Descriptor(id);
-                }
+                // One read with the descriptors that come with it, in this worker's kernel form (DP-2, plan 23ae).
                 let mut buf = vec![0u8; self.read_chunk];
-                match self.link.recv(&mut buf) {
-                    Ok(n) if n > 0 => {
+                match self
+                    .link
+                    .recv_with_descriptors(&mut buf, self.descriptor_form)
+                {
+                    Ok((n, received)) if n > 0 => {
                         buf.truncate(n);
-                        Input::LinkBytes(buf)
+                        let descriptors = received
+                            .into_iter()
+                            .map(|descriptor| self.keep_descriptor(descriptor))
+                            .collect();
+                        Input::LinkBytes {
+                            bytes: buf,
+                            descriptors,
+                        }
                     }
                     _ => {
                         self.outbound.clear();
@@ -1469,7 +1505,7 @@ impl Binding<SharedWorker> for WorkerEdges {
                     self.link.close();
                 }
             }
-            Action::SpawnPayload(spec) if self.start_held() => self.held_spawn = Some(spec),
+            Action::SpawnPayload(spec) if self.start_held() => self.keep_spawn(spec),
             Action::SpawnPayload(spec) => self.spawned = Some(self.spawn_payload(&spec)),
             Action::DrainPty => {
                 self.drain = Some(Drain::asked(
