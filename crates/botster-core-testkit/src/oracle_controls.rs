@@ -8,21 +8,26 @@
 //! - `oracle_screen` reads O_raw, the anchor of `oracle_resume`: on the testkit the output that the worker's model
 //!   consumed, from the model log (R-67); on the real tier the session's known output history (R-62). It replays the
 //!   history, so condition 3 ([`Changed`]) holds for it.
+//! - `oracle_encode` calls the pinned encoder with explicit modes (R-84); it reads no session model, only the stored size.
 //! - `oracle_screen_payload` loads the payload of a route's `screen` frame in a fresh oracle terminal. It has no session.
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{ColorProfile, Op, SessionId, Size};
-use botster_route_codec::prelude::{hex_decode, HexBytes};
-use botster_terminal_ghostty::{History, Terminal};
+use botster_route_codec::prelude::{hex_decode, hex_encode, HexBytes};
+use botster_terminal_ghostty::{
+    encode_focus_with_modes, encode_key_with_modes, encode_mouse_with_modes,
+    paste_frame_with_modes, EncodeError, History, KeyInput, ModeFlags, MouseInput, Terminal,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 /// The controls of this module, on both tiers. The real harness (the `slow` feature) lists them.
 #[cfg_attr(not(feature = "slow"), allow(dead_code))]
-pub(crate) const CONTROLS: [&str; 3] = [
+pub(crate) const CONTROLS: [&str; 4] = [
+    "oracle_encode",
     "oracle_query_reply",
     "oracle_screen",
     "oracle_screen_payload",
@@ -32,6 +37,7 @@ pub(crate) const CONTROLS: [&str; 3] = [
 pub(crate) const SIZE_OR_PROFILE_CHANGED: &str = "size_or_profile_changed";
 
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
+    registry.register("oracle_encode", testkit_encode);
     registry.register("oracle_query_reply", testkit_query_reply);
     registry.register("oracle_screen", testkit_screen);
     registry.register("oracle_screen_payload", testkit_screen_payload);
@@ -93,6 +99,135 @@ impl QueryReply {
     }
 }
 
+/// `oracle_encode {session, kind, input, modes?}` (steward ruling R-84): the bytes that the pinned libghostty encoder gives
+/// for one input with explicit modes, as a hex string. Core's write path encodes with the same functions (R-7), so the
+/// testkit adds no encoding: it parses the input with the contract's types and calls the binding.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Encode {
+    pub(crate) session: SessionId,
+    kind: EncodeKind,
+    input: Value,
+    #[serde(default)]
+    modes: Option<serde_json::Map<String, Value>>,
+}
+
+/// The input kinds of `oracle_encode`, each with its `input` form.
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum EncodeKind {
+    /// `input` is a `KeyInput`.
+    Key,
+    /// `input` is `{mouse: MouseInput}`.
+    Mouse,
+    /// `input` is `{focused}`.
+    Focus,
+    /// `input` is `{text}`.
+    Paste,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MouseArg {
+    mouse: MouseInput,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FocusArg {
+    focused: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasteArg {
+    text: String,
+}
+
+impl Encode {
+    /// The encoded bytes as a hex string, with `size` (the session's stored size) for a mouse event (R-84):
+    /// - `NotReported`, and a focus event with focus reporting off, give `""`: the PTY gets nothing;
+    /// - `Unsupported{what}` is refused `{reason: "unsupported", what}`, which a transcript matches with `expect_refused`;
+    /// - a paste with bracketed paste off is the text alone (Core IN-8).
+    ///
+    /// Without `modes` (note (1): the modes of the session's model) the call is `unsupported_control`: no transcript does
+    /// this, and the testkit has no session model for it here.
+    pub(crate) fn encode(&self, size: &Size) -> Result<Value, ControlError> {
+        let partial = self
+            .modes
+            .as_ref()
+            .ok_or_else(|| ControlError::UnsupportedFor("oracle_encode_without_modes".into()))?;
+        let modes = modes_over_default(partial)?;
+        let bytes = match self.kind {
+            EncodeKind::Key => {
+                let key: KeyInput = input_of(&self.input, "key")?;
+                // `repeat` is the host's count of events (Core IN-9), not part of one event's encoding.
+                if key.repeat.is_some() {
+                    return Err(ControlError::Bad(
+                        "oracle_encode: a key input has no `repeat`".into(),
+                    ));
+                }
+                reported(encode_key_with_modes(&modes, &key))?
+            }
+            EncodeKind::Mouse => {
+                let MouseArg { mouse } = input_of(&self.input, "mouse")?;
+                reported(encode_mouse_with_modes(&modes, size, &mouse))?
+            }
+            EncodeKind::Focus => {
+                let FocusArg { focused } = input_of(&self.input, "focus")?;
+                encode_focus_with_modes(&modes, focused).unwrap_or_default()
+            }
+            EncodeKind::Paste => {
+                let PasteArg { text } = input_of(&self.input, "paste")?;
+                match paste_frame_with_modes(&modes) {
+                    Some((start, end)) => [start, text.into_bytes(), end].concat(),
+                    None => text.into_bytes(),
+                }
+            }
+        };
+        Ok(Value::String(hex_encode(&bytes)))
+    }
+}
+
+/// R-84 (1): a partial `modes` object is laid over `ModeFlags::default()`, never over the session's modes. A key that is not
+/// a field of `ModeFlags`, or a value of the wrong type, is `Bad`.
+fn modes_over_default(partial: &serde_json::Map<String, Value>) -> Result<ModeFlags, ControlError> {
+    let Value::Object(mut all) = serde_json::to_value(ModeFlags::default())
+        .map_err(|e| ControlError::Bad(format!("oracle_encode: the default modes: {e}")))?
+    else {
+        return Err(ControlError::Bad(
+            "oracle_encode: the default modes are not an object".into(),
+        ));
+    };
+    for (name, value) in partial {
+        if !all.contains_key(name) {
+            return Err(ControlError::Bad(format!(
+                "oracle_encode: `{name}` is not a mode"
+            )));
+        }
+        all.insert(name.clone(), value.clone());
+    }
+    serde_json::from_value(Value::Object(all))
+        .map_err(|e| ControlError::Bad(format!("oracle_encode: the modes: {e}")))
+}
+
+/// The `input` of `kind`, in the contract's form.
+fn input_of<T: serde::de::DeserializeOwned>(input: &Value, kind: &str) -> Result<T, ControlError> {
+    serde_json::from_value(input.clone())
+        .map_err(|e| ControlError::Bad(format!("oracle_encode: the {kind} input: {e}")))
+}
+
+/// R-84 (2): the bytes of a reported event, `[]` for `NotReported`, and the refusal of `Unsupported{what}`.
+fn reported(encoded: Result<Vec<u8>, EncodeError>) -> Result<Vec<u8>, ControlError> {
+    match encoded {
+        Ok(bytes) => Ok(bytes),
+        Err(EncodeError::NotReported) => Ok(Vec::new()),
+        Err(EncodeError::Unsupported(what)) => Err(ControlError::Refused(
+            json!({"reason": "unsupported", "what": what}),
+        )),
+    }
+}
+
 /// `oracle_screen {session, history}`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -135,6 +270,17 @@ fn testkit_screen_payload(
     args: &Value,
 ) -> Result<Value, ControlError> {
     screen_payload(args)
+}
+
+/// `oracle_encode` on the testkit: the size of the session's stored row.
+fn testkit_encode(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Encode = parse(args)?;
+    let row = session_row(harness, handle, &args.session)?;
+    args.encode(&row.request.size)
 }
 
 /// `oracle_query_reply` on the testkit: the size of the session's stored row.

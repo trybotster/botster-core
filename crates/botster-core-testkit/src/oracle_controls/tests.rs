@@ -3,7 +3,7 @@ use botster_core_conformance::{
     normalize_op, CoreHarness, DataDirRef, OpenSpec, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
-use botster_route_codec::prelude::hex_encode;
+use botster_route_codec::prelude::{hex_encode, MouseEncoding, MouseTracking};
 use std::time::Instant;
 
 /// The most pumps that a test gives Core to reach an event: far above what these sessions need.
@@ -402,4 +402,204 @@ fn the_screen_payload_loads_a_snapshot_in_a_fresh_terminal() {
         bad(screen_payload(&json!({"payload": {"$bytes_hex": "00"}}))).contains("does not load")
     );
     assert!(bad(screen_payload(&json!({"payload": "00"}))).contains("arguments"));
+}
+
+/// `oracle_encode {session: s1, kind, input, modes}` on handle `a`.
+fn encoded(
+    harness: &mut TestkitHarness,
+    kind: &str,
+    input: Value,
+    modes: Value,
+) -> Result<Value, ControlError> {
+    harness.control(
+        "a",
+        "oracle_encode",
+        &json!({"session": "s1", "kind": kind, "input": input, "modes": modes}),
+    )
+}
+
+/// The hex result of a reported encoding.
+fn hex(bytes: &[u8]) -> Result<Value, ControlError> {
+    Ok(Value::String(hex_encode(bytes)))
+}
+
+fn arrow_up() -> Value {
+    json!({"key": {"named": "arrow_up"}, "mods": [], "event": "press"})
+}
+
+fn press(x_y: Option<(u32, u32)>) -> Value {
+    let mut mouse = json!({"action": "press", "button": "left", "row": 1, "col": 2, "mods": []});
+    if let Some((x, y)) = x_y {
+        mouse["x"] = json!(x);
+        mouse["y"] = json!(y);
+    }
+    json!({"mouse": mouse})
+}
+
+/// R-84 (1): a partial `modes` is laid over `ModeFlags::default()`. The expected bytes come from the pinned binding with the
+/// modes built as a struct, not through the control's merge; the two results differ, so the merge decides the bytes.
+#[test]
+fn oracle_encode_lays_a_partial_modes_over_the_default() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    let key: KeyInput = serde_json::from_value(arrow_up()).unwrap();
+    let legacy = encode_key_with_modes(&ModeFlags::default(), &key).unwrap();
+    let application = encode_key_with_modes(
+        &ModeFlags {
+            application_cursor_keys: true,
+            ..ModeFlags::default()
+        },
+        &key,
+    )
+    .unwrap();
+    assert_ne!(legacy, application);
+    assert_eq!(
+        encoded(&mut harness, "key", arrow_up(), json!({})),
+        hex(&legacy)
+    );
+    assert_eq!(
+        encoded(
+            &mut harness,
+            "key",
+            arrow_up(),
+            json!({"application_cursor_keys": true})
+        ),
+        hex(&application)
+    );
+}
+
+/// R-84 (2): `NotReported` (a mouse event with tracking off) gives `""`; `Unsupported{what}` (SGR pixels with no pixel
+/// position) is refused with its `what`; a reported mouse event uses the session's stored size.
+#[test]
+fn oracle_encode_gives_empty_for_not_reported_and_refuses_unsupported() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    assert_eq!(
+        encoded(&mut harness, "mouse", press(None), json!({})),
+        hex(&[])
+    );
+    let pixels = json!({"mouse_tracking": "normal", "mouse_encoding": "sgr_pixels"});
+    assert_eq!(
+        encoded(&mut harness, "mouse", press(None), pixels.clone()),
+        Err(ControlError::Refused(
+            json!({"reason": "unsupported", "what": UnsupportedWhat::PixelPosition})
+        ))
+    );
+    let modes = ModeFlags {
+        mouse_tracking: MouseTracking::Normal,
+        mouse_encoding: MouseEncoding::SgrPixels,
+        ..ModeFlags::default()
+    };
+    let MouseArg { mouse } = serde_json::from_value(press(Some((100, 200)))).unwrap();
+    let expected = encode_mouse_with_modes(&modes, &SIZE, &mouse).unwrap();
+    assert!(!expected.is_empty());
+    assert_eq!(
+        encoded(&mut harness, "mouse", press(Some((100, 200))), pixels),
+        hex(&expected)
+    );
+}
+
+/// R-84 (2), (3): focus with reporting off gives `""`, on gives the binding's report; a paste with bracketed paste off is
+/// the text alone (Core IN-8), on is the binding's markers around the text.
+#[test]
+fn oracle_encode_focus_and_paste_follow_their_modes() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    let on = ModeFlags {
+        focus_reporting: true,
+        bracketed_paste: true,
+        ..ModeFlags::default()
+    };
+    let focus = json!({"focused": false});
+    assert_eq!(
+        encoded(&mut harness, "focus", focus.clone(), json!({})),
+        hex(&[])
+    );
+    let report = encode_focus_with_modes(&on, false).unwrap();
+    assert_eq!(
+        encoded(
+            &mut harness,
+            "focus",
+            focus,
+            json!({"focus_reporting": true})
+        ),
+        hex(&report)
+    );
+    let paste = json!({"text": "a b"});
+    assert_eq!(
+        encoded(&mut harness, "paste", paste.clone(), json!({})),
+        hex(b"a b")
+    );
+    let (start, end) = paste_frame_with_modes(&on).unwrap();
+    assert_eq!(
+        encoded(
+            &mut harness,
+            "paste",
+            paste,
+            json!({"bracketed_paste": true})
+        ),
+        hex(&[start, b"a b".to_vec(), end].concat())
+    );
+}
+
+/// The wiring cross-check: Core's worker writes, for a host key with the model's application cursor mode on, exactly the
+/// bytes of `oracle_encode` with that mode. Both sides call the same pinned encoder (R-7), so this proves the control's
+/// parse, merge and dispatch, not the encoder.
+#[test]
+fn oracle_encode_equals_the_bytes_that_the_worker_writes() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    output(&mut harness, core.as_mut(), at, b"\x1b[?1h");
+    let key: KeyInput = serde_json::from_value(arrow_up()).unwrap();
+    let op = core
+        .begin(Op::WriteInput {
+            session: sid(),
+            payload: InputPayload::Key(key),
+            guard: None,
+        })
+        .unwrap();
+    assert!(matches!(complete(core.as_mut(), at, op), OpResult::Ok(_)));
+    let written = harness
+        .control("a", "pty_input", &json!({"session": "s1"}))
+        .unwrap()["bytes"]["$bytes_hex"]
+        .clone();
+    assert_eq!(
+        Ok(written),
+        encoded(
+            &mut harness,
+            "key",
+            arrow_up(),
+            json!({"application_cursor_keys": true})
+        )
+    );
+}
+
+/// A missing `modes` is `unsupported_control` (no session model here); a key that is not a mode, a key input with `repeat`,
+/// an input in another kind's form and an unknown kind are `Bad`.
+#[test]
+fn oracle_encode_refuses_a_missing_modes_and_bad_arguments() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _) = running(&mut harness);
+    assert_eq!(
+        harness.control(
+            "a",
+            "oracle_encode",
+            &json!({"session": "s1", "kind": "key", "input": arrow_up()})
+        ),
+        Err(ControlError::UnsupportedFor(
+            "oracle_encode_without_modes".into()
+        ))
+    );
+    assert!(bad(encoded(
+        &mut harness,
+        "key",
+        arrow_up(),
+        json!({"cursor_keys": true})
+    ))
+    .contains("cursor_keys"));
+    let mut repeated = arrow_up();
+    repeated["repeat"] = json!(2);
+    assert!(bad(encoded(&mut harness, "key", repeated, json!({}))).contains("repeat"));
+    assert!(bad(encoded(&mut harness, "mouse", arrow_up(), json!({}))).contains("mouse input"));
+    assert!(bad(encoded(&mut harness, "scroll", arrow_up(), json!({}))).contains("scroll"));
 }
