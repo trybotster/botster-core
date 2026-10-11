@@ -1585,3 +1585,48 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d
+
+## Round 47 — revision 23aj — 2026-10-11
+
+Reviewed head: `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
+Prior accepted head and sole parent: `c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d`.
+READY: `msg_plugin-w_1791699687_f6efa2`.
+Scope: the contracts input in section 0 and the revision row.
+The revision changes one file in one commit. Those are its only changes.
+
+I verify `contracts-v0.1.28` at `94b63b83d8b0eb9f3b3d2b65efb8dbf4e3772eb2`.
+Its delta from .27 changes six transcripts, the R-52 control rows, and the steward-rulings document.
+It changes no frozen contract, manifest, ledger, or status list.
+The transcript changes add only seven await_pty steps. Their existing assertions remain unchanged.
+The control rows match the previously accepted calling-thread allocation scope.
+
+I read R-56 and R-57 at fixed contracts main `4e97752`, including the follow-up conditions after the new tag.
+R-56 uses the existing await_pty step to order a probe input read after the program receives the written bytes.
+IN-5 keeps its exact assertions and adds cumulative-log fences of four bytes for s1 and three bytes for s2.
+The other five transcripts keep their exact assertions and add their corresponding same-session fences.
+The plan states that IN-5 leaves the real-pending list only when the pin-move PR's Linux gate reports PASS.
+The full ruling also requires a contracts correction before the pin move if any touched ID regresses on Linux, with no waiver.
+The later lint keeps the 238 current unfenced captures as an exception list that can only shrink.
+That list must be empty before the real-pending count reaches zero. The plan does not waive that condition.
+
+R-57 uses an OSC 2 title sentinel on the same ordered output path.
+The proposed await_title step pumps and reads the cached title. It takes no event from the queue.
+The plan cites Core #242 as the condition-3 proof and retains the launch/adoption scope limit.
+I read the cited test-only delta at `75cb8b37c2691bf156d15f62b06b45fb3879b010` and its PR description.
+The two tests use pump_events 1. They cover an exhausted budget between observations and a full event queue.
+They read terminal_state before they drain events and check the earlier metadata and sentinel TitleChanged afterward.
+Launch and adoption can replace the terminal baseline without a per-field event.
+The fence therefore requires no launch or adoption report between its output and its wait, as the plan states.
+The new driver step and EV-2 fence land in a later tag. This revision does not claim they exist in .28.
+
+The program-controls pair still owns the separate HIGH code pin move.
+This plan verdict accepts no implementation PR, pending-list removal, minimum PASS, or gate result.
+The later pin review must check the touched transcripts and all R-56 evidence conditions against the retained Linux and Mac logs.
+The revision changes no passing count, staffing limit, stage acceptance condition, or prospective Mac evidence rule.
+
+The fetched plan head matches the assigned head. The diff check passes.
+The reviewed plan bytes have SHA256 `25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9`.
+This documentation change requires no execution gate.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 6dbe1c43d55e31cba038cee1008098bc0ba41ef0
