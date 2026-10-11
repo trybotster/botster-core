@@ -98,7 +98,6 @@ impl Worker {
             }
             None => {
                 // The frame starts in a read with no descriptor.
-                self.close_unbound();
                 self.close_link();
                 None
             }
@@ -118,7 +117,9 @@ impl Worker {
             if self.handoffs.reads[&read].route.is_some() {
                 self.handoffs.reads.remove(&read);
             } else {
+                // The fault closes the link and every read that is left, so no read is left to check (F119).
                 self.descriptor_fault(read);
+                return;
             }
         }
     }
@@ -128,7 +129,6 @@ impl Worker {
         if let Some(fault) = self.handoffs.reads.remove(&read) {
             self.close_read(fault);
         }
-        self.close_unbound();
         self.close_link();
     }
 
@@ -145,7 +145,8 @@ impl Worker {
     }
 
     /// The descriptors of a link that ended, was replaced or broke (DP-8): none of them will be bound. A read whose
-    /// descriptor a route took keeps its route.
+    /// descriptor a route took keeps its route. Every close of the link calls this, also a close for a frame above the
+    /// bound (F117).
     pub(super) fn close_unbound(&mut self) {
         let reads = std::mem::take(&mut self.handoffs.reads);
         for read in reads.into_values().filter(|read| read.route.is_none()) {

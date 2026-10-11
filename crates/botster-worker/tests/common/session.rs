@@ -306,6 +306,27 @@ fn hello_and_launch(
     match route {
         None => link.msg(&launch_msg),
         Some(route) => {
+            // A worker that reads the hello and a descriptor in one read refuses the descriptor (plan 23ae). The answer
+            // to a request comes only after the hello passed, so the descriptor's read comes after it (F118). Before the
+            // launch, a signal request changes nothing: no process group is live.
+            link.msg(&HostMsg::Op {
+                req: u64::MAX,
+                op: Op::Signal {
+                    id: SessionId("s".into()),
+                    sig: Signal::Term,
+                },
+            });
+            let answer = link.report();
+            assert!(
+                matches!(
+                    answer,
+                    WorkerMsg::Done {
+                        req: u64::MAX,
+                        result: OpResult::Err(_)
+                    }
+                ),
+                "{answer:?}"
+            );
             let mut bytes = Vec::new();
             for msg in [launch_msg, attach_route()] {
                 let mut payload = Vec::new();
