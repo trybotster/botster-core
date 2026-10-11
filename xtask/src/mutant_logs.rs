@@ -3,12 +3,14 @@
 //!
 //! BUILD.md Testing rule 9 (contracts `main` e1da7be) allows one retry in the `mutants` nextest profile only, and only
 //! of the test that failed. A test that fails and then passes on its retry is FLAKY: nextest passes the run, so
-//! cargo-mutants counts the mutant as MISSED, and a flake can no longer count as a catch. Each FLAKY test is named in
-//! the gate output, because the flake itself still needs a structural fix. An unmutated baseline must never retry: its
-//! log may hold no retry line.
+//! cargo-mutants counts the mutant as MISSED, and that fail-then-pass is no catch. A flaky test that fails both attempts
+//! still counts as a catch; the guard removes only the single-failure flake. Each FLAKY test is named in the gate
+//! output, because the flake itself still needs a structural fix. An unmutated baseline must never retry: its log may
+//! hold no retry line.
 //!
 //! cargo-mutants keeps each scenario's output in `mutants.out/<log_path>` (`outcomes.json`), with nextest's status lines.
-//! The parser reads those lines strictly: a status line of a form that it does not know is an error, so a nextest
+//! The parser reads those lines strictly: a line that looks like a status line (`candidate`) but has a status or a form
+//! that it does not know is an error, so a nextest
 //! upgrade that changes the form fails the step instead of hiding a catch (the slow test
 //! `slow_a_flaky_catch_is_missed_and_a_real_catch_names_its_test` runs the real tools).
 
@@ -117,19 +119,30 @@ fn status_line() -> &'static Regex {
     })
 }
 
+/// A line that may be a nextest status line: after its indent, an uppercase letter, and no lowercase letter before its
+/// first `[`. Every candidate must be a known status line (`status_line`, `state_of`); mixed-case lines (`Summary`,
+/// `Starting`, `INFO Auto-set ...`), lowercase output and lines with no `[` are not candidates.
+fn candidate() -> &'static Regex {
+    static LINE: OnceLock<Regex> = OnceLock::new();
+    LINE.get_or_init(|| Regex::new(r"^\s*[A-Z][^a-z\[]*\[").expect("a valid regex"))
+}
+
 /// The tests of a log (`TestRun`). A test's final result is the state of its last status line that is not progress;
 /// the order of the failed tests is the line at which each first reached its final state.
 ///
 /// # Errors
-/// A status line has a form that nextest 0.9 does not print in our profiles, or a failed test gives `FLKY-FL`
-/// (`flaky-result = "fail"`, which no profile sets).
+/// A candidate line is not a status line of a known form (its status, its time or its shape), or a failed test gives
+/// `FLKY-FL` (`flaky-result = "fail"`, which no profile sets).
 pub fn read_run(log: &str) -> Result<TestRun> {
     // For each test: its state, and the index of the line at which it reached that state.
     let mut tests: Vec<(String, State, usize)> = Vec::new();
     let mut retried = false;
     for (index, line) in log.lines().enumerate() {
-        let Some(caps) = status_line().captures(line) else {
+        if !candidate().is_match(line) {
             continue;
+        }
+        let Some(caps) = status_line().captures(line) else {
+            bail!("an unknown nextest status line `{}`", line.trim());
         };
         let status = &caps[1];
         retried |= status.starts_with("TRY ") || status.starts_with("FLAKY ");
@@ -325,6 +338,19 @@ mod tests {
  TERMINATING [   0.100s] w t::c
 ";
         assert_eq!(read_run(signals).unwrap().failed, ["w t::a", "w t::b"]);
+        for line in [
+            "  TRY 1 FAIL! [   0.100s] w t::a",
+            "   FLAKY 2/2 [   0.100 s] w t::a",
+            "UNKNOWN_STATUS [   0.100s] w t::a",
+            "        FAIL [0.1] w t::a",
+            "        FAIL [   0.100s]",
+        ] {
+            assert!(read_run(line).is_err(), "{line}");
+        }
+        assert_eq!(
+            read_run("     Starting 2 tests [x]\n INFO Auto-set test timeout [20s]\n    test t ... FAILED\n").unwrap(),
+            TestRun::default()
+        );
         for status in [
             "SKIPPED",
             "FLKY-FL 2/2",
@@ -406,7 +432,7 @@ mod tests {
         let pass = "        PASS [   0.010s] w t::a\n";
         let retried =
             "        TRY 1 FAIL [   0.100s] w t::a\n       FLAKY 2/2 [   0.100s] w t::a\n";
-        let cases: [Case; 4] = [
+        let cases: [Case; 6] = [
             (
                 outcomes(&[("l", "CaughtMutant", Some("m"))]),
                 vec![("l", pass)],
@@ -426,6 +452,16 @@ mod tests {
                 outcomes(&[("l", "Success", None)]),
                 vec![],
                 "read the log l",
+            ),
+            (
+                outcomes(&[("l", "Success", None)]),
+                vec![("l", "  TRY 1 FAIL! [   0.100s] w t::a\n")],
+                "an unknown nextest status line",
+            ),
+            (
+                outcomes(&[("l", "MissedMutant", Some("m"))]),
+                vec![("l", "UNKNOWN_STATUS [   0.100s] w t::a\n")],
+                "an unknown nextest status line",
             ),
         ];
         for (json, map, expected) in cases {
