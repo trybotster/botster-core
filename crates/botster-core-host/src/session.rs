@@ -229,6 +229,9 @@ pub struct WorkerHandle {
     pub link: Option<LinkId>,
     /// The link existed and ended: ops on it fail with `WorkerLinkFailed` (A2-1).
     pub link_failed: bool,
+    /// The driver could not write to the link, and its read side stays open (R-78 item 4): nothing more is sent, and the
+    /// worker's frames are still read up to the end of file.
+    pub write_failed: bool,
     /// The worker process ended (the exit watch reported it), or the AD-6 check refused the process at its endpoint (AD-2
     /// `WorkerGone`). The host never signals a gone worker.
     pub gone: bool,

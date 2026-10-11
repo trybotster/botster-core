@@ -179,6 +179,10 @@ pub enum Input {
     LinkClosed {
         link: LinkId,
     },
+    /// The driver could not write to the link. Its read side stays open until the end of file (R-78 item 4).
+    LinkWriteFailed {
+        link: LinkId,
+    },
     /// The handoff of a route's stream to its worker failed: the route closes `HandoffFailed` (DP-2, OU-2).
     HandoffFailed {
         route: RouteId,

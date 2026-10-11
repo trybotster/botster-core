@@ -745,7 +745,7 @@ fn stop_of_a_lost_session_reports_the_lost_reason() {
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     // The worker process ends with no `Exited` report: the session is lost.
-    w.exited("s1");
+    w.worker_ends("s1");
     w.pump();
     w.engine.poll_events(64);
     assert!(matches!(
