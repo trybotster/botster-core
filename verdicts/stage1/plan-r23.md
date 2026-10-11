@@ -1840,3 +1840,41 @@ This verdict accepts no control implementation, pin move, combined PR, removed I
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 13174c48633edf0bab0b84f750785223c82513bc
+
+
+## Round 52: revision 23an, initial text
+
+- Head: `fde30774815004a99dcb8281583669c67162dc26`.
+- Base and sole parent: `13174c48633edf0bab0b84f750785223c82513bc`.
+- Request: `msg_plugin-w_1791714443_e3f977`.
+- Scope: one new section 8 bullet. No other path changes.
+- Plan SHA-256: `e3b630272c2a56a98510fb182ae6d6823758d760d33afbca4081cb4ab8fd056a`.
+
+Sol read the complete delta and the surrounding red-gate, merge, stack, base-import, and READY rules.
+The new rule correctly requires cause attribution before an unchanged-cause v1 import can supply another acceptance gate.
+It retains the red log and failing ID in the PR body. It refers to all three 23al eligibility conditions.
+The exact-head, current-base, full-green gate and both review requirements remain unchanged.
+
+### AN-SI-1 MEDIUM: the operative condition also covers a v1 import that fixes the cause
+
+Status: OPEN.
+The operative sentence applies when the next commit only merges v1, without a condition that the imported source leaves the cause unchanged.
+It says that the new gate counts only when the earlier failure meets all 23al conditions.
+The next sentence permits waiting for a cause-removing commit from v1. Those two sentences have conflicting scopes.
+
+Example: a PR's gate fails EV-5. The next commit merges a v1 tip that contains the reviewed EV-5 fix.
+That merge removes the cause and supplies a real source repair, although it only merges v1.
+The first sentence still requires the same failure on plain current v1, where the fix can prevent that failure.
+The example can therefore reject a legitimate repaired head or require an obsolete comparison as an exception.
+
+Required correction: apply the exception requirement only to a v1 import that does not remove the diagnosed failure's cause.
+Explicitly retain a reviewed cause-removing v1 import as a source repair that needs its own exact-head gate and applicable source review.
+A merge SHA alone must still supply no rerun channel when the cause remains.
+
+This finding concerns the general plan wording. It grants no exception or acceptance to #256.
+The current #256 source CLEAN remains; its red gate has no accepted completion evidence.
+The GS reviewer supplied a written unchanged-cause confirmation in `msg_plugin-w_1791714486_f62ee4`.
+The reviewer preserves the limit: no independent reproduction of this occurrence, and no equivalence inferred from error text alone.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (1 open) at fde30774815004a99dcb8281583669c67162dc26
