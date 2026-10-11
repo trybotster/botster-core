@@ -64,3 +64,43 @@ The green gate does not close the full-CI before/after evidence condition.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: NOT CLEAN (2 open: AG-SI-1 and package AG-R1-1) at 0201489c095733651e1241355af23ba77774066d
+
+## Round 2 — documentation and CI seed evidence correction, 2026-10-11
+
+Head: `7e3457fc53e8c78db41fa385c697448fdc410d8e`.
+Parent: `0201489c095733651e1241355af23ba77774066d`.
+Source base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Package CLEAN: `4d362baa78f6e6c3e7be00bdeb89f4477a2d4dc0`, Round 3.
+Owner receipt: `msg_plugin-w_1791735165_a2ac37`.
+Package receipt: `msg_plugin-w_1791735276_0f91cc`.
+
+I read the complete two-file correction and exact-head package verdict.
+The route_fill summary and matching harness test summary now state zero while gated with no accept limit.
+Only comments change. Runtime code and test assertions remain unchanged. AG-SI-1 closes.
+I read every changed body paragraph. The body corrects the earlier seed claim and distinguishes source base from gate reference.
+
+New evidence log: `~/botster-sessions/gates/botster-core-stage1-p6-accept-under-gate-0201489c-pool-20261011-090750-91245.log`.
+SHA256: `44827fce457c592e41ea137c4a67957056538523e0322aa6fd46d58066afadff`.
+This focused evidence job runs at the parent head. Its header uses current v1 a0adb132 as the gate reference.
+The actual comparison checks out e4b6cdf5 before and 0201489c after. It prints the after tree and zero tracked changes.
+I decode the retained command without executing it. Its script matches job2.sh after replacement of the embedded test with TEST_B64.
+Its embedded test exactly matches the supplied a54_testkit.rs.
+The script sets BOTSTER_SEEDS=0-31 and clears BOTSTER_SEED, BOTSTER_ONLY, and BOTSTER_CLAUSE.
+Both executions print all effective seeds 0–31. The test asserts exact equality to that set.
+Both trees use Ghostty 39a68e822e505685d1e7fa9c6abeff21125b489c.
+
+A static parser compares all complete outcome texts from the log, without shortening their failure descriptions.
+Each tree has 600 unique identifiers and no duplicate record. Their identifier sets and every outcome text match.
+Each tree reports 210 PASS, 265 UNSUPPORTED_CONTROL, 123 FAIL, and two NOT_APPLICABLE outcomes.
+The named ou_12 and ou_3 transcripts pass in both trees.
+The before evidence test passes in 49.26 seconds. The after test passes in 48.72 seconds.
+The job exits zero after 174 seconds, with one second queued and 173 seconds running. The wrapper exits zero after 175 seconds.
+AG-R1-1 closes. The package reviewer also verifies the corrected table against these complete records.
+I do not claim an independent complete read of all table cells.
+
+The first full gate remains parent-head evidence. The focused comparison does not replace the required final full gate.
+This CLEAN accepts source and correction evidence only. It accepts no future import, gate, or pending removal.
+The lead's one-merge rule governs the final import after both source CLEANs.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open) at 7e3457fc53e8c78db41fa385c697448fdc410d8e
