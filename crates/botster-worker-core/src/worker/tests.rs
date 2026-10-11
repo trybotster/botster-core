@@ -1827,6 +1827,37 @@ fn no_reply_is_written_after_the_payload_ended() {
     assert!(pty_writes(&actions).is_empty(), "{actions:?}");
 }
 
+/// EV-8, IN-2 (PR3 F113 admission parity): a reply is not input, so `Stopping` does not apply to it. A live payload that
+/// queries the terminal while it is being stopped gets the reply; a host write at the same time is `Stopping`.
+#[test]
+fn a_reply_is_written_while_the_payload_is_being_stopped() {
+    for stop in [HostMsg::Stop, HostMsg::Kill] {
+        let mut w = World::running();
+        w.send(&stop);
+        let query = b"\x1b[c";
+        let reply = oracle()
+            .vt_write_until_query(query)
+            .unwrap()
+            .query
+            .expect("a query")
+            .shadow_reply;
+        let actions = w.feed(Input::PtyOutput(query.to_vec()));
+        assert_eq!(
+            pty_writes(&actions),
+            std::slice::from_ref(&reply),
+            "{stop:?}"
+        );
+        w.feed(Input::PtyWritten(Ok(reply.len())));
+        let actions = w.send(&write(1, b"x", None));
+        assert!(pty_writes(&actions).is_empty(), "{stop:?}");
+        assert_eq!(
+            input_result(&mut w, &actions, 1).map(|r| r.outcome),
+            Some(WriteOutcome::NotWritten(NotWrittenReason::Stopping)),
+            "{stop:?}"
+        );
+    }
+}
+
 /// The model's debug form names what waits, never the terminal's contents.
 #[test]
 fn the_models_debug_form_names_its_unfed_bytes() {

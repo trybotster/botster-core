@@ -38,6 +38,14 @@ pub(super) enum Pending {
     Route(RouteInput),
 }
 
+/// The source of a transaction, for the session checks at its start (`Worker::admission`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Source {
+    Host,
+    Reply,
+    Route,
+}
+
 /// A client's input and the route that owns it: an exception goes back on that route, with the frame's op (DP-5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RouteInput {
@@ -245,7 +253,7 @@ impl Worker {
             let write = match pending {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload. It advances no revision and completes no operation (EV-8).
-                    if self.payload_takes_input() {
+                    if self.admission(Source::Reply).is_ok() {
                         self.start_unowned(Owner::Reply, bytes);
                     }
                     continue;
@@ -254,7 +262,7 @@ impl Worker {
                     // A client's input advanced its revision on receipt (IN-4). On a payload that ended or is being
                     // stopped it is refused `session_ended`, with nothing written (DP-5: `NotWritten(SessionEnded)` and
                     // `NotWritten(Stopping)`).
-                    if self.payload_takes_input() && !self.stopping() {
+                    if self.admission(Source::Route).is_ok() {
                         self.start_unowned(Owner::Route(route, op), bytes);
                     } else {
                         self.refuse(route, op, RefusalReason::SessionEnded, None);
@@ -327,8 +335,22 @@ impl Worker {
         }
     }
 
-    fn payload_takes_input(&self) -> bool {
-        matches!(self.payload, PayloadState::Live(_)) && self.exit.is_none()
+    /// The session checks at the start of every transaction (AM-2, IN-2). The three sources call this one function, so
+    /// that their checks cannot differ (PR3 F113):
+    /// - the payload is live and has not exited, or the transaction is `SessionEnded`;
+    /// - a host write and a client's input do not start while the payload is being stopped (`Stopping`).
+    ///
+    /// A reply is not input: it is the terminal's answer to a query of the payload, it has no outcome, and it advances no
+    /// revision (EV-8). `Stopping` is an outcome of a write (IN-2), so it does not apply to a reply: a live payload that
+    /// queries the terminal while it shuts down gets its answer.
+    fn admission(&self, source: Source) -> Result<(), NotWrittenReason> {
+        if !matches!(self.payload, PayloadState::Live(_)) || self.exit.is_some() {
+            return Err(NotWrittenReason::SessionEnded);
+        }
+        if self.stopping() && source != Source::Reply {
+            return Err(NotWrittenReason::Stopping);
+        }
+        Ok(())
     }
 
     /// The payload is being stopped: a `SIGTERM` or a `SIGKILL` went to its group, or the grace of the worker-control
@@ -356,17 +378,15 @@ impl Worker {
     /// The decisions at the start of a transaction: the session can take input, and both guards pass (IN-10; a failed guard
     /// is `Stale` with exact zero).
     fn start_checks(&self, write: &HostWrite) -> Result<(), InputResult> {
-        if !matches!(self.payload, PayloadState::Live(_)) || self.exit.is_some() {
-            return Err(not_written(
-                NotWrittenReason::SessionEnded,
-                "the payload has ended",
-            ));
-        }
-        if self.stopping() {
-            return Err(not_written(
-                NotWrittenReason::Stopping,
-                "the payload is being stopped",
-            ));
+        match self.admission(Source::Host) {
+            Ok(()) => {}
+            Err(NotWrittenReason::Stopping) => {
+                return Err(not_written(
+                    NotWrittenReason::Stopping,
+                    "the payload is being stopped",
+                ))
+            }
+            Err(reason) => return Err(not_written(reason, "the payload has ended")),
         }
         if let Some(guard) = &write.guard {
             if let Some(input) = &guard.input {
