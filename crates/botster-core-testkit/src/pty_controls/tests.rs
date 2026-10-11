@@ -160,6 +160,37 @@ fn pty_output_bytes_are_read_by_the_worker() {
     }
 }
 
+/// Steward ruling R-76: `pty_output` ignores `scripted`, the fake's mode script, as Core ignores a `Create` request's `fake`.
+/// The bytes are written, and the modes come from the bytes alone: a script that claims bracketed paste changes no mode. Any
+/// other unknown field is still `Bad`, with zero effect: no byte reaches the program's output.
+#[test]
+fn pty_output_ignores_scripted_and_refuses_any_other_unknown_field() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    let modes = core.terminal_state(&sid("s1")).unwrap().modes;
+    assert!(!modes.bracketed_paste);
+    let scripted = json!({"modes": {"bracketed_paste": true}});
+    assert!(bad(harness.control(
+        "a",
+        "pty_output",
+        &json!({"session": "s1", "bytes_hex": "78", "script": scripted})
+    )));
+    assert_eq!(unread(&harness), 0, "a refused control writes nothing");
+    assert_eq!(
+        harness.control(
+            "a",
+            "pty_output",
+            &json!({"session": "s1", "bytes_hex": "78", "scripted": scripted})
+        ),
+        Ok(Value::Null)
+    );
+    assert_eq!(unread(&harness), 1, "the byte waits for the worker");
+    settle(core.as_mut(), at);
+    assert_eq!(unread(&harness), 0);
+    assert_eq!(core.terminal_state(&sid("s1")).unwrap().modes, modes);
+}
+
 /// Core TM-6: the output is an edge event, so it wakes the idle host that owns the worker, as a real PTY's readiness does.
 #[test]
 fn pty_output_wakes_the_idle_host() {
