@@ -873,3 +873,23 @@ Integration CLEAN remains required on this exact head and base.
 Under Q8, the supplied green gate is the merge gate when both CLEAN verdicts cover this unchanged head and base.
 A later source head requires the applicable review and exact-head gate.
 The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
+
+
+### Core #284 — record correction and review hold
+
+VERDICT: NOT CLEAN (1 open)
+Source head: `e062de537d534b89336ef276b2ddd3e1694abc52`.
+Reviewed base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+This verdict supersedes round 1 CLEAN. Every finding must close, including LOW findings.
+
+RC-PASTE-1 — LOW — The evidence summary has an incorrect count.
+The PR's 34-row table has 14 `queue_overflow` rows. Its follow-up paragraph says `queue_overflow` covers 12 IDs.
+The reviewer read the current PR body and confirmed this difference.
+Required change: change the summary count to 14. Keep the table and summary consistent.
+No source change is required for this finding.
+
+Integration message: `msg_plugin-w_1791743774_bdaf67`.
+The integration reviewer reports the finding and holds further review under the lead's instruction until the R-82 source delta is READY.
+The reviewer makes no verdict on the pending R-82 delta.
+A new source head requires a delta review and the applicable exact-head gate.
+The reviewer ran no test, build, or gate.
