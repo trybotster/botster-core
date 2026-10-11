@@ -991,25 +991,25 @@ mod stand_ins {
 /// the `Launch` and no byte from it on until the release; Core keeps the rest in its own buffer, unchanged and in order.
 mod held_starts {
     use super::*;
+    use botster_core_host::{EngineConfig, HostEngine};
+    use botster_core_link::frame::HEADER_LEN;
     use botster_core_link::msg::LaunchSpec;
 
     fn host_frame(msg: &HostMsg) -> Vec<u8> {
         let mut payload = Vec::new();
         msg.encode(&mut payload);
         let mut frame = Vec::new();
-        encode_frame(
-            FrameType::HOST_MSG,
-            &payload,
-            DEFAULT_MAX_PAYLOAD,
-            &mut frame,
-        )
-        .unwrap();
+        encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut frame).unwrap();
         frame
     }
 
     fn launch() -> Vec<u8> {
+        launch_of(vec!["/bin/sh".into()])
+    }
+
+    fn launch_of(argv: Vec<String>) -> Vec<u8> {
         host_frame(&HostMsg::Launch(Box::new(LaunchSpec {
-            argv: vec!["/bin/sh".into()],
+            argv,
             env: BTreeMap::new(),
             cwd: "/".into(),
             size: Size {
@@ -1156,19 +1156,54 @@ mod held_starts {
         assert_eq!(sent(&rig), [launch(), launch()].concat());
     }
 
-    /// The tap stops reading a link whose start is not held: a hold set later does not hold it. A link's bytes that are not
-    /// frames also end the reading, and every later byte passes.
+    /// The tap stops reading a link whose start is not held: a hold set later does not hold it.
     #[test]
     fn a_link_that_the_tap_stopped_reading_is_never_held() {
         let mut rig = linked(Fake::default());
         rig.edges.link_send(A, &host_frame(&HostMsg::Stop)).unwrap();
         rig.with(|t| t.hold_launch(instance()));
         assert_eq!(rig.edges.link_send(A, &launch()).unwrap(), launch().len());
+    }
 
+    /// A `Launch` above the link's default payload bound and inside Core's own bound (the default limits): Core admits an
+    /// argv of seventeen 64 KiB strings, so its frame is above 1 MiB. The hold keeps every byte of it with Core until the
+    /// release, and then the bytes pass unchanged.
+    #[test]
+    fn a_launch_above_the_default_payload_bound_is_held_whole() {
+        let big = launch_of(vec!["a".repeat(64 << 10); 17]);
+        let payload = u32::try_from(big.len() - HEADER_LEN).unwrap();
+        assert!(payload > DEFAULT_MAX_PAYLOAD);
+        let core = HostEngine::new(
+            EngineConfig {
+                limits: CoreLimits::default(),
+                features: crate::core::core_features(),
+                host_epoch: 1,
+                worker_path: "worker".into(),
+                worker_protocol: botster_worker_core::WORKER_PROTOCOL,
+                shadow_answerable: Vec::new(),
+                terminal_identity: TerminalIdentity {
+                    term: "xterm-ghostty".into(),
+                    terminfo_source: "source".into(),
+                },
+            },
+            BTreeSet::new(),
+        );
+        let core_bound = core.link_frame_bound();
+        assert!(
+            payload <= core_bound,
+            "{payload} is inside Core's bound {core_bound}"
+        );
         let mut rig = linked(Fake::default());
         rig.with(|t| t.hold_launch(instance()));
-        let junk = [0xFFu8; 8];
-        assert_eq!(rig.edges.link_send(A, &junk).unwrap(), junk.len());
-        assert_eq!(rig.edges.link_send(A, &launch()).unwrap(), launch().len());
+        let before = host_frame(&HostMsg::Stop);
+        let bytes = [before.clone(), big, host_frame(&HostMsg::Kill)].concat();
+        assert_eq!(rig.edges.link_send(A, &bytes).unwrap(), before.len());
+        let rest = &bytes[before.len()..];
+        let held = rig.edges.link_send(A, rest).unwrap_err();
+        assert_eq!(held.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(sent(&rig), before, "no byte of the Launch");
+        rig.with(|t| t.release_launch(&instance()));
+        assert_eq!(rig.edges.link_send(A, rest).unwrap(), rest.len());
+        assert_eq!(sent(&rig), bytes, "no byte reordered, dropped or changed");
     }
 }
