@@ -178,6 +178,12 @@ pub struct HostDriver<E: HostEdges> {
     /// Routes whose handoff failed, or whose held stream closed with its link (`HandoffLost`): each one is fed to the engine
     /// in a step of its own, within the budget of a pump (9B).
     failed_handoffs: std::collections::VecDeque<Input>,
+    /// An exit that the process edge reaped when the pump had no budget left: the next pump feeds it first (9B). It is how
+    /// the driver knows that an exit waits, so that `PumpReport.more` is true only then (TM-6).
+    next_exit: Option<(ProcessIdentity, ExitStatus)>,
+    /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
+    /// closes the link for it, after the frames that came before it (9B, TM-6).
+    link_ends: BTreeMap<LinkId, String>,
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -203,6 +209,8 @@ impl<E: HostEdges> HostDriver<E> {
             wake,
             frame_bound,
             failed_handoffs: std::collections::VecDeque::new(),
+            next_exit: None,
+            link_ends: BTreeMap::new(),
         })
     }
 
@@ -500,6 +508,7 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn close_link(&mut self, link: LinkId) {
+        self.link_ends.remove(&link);
         if let Some(state) = self.links.remove(&link) {
             // The streams that did not leave close with their marks. Nothing of them was sent: the engine decides each
             // route's close (`HandoffLost`), unless the link's loss closed it first (the first reason wins, OU-2).
@@ -550,16 +559,27 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
+    ///
+    /// An exit that the pump has no budget for is taken from the edge and kept for the next pump, which feeds it first. So the
+    /// pump reports `more` only when an exit really waits (TM-6: `more` means runnable work remains), never because the
+    /// budget ran out before the edge was asked.
     fn take_exits(&mut self, budget: &mut Budget) {
-        while !budget.exhausted() {
-            let Some((identity, status)) = self.edges.poll_process_exit() else {
+        loop {
+            let Some((identity, status)) = self
+                .next_exit
+                .take()
+                .or_else(|| self.edges.poll_process_exit())
+            else {
                 return;
             };
+            if budget.exhausted() {
+                self.next_exit = Some((identity, status));
+                budget.more_input = true;
+                return;
+            }
             self.feed(Input::ProcessExited { identity, status });
             budget.account(&mut self.engine);
         }
-        // An exit may stay in the edge for the next pump; the host must call again.
-        budget.more_input = true;
     }
 
     /// Delivers the frame that the engine could not take before, as soon as it can (EV-5d): it runs whenever the link is
@@ -568,14 +588,19 @@ impl<E: HostEdges> HostDriver<E> {
         let Some(input) = self.links.get_mut(&link).and_then(|s| s.held.take()) else {
             return;
         };
-        // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`).
+        // A frame that waits for mandatory-queue room is parked: it is not runnable, so it never makes `more` true (TM-6,
+        // EV-5b). A poll that frees room signals the wake.
+        if !self.engine.can_accept(&input) {
+            // A frame that waited for budget can find the queue full now: its link stops reading, as in `deliver`.
+            self.edges.set_read_interest(link, false);
+            self.links.get_mut(&link).expect("kept").held = Some(input);
+            return;
+        }
+        // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`). It is
+        // runnable, so the pump reports `more`.
         if budget.exhausted() {
             self.links.get_mut(&link).expect("kept").held = Some(input);
             budget.more_input = true;
-            return;
-        }
-        if !self.engine.can_accept(&input) {
-            self.links.get_mut(&link).expect("kept").held = Some(input);
             return;
         }
         self.feed(input);
@@ -592,12 +617,15 @@ impl<E: HostEdges> HostDriver<E> {
             if state.held.is_some() {
                 return;
             }
-            // 1. The bytes that were read earlier and not yet decoded: one frame at a time.
-            if !state.pending.is_empty() {
-                if budget.exhausted() {
-                    budget.more_input = true;
-                    return;
-                }
+            // 1. The end of the link that this read met in a pump with no budget left. It came after every frame that the
+            // link carried before it, so it waits for nothing else.
+            if let Some(why) = self.link_ends.remove(&link) {
+                self.end_link(link, why, budget);
+                return;
+            }
+            // 2. The bytes that were read earlier and not yet decoded, or a frame that the decoder completed: one frame at a
+            // time. `deliver` decides whether the frame goes to the engine now, waits for room, or waits for budget.
+            if !state.pending.is_empty() || state.decoder.ready() {
                 let took = state.decoder.push(&state.pending);
                 state.pending.drain(..took);
                 match state.decoder.next_frame() {
@@ -608,7 +636,7 @@ impl<E: HostEdges> HostDriver<E> {
                             Delivery::Done => {}
                             Delivery::Held => return,
                             Delivery::Bad(why) => {
-                                self.close_link_because(link, &why);
+                                self.end_link(link, why, budget);
                                 return;
                             }
                         }
@@ -616,7 +644,7 @@ impl<E: HostEdges> HostDriver<E> {
                     Ok(None) => {}
                     Err(error) => {
                         // A frame over the bound ends the link (plan section 3).
-                        self.close_link_because(link, &error);
+                        self.end_link(link, error.to_string(), budget);
                         return;
                     }
                 }
@@ -625,25 +653,26 @@ impl<E: HostEdges> HostDriver<E> {
                 }
                 continue;
             }
-            // 2. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
-            // more than what is left of that allowance.
+            // 3. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
+            // more than what is left of that allowance. A read posts no event, so it runs with no event budget left too:
+            // that is how the pump learns whether a whole frame waits (TM-6).
             let slice = budget.bytes_left(link).min(READ_CHUNK);
-            if budget.exhausted() || slice == 0 {
-                if budget.exhausted() || budget.bytes_left(link) == 0 {
-                    budget.more_input = true;
-                }
+            if slice == 0 {
+                // The pump read every byte that it may read from this link. Whether more bytes wait cannot be known without
+                // a read past that bound, so the pump reports `more`.
+                budget.more_input = true;
                 return;
             }
             let n = match self.edges.link_recv(link, &mut buf[..slice]) {
                 Ok(0) => {
-                    self.close_link_because(link, &"the peer closed it");
+                    self.end_link(link, "the peer closed it".to_string(), budget);
                     return;
                 }
                 Ok(n) => n,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => {
-                    self.close_link_because(link, &error);
+                    self.end_link(link, error.to_string(), budget);
                     return;
                 }
             };
@@ -654,7 +683,19 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
-    /// Turns one frame into an input. `Held` when the engine cannot take it now: it stays unread on its link (EV-5b).
+    /// Ends a link for `why`. Closing it posts events (the loss of its session), so a pump with no budget left keeps the end
+    /// for the next pump, which closes the link first (9B), and reports `more` (TM-6).
+    fn end_link(&mut self, link: LinkId, why: String, budget: &mut Budget) {
+        if budget.exhausted() {
+            self.link_ends.insert(link, why);
+            budget.more_input = true;
+        } else {
+            self.close_link_because(link, &why);
+        }
+    }
+
+    /// Turns one frame into an input. `Held` when the engine cannot take it now (EV-5b: the link's read interest goes off), or
+    /// when the pump has no budget left for it (9B).
     fn deliver(
         &mut self,
         link: LinkId,
@@ -691,6 +732,15 @@ impl<E: HostEdges> HostDriver<E> {
             if let Some(state) = self.links.get_mut(&link) {
                 state.held = Some(input);
             }
+            return Delivery::Held;
+        }
+        // The engine can take it, but this pump has no budget left (9B `pump_events`): it waits for the next pump, which
+        // takes it first (`retry_held`). It is runnable, so the pump reports `more` (TM-6).
+        if budget.exhausted() {
+            if let Some(state) = self.links.get_mut(&link) {
+                state.held = Some(input);
+            }
+            budget.more_input = true;
             return Delivery::Held;
         }
         self.feed(input);
