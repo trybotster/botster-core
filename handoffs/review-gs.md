@@ -329,6 +329,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Core #278 is package CLEAN at `214ade281c890b05e72054f66b2b34e853204d3c`, with zero open findings.
+
+The test-only change removes the duplicate repository signal scan. The unchanged `taint` job retains the scan, and fixture tests retain decision coverage.
+
+The exact-head gate and separate planted-call proof are recorded in `verdicts/gs-gate-speed.md`. Sol review and the current-base merge remain pending.
+
 Contracts #50 is package CLEAN at `338008cbeea0bc1e675680e2d1c2935bf4702383`. All findings, including the LOW body count, are closed.
 
 The gate passes all ten steps with 20 caught and 2 unviable mutants. Sol and reviewer 016c must complete their required reviews.

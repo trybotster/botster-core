@@ -1979,3 +1979,65 @@ Sol confirms that all package findings are closed. Sol also records reviewer 016
 The mutation log supplies aggregate counts without individual mutant identities. Neither review claims independent mutant identity matching.
 
 The later #47 import, its exact-head gate, and the Core pin remain separate. I ran no gate, build, test, or executable probe.
+
+## Core PR #278: repository signal scan
+
+- Head: `214ade281c890b05e72054f66b2b34e853204d3c`.
+- Base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+The complete diff changes only tests in `xtask/src/signals.rs`. The scanner, file collector, verdict, gate order, and timeout values remain unchanged.
+
+The old default-tier test parsed the repository again after `taint` had already scanned it. The new tests use a small fixture tree.
+
+The fixture preserves the guard exemption, counts only Rust files, reports the violating file and line, and fails on the same raw call outside the guard.
+
+The cheap repository test preserves the guard-file check and rejects an argument before file collection. The existing alias, lexer, raw-call, and verdict proofs remain selected.
+
+`ci::taint_job` still calls `signals::command(root, &[])`. The gate still runs that job before the default tests.
+
+The live command lists tracked files. The removed test walked the tree without Git. I checked the committed paths: all 228 Rust files lie outside the walk's excluded directories.
+
+For this clean gate snapshot, the repository check therefore retains the relevant Rust file set. Untracked local files do not constitute the merging gate's source tree.
+
+The new fixture tests retain scanner decision coverage under mutation. They check both accepted guard input and rejected ordinary input through `scan_files` and `verdict`.
+
+The removed whole-tree test used the same scanner. It checked a clean repository, not a distinct rejection rule. Its Rust-count check now has exact fixture counts.
+
+The file walker is test-only. Other repository tests still use it. This PR changes no mutation filter, exclusion, selection, binary build, or mutation verdict.
+
+The mutation step finds no mutant in this test-only diff. That result is not an old-versus-new mutation comparison; the source and retained behavior proofs support this review.
+
+### Evidence
+
+I read the retained RC failure. Its old scanner test times out at 2.003 seconds against the unchanged 2-second limit.
+
+Failure: `~/botster-sessions/gates/botster-core-stage1-rc-oracle-controls-ff913e68-pool-20261011-093345-95687.log`.
+
+The exact-head gate passes all ten steps in 313.4 seconds. It scans 228 Rust files in `taint` and passes all ten signal tests.
+
+Each signal test takes at most 0.004 seconds in that log. The default tier passes 1726 tests; the slow tier passes 553 tests.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-214ade28-pool-20261011-094124-54121.log`.
+
+I read the separate planted-call proof, including its command text. It appends a raw call to a tracked Core file and runs the existing `taint` job.
+
+The job reports that file and line, one signal violation, and exit 1. After restoration, it reports exit 0.
+
+Proof: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-214ade28-pool-20261011-094827-75167.log`.
+
+The proof wrapper exits zero because its last command prints the restored status. The explicit job statuses, not the wrapper status alone, support the negative proof.
+
+The planted function is scanner input. The proof does not execute its raw signal call.
+
+The live body retains the failed gate, the separate proof, and the unchanged test budget. Other inexpensive repository checks remain present.
+
+I checked old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` for the named scan and budget. It supplies no corresponding xtask mechanism to reuse.
+
+I read pair-common, the current GS brief, and plan revision 23bk, section 8. Sol must complete the HIGH integration review.
+
+The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
+
+I ran no gate, build, test, or executable probe.
