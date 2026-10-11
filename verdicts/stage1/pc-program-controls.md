@@ -74,3 +74,66 @@ Status: OPEN. Source evidence only; I ran no reproduction job.
 
 I sent all three source findings to the implementer and package reviewer.
 I changed no product code. I ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+## Correction source inspection before Round 1 — 2026-10-10
+
+Inspected head: `ebac3c692bcd317b6e4f53fb98c976cafc24edf0`.
+Correction commit: `375a1bb91ae72573f73e2ef4ee1a28aa825dcc1f`.
+Merged base: `0a564513`, which includes reviewed #237 and #234.
+The implementer reports a running gate and will send READY later.
+No completed exact-head green gate or same-head package verdict is supplied.
+This source inspection completes no round and grants no CLEAN verdict.
+
+I read the complete correction delta and its callers, report reader, cleanup, and socket proofs.
+Only real/program.rs changes in the correction commit after the previous inspected head.
+The automatic Git merge tree equals the published head tree: `6bafaa011c2ead99f22f5cc94b4e4937b1d8a592`.
+This is a comparison of source objects. I ran no executable merge-check job.
+The own diff over the merged base still changes the five PC paths.
+The pending-list removal remains sixteen IDs. The six held-write IDs and ev_5_full_queue remain pending.
+
+### SI-1 HIGH — Partial source correction; proof and deadline remain open
+
+request() now takes an Arc of the request socket and the acknowledgement target under the lock.
+It releases the lock before writing and takes the lock again for the acknowledgement wait.
+The accepted socket is nonblocking. send_line waits for OUT with the shared cleanup deadline after WouldBlock or Interrupted.
+The write and acknowledgement wait use one deadline. The report reader keeps its existing Bounded line reader.
+This removes the reported lock-held blocking write.
+The serialized public control dispatch retains request and acknowledgement order.
+
+Two points still prevent closure of SI-1.
+First, send_line checks expiry only after WouldBlock or Interrupted.
+Its positive-write path can start another write after the deadline has passed.
+The shared Bounded reader checks expiry before each new read, including reads after positive progress.
+Required change: check the same deadline before each request write. Keep the existing timeout failure.
+
+Second, reports_are_taken_while_a_request_waits_for_room sends its Input report immediately after it spawns the request thread.
+The report can finish before the request starts. The proof can therefore pass with the old lock-held write.
+Its one-megabyte request proves no ordering between the write and report processing by itself.
+Required change: observe request bytes at the real socket before sending Input.
+Then leave the remaining request unread until the report arrives.
+Keep the exact input-log and acknowledgement assertions. Use the existing cleanup bound for the fence.
+Also retain a socket-boundary proof that a peer which never drains the request produces Bad at the cleanup bound.
+No private accessor is required. Status: OPEN, pending the source and proof corrections.
+
+### SI-2 MEDIUM — Closed in source
+
+The correction removes watch_exit and all exit-watcher thread creation.
+connected() checks the process identity when it waits and uses the existing cleanup bound.
+Programs owns its accept thread. The accept thread owns and joins all report reader threads.
+Drop starts shutdown under the state lock, ends the connection sockets, and joins the accept thread.
+There is no detached watcher or watcher-held Hub reference left to stop.
+No code reaps a production-owned worker.
+The exited-before-connect proof uses an OwnedChild and confirms the child's exit before the request.
+This source change closes the detached-watcher finding. Exact-head evidence remains pending.
+
+### SI-3 MEDIUM — Closed in source
+
+State.probes now uses the complete ProcessIdentity as its key. The pid-only watched and exited sets are gone.
+The report reader records the parent's pid and observed start time together at registration.
+Request, acknowledgement, and input lookups all use that same complete identity.
+The new socket proof connects a probe, then requests input with the same pid and another start time.
+It requires Bad and cannot select the earlier probe.
+This source change closes the reported cross-identity cache lookup. Exact-head evidence remains pending.
+
+I sent the remaining SI-1 points to both PC agents before READY.
+I changed no product code and ran no build, test, gate, mutation, measurement, or reversal job.
