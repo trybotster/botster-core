@@ -1491,3 +1491,42 @@ It accepts the lead's F-283-1 transfer for #284 and preserves that follow-up obl
 Integration condition RC-PASTE-FINAL-1 remains open for the completed exact-head gate, corrected canonical check, final body, and matching package verdict.
 No source or body result from a future gate is accepted by this receipt.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — final-slot package verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/284`.
+Exact source head: `006b61cc454e0dce4e0063852e6f0701fef081bc`.
+Reviewed base: `23550811fb84c3c2cb066019716987575d7aecb2`.
+Gate message: `msg_plugin-w_1791754331_8c1842`.
+Open package findings: 0, including LOW findings.
+RC-PASTE-DELTA-1 is closed for #284 by the lead's explicit transfer to F-283-1, owner PC.
+The transfer preserves the imported defect; it does not claim a fix.
+
+The source delta remains as reviewed in `3ce01a075f4a1656e75e445aab546b0bd413e75e`.
+The reviewer read the corrected canonical check in full and compared it with the final body.
+Log: `gates/botster-core-rc-paste-base-merge-check-006b61cc-20261011-142236.log` under `~/botster-sessions`.
+The check fails the overlap and diff conditions. This explicit delta review supplies the required package review; no automatic Q7 carry is claimed.
+The integration source receipt is `d845c016eb45d373025f341cf09e7f3477692b7f`.
+The integration reviewer reports no new source finding and retains its final evidence condition.
+
+Final gate log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-paste-006b61cc-pool-20261011-142613-53641.log`.
+The header names the exact source head and reviewed base above.
+All ten steps pass. The step total is 327.3 seconds; the wrapper exits 0 after 337 seconds on msa1.
+The default suite reports 1779 passes. The slow suite reports 578 passes.
+Both retained strict testkit summaries report 223 passes and zero failures.
+The gate reports 58 mutants: 55 caught, three unviable, no miss or timeout. Stage 2 is not needed.
+The reviewer compared all 55 raw catch identities with all 55 citation identities; the sets agree and each identity is unique.
+Each cited test has a normal PASS in this gate. No FLAKY record exists.
+Both R-82 guard reversals are caught. The three unviable replacements cannot construct their required `Received` value with `Default`.
+The mutation exclusion file remains unchanged.
+
+The live PR head matches this verdict. Its final body names this head, base, gate, and corrected canonical check.
+The body preserves the failed gate, seed limits, pending correction, F-283-1 transfer, and reported B13 provenance.
+The partial-paste ID remains testkit-pending with its undiagnosed seed-10 and real seed-0 failures and RC owner.
+No extra pending removal is accepted through this verdict.
+The integration reviewer must close its final evidence condition with a completed verdict on this same head and base.
+This package verdict accepts no later head or later base.
+The reviewer ran no test, build, or gate.
