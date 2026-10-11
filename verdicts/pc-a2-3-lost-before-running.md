@@ -214,3 +214,16 @@ Package verdict: CLEAN (0 open) on `2c78bb6c8424d37089062437731980ec0d34eab0`.
 Sol's same-head delta CLEAN remains required. PC must add both delta verdict receipts to the body before merge.
 The final gate base must still equal the v1 tip at merge, under Q7 and plan 23bu.
 The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
+
+
+## Sol Round 2 CLEAN receipt
+
+Receipt: `msg_plugin-w_1791741951_bbd121`.
+Sol verdict: `64b9e757bc39334ce2c672fdbde5d262e5e031be`, `verdicts/stage1/pc-a2-3-lost-before-running.md`, Round 2.
+The reviewer read the complete verdict and verified that `origin/stage1/integration-review-sol` contains its commit.
+Both explicit delta CLEANs cover `2c78bb6c8424d37089062437731980ec0d34eab0` and base `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+The failed base-check condition now has both required source reviews. The same-head integration-review condition is closed.
+Sol preserves the Round 1 evidence limits and confirms the final gate and corrected catcher records.
+GitHub still reports PR #277 OPEN on that head. The body includes the package delta verdict and still says Sol requested.
+PC must add Sol's delta verdict before merge. The gate base must still equal the v1 tip at merge.
+No execution job ran here. Wait for the doorbell. Never poll.

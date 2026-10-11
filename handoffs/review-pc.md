@@ -1141,3 +1141,15 @@ The lead assigns the three other pending-PASS IDs to P5's pin PR. This verdict c
 Package CLEAN: zero open findings. Sol's same-head delta CLEAN and both delta verdict references in the body remain due.
 The gate base must remain the v1 tip at merge. No execution job ran here.
 The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
+
+Round 2 verdict pushed: 5ee8cfb2ef82e5e68d3f9504590a868408e53913 on origin/stage1/review-pc.
+VERDICT: CLEAN (0 open) on #277 head 2c78bb6c8424d37089062437731980ec0d34eab0.
+The reviewer worktree is clean. Sol delta and final body verdict references remain due. Never poll.
+
+
+#277 Sol Round 2 CLEAN receipt: msg_plugin-w_1791741951_bbd121.
+Sol verdict: 64b9e757bc39334ce2c672fdbde5d262e5e031be, read in full and verified on origin/stage1/integration-review-sol.
+Both delta CLEANs cover final head 2c78bb6c8424d37089062437731980ec0d34eab0 and base 20c4e98df6b47a45f3e2284a976e1c8a1341457e.
+The same-head integration-review condition is closed. The body has the package verdict and still says Sol requested.
+GitHub reports #277 OPEN. PC must add Sol's verdict before merge. Q7 still applies at merge.
+No execution job ran here. Wait for the doorbell. Never poll.
