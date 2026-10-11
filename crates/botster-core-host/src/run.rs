@@ -305,16 +305,10 @@ impl HostEngine {
         if broken {
             let worker = self.sessions.get(id).map(|s| s.worker);
             match worker {
-                // R-78 item 4: a gone worker whose link can still be read keeps its drain. Its `Exited` or `Done` frames may
-                // wait in the link; the end of file classifies (`on_link_closed`).
-                Some(WorkerHandle {
-                    gone: true,
-                    link: Some(_),
-                    ..
-                }) => {}
                 // R-78 item 3: the exit watch of a spawned worker may still hold its reaped exit (a deadline runs at the pump
                 // bound, the exits wait for budget), so the reason does not depend on that order. The identity check, which
-                // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step.
+                // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step. A gone
+                // worker whose link can still be read is checked too: the answer keeps the drain (R-78 item 4).
                 Some(WorkerHandle {
                     spawned: true,
                     identity: Some(identity),
