@@ -2471,3 +2471,37 @@ The active code pin remains contracts-v0.1.36.
 I ran no execution job.
 
 VERDICT: CLEAN (0 open) at 03c56e269b9af7a38ab893973ef3109772d66e81
+
+## Round 70 — revision 23be, 2026-10-11
+
+Head: `eb417dc21a2d3ef5413da850d5abc076275dcf2f`.
+Parent: `03c56e269b9af7a38ab893973ef3109772d66e81`.
+Pin: `~/botster-sessions/pins/stage1-plan.eb417dc2.md`, mode `0444`.
+SHA256: `d4f601b7147a151ce9e07f7a858674eea67fce9c65004ba4d6dee2990a4ac635`.
+Lead receipt: `msg_plugin-w_1791735115_0eb697`.
+
+I verify the parent, pin mode, hash, and committed bytes. I read every inserted word and the revision row.
+Only docs/stage1-plan.md changes. All other plan words equal revision 23bd.
+The final paragraph assigns the five real-tier controls to P6 and requires a design note first.
+That explicit assignment supersedes the older no-owner statement; it does not approve an implementation or protocol change.
+
+I read RealRoute's control set and RealHarness's dispatch at a0adb132.
+They do not provide route_stream_holders. The pinned ou_1 transcript explicitly requires that route observation.
+The plan directs ou_1 into core-real-pending with that reason. Actual source/list review and its gate remain due.
+I treat the paragraph's local PASS and failure results as P3's reported evidence, not an execution result that I independently read.
+
+I read the complete pinned am_2 steps, route driver's expect_pty, and R-56 plus R-61(b)/(c) at Contracts .36.
+Step 10 submits five B bytes. Step 12 submits one A byte through r1. Step 13 waits for the host write completion.
+Step 14 reads the route's PTY log at once and requires the six bytes BBBBBA.
+The earlier await_pty at step 11 requires only one byte and precedes the route write.
+An await_pty for s1 with min_bytes six immediately before step 14 fences the required total log length after both writes.
+It adds a wait without weakening the literal expectation. The real probe read remains distinct from WriteInput completion under R-56.
+R-61(b) names route_send and route_send_raw as session writes. R-61(c) identifies route_expect_pty as the input direction.
+The proposed lint extension retains the shrink-only ratchet and sends unclear absence or relation cases to the steward.
+The contracts PR remains HIGH. am_2 remains pending until its corrected tag is pinned and the applicable proof passes.
+
+This CLEAN accepts the plan text. It approves no future implementation, protocol change, pin, gate, or completed list change.
+The active code pin remains contracts-v0.1.36. The prior plan findings remain closed.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open) at eb417dc21a2d3ef5413da850d5abc076275dcf2f
