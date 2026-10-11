@@ -118,3 +118,29 @@ This finding requires no source edit or repeat gate after the running gate. The 
 No source finding is open. One body finding is open. The source, prior-art, ecosystem, and count-versus-identity limits remain as recorded above. Sol runs no execution job.
 
 VERDICT: NOT CLEAN (1 open) at bbd25214835b4648623cb1e5ac3a89ac50f5d260
+
+### Round 2 final body and exact-head gate
+
+READY `msg_plugin-w_1791728794_4169d1` supplies the unchanged head `bbd25214835b4648623cb1e5ac3a89ac50f5d260` and base `56fae5826f766b408abca06f99376e0506982bf9`.
+
+Sol independently fetches the corrected published body and reads every changed line. It states 81 count comments and 203 entries. It names all four deleted exclusions and their prior counts. It records the new exact-head gate and the failed canonical base check. It keeps the earlier head's results as history. Every other body line remains unchanged, apart from a final blank line. EC-SI-1 closes without a source edit.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-bbd25214-pool-20261011-071920-20943.log`.
+
+SHA256: `b2767308e40a3cd842297b695a0450d79f90fe09e2bdcb3b0fdf8633064a35a7`.
+
+Sol reads the exact head/base header, check results, both suite summaries, all eighteen raw mutation outcomes, all sixteen catcher reports, and all ten step results.
+
+- All ten steps pass in 328.3 seconds. The job exits zero after 408 seconds. The wrapper exits zero after 409 seconds.
+- The exact-count check passes: 204 exclusions against 6458 workspace mutants.
+- The default suite passes 1690 tests, with 481 skipped, in 11.590 seconds. Both named parser and count tests pass.
+- The slow suite passes 546 tests, with 1990 skipped, in 40.511 seconds. Static parsing confirms 546 distinct PASS identities and 179 real-conformance PASS identities.
+- Slow coverage checks 1049 tests.
+- Stage 1 tests eighteen mutants in 43.3 seconds: sixteen caught, two unviable, zero missed or timeout. The unmutated baseline passes after eleven seconds of build and one second of test.
+- Sol independently matches all sixteen raw catch identities to the sixteen named reports. The previously missed signed-count operator is caught.
+- Stage 2 does not run because stage 1 misses no mutant. Fuzz reports no changed decoder crate.
+- The gate retains 30 real-pending IDs; four pass under the ignored selection. It reports 56/69 testkit-passing, 46/68 real-passing, and 47/69 real-accepted. Both pending files equal base. This PR removes none.
+
+The earlier failed gate and failed canonical base check remain failed. Sol accepts no unsupplied local execution output independently. The exact-head full gate supplies the required final checks.
+
+No integration finding remains open. Formal completion waits for the published package closure artifact. The unchanged-head gate requires no repeat under section 8. Sol runs no execution job.
