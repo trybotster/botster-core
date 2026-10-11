@@ -74,3 +74,66 @@ The inspected mio epoll code sets write-closed only for EPOLLHUP or an EPOLLERR 
 The import adds only the three accepted #263 paths. No own path overlaps. All four own blobs equal the correction blobs. All three imported blobs equal the exact base. The own diff equals the correction's prior-base diff byte for byte: 14412 bytes, SHA256 `5ab3b2797d172ee6f7b96981357ad95990be5721f9dc095c925aca76ab05d6c5`. The diff check passes. The independent permitted static merge tree equals the recorded tree, without conflict.
 
 No new source finding appears in this inspection. Formal closure and CLEAN wait for final READY, the corrected body, the supplied exact-head gate, and the package artifact. The earlier NOT CLEAN history remains intact. Sol runs no execution job and requests no reproduction campaign.
+
+## Round 2 — 2026-10-11 — correction and final evidence
+
+- Exact head: `599cff43d0bdfd360f1042aa2cdcd60da74c5cc5`.
+- Base: `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+- Tree: `c5da63985dbd65c9313ece0b5f9389ef5fc0c31a`.
+- READY: `msg_plugin-w_1791727029_2694cc`.
+- Package artifact: `746eb90aeea8c552fd5127b4ff1c2f24d77d67a2`, `verdicts/p3-worker.md`, Round 173.
+
+Sol reads the complete package round and verifies publication. Sol reads the complete initial published body and every final body change. The unchanged head and base match both exact-head records. The source and static import inspection above remain applicable.
+
+RP-MN-1 closes. The operator and broad exclusion are removed. `Driver::run` has no exclusion. All four affected functions now have no exclusion.
+
+RP-MN-2 closes through the source correction. The body acknowledges the macOS production behavior change and abandons the old equivalence claim. The mio predicates support the removal of early reads from write-filter EOF alone. Linux readiness remains unchanged. This closure does not claim a reproduced failure or a proof of the old mutant's equivalence.
+
+### RP-MN-3 LOW — the initial body overstates route-read proof. CLOSED.
+
+This finding agrees with package F128. The initial body assigns route-read resumption after WouldBlock to the large-output and full-route-queue tests. Sol reads all four named route tests. The two output tests send no client input. They prove route write progress and PTY backpressure. The input round-trip test proves delivery without a fence for a preceding route-read WouldBlock.
+
+Required change: limit the route-read proof to input delivery and EOF. State the output tests' actual scope. Also identify the no-production-line claim as the earlier diff through b3fa5d5b.
+
+Owner receipt `msg_plugin-w_1791727178_8a992a` publishes that body correction on the unchanged head. Sol independently reads each changed line. The final body states the required limits. Every other body line remains unchanged. RP-MN-3 closes without a source edit or repeat gate.
+
+### Exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-mutants-narrow-599cff43-pool-20261011-065231-56338.log`.
+
+SHA256: `6c87dbc1fc440a2deabd6d7c53cec3d31f72a5fada885156a23b5576a84b08f4`.
+
+Sol reads the identity, suite and step results, accounting, both raw mutation outcomes, the unmutated baseline result, and the sole catcher report. All ten steps pass in 183.1 seconds. The job exits zero after 193 seconds. The wrapper exits zero after 194 seconds.
+
+- Default suite: 1688 passed, 481 skipped, 11.621 seconds.
+- Slow suite: 518 passed, 2016 skipped, 39.839 seconds.
+- Static parsing confirms 518 distinct slow PASS identities and 151 real-conformance PASS identities.
+- Both new tests pass. The adoption test passes in both worker fixtures.
+- Slow coverage checks 1049 slow-only tests.
+- The gate checks 204 exclusions against 6451 workspace mutants.
+- The diff selects one `Driver::run` body mutant. Stage 1 misses it. Stage 2 catches it through `slow_driver::a_client_close_ends_its_real_route`.
+- The stage-2 unmutated baseline passes all 518 tests in 39.479 seconds; the baseline operation takes 50.9 seconds.
+- Final mutation result: one caught, zero missed, timeout, or unviable. The stage-2 operation takes 18.6 seconds. No FLAKY record appears.
+- Fuzz reports no changed decoder crate.
+- Minimum remains 56/69 testkit-passing, 41/68 real-passing, and 42/69 real-accepted.
+- The report retains 58 real-pending IDs, with 32 passing under the ignored selection. Both pending files equal base. This PR removes none.
+
+The exact-head gate does not run all four `Driver::run` mutants or all nineteen eligible mutants. The selected Linux record on ecc24eed retains seventeen catches, two unviable bodies, and its old operator survivor. That survivor no longer exists at this head. Core edge, route transport, and session-test blobs equal that selected record's blobs. The driver correction preserves the Linux readiness value. The selected record's zero wrapper exit never accepts its old survivor.
+
+### Exact-head focused Mac record
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-mutants-narrow-599cff43-pool-20261011-065612-60929.log`.
+
+SHA256: `8c5fc8f49d7c67a34d9005fecec404f349bcf8a279424fc4b905ebf84c9404b9`.
+
+Sol reads the complete 209-line record. Worker prebuild passes. The worker slow suite passes 104 tests, with 31 skipped, in 11.848 seconds. The job and wrapper exit zero after 22 seconds. Both fixtures pass input delivery, client EOF, large output, full-route backpressure, and delayed adoption.
+
+This is a focused Mac job, not a second full gate. No supplied test forces write-filter EOF alone. No proof fences a preceding route-read WouldBlock in the input round trip. The final body states both limits. The named proof covers ordinary input delivery and EOF. The output proofs cover route write progress and PTY backpressure. Sol accepts no broader read-side or isolated-event proof.
+
+Sol reads the supplied historical mutation scripts statically. Sol reads their result records and the separate immediate-cancellation SIGTERM record. Historical repeated green/red selections supply no proof of determinism and authorize no further campaign. The old operator remains MISSED in its historical Mac record. The old SIGTERM run's long wait remains a failed historical run. No current catch relies on converting those records to green.
+
+All three findings are closed. The package and integration conclusions agree on the exact head, base, body, source, and supplied evidence. No additional pending removal, minimum increase, #262 verdict, or future import is approved. The four inherited unbounded waits remain the lead's separate follow-up. The earlier NOT CLEAN round remains intact.
+
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job. Section 8 requires no repeat gate on this unchanged head.
+
+VERDICT: CLEAN (0 open)

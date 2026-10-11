@@ -2158,3 +2158,33 @@ Sol independently hashes pins/stage1-plan.a2897c12.md. Its SHA-256 equals the ex
 Sol queries the contracts remote. Its .36 tag object is 49f82ad13472a21cf47415f296f96dff0fae277f.
 The remote tag resolves to 96f48d6d3d7a0e75e752d78433eff92efad0e77e, equal to the checked local tag and plan target.
 The DNS publication limit is closed. All Round 60 scope limits remain.
+
+## Round 61 — revision 23as
+
+- Head: `12ba52e392474dfc96be688aacb55ef2d4642099`.
+- Parent: accepted revision 23ar, `a2897c1204dbfe6bbc44f476783686a68cabf57a`.
+- Pin: `~/botster-sessions/pins/stage1-plan.12ba52e3.md`.
+- SHA256: `061c5db2d84709c49c09e7ed8482ca29cbf696ad2e115b1ce171eb72b60702da`.
+- Lead receipt: `msg_plugin-w_1791727160_50e4ab`.
+
+Sol confirms the hash and exact byte equality between the pin and the committed plan. Only the section 0 contracts row and revision table change. The manifest, active IDs, package boundaries, pending rules, and section 8 criteria remain unchanged.
+
+Sol reads the complete inserted text and complete R-68 draft at the named path. The plan records pump/read/wait behavior for waiting route reads. It preserves events by forbidding poll_events. It forbids the injected-clock step. The referenced draft requires waiting on both the handle wake and route transport. route_expect_refusals retains its separate rule. TH-3 remains unchanged: data bytes need no host pump; the descriptor's end needs the acknowledgement processed by a host pump.
+
+The plan preserves the required deterministic real-tier red-on-revert proof, the full A5-4 table on both tiers without PASS-to-non-PASS, and N >= 5 ou_7 runs on each operating system. P5 owns the HIGH contracts PR. Reviewers 016c and 0167 review it; the steward merges it. The ID remains real-pending until the later Core pin. This review accepts no implementation or evidence for that future PR.
+
+The job.sh paragraph matches the steward's ruling (b) and accepted Contracts #45. Contracts owns the common file. Core copies it at the pinned revision, adds the byte comparison check, and updates the copy during the pin roll. Contracts gets no check. Sol independently queries Contracts main; it equals `56e5b744588b98ccbbb892d6b0a63522317284f0`. The Core copy remains future work.
+
+No finding appears in the plan text.
+
+### AS-SI-1 LOW — the plan pin is writable. OPEN.
+
+The pin has mode `0644`. BUILD.md requires plans to be copied and made read-only with `chmod 444`. The hash is correct, but the file does not meet that pin rule.
+
+Required change: make this exact pin read-only. Preserve its bytes and SHA256. Send the completion receipt. No plan text change, new source commit, or execution job is required.
+
+The previous pin also has mode `0644` when inspected now. Sol does not infer when that mode changed or claim a prior mode check.
+
+This round approves no future driver change, Core pin, gate, or pending removal. Sol runs no execution job.
+
+VERDICT: NOT CLEAN (1 open) at 12ba52e392474dfc96be688aacb55ef2d4642099
