@@ -119,3 +119,32 @@ A correction needs its exact-head package artifact and the required final-gate e
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open)
+
+
+## Round 2 — 2026-10-11
+
+Exact head: `76bab0085a7060c01e12b1bbf960cc7078ae50fb`.
+Base: `475a442fa58cd2555c4121ce705ea3cf75470692`.
+Sole parent: `8f24d0eed5dcc7815cef1923ef075fb155c037b1`.
+Correction receipt: `msg_plugin-w_1791705347_fbb17f`.
+Package Round 2 CLEAN: `a7698080cd431bacdb6c7de8c3b52843731cd195`, `verdicts/p6-set-files.md`.
+I read the complete exact-head package round after `msg_plugin-w_1791705395_9f1e00`.
+Authority remains approved plan 23aj and BUILD.md at `56bd0a5`. Risk remains HIGH.
+
+I read the complete one-file correction and the full updated PR body.
+P6 removes the direct SET_FILES assertion. The test comment now states the required public merge behavior.
+The public repository assertions remain for both disjoint removals and a shared removal in the real pending list.
+The separate non-set list proof still requires condition 2 and the final result to fail.
+The body removes the exact-constant test claim and records the finding and correction.
+SF-R1-1 closes. No new integration finding remains.
+
+The correction changes no merge decision, selected path, conformance ID, list comment, pin, contract assertion, or mutation exclusion.
+It changes no runtime behavior, process owner, deadline, or cleanup.
+The complete Round 1 inspection and Prior-art comparison remain applicable.
+The final diff check passes. GitHub names this exact head.
+The retained green gate belongs to parent `8f24d0ee`. It does not establish a completed gate at this correction head.
+The lead's pool rule requires the final gate after both CLEANs. That result remains pending.
+This CLEAN completes the source review. It does not claim that the final gate passed.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
