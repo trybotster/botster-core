@@ -45,3 +45,44 @@ Current v1 is d86bfcc7. A later import needs the applicable base check or delta 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at f289f5d48f4fd74759266a943ff82c0a970ab805
+
+## Round 2: final import, gate, and merge verification
+
+- Head: `5e76494e1f23f0c17d926b8111791f6aa676ea65`.
+- Base: `4ab8a985899835654b27f0ec7e6a7c4c0b38daef`.
+- Parents: `651f22ac8c81ba7f91be87dfb94f854808129be5` and the base.
+- Tree: `96734d66dae596046e22dab3e2cfb4a5a7f57107`.
+- Package completion CLEAN: `c7dce07e6426dac85dd3d4c3f629b9de05489ed4`, verdicts/p5-zombie-per-os.md, Round 2.
+- Receipt: `msg_plugin-w_1791716564_9e9c5c`.
+
+Sol read the complete package round and retained base-check log:
+`~/botster-sessions/gates/botster-core-stage1-p5-zombie-per-os-5e76494e-pool-20261011-035256-43119.log`.
+The header identifies the final head and base. Ancestry and all four conditions pass.
+The ten imported paths do not intersect the one own path. Both pending files retain the exact base contents.
+The check job exits 0 after twenty seconds; the wrapper exits 0 after twenty-one seconds.
+
+Sol independently checks the two imports. Intermediate 651f22ac has parents f289f5d4 and d86bfcc7.
+Final 5e76494e imports 4ab8a985. No intervening own source change appears.
+Both full-index binary own diffs are byte-identical: 3054 bytes, SHA-256:
+`270d4b84ca954900eaf5a75fedd297cc05b6b999a108b6851834f3f9d9a3fc4e`.
+That comparison matches the shared check. Each imported path equals the final base's file.
+Sol independently runs git merge-tree --write-tree on f289f5d4 and the final base.
+Its conflict-free tree equals the submitted final tree. The plan's mechanical source carry-over applies.
+The unchanged own source retains Round 1's focused Mac proof. These disjoint imports require no new Mac run.
+
+Sol checks the full Linux gate:
+`~/botster-sessions/gates/botster-core-stage1-p5-zombie-per-os-5e76494e-pool-20261011-035354-56435.log`.
+The header identifies the exact final head and base. All ten steps pass in 152.2 seconds.
+The default tier passes 1624 tests in 11.626 seconds. The slow tier passes 467 tests in 32.891 seconds.
+The zombie proof passes in 0.059 seconds. Sol independently counts 147 unique real conformance PASS IDs.
+The fenced AD-7 trial passes in 0.187 seconds. Its count is accepted under #259 and approved plan 23ap.
+Real-pending remains 58, with zero newly passing entries. The report gives real-passing 40/68 and real-accepted 41/69.
+The diff has no mutant; no mutation run starts. Fuzz starts no trial because no changed crate has a decoder harness.
+The job and wrapper exit 0 after 160 seconds; the job queues zero seconds and runs 160 seconds.
+
+Sol independently checks published merge cfd6ee364e2eafd329ce4e665100168918d383cb.
+Its parents are the reviewed final base and final head. Its tree equals the reviewed and gated final tree.
+This round completes the integration receipt for #258. No finding remains open.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 5e76494e1f23f0c17d926b8111791f6aa676ea65
