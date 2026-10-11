@@ -2,14 +2,20 @@
 
 ## Current review result
 
-- PR: #253, reuse the slow pass as the stage-2 baseline.
-- Head: `6105272829458d691761af3b0ec1b380f80b9413`.
-- Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
-- Verdict: NOT CLEAN (withdrawn).
-- Finding: GS-L2-R1-1 HIGH, unresolved in the withdrawn code.
+- PR: #256, mutation retry and catch report.
+- Head: `a1b009a1b31412f5197d87086eb7b75ad336d8ca`.
+- Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Verdict: NOT CLEAN (2 open).
+- Findings: GS-FG-R1-1 HIGH and GS-FG-R1-2 LOW.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. No package CLEAN applies to L2 or its two shell exclusions.
+The parser ignores some unknown uppercase status forms. That can hide retry lines in a baseline log. The HIGH finding requires fail-closed parsing.
+
+The comments claim that a flake can never count as a catch. Two failed attempts can count as a catch. The LOW finding requires an accurate claim.
+
+I read the exact-head green gate log. I ran no gate or build. I ran a small regular-expression check for the HIGH finding.
+
+The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. Its HIGH finding remains unresolved in withdrawn code.
 
 The reuse record omits permission modes. I proved that removing execute permission preserves a file's path and hash but prevents execution.
 
@@ -31,7 +37,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the next review request. The implementer reports a design-only follow-up about slow-test failures that can produce false mutant catches.
+Wait for the implementer's fixes to both PR #256 findings. Send the completed package verdict to the integration reviewer.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

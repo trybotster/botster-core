@@ -289,3 +289,88 @@ The closing comment cites those broader limits and a slow-test failure in anothe
 The two new shell exclusions in this PR are withdrawn with the design. I approve neither exclusion through this review.
 
 I ran no gate or build. I ran only the temporary executable check described above. I will wait for the next review request.
+
+## PR #256: mutation retry and catch report, round 1
+
+- Head: `a1b009a1b31412f5197d87086eb7b75ad336d8ca`.
+- Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN (2 open).
+
+BUILD.md Testing rule 9 at contracts main `e1da7be` permits one retry in the mutants profile. Every other profile keeps zero retries.
+
+### GS-FG-R1-1 HIGH: unknown status forms can bypass the parser
+
+Status: OPEN.
+
+Evidence: `xtask/src/mutant_logs.rs`, `status_line` and `read_run`, lines 112 to 137 at the reviewed head.
+
+The regular expression accepts only known status characters and the known time envelope. `read_run` ignores every line that does not match.
+
+These uppercase status lines do not match:
+
+```text
+TRY 1 FAIL! [ 0.100s] w t::a
+FLAKY 2/2 [ 0.100 s] w t::a
+UNKNOWN_STATUS [ 0.100s] w t::a
+```
+
+Thus `state_of` cannot reject these unknown forms. A baseline log with the first two lines yields no retry flag.
+
+`report` accepts that log for a baseline outcome with summary `Success`. The old baseline could fail on the first test failure.
+
+This example represents an unknown output form. I do not claim that the current nextest version emits these lines.
+
+The PR explicitly requires an unknown status form to fail the step. The parser does not meet that requirement.
+
+Required change: identify an uppercase status-line candidate separately from parsing its known status and envelope. Reject an unknown status or envelope.
+
+Keep mixed-case summaries, lowercase output, and ordinary output without a status line ignored. Add baseline and mutant report tests for the rejected forms.
+
+I checked the regular expression with Python. All three lines were ignored. The known `TRY 1 FAIL [ 0.100s] w t::a` line matched.
+
+### GS-FG-R1-2 LOW: the safety claim exceeds the retry guarantee
+
+Status: OPEN.
+
+Evidence: `.config/nextest.toml`, the `mutant_logs` module documentation, and the PR description.
+
+The source states that a flake is never a catch, or can no longer count as a catch. One retry cannot establish that guarantee.
+
+A flaky test can fail both attempts. Nextest then fails the run, and cargo-mutants can report CAUGHT.
+
+The test `a_retried_failure_fails_and_a_fail_then_pass_is_flaky` correctly preserves a failure after two failed attempts.
+
+Required change: state the exact guarantee. A fail followed by a pass does not count as a catch. Two failed attempts can count as a catch.
+
+Apply this limit to the source comments and the PR safety argument. The ruling permits the retry; this finding requests an accurate claim.
+
+### Reviewed behavior and evidence
+
+The diff changes six files. It adds no mutation exclusion and changes no timeout value.
+
+Both stages retain their full mutant identity checks and count checks. Stage 2 retains the full slow filter and workspace build.
+
+The source adds the log report after each stage's summary. A report error fails the step before its verdict can pass.
+
+The mutants profile sets `retries = 1`. The standalone stage-2 baseline passes `--retries 0`.
+
+The report rejects recognized retry lines in cargo-mutants' own baseline. GS-FG-R1-1 covers unrecognized forms.
+
+The real-tool fixture checks four fail-then-pass mutants as MISSED with FLAKY report lines. It checks four persistent failures as CAUGHT with test names.
+
+The existing two-stage fixture now checks the stage-2 catching test names. The retained exact-head gate reports both fixture tests PASS.
+
+Gate evidence:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-a1b009a1-pool-20261011-031034-60517.log`
+
+The log names the exact head and base. All ten steps report PASS. The mutation step reports 37 mutants: 34 caught and 3 unviable.
+
+The log prints 34 catch lines. Stage 2 does not run for this PR's own mutants, because stage 1 misses none.
+
+I checked the Prior art statement with Git at the pinned old commit. Its matching names are unrelated to a mutation gate.
+
+This change does not rebuild `target/candidate` for each mutant. The existing worker binary limitation remains outside this PR's scope.
+
+I ran no gate or build. I read code and retained evidence. I ran only the small regular-expression check described above.
