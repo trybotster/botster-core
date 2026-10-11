@@ -402,3 +402,112 @@ This verdict accepts no later head, import, pending removal, contracts pin, or P
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 7 — 2026-10-11: final import and readiness defect
+
+Exact head: `fdd942db5f3d0aea71c37c33ea993179f42b4f19`.
+Imported base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `ab1ed6f110d7629f9f865baa1719ac1d5bfed624`.
+Earlier reviewed head: `27cb2cc48562334612d2d227aff8d8bb88a30d52`.
+The earlier source base remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+
+I read the merge message, complete first-parent deltas for the four overlapping source files, all three later commits, and affected source contexts.
+Merge `90efe15c9747023be0b18252f64cd68a6d5414be` has parents 27cb2cc4 and the exact imported base above.
+The import changes 26 base paths. Four overlap the ten earlier own paths: real.rs, real/program.rs, real/route.rs, and route_client.rs.
+The other imported base entries match exactly except core-real-pending.txt, whose own delta removes five ids.
+All six own entries outside those overlaps retain their exact earlier mode and blob identity.
+The workspace Cargo.toml, Cargo.lock, core-pending.txt, and core-held.txt exactly match the imported base.
+The merged controls and test sets retain both sides. The imported program uses the shared PtyOutput parser.
+The shared parser retains the session and bytes_hex fields, denies other unknown fields, and ignores its imported scripted field.
+The wake-field correction `75f0fd0dfcff45979dccbe03aec62e4463b9a8c2` supplies an owned socket end to the existing test's Handle literal.
+It changes no production path or assertion.
+
+### RG-P6-1 — HIGH — the taken predicate removes the host wake for the entire driver step
+
+The readiness change is `134ad99c06b7aa0eff6e05a93be081a6c6b9a4aa`, in real/route.rs.
+It returns None while taken has bytes, including on an ungated open route.
+I read the complete affected wait and read paths at the imported contracts-v0.1.39 pin.
+CoreDriver::install_waits stores wake=None when readiness gives None at the start of a step (driver.rs:2017–2030).
+The driver retains that state throughout routes.exec (driver.rs:1679–1681).
+CoreRoutes::read derives wakes from the stored wake option (driver.rs:450–460).
+With wakes=false, route_pass supplies the live step deadline to its first read and pumps only after that read returns idle.
+
+A step can start with an ungated open route, taken bytes, and handed=true from an earlier empty read.
+Its first read consumes taken. The route driver can request another read within the same expectation step.
+I read that repeated-read path in the hub route driver, including partial-frame reassembly and output expectations.
+The second read finds an empty stream and waits on only that stream until the live deadline, before the host pump.
+The stored host wake stays absent. A readable host wake cannot end that wait.
+A host-dependent tail or close can therefore reach the step timeout while the host still has work.
+This is a static source finding. I ran no reproduction or gate.
+
+The new raw-route test polls readiness and calls read directly. It does not exercise the stored wake or complete driver step.
+The actual driver reads before wait_route, so that raw test also does not prove the proposed original driver failure.
+I send the finding directly to P6 in receipt `msg_plugin-w_1791757855_2c52de` and to integration in `msg_plugin-w_1791757855_9349f2`.
+Preserve the host wake and nonblocking reads for the whole route step, including after taken bytes are consumed.
+The proposed behavior change requires a complete-driver regression, or complete withdrawal of the change and its incorrect premise.
+
+Prep log: `~/botster-sessions/gates/botster-core-p6-routectl-slot-prep-bf969246-pool-20261011-141903-24037.log`.
+SHA256: `fb0bdcde6fc3737c15d239a3d403e877192cc88f8fb1139f026cb8738966d110`.
+I read its decoded command and retained outcomes. At bf969246, 35 focused tests pass; removing the taken predicate makes its new raw test fail.
+The scratch file is restored. The job exits zero after 236 seconds; the wrapper exits zero after 237 seconds.
+That result proves sensitivity to the predicate, but not the complete driver's correct behavior. It does not close RG-P6-1.
+
+The final pending delta removes exactly OU-1 attach, OU-11 ownership, OU-12 byte order, OU-3 progressing reader, and OU-5 peer fault.
+It changes only core-real-pending.txt. I accept no removal before the required final-head PASS.
+The five transcript files are byte-identical between the earlier .36 pin and imported .39 pin.
+Their historical named three-run results remain as recorded in Round 6; the imported driver differs.
+The final gate and canonical base-check result are not completed evidence in this round.
+I read complete integration Round 4 at `9de1b26c6adfff57e5057fbd2bcc235b6cef09a8`; its driver finding agrees.
+Integration also requests a final body scope correction. This round approves no final body.
+
+One package source finding remains at this exact head: RG-P6-1.
+The earlier CLEAN remains limited to 27cb2cc4. It does not approve this later behavior change or pending removals.
+I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
+
+## Round 8 — 2026-10-11: complete withdrawal of the readiness change
+
+Exact head: `d3a60c99ab9165422e469de3323a5be12e55977c`.
+Imported base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `9b0eae8f1b632146d2e488ba4a4a1d1c6aadd17a`.
+Parent: `fdd942db5f3d0aea71c37c33ea993179f42b4f19`.
+I read the complete revert and its reasoning. It removes the predicate, its added comments, and its new raw-route test.
+The entire route.rs blob now exactly equals merge 90efe15c's blob: `2b0228c6c3dc5eb8ffc1f0ae3534f24becaa0e11`.
+The final tree differs from merge plus compile fix 75f0fd0d only by the five pending removals.
+
+RG-P6-1 closes through complete withdrawal of the introduced behavior and incorrect premise.
+The effective readiness method is the imported #282 method: None only while gated or closed.
+An ungated open route therefore retains the host wake at install_waits, and route_pass uses nonblocking read attempts throughout the step.
+Those reads consume taken bytes before any descriptor wait. Later idle reads pump the host and then wait on both descriptors.
+A gated route still returns taken bytes or Empty without blocking. A closed route returns EOF.
+The deleted raw test asserts a waiting premise that the actual driver does not use. The original contract assertions remain.
+I withdraw the additional driver-test request because the entire introduced change and premise are removed.
+This decision accepts no new waiting behavior or future driver change.
+
+I read the complete live body delta from the body reviewed in Round 6.
+At 22:33:16Z, GitHub reports the exact new head and imported base above.
+Body SHA256: `9d790cfdde4a39a3d0326983ab3478189974095e5a002547060be68f25a1f845`.
+The opening scope now states the five real-pending removals. The import, compile fix, attempted readiness change, and full revert are explicit.
+The body states that the prep proof uses bf969246 on older base 23550811 and carries no proof to this reverted final head.
+Its R-86 discussion now describes readiness as returning None only while gated or closed. No future progress implementation is accepted.
+The body correctly leaves final gate and base-check records pending.
+
+### RG-P6-2 — MEDIUM — three pending removals have an unresolved fence-exception disposition
+
+I read the imported .39 core-fence-exceptions.txt entries at lines 424, 425, and 428.
+OU-11 ownership and OU-1 attach lack program_ready at step 9 under R-60.
+OU-3 progressing reader lacks await_title at step 19 under R-57.
+All three identifiers leave core-real-pending.txt in this head. Their historical three-run results do not close those fence conditions.
+Integration asks the lead whether the reported three-run rule explicitly permits these removals despite the current exceptions.
+This package has no exact existing disposition for those three cases. I do not infer it from the generic three-run rule.
+Establish that disposition before approval, or retain those three identifiers in real-pending until their required fences and proof land.
+I send this evidence limit directly to P6 in receipt `msg_plugin-w_1791758208_6776a4`.
+
+No package source defect remains at this exact head. RG-P6-1 closes, but RG-P6-2 remains open.
+The completed canonical check and exact-head final gate also remain due. All five removals remain unapproved until their required final PASS.
+The separate sys flake fix and R-71 transcript follow-up retain their earlier open scope.
+This round accepts no unfinished job result, later head, contracts pin, or PR completion.
+I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
