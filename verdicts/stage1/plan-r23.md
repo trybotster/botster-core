@@ -3086,3 +3086,84 @@ Sol accepts no implementation, execution evidence, pending removal, or later imp
 Zero plan findings remain. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open) at 0bbbb264c4640042aac7d3aa7a172ebd0e4b70fc
+
+## Round 84 — revisions 23cg and 23ch, 2026-10-11
+
+23cg head: `f57a0e4d3742102ede84ab6347d742f4019fda61`.
+23ch head: `182d483aa792c2e01ae48dc16e1b9334668432b9`.
+Prior reviewed head: `0bbbb264c4640042aac7d3aa7a172ebd0e4b70fc`.
+Only docs/stage1-plan.md changes. Sol reads every changed term and both added history rows.
+Sections 5, 6.3, and 8 remain byte-identical to the prior reviewed plan.
+Both pins equal their committed bytes and have mode 0444.
+23cg pin: `~/botster-sessions/pins/stage1-plan.fed9504c.md`.
+SHA-256: `fed9504c9c11977b343a3013c051cde3d3b2cef8320e588b45768289b3da6600`.
+23ch pin: `~/botster-sessions/pins/stage1-plan.0c32b5de.md`.
+SHA-256: `0c32b5de0534183cbde6199e29e31c50be50c39e2de4e6fcc9a2b45287fca8a4`.
+
+### Reviewed changes and their limits
+
+Sol reads frozen Core erratum 6, the manifest entry, and the E6-1 transcript.
+Tag manifest-final40 resolves to `406c264fbec240cd0764f5d1448a6edf88411617`.
+The erratum changes the wrong-route reply refusal to wrong_route and preserves the route and query.
+The E6-1 identifier is structural on FakeCore. The future .41 Core pin adds it; this plan adds no active Core identifier.
+The active Core pin and manifest pin remain unchanged.
+
+Sol reads complete R-75 at Contracts `138173e410b0281a9b481669ffce7cfebab9f374`.
+Its base64 follow-up requires refused with zero effect for an undecodable Encoded reply.
+The frozen fake retains invalid_input. The plan assigns the Core correction and its own test to RC's PR B.
+The worker's current reply path refuses input as Unsupported; its source trace is recorded in the finding below.
+
+Sol reads both complete items in `shared/steward/drafts/pending-rulings-edits.md`.
+Steward receipt `msg_plugin-w_1791748653_e23071` confirms the exact R-71 follow-up and its current authority before publication.
+Sol reads the complete current a2_1 and ad_7 transcripts.
+a2_1 uses a named startup value of at least 30000 ms. Both advance_clock steps must exceed that value.
+Its StartupTimeout assertions and the 1200 ms real_wait remain. ad_7 removes steps 3–13 and retains startup 500 in sections 2/3.
+The retained sections wait for the worker's own exit. P3 owns the transcript PR after #58, with 016c review.
+Both identifiers remain pending until their required later evidence. This plan review accepts no transcript edit or new result.
+
+The B13 evidence matches Sol's complete-log receipt `ffa5076a255c49515e31c56b7f740828255b8c1b`.
+The same-pin log demonstrates the wrong FAIL before clean. The .39 control rebuilds and passes before and after clean.
+The logs record absolute dep-info paths. The detailed internal freshness decision remains an owner inference.
+They prove no false PASS, original withdrawn scratch PASS, or prebuilt-worker result.
+The future GS structural refusal remains subject to its own source review and proof.
+
+The final slot order is #282, #283, #284, #285, corrected #287, then the reviewed .40 pin.
+#285's source CLEAN remains at 6363d559. #287 still needs integration CLEAN on 27cb2cc4.
+The order accepts no final import, gate, pending removal, or PR completion.
+
+Sol applies orchestrate-delivery to the changed oracle premise and reads its Botster lessons.
+Steward receipt `msg_plugin-w_1791748680_ce8315` confirms the exact R-84(1) correction and its authority before publication.
+The correction replaces ModeFlags::default() with the modes of a fresh pinned libghostty terminal, read from the binding at runtime.
+The control reads no session when modes is present. An empty modes object means that fresh terminal.
+The author supplies every encoding mode that differs from the fresh terminal. The reviewer checks that condition.
+
+Sol traces Terminal::modes through mode_flags to the library reads at verified Core v1 `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+The pinned Ghostty commit is `39a68e822e505685d1e7fa9c6abeff21125b489c`.
+Its modes.zig sets the five named ANSI/DEC modes true by default.
+The contract's derived Rust Default clears those booleans and leaves other_modes empty.
+EncoderState reads dec_1035 and dec_1036 from other_modes. Thus the two bases can change encoding.
+The 19 affected calls in three transcripts remain RC's reported count; Sol runs no encoder comparison.
+RC must check the three named test uses in its body. Sol reads all three source contexts.
+Those contexts construct simulated TerminalState values. This review accepts no unreviewed change to their behavioral assertions.
+Rounds 81–83 accepted the old base without this source comparison. The new trace corrects that omitted premise check.
+
+RC owns the DP-12 focus gaps in PR B. Sol reads the affected worker state and host observation paths.
+The worker initializes focused to None. The worker source has no Observation::Focus producer.
+The host already handles Observation::Focus, updates focused, and posts FocusChanged.
+The gap is the production input/observation path, not absence of the host consumer.
+The later PR must preserve DP-12 and EV-6; this plan accepts no focus implementation or result.
+
+### PF-SI-2 — LOW, open: incorrect scope of the current input refusal
+
+The added R-75 paragraph says: Core today refuses every route input unsupported with what input.
+At verified v1, Route::decide in worker/route.rs:131–132 accepts Bytes and Text for the admission path.
+Lines 137–138 use paste_chunk and file_chunk for those unsupported kinds.
+Lines 139–147 use input for the remaining unsupported Input variants, including the query reply.
+Therefore the statement about every route input is false.
+Change that statement to the current query-reply input path. Keep its cited source and the future PR B refusal requirement.
+This is a plan-record correction. It requires no product change or execution.
+
+Sol accepts no implementation, execution evidence, pending removal, later pin, or final import in this review.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: NOT CLEAN (1 open: PF-SI-2) at 182d483aa792c2e01ae48dc16e1b9334668432b9
