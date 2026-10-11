@@ -1,0 +1,143 @@
+# P5 package review: Core #292, R-87 parked_work
+
+## Round 1 — 2026-10-11
+
+- Exact head: `6c231801e78ea268dd2894d669a41aa3c1392615`.
+- Tree: `8edac0b57c7913ed5576dce56c280f71ac861aca`.
+- Base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+- READY receipt: `msg_plugin-w_1791760836_ef1299`.
+- Tier: HIGH. The shared testkit and cross-package changes require HIGH under BUILD.md rule 3.
+- Open findings: three, including two LOW findings. Local cache provenance also awaits the implementer's answer.
+
+### Scope and authority
+
+I read the complete nine-path own diff, the complete production decisions, both control paths, and all new tests.
+R-87's corrected text replaces link_held with parked_work. The read reports work that waits only for mandatory-queue room.
+Both a held worker frame and an engine transition can satisfy that condition.
+Work runnable now, or work waiting for another condition, must not satisfy it.
+The control is read-only. The transcript's await_control pumps without polling; the later zero-timeout wake remains strict.
+The lead assigns the Core implementation to P5. The lead keeps am_4 live under option (b) until its R-88 fence.
+This PR changes no pending list, transcript, timeout value, dependency pin, mutation exclusion, or gate selector.
+Core remains at contracts-v0.1.39. The tag that carries contracts #68 supplies the later transcript fences.
+
+The own commits are:
+
+1. `7ce7cfe1a9cba020836e8dc583ffe139c8eeee43`: the host read and diagnostic field.
+2. `dc9b230b964a2a0e945cf54d72a02d8d672de0ba`: both harness controls and the record layer.
+3. `98fe6fde4ab261fd66f0a5960384285d34f3551c`: the lead-approved base merge.
+4. `76bf7467d1fa5872de11a5c2a469b7166c7faa2e`: tests for the missed decisions and timed-out record mutants.
+5. `6c231801e78ea268dd2894d669a41aa3c1392615`: a test comment correction.
+
+The merge's earlier base is `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Nine own paths and seven imported paths are disjoint. Every own blob survives that merge unchanged.
+`git diff --check` passes. I claim no executable base-check result from those Git reads.
+The old worker's room checks concern worker egress. They do not provide this host read or test control.
+I read those checks at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+The PR supplies its prior-art note. No old mechanism or tests are copied.
+
+### Production and control logic
+
+The ready_at extraction changes no decision in the existing ready body.
+The accepts_at extraction substitutes the explicit room argument for the old has_room call.
+Both production entry points pass the current queue-room value.
+The queue-room read is pure. The production outcomes remain unchanged by these extractions.
+
+parked_on_room returns an empty set when the queue has room.
+Otherwise, it compares offered work with room against offered work without room.
+It excludes work offered under both conditions. It maps op work, session work, and parked route work to their sessions.
+For held frames, it requires refusal without room and acceptance with room, then maps the link to its session.
+Observed frames waiting for a start remain excluded. The ready predicate also retains row, setter, and ticket conditions.
+The host diagnostic reads that set without pumping, polling, signalling, or changing read interest.
+The four engine tests exercise state work, op work, parked route work, and held frames, with negative and freed-room checks.
+
+RefusalLayer records the host diagnostic after each forwarded state-changing call and at construction.
+The harness retains a separate shared record for each handle. The control reads that record without calling Core.
+Scripted refusals do not change Core, so they leave the record unchanged.
+Read-only Core calls retain their pass-through behavior. The record has no global lock or Core ownership.
+Both control handlers validate the handle and session row before reading the record.
+Both tiers register the control. The plain real harness continues to refuse test controls.
+The scenario checks a running session, a parked Stop, an unrelated session, the freed-room result, and a missing row.
+Its new setup loop still lacks the required bound, as F2 explains below.
+
+### R292-F1 — LOW, open: worker_alive has the wrong attached comment
+
+At real.rs:543–561, the parked_work insertion separates the existing AD-7/R-46 comment from worker_alive.
+Rust attaches both the alive comment and the parked comment to parked_work.
+The comment now describes two different controls on one method. worker_alive loses its comment.
+Required change: put the two alive comment lines directly above worker_alive.
+The fourth commit fixes the same placement problem for a different test in refusal.rs.
+Sent to P5 and Sol: `msg_plugin-w_1791760917_f3f68a` and `msg_plugin-w_1791760917_945fa0`.
+
+### R292-F2 — MEDIUM, open: the scenario pumps without a bound
+
+In refusal.rs, a_stop_is_parked_work_until_a_poll_frees_room executes `while core.pump(now()).more {}`.
+That setup loop has no deadline or progress bound. Both tier tests execute it before the bounded pump_until helper.
+If Core continues to report more, the loop never reaches the existing 30-second guard and consumes CPU without a bound.
+The scenario's BOUND does not cover this loop. The later helper cannot stop it.
+Required change: check an explicit deadline using the existing BOUND, or use a bounded helper that pumps without polling.
+Preserve BOUND and all transcript values. Add no sleep or unrelated timeout change.
+Sent to P5 and Sol: `msg_plugin-w_1791760945_b59bf5` and `msg_plugin-w_1791760945_8b8e62`.
+
+### R292-F3 — LOW, open: the body cites the wrong HIGH rule
+
+The Risk tier paragraph calls all Core production changes HIGH under BUILD.md rule 1.
+Rule 1 concerns gate-decision code. Rule 3 correctly classifies the shared testkit and cross-package change as HIGH.
+Required change: remove or correct the rule 1 citation. Keep HIGH.
+Sent to P5 and Sol: `msg_plugin-w_1791761034_1b4407` and `msg_plugin-w_1791761034_4ea3a7`.
+
+### Gate and mutation evidence
+
+The supplied Linux pool gate names the exact head and base.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-r87-parked-work-6c231801-pool-20261011-160553-28432.log`.
+SHA256: `1c56adf3097448147ea666f5fd969b1f6efe90e8ecf6e225b9d473531e1863fb`.
+All ten steps pass. The wrapper exits 0 after 714 seconds on msa1.
+The job queues for 277 seconds and runs for 436 seconds. Total step time is 425.8 seconds.
+The default run has 1795 passes and 460 skips in 18.090 seconds.
+The slow run has 585 passes and 2022 skips in 45.374 seconds.
+The named scenario passes on both tiers, including the real-process test.
+
+Stage 1 examines 48 mutants: 30 caught, eight missed, zero timeout, and ten unviable, in 111.6 seconds.
+The stage-2 baseline passes all 585 tests, with 2732 skips, in 43.080 seconds.
+The baseline step takes 58.5 seconds. Stage 2 examines the exact eight misses.
+Stage 2 reports six caught, zero missed, zero timeout, and two unviable, in 114.9 seconds.
+The combined result is 48 mutants: 36 caught, zero missed, zero timeout, and twelve unviable.
+I independently compare all raw catches against all citations: both sets contain the same 36 unique mutant identities.
+Every cited test has a normal PASS before mutation. The log contains no FLAKY record.
+The new Work::Op and Work::Parked tests catch their deleted arms.
+The new record tests catch the stale record and constant-false decisions without waiting for the scenario bound.
+Fuzz reports no changed crate with a decoder harness. No fuzz execution is claimed.
+
+The earlier 98fe6fde gate remains RED. Stage 1 reports 25 caught, ten missed, three timeout, and ten unviable.
+The timeouts are parked_of returning a default record, ParkedWork::record doing nothing, and ParkedWork::parked returning false.
+Stage 2 and fuzz do not run in that earlier gate. The current gate completes their remaining mutation conditions.
+The body preserves that red gate and the earlier stale-base lists failure.
+
+### Local evidence limit
+
+The per-seed file contains exactly 32 distinct passing seeds for each fenced ID, with no INCONCLUSIVE record.
+The file names an earlier uncommitted implementation and gives no target-directory or clean record.
+SHA256: `b1eb1358ff0e328d7f7132da108a9a9eeff0e1b4c0a4a434f2daff534c311720`.
+The later Mac-tier log names source `9e5f165a6a3d6389e965a0af082dffb55a086183` and a dedicated p5-r87 target.
+The accompanying script states that this target was new and private to that script.
+It patches only the two fenced transcripts onto contracts .39 and records their exact matching #68 blobs.
+It reports PASS for both IDs on testkit seeds 0–31 and real seed 0.
+The host decisions and process-control implementation match the current head byte for byte.
+This evidence precedes later tests and base imports. It is not an exact-current-head conformance run with the future pin.
+
+I read the engine reversal record and the local mutant-fix record.
+The engine record preserves its initial runnable-work miss and the later test that catches it.
+The local record shows prompt assertion failures in the new record tests, while the full scenario still reaches its 30-second bound.
+I do not claim that the complete local mutant run takes zero time.
+The independent pool result supplies the current-head mutation evidence.
+
+The B13 rule rejects local evidence from a shared target unless a clean or single-worktree condition holds.
+I requested cache and source provenance for the earlier per-seed and reversal records.
+Question receipt: `msg_plugin-w_1791760963_1e43b1`. The implementer's answer remains pending.
+I do not accept those earlier local records as validated execution evidence until that condition is established.
+The open source and body findings already prevent CLEAN on this head.
+
+I changed no product code. I ran no build, test, gate, mutation job, or executable merge check.
+I used read-only Git, source inspection, and artifact parsing.
+The next head requires a delta review. The lead controls the final slot, base import, final gate, and merge.
+
+VERDICT: NOT CLEAN
