@@ -1988,7 +1988,8 @@ Sol fetches and checks both exact tags:
 
 The .34 tag contains the four program_ready fences already checked in Round 54.
 The .35 tag contains .34 as an ancestor. Its transcript delta adds only one await_pty with min_bytes:6 to each of three IN-10 IDs.
-Those three IDs remain real-pending on current v1. The plan claims no pending removal or passing result for them.
+Correction: those three IDs are core-pending on current v1, not real-pending. Round 57 withdraws this round's CLEAN.
+The plan claims no pending removal or passing result for them.
 The fence lint's declared scope is R-57, R-60, R-61, and R-62 Q3. Its exception file has 127 entries.
 All four corrected echo IDs are absent from that file. The second-merge exception cleanup required by 23ao is present.
 The steward and lead split all R-56 lint work into later B2. This plan preserves that split and requires no separate Core pin PR for B1.
@@ -2008,3 +2009,34 @@ It accepts no future combined source, code pin, gate, mutation exclusion, R-56 l
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at d4f67d0980bb66727f2a439ea7c7fe5b01bb5039
+
+## Round 57: revision 23aq, pending-file classification correction
+
+- Head remains `d4f67d0980bb66727f2a439ea7c7fe5b01bb5039`.
+- Base remains `3a5b20697967ca7c794f4ee54b988e7f4a74f5aa`.
+- This round supersedes and withdraws Round 56's CLEAN.
+
+### AQ-SI-1 LOW: the three changed IN-10 IDs are not real-pending
+
+Status: OPEN.
+Section 0 describes the three IN-10 await_pty changes as applying to IDs "which are real-pending".
+Current v1 cfd6ee36 holds all three in conformance/core-pending.txt, at lines 333 through 335:
+- conf::in_10_guard_does_not_withdraw_after_start.
+- conf::in_10_later_client_frame_is_ordered_after.
+- conf::in_10_started_write_is_contiguous.
+
+None is in conformance/core-real-pending.txt. These IDs have not passed the testkit harness and remain pending on both tiers.
+The three different IN-10 IDs in the real-pending file are both_guards_are_checked_atomically_with_ordering,
+guard_refuses_when_client_frame_received_before_start, and lagging_host_view_gets_stale_not_a_wrong_write.
+The .35 transcript delta does not change those three real-pending IDs.
+
+Required correction: replace the .35 classification with core-pending, or remove the incorrect classification.
+Keep the rule that an ID leaves a pending file only on a PASS in the implementing PR's gate.
+This is a factual accounting correction. It does not require a pin-order change or a new execution job.
+
+Sol's first static membership check returned false for all three real-pending memberships.
+Sol incorrectly wrote the opposite in Round 56. Direct reads of both exact-base files confirm this finding.
+The remaining tag, fence, exception-list, scope, and merge-order checks in Round 56 remain valid.
+Sol ran no execution job.
+
+VERDICT: NOT CLEAN (1 open) at d4f67d0980bb66727f2a439ea7c7fe5b01bb5039
