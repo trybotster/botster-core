@@ -183,11 +183,9 @@ impl Worker {
     }
 
     /// A reply of the model joins the admission point (EV-8: it is written as one contiguous transaction, in order). An
-    /// empty reply writes nothing, so it does not join.
+    /// empty reply joins too: admission is the first decision of every source (PR3 round 6), and an admitted empty reply
+    /// writes nothing.
     pub(super) fn enqueue_reply(&mut self, bytes: Vec<u8>) {
-        if bytes.is_empty() {
-            return;
-        }
         self.input.queue.push_back(Pending::Reply(bytes));
         self.try_start();
     }
@@ -250,7 +248,7 @@ impl Worker {
             let write = match pending {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload. It advances no revision and completes no operation (EV-8).
-                    if self.admission(Source::Reply).is_ok() {
+                    if self.admission(Source::Reply).is_ok() && !bytes.is_empty() {
                         self.start_unowned(Owner::Reply, bytes);
                     }
                     continue;
