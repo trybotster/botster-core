@@ -107,8 +107,8 @@ impl QueryReply {
     }
 }
 
-/// `oracle_encode {session, kind, input, modes?}` (steward ruling R-84): the bytes that the pinned libghostty encoder gives
-/// for one input with explicit modes, as a hex string. Core's write path encodes with the same functions (R-7), so the
+/// `oracle_encode {session, kind, input, modes?, size?}` (steward ruling R-84): the bytes that the pinned libghostty encoder
+/// gives for one input with explicit modes, as a hex string. Core's write path encodes with the same functions (R-7), so the
 /// testkit adds no encoding: it parses the input with the contract's types and calls the binding.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -118,6 +118,9 @@ pub(crate) struct Encode {
     input: Value,
     #[serde(default)]
     modes: Option<serde_json::Map<String, Value>>,
+    /// The size for a mouse event, over the session's stored size (the R-84 follow-up).
+    #[serde(default)]
+    size: Option<Size>,
 }
 
 /// The input kinds of `oracle_encode`, each with its `input` form.
@@ -153,14 +156,16 @@ struct PasteArg {
 }
 
 impl Encode {
-    /// The encoded bytes as a hex string, with `size` (the session's stored size) for a mouse event (R-84):
+    /// The encoded bytes as a hex string (R-84). With `modes`, the call reads no session modes and no model state. A mouse
+    /// event uses the call's `size`, else `stored` (the session's stored size, which the transcript set):
     /// - `NotReported`, and a focus event with focus reporting off, give `""`: the PTY gets nothing;
     /// - `Unsupported{what}` is refused `{reason: "unsupported", what}`, which a transcript matches with `expect_refused`;
     /// - a paste with bracketed paste off is the text alone (Core IN-8).
     ///
     /// Without `modes` (note (1): the modes of the session's model) the call is `unsupported_control`: no transcript does
     /// this, and the testkit has no session model for it here.
-    pub(crate) fn encode(&self, size: &Size) -> Result<Value, ControlError> {
+    pub(crate) fn encode(&self, stored: &Size) -> Result<Value, ControlError> {
+        let size = self.size.as_ref().unwrap_or(stored);
         let partial = self
             .modes
             .as_ref()
