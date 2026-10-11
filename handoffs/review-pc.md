@@ -1415,3 +1415,23 @@ The reviewer reads that round and verifies publication on Sol's remote branch.
 Both design CLEANs cover revision 3 hash 52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885 and base 670e5fc799a25794910a1847fc41b3e089bf03f4.
 The integration design receipt condition is closed. No source or executable result is accepted.
 The socket-order premise, exact source reviews, reversal evidence, A5-4 table, both-OS proofs, and gates remain due. Never poll.
+
+Matching integration design receipt pushed: cb4073b2a6e690111a9b1facd24519ff4cac95b9.
+The worktree is clean. Both design CLEANs are verified. Wait for the source/evidence doorbell. Never poll.
+
+## #289 .39 to .41 pin: review complete with two evidence findings
+
+READY msg_plugin-w_1791755720_3b91b3. Head 4e26982b4c8ed836e43baa30f18fbf8134db90d5.
+Own/PR/gate base f68f26a7b12738f2b19ab39fe76a93f3d1a72f12, imported once with lead approval after the lists failure.
+The seven-path source diff is read. No new logic finding is identified.
+The seven manifest pins and nine lock sources match .41. The ledger exactly equals .41's 691 Core ids.
+Job-common bytes are unchanged and match both tags. The real pty_queued boundary and R-73 route test agree with the pin.
+Four real removals have no .41 fence exception and current-head real PASS records. Four permitted transfers each retain one exception.
+The green log hash is 426854307dda1a64cf844de2018c61daa3dcaad3cd6c303a3b71af3790e1169e.
+All ten steps PASS. Default 1786/0, slow 586/0. All eight mutants are caught in Stage 2; raw and named identities match.
+No FLAKY line. Earlier mutant and lists gates remain RED in the record and body.
+PIN41-1 MEDIUM: missing full A5-4 before/after table against .39 on both tiers.
+PIN41-2 MEDIUM: missing N>=5 real proof for the named PART B removals (lead decision 04:56).
+PC confirms both records are absent and plans serial pool evidence jobs in msg_plugin-w_1791755816_ab4038.
+The verdict is NOT CLEAN (2 open), verdicts/pc-pin-41.md. Sol's same-head source verdict remains due.
+No execution job runs here. R-78 source/evidence and F-283-1 remain separate PC work. Never poll.
