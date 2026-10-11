@@ -322,41 +322,35 @@ impl Terminal {
         };
         let mut formatter: sys::Formatter = std::ptr::null_mut();
         // SAFETY: the terminal is live; `options` and the selection that it points to are valid for the call, and the
-        // library copies them. A successful call stores a formatter that the guard frees.
+        // library copies them. A successful call stores a formatter that is freed below.
         crate::check(unsafe {
             sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, terminal, options)
         })?;
-        let formatter = FormatterGuard(formatter);
-        let mut needed = 0usize;
-        // SAFETY: a null buffer asks for the size, which the library stores in `needed`.
-        let probe = unsafe {
-            sys::ghostty_formatter_format_buf(formatter.0, std::ptr::null_mut(), 0, &mut needed)
-        };
-        if probe != sys::SUCCESS && probe != sys::OUT_OF_SPACE {
-            crate::check(probe)?;
-        }
-        let mut buffer = vec![0u8; needed];
-        let mut written = 0usize;
-        // SAFETY: the buffer holds `needed` bytes.
-        crate::check(unsafe {
-            sys::ghostty_formatter_format_buf(
-                formatter.0,
-                buffer.as_mut_ptr(),
-                needed,
-                &mut written,
-            )
-        })?;
-        buffer.truncate(written);
-        String::from_utf8(buffer).map_err(|_| Error::InvalidValue)
+        let text = formatted(formatter);
+        // SAFETY: the formatter is live and is freed exactly once.
+        unsafe { sys::ghostty_formatter_free(formatter) };
+        text
     }
 }
 
-struct FormatterGuard(sys::Formatter);
-impl Drop for FormatterGuard {
-    fn drop(&mut self) {
-        // SAFETY: this guard owns the live formatter and frees it once.
-        unsafe { sys::ghostty_formatter_free(self.0) };
+/// The output of a live formatter. The extras are never empty, so the size query reports `OUT_OF_SPACE`.
+fn formatted(formatter: sys::Formatter) -> Result<String, Error> {
+    let mut needed = 0usize;
+    // SAFETY: a null buffer asks for the size, which the library stores in `needed`.
+    let probe = unsafe {
+        sys::ghostty_formatter_format_buf(formatter, std::ptr::null_mut(), 0, &mut needed)
+    };
+    if probe != sys::OUT_OF_SPACE {
+        crate::check(probe)?;
     }
+    let mut buffer = vec![0u8; needed];
+    let mut written = 0usize;
+    // SAFETY: the buffer holds `needed` bytes.
+    crate::check(unsafe {
+        sys::ghostty_formatter_format_buf(formatter, buffer.as_mut_ptr(), needed, &mut written)
+    })?;
+    buffer.truncate(written);
+    String::from_utf8(buffer).map_err(|_| Error::InvalidValue)
 }
 
 fn cell_rgb(cell: sys::Cell) -> Result<sys::ColorRgb, Error> {

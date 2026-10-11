@@ -710,6 +710,102 @@ mod slow_tests {
         assert!(!lock(&shared).changed.contains(&sid("s1")));
     }
 
+    /// Every call reaches the Core behind the layer, and every result comes back unchanged: the layer only records
+    /// (`crate::refusal::tests::behind`, which also stands behind the refusal layer and the crash slot in their tests).
+    #[test]
+    fn every_call_and_its_result_pass_through_the_layer() {
+        let root = tempfile::tempdir().unwrap();
+        let programs = Programs::listen(root.path()).unwrap();
+        let (behind, reached) = crate::refusal::tests::behind();
+        let deadline = behind.next_deadline();
+        let (mut layer, _shared) = CaptureLayer::new(Box::new(behind), programs.marks());
+        let session = sid("s1");
+        let service = ServiceId([1; 32]);
+        let frame = OutboundFrame {
+            frame_type: 1,
+            payload: Default::default(),
+        };
+        assert_eq!(
+            layer.begin(Op::Start {
+                id: session.clone()
+            }),
+            Ok(OpId(7))
+        );
+        assert_eq!(
+            layer.pump(now()),
+            PumpReport {
+                more: true,
+                events_posted: 3
+            }
+        );
+        assert!(layer.poll_events(9).is_empty());
+        assert_eq!(layer.next_deadline(), deadline);
+        assert_eq!(layer.cancel(OpId(1)), CancelResult::TooLate);
+        assert_eq!(layer.get(&session).unwrap_err().detail, "behind");
+        assert!(layer.list().is_empty());
+        assert!(layer.status().sessions.is_empty());
+        assert_eq!(layer.diagnostics(), json!({"behind": true}));
+        assert_eq!(layer.terminal_state(&session).unwrap_err().detail, "behind");
+        assert_eq!(
+            layer.read_page(CaptureId(1), 0).unwrap_err().detail,
+            "behind"
+        );
+        layer.release(CaptureId(5));
+        layer.release_owner(&ClientId("c9".into()));
+        assert_eq!(layer.snapshot_formats(&session), Ok(vec![]));
+        assert!(layer.shadow_answerable_kinds().is_empty());
+        let (end, _client) = std::os::unix::net::UnixStream::pair().unwrap();
+        let refused = layer
+            .attach(
+                ClientId("c1".into()),
+                session.clone(),
+                RouteTransport::Stream(StreamEndpoint::new(end)),
+                serde_json::from_value(json!({"file_directory": "/tmp"})).unwrap(),
+            )
+            .unwrap_err();
+        assert_eq!(refused.error.detail, "behind");
+        assert_eq!(layer.tap_read(&session, 1).unwrap_err().detail, "behind");
+        assert_eq!(layer.set_silence_threshold(&session, None), Ok(()));
+        assert_eq!(layer.service_send(&service, 0, &frame), Ok(()));
+        assert_eq!(layer.service_recv(&service, 0), Ok(None));
+        assert_eq!(layer.service_report(&service).unwrap_err().detail, "behind");
+        assert_eq!(layer.service_log_tail(&service, 1), Ok(Vec::new()));
+        assert_eq!(layer.features().service_preamble_versions, vec![9]);
+        assert_eq!(layer.limits().max_sessions, 7);
+        assert_eq!(layer.worker_protocol(), 3);
+        assert_eq!(layer.adoptable_worker_protocols(), BTreeSet::from([7]));
+        assert_eq!(
+            layer.worker_protocol_compatibility(Some(1)),
+            WorkerCompatibility::Compatible
+        );
+        assert_eq!(layer.terminal_identity().term, "t");
+        assert_eq!(
+            *reached.lock().unwrap(),
+            [
+                "Start",
+                "pump",
+                "poll_events 9",
+                "cancel",
+                "get",
+                "list",
+                "status",
+                "terminal_state",
+                "read_page",
+                "release 5",
+                "release_owner c9",
+                "snapshot_formats",
+                "shadow_answerable_kinds",
+                "attach",
+                "tap_read",
+                "set_silence_threshold",
+                "service_send",
+                "service_recv",
+                "service_report",
+                "service_log_tail"
+            ]
+        );
+    }
+
     /// The output of `st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut` at `contracts-v0.1.36`:
     /// steps 6 (before the capture) and 13 (after it).
     const BEFORE: &[u8] =
