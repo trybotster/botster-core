@@ -1780,3 +1780,63 @@ The existing #249 source CLEAN remains. This plan verdict grants no final-gate a
 
 The reviewed plan bytes have SHA-256 `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Round 51: revision 23am
+
+VERDICT: CLEAN (0 open)
+
+- Head: `13174c48633edf0bab0b84f750785223c82513bc`.
+- Base and sole parent: `1555a98b196c259dfe5f5d56a87c473ba49d49dd`.
+- Request: `msg_plugin-w_1791712489_bc1609`.
+- Scope: the section 0 contracts prefix, one section 8 bullet, and the revision row.
+
+Sol checked the complete plan delta. The old contracts row remains byte-identical after the inserted prefix.
+No other plan path changes. The active pin stays `contracts-v0.1.29`.
+The reviewed plan bytes have SHA-256 `91b369632fd6d3648819f8ae7791d972e18355f0a65222fed06464c43b4afaa1`.
+
+### Contracts tag checks
+
+Sol checked each tag's commit and content in the contracts repository.
+
+| Tag | Commit | Content checked |
+| --- | --- | --- |
+| `contracts-v0.1.30` | `f3fce71d9dd824c4813c79aa325c9ef88f1713ed` | R-60, `program_ready`, two readiness fences, OU-7 bytes and metadata, and two DP-3 byte edits. |
+| `contracts-v0.1.31` | `2f38d8bbc7fed058fedcfb8c6344f1cce3e7d92b` | R-62 through R-64, the independent oracle anchor, three ST-6b fences, three IND replacements, and `UnsupportedFor` propagation. |
+| `contracts-v0.1.32` | `91394e726b1bd697307d0d5b05712b876f9189be` | The `start_held` specification, vocabulary entries, and hold fences in eight transcript files. |
+| `contracts-v0.1.33` | `fde56324102cbc38efabe99b5c79aae73080e02c` | The EV-5 completion fence and the BUILD.md rule 9 mutation-profile exception. |
+
+The .30 delta also changes OU-2b's readiness fence, the probe setup test, and the fake replacement map.
+The two DP-3 transcripts change only the seven hexadecimal fields that replace `0a` with `2e`.
+Sol verified every changed byte field by static parsing. This check runs no transcript.
+The .31 oracle specification requires both comparisons against raw output known independently of the subject's snapshot encoder.
+It requires comparator completeness checks and rejects unknown output history as unsupported, never PASS.
+The .32 control distinguishes a due, blocked step from a hold that is only armed.
+The .33 EV-5 fence collects exactly the four successful Detach completions before the existing recovery poll.
+It ignores RouteClosed and Activity events during that collection. The existing recovery steps remain.
+No tag delta changes a frozen contract, ledger, status file, or manifest.
+
+R-64 leaves the live-worker link-loss completion unresolved for amendment A21. The plan preserves that boundary.
+The BUILD.md exception permits one retry only in the mutation profile.
+Fail then pass is FLAKY and counts as MISSED. The retry can remove a catch but cannot create a catch.
+Every FLAKY result names its test and requires a structural fix. Other profiles retain zero retries.
+This exception differs from 23al's single approved repeat of a whole gate. Neither rule permits a red merge.
+This plan verdict approves no retry implementation or mutation verdict.
+
+### Merge and acceptance checks
+
+The controls land before the .32 pin move. Each control PR retains its own tests and exact-head gate.
+The combined #240/#243 PR then carries the .33 pin and the full real-tier before/after table.
+The stack rule requires both package reviews and the integration review of the exact combined diff.
+The unchanged Merge bullet requires a green full gate on that exact head against the current v1 tip.
+A moved v1 tip still requires a new import, review, and gate. The rule grants no approval from constituent CLEANs alone.
+The combined pin delta and any conflict resolution remain part of the later review.
+The lower PR cannot merge alone when it cannot pass alone.
+
+An ID leaves a pending file only after PASS in the corresponding PR's gate.
+Unsupported controls remain pending. A5-4 evidence and the existing Mac source-identity rule still apply.
+The revision changes no active ID, stage minimum, staffing limit, or manifest.
+This verdict accepts no control implementation, pin move, combined PR, removed ID, or execution result.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 13174c48633edf0bab0b84f750785223c82513bc
