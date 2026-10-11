@@ -98,3 +98,9 @@ Sol has not received a full gate on cff50d0f. The import check is not a full gat
 Sol asked the lead to identify any written pool-rule override for omitting the final exact-head gate.
 This record confirms source carryover. It makes no new-head gate claim while that question is pending.
 Sol ran no execution job.
+
+
+The lead answers the pending gate question in msg_plugin-w_1791708713_3f6200: no written override exists.
+The omitted exact-head gate is an acceptance gap. The source CLEAN still carries to cff50d0f.
+The lead withdraws the conflicting pool instruction and runs the v1-tip remediation gate.
+The complete scope and pending evidence are recorded in verdicts/stage1/exact-head-gate-remediation.md.

@@ -69,3 +69,14 @@ Sol read the published head, base, body, and package verdict section.
 The head contains the reviewed v1 base through its merge parent.
 The final gate after both CLEANs remains required under the GS brief. This source CLEAN grants no merge approval by itself.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Source import and gate gap
+
+The reviewed 7b942de5 head imports v1 80d02327 into a92d74840c3133de4d70b128a50fae95972440d9.
+Sol read the complete log: ~/botster-sessions/gates/botster-core-gs-mutants-stale-base-merge-check-7b942de5-new.log.
+Both ancestry checks and all four numbered conditions pass. Both pending files retain the base.
+Sol's independent git merge-tree equals the actual tree, f0c23db244ee7d7f0f62891a5c7a1ce0b83da8e8.
+Both complete own diffs are byte-identical: 15970 bytes, SHA-256 5653c7fdacfae4f33c10187ad9db44044e4b27fe741a05c6b4938dbec8b66df4.
+Source CLEAN carries to a92d7484. The lead confirms that it merged without its required exact-head full gate.
+The gap and pending v1-tip remediation are recorded in verdicts/stage1/exact-head-gate-remediation.md.

@@ -171,3 +171,15 @@ The earlier df991fdf gate is not that final gate. This source CLEAN grants no me
 The six steward-controlled IDs remain pending. EV-2 and IN-5 remain pending until #233 supplies the required final proof.
 The #233 mutation finding remains open. The unfenced AD-7 pass still does not count toward the real minimum.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Source imports and gate gap
+
+The reviewed c57ec826 head reaches 5dcab088f4878911569a19174bbd897537ff6b00 through two v1 imports.
+Sol read the complete log: ~/botster-sessions/gates/botster-core-pc-base-merge-check-c57ec826-5dcab088-20261011.log.
+Both ancestry checks and all four numbered conditions pass. No pending ID flips during the imports.
+Sol's independent merge-tree of c57ec826 and 687739f3 equals the actual tree, bc0ef5a71c79dd3a1fcc87b202b76f63c5007e56.
+Both complete own diffs are byte-identical: 11368 bytes, SHA-256 6860968bb9ee27a59301379b7bae48eb2f9715a7023de854bac1dc4a8a485ce4.
+The check separately compares 8177 bytes outside line-set files, with SHA-256 a96667b9af3620c0c0d052cbe5c468bc57829857a963df77cade26255bba737f.
+Source CLEAN carries to 5dcab088. The green final gate on c57ec826 does not establish a gate on that imported head.
+The lead confirms the omitted exact-head gate. The gap and pending remediation are recorded in verdicts/stage1/exact-head-gate-remediation.md.

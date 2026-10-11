@@ -469,3 +469,13 @@ The Round 3 source CLEAN carries to the unchanged own delta. All prior findings 
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+
+### Correction: the import lacked its required exact-head gate
+
+The lead confirms in msg_plugin-w_1791708713_3f6200 that no binding override supported the earlier pool instruction.
+BUILD.md Q7 and plan section 8 require a gate on the exact imported head.
+Sol's preceding acceptance of the pool instruction was incorrect. Sol withdraws its implication that the full gate could be omitted.
+The 5921340d execution evidence and verified af5d5138 source carryover remain valid within their actual scope.
+No full gate on af5d5138 is established by that evidence.
+The four-merge correction and pending v1-tip remediation are recorded in verdicts/stage1/exact-head-gate-remediation.md.
