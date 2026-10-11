@@ -160,6 +160,12 @@ struct LinkState {
     /// A send failed: nothing more is written, and the link is read to its end of file (R-78 item 4). The worker's frames
     /// that wait in the socket are still handled.
     write_closed: bool,
+    /// The worker process ended (R-78 item 4, `Action::LinkPeerEnded`): the link is read without waiting, and the first
+    /// would-block closes it. No end of file is awaited.
+    peer_ended: bool,
+    /// The process ended and the drain has not read the link since: runnable input is known to wait (TM-6). The first
+    /// read clears it; after that the link waits like any other (budget, or mandatory room for a held frame).
+    drain_due: bool,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -350,6 +356,12 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::LinkPeerEnded { link } => {
+                if let Some(state) = self.links.get_mut(&link) {
+                    state.peer_ended = true;
+                    state.drain_due = true;
+                }
+            }
             Action::ConnectWorker { ticket, instance } => {
                 let link = self.edges.connect_worker(&instance);
                 if let Some(link) = link {
@@ -556,6 +568,8 @@ impl<E: HostEdges> HostDriver<E> {
                 held: None,
                 sent: BTreeMap::new(),
                 write_closed: false,
+                peer_ended: false,
+                drain_due: false,
             },
         );
     }
@@ -573,6 +587,13 @@ impl<E: HostEdges> HostDriver<E> {
             self.retry_held(link, budget);
             self.read_link(link, budget);
         }
+    }
+
+    /// A link whose worker ended after this pump last read it is runnable work, unless a held frame blocks it: the next
+    /// pump starts its drain (R-78 item 4, TM-6). A drain that has read waits like any link: for budget (`more_input`), or for
+    /// mandatory room (a held frame, not runnable work: the poll that frees room restores the link, EV-5d).
+    fn draining(&self) -> bool {
+        self.links.values().any(|s| s.drain_due && s.held.is_none())
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
@@ -610,6 +631,9 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn read_link(&mut self, link: LinkId, budget: &mut Budget) {
+        if let Some(state) = self.links.get_mut(&link) {
+            state.drain_due = false;
+        }
         let mut buf = vec![0u8; READ_CHUNK];
         loop {
             let Some(state) = self.links.get_mut(&link) else {
@@ -666,7 +690,17 @@ impl<E: HostEdges> HostDriver<E> {
                     return;
                 }
                 Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // The worker process ended, so nothing more comes: the drain ends here, and a partial frame is a
+                    // truncated link (R-78 item 4, steward follow-up: never wait for the end of file).
+                    if self.links.get(&link).is_some_and(|s| s.peer_ended) {
+                        self.close_link_because(
+                            link,
+                            &"the worker process ended: its link is drained",
+                        );
+                    }
+                    return;
+                }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => {
                     self.close_link_because(link, &error);
@@ -838,7 +872,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
         }
-        let mut more = self.engine.runnable() || budget.more_input;
+        let mut more = self.engine.runnable() || budget.more_input || self.draining();
         if !more {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
@@ -846,7 +880,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
-            more = self.engine.runnable() || budget.more_input;
+            more = self.engine.runnable() || budget.more_input || self.draining();
         }
         if more {
             // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).

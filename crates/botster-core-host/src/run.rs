@@ -302,8 +302,8 @@ impl HostEngine {
                 f.deadline = None;
             }
         }
-        // A gone worker is not probed (R-78 design, branch priority): its link drains, and the end of file classifies it, or
-        // it was classified at its exit when no link was left.
+        // A gone worker is not probed (R-78 design, branch priority): its link drains without waiting, and the drain's close
+        // classifies it, or it was classified at its exit when no link was left.
         if broken && !gone {
             let worker = self.sessions.get(id).map(|s| s.worker);
             match worker {
@@ -352,10 +352,11 @@ impl HostEngine {
             IdentityState::Absent | IdentityState::Reused => {
                 let s = self.sessions.get_mut(&id).expect("found above");
                 s.worker.gone = true;
-                // R-78 item 4: a link whose read side is open is drained first; its end of file classifies
-                // (`on_link_closed`).
-                if s.worker.link.is_none() {
-                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
+                // R-78 item 4: a link whose read side is open is drained without waiting (`LinkPeerEnded`); the drain's
+                // close classifies (`on_link_closed`).
+                match s.worker.link {
+                    Some(link) => self.act(Action::LinkPeerEnded { link }),
+                    None => self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone)),
                 }
             }
         }

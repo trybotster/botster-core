@@ -22,7 +22,7 @@ fn options(route_limits: Option<RouteLimitChoices>) -> AttachOptions {
 }
 
 /// Attaches a route to `s1` whose endpoint holds `token`.
-fn attach(rig: &mut Rig, token: Arc<u32>) -> AttachResult {
+pub(super) fn attach(rig: &mut Rig, token: Arc<u32>) -> AttachResult {
     attach_with(rig, token, None)
 }
 
