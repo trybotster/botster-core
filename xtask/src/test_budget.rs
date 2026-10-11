@@ -190,19 +190,21 @@ pub const SLOW_FILTER: &str = "binary(/^slow/) | test(/(^|::)slow_/)";
 
 /// The packages and filter that a tier runs.
 fn selection(options: &Options, meta: &Meta) -> Vec<String> {
-    if !options.slow {
+    tier_selection(options.slow, &meta.slow_packages)
+}
+
+/// The packages and filter of the slow tier (`slow`) or of the default tier, as nextest arguments: `slow_packages` are the
+/// workspace members with a `slow` feature. `slow_coverage` lists the tests of both tiers with the same arguments.
+pub fn tier_selection(slow: bool, slow_packages: &[String]) -> Vec<String> {
+    if !slow {
         return vec!["--workspace".into()];
     }
     let mut args = Vec::new();
-    for package in &meta.slow_packages {
+    for package in slow_packages {
         args.push("-p".to_string());
         args.push(package.clone());
     }
-    let features: Vec<String> = meta
-        .slow_packages
-        .iter()
-        .map(|p| format!("{p}/slow"))
-        .collect();
+    let features: Vec<String> = slow_packages.iter().map(|p| format!("{p}/slow")).collect();
     args.push("--features".into());
     args.push(features.join(","));
     // A slow test is an integration-test target named `slow` or `slow_*`, or a unit test of any target in a module named

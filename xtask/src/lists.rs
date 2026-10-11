@@ -24,7 +24,7 @@ use std::path::Path;
 
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
-const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
+pub const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
 const MINIMUM_FILE: &str = "conformance/minimum-core.txt";
 const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// Verbatim copies of the contracts' status files at the pinned tag (`conformance/deferred.txt`, `conformance/withdrawn.txt`).
