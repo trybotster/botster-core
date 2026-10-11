@@ -33,16 +33,17 @@ const DECRC: &[u8] = b"\x1b8";
 /// The readings of one terminal, by field. Each value is the `Debug` form of what libghostty gave.
 type Readings = BTreeMap<&'static str, String>;
 
-/// Every row of the screen and its scrollback, from the oldest: the reads give `InvalidValue` past the last row.
+/// Every row of the screen and its scrollback, from the oldest: the reads give `InvalidValue` past the last row. The range
+/// bounds the search, so no change of the step can make it endless.
 fn rows_with_history(terminal: &Terminal) -> Result<u32, Error> {
-    let mut rows = 0u32;
-    loop {
-        match terminal.cell_attributes(rows, 0, true) {
-            Ok(_) => rows += 1,
-            Err(Error::InvalidValue) => return Ok(rows),
+    for row in 0..u32::MAX {
+        match terminal.cell_attributes(row, 0, true) {
+            Ok(_) => {}
+            Err(Error::InvalidValue) => return Ok(row),
             Err(error) => return Err(error),
         }
     }
+    Err(Error::InvalidValue)
 }
 
 fn read(terminal: &mut Terminal) -> Result<Readings, Error> {
