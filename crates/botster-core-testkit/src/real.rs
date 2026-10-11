@@ -844,10 +844,6 @@ impl RealCoreHarness {
         Ok(Value::Null)
     }
 
-    /// A bystander for `worker` (R-55 (2) condition 4): a `cat` of the harness's FIFO in its own group, whose pid is not in
-    /// `recorded` and whose start time is not the worker's. A process that fails a check ends with its drop, and the harness
-    /// makes a new one, until the cleanup deadline. On Linux a start time counts clock ticks since boot (10 ms at 100 Hz),
-    /// and a worker can start, run and end within one tick, so the first new processes can share its start time.
     /// Every worker and payload pid that a row of any data directory of the harness records (R-55 (2) condition 4: "in no
     /// recorded identity", not only those of the session's directory).
     fn recorded_pids(&self) -> Vec<u32> {
@@ -864,6 +860,10 @@ impl RealCoreHarness {
             .collect()
     }
 
+    /// A bystander for `worker` (R-55 (2) condition 4): a `cat` of the harness's FIFO in its own group, whose pid is not in
+    /// `recorded` and whose start time is not the worker's. A process that fails a check ends with its drop, and the harness
+    /// makes a new one, until the cleanup deadline. On Linux a start time counts clock ticks since boot (10 ms at 100 Hz),
+    /// and a worker can start, run and end within one tick, so the first new processes can share its start time.
     fn bystander(&mut self, worker: ProcessIdentity, recorded: &[u32]) -> io::Result<Bystander> {
         if self.hold.is_none() {
             self.hold = Some(Blocker::new(self.root.path(), "bystander")?);
