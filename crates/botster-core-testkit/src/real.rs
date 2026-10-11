@@ -1111,11 +1111,17 @@ mod slow_controls {
             "an armed hold has met nothing"
         );
         // Whichever comes first: the `Launch` meets the hold, or the worker has a child (the worker spawns its payload only
-        // on the `Launch`, so a child means that the `Launch` passed the hold).
+        // on the `Launch`, so a child means that the `Launch` passed the hold). A child counts only after a tap met the
+        // worker: before that, the recorded pid can still run the guard's wrap stage, whose intermediate is a child that is
+        // no payload (the same proof as in `payload_alive`).
         let mut child = None;
         pump_until(core.as_mut(), |_| {
-            if lock(&tap).launch_held(&instance) {
+            let tap = lock(&tap);
+            if tap.launch_held(&instance) {
                 return true;
+            }
+            if !tap.heard(&instance) {
+                return false;
             }
             let worker = harness
                 .session_processes(&data_dir, &sid("s1"))
@@ -1127,6 +1133,11 @@ mod slow_controls {
             child.is_some()
         });
         assert_eq!(child, None, "the Launch passed the hold");
+        // Core sends the `Launch` only after the worker's hello, so the recorded pid now runs the worker binary.
+        assert!(
+            lock(&tap).heard(&instance),
+            "the hello came before the Launch"
+        );
         let worker = harness
             .session_processes(&data_dir, &sid("s1"))
             .and_then(|p| p.worker)
