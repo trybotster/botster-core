@@ -10,7 +10,7 @@
 //! scripted program, deliver signals and report exits (plan 2.1: a difference between the two runs is a bug in an edge).
 
 use crate::core::{SimEdges, Spawner};
-use crate::net::{EndControl, Interest, LinkEnd, StreamEnd};
+use crate::net::{DescriptorForm, EndControl, Interest, LinkEnd, StreamEnd};
 use crate::program::{ProgramControl, ScriptedProgram};
 use crate::resume_controls::{CaptureLog, CaptureRecord, ModelLog};
 use crate::scheduler::SchedulerHandle;
@@ -872,6 +872,9 @@ impl Spawner for WorkerSpawner {
             read_chunk: self.workers.read_chunk,
             descriptors: BTreeMap::new(),
             next_descriptor: 0,
+            // General runs use the macOS form (plan 23ae): a draw from the seeded stream would move every later draw of a
+            // run (A5-2). Each framing proof sets both forms on its edges.
+            descriptor_form: DescriptorForm::StopsBeforeTheSegment,
             routes: BTreeMap::new(),
             pty_budget: None,
         };
@@ -1065,6 +1068,8 @@ struct WorkerEdges {
     /// The route streams that the link delivered and no `AttachRoute` bound yet, by the id the machine has.
     descriptors: BTreeMap<DescriptorId, StreamEnd>,
     next_descriptor: u64,
+    /// Where a link read with a descriptor stops (the kernel form, plan 23ae).
+    descriptor_form: DescriptorForm,
     /// The bound route streams.
     routes: BTreeMap<RouteId, RouteEdge>,
     /// The PTY bytes that the worker may still read (`PtyReadBudget`, OU-3d); `None`: no limit.
@@ -1072,6 +1077,22 @@ struct WorkerEdges {
 }
 
 impl WorkerEdges {
+    /// Keeps a route stream that the link delivered, under a new id for the machine.
+    fn keep_descriptor(&mut self, descriptor: crate::net::Descriptor) -> DescriptorId {
+        let end = descriptor
+            .downcast::<StreamEndpoint>()
+            .and_then(|endpoint| {
+                endpoint
+                    .downcast::<StreamEnd>()
+                    .map_err(crate::net::Descriptor::new)
+            })
+            .expect("the host hands over a testkit stream end");
+        self.next_descriptor += 1;
+        let id = DescriptorId(self.next_descriptor);
+        self.descriptors.insert(id, end);
+        id
+    }
+
     /// The end of the worker process: the OS closes its descriptors, so its link, its endpoint and every connection on it
     /// close, and its payload's PTY is gone. A worker that exits (`exited`) removes its endpoint; a killed one leaves it,
     /// and no worker listens on it. A spawn that a hold kept is dropped with its hold: no payload runs for the session later.
@@ -1299,26 +1320,22 @@ impl Binding<SharedWorker> for WorkerEdges {
                 Input::Terminate
             }
             Ready::Link => {
-                // A descriptor rides on its byte, so it comes before the bytes of its frame (DP-2, `SCM_RIGHTS`).
-                if let Some(descriptor) = self.link.recv_descriptor() {
-                    let end = descriptor
-                        .downcast::<StreamEndpoint>()
-                        .and_then(|endpoint| {
-                            endpoint
-                                .downcast::<StreamEnd>()
-                                .map_err(crate::net::Descriptor::new)
-                        })
-                        .expect("the host hands over a testkit stream end");
-                    self.next_descriptor += 1;
-                    let id = DescriptorId(self.next_descriptor);
-                    self.descriptors.insert(id, end);
-                    return Input::Descriptor(id);
-                }
+                // One read with the descriptors that come with it, in this worker's kernel form (DP-2, plan 23ae).
                 let mut buf = vec![0u8; self.read_chunk];
-                match self.link.recv(&mut buf) {
-                    Ok(n) if n > 0 => {
+                match self
+                    .link
+                    .recv_with_descriptors(&mut buf, self.descriptor_form)
+                {
+                    Ok((n, received)) if n > 0 => {
                         buf.truncate(n);
-                        Input::LinkBytes(buf)
+                        let descriptors = received
+                            .into_iter()
+                            .map(|descriptor| self.keep_descriptor(descriptor))
+                            .collect();
+                        Input::LinkBytes {
+                            bytes: buf,
+                            descriptors,
+                        }
                     }
                     _ => {
                         self.outbound.clear();

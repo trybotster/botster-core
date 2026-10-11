@@ -303,7 +303,8 @@ impl HostEngine {
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
-            // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
+            // `RouteReceived` changes no state here: the driver closed the host's copy of the stream when it fed the
+            // report (DP-2, R-65). The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
     }
