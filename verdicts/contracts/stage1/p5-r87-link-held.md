@@ -62,3 +62,15 @@ On main `7c4004a0`, these transcripts assert a strict `Woken` directly after a p
 
 - **`tm_6_poll_room_unparks_and_wakes`: my round 1 claim was WRONG.** I wrote that AD-7 makes `payload_alive {s2}` `alive: true` prove that Core has read s2's frame. Core `crates/botster-core-host/DESIGN.md` line 198 says that the worker's `Launched` gives `Running`. The worker sends `Launched` after the payload starts, so a live payload does not prove that `Launched` is written or held. The work that the poll at index 12 frees is s2's `Running` transition (index 15 waits for `SessionState {s2, Running}`). No step before the poll proves that this work is parked. This is the same gap as `ev_5`, and it needs the `parked_work` fence after index 8.
 - **The three `e3_1` ids: the work that the poll frees is a `RouteStalled` of `r1`.** Each id waits for it after the poll. Core makes that transition from the route gate and its clock, not from a frame of the link. A `pump` with `more: false` and `events_posted: 0` at a clock where it is due shows that it waits for room. So parked work exists at the poll without a worker report, and those ids need no fence. A late `Launched` of s2 only adds more parked work.
+
+### Steward ruling on the siblings (governs now; to be added to R-87)
+
+- `tm_6_poll_room_unparks_and_wakes` gets the `parked_work` fence after index 8, in #68. Its evidence is the same as for `ev_5`: 32 testkit seeds with 0 INCONCLUSIVE, and a real-tier run.
+- The steward accepted my `e3_1` analysis, so the three `e3_1` ids need no fence.
+
+Checks for the revised head:
+- the `parked_work` row replaces `link_held` in the controls doc and the vocabulary;
+- a fence directly after index 8 in both `ev_5_poll_wakes_pending_work` and `tm_6_poll_room_unparks_and_wakes`;
+- each strict 0 ms `Woken` is unchanged;
+- no `wait_wake` with a timeout is added;
+- the 32-seed testkit log and the real-tier log for both ids, each with the Core revision and the contracts head in its header.
