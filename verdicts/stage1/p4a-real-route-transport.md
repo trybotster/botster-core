@@ -306,7 +306,7 @@ I run no build, test, gate, mutation, reversal, measurement, or executable merge
 
 Reviewed head: `53502d5517b5cf5863fca0ae768712d0e52ab804`.
 Stack base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
-Current gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
+Pre-review gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1` at that gate).
 Risk: HIGH. Binding plan: 23aj at `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
 The code still pins contracts .27 at `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
 Source closure record: `c5cddcd1ce16533aa625014e8f700a65b546b68c`.
@@ -340,6 +340,8 @@ The pre-review gate at `5ca808f8` proves its parent source and combined-stack di
 It does not establish a green gate for the correction head.
 The lead's pool rule requires one final Linux gate after both CLEAN reviews. That gate must cover the corrections before merge.
 #240 must land first. The PR must then retarget to `v1` and merge the current base.
+At the final reference check, `origin/v1` is `475a442fa58cd2555c4121ce705ea3cf75470692`, after #238 merges.
+This verdict reviews the unchanged #240 stack base above. It does not review a future import of that new `v1` head.
 The retained base-merge check must satisfy the disjoint-source conditions, or both reviewers must review the actual source delta.
 This verdict does not waive those gate or stack conditions and does not complete the P4a group.
 
