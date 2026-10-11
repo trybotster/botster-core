@@ -12633,3 +12633,69 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All earlier verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 178 — #271 disjoint merge transfer and final gate, 2026-10-11
+
+Exact head: `eda6efc927d3b53471c7693e6e73f802301e1dd3`.
+Exact base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parents: source-CLEAN `aa219941014caf6830e3105ce1d038d63f46df4c` and the exact base above.
+Owner receipt: `msg_plugin-w_1791732084_28d29a`.
+Risk tier: HIGH, unchanged. Plan 23au remains in force.
+Package source verdict: Round 177, pushed `a0b88aff2c9d80b6e5b31fb30615bf0580e41083`.
+Earlier integration source verdict: `a979e62e61e61f49b056f1c5ed36b9328cce9d2f`.
+This is a disjoint merge-transfer and supplied gate record. It is not a new source delta round.
+
+### Disjoint base import
+
+The reviewer reads the complete supplied check at `shared/core-stage1/evidence/p3-r66-route-reports/base-merge-check-aa219941-eda6efc9.log`.
+It reports valid ancestry, no conflicts, disjoint base paths, byte-identical own diff, and unchanged pending files relative to base.
+Every required condition passes. BUILD therefore requires no source delta round for this import.
+The reviewer runs no executable merge-check job.
+Read-only Git comparisons confirm that the base changes only four paths:
+.config/process-check-allow.txt, botster-test-process/src/child.rs, botster-test-process/src/lib.rs, and botster-worker/tests/common/session.rs.
+All four paths are disjoint from the ten-path own diff.
+All ten reviewed source blobs are unchanged. The complete own diff remains byte-identical.
+The new head's merge base is the exact base above. Both pending files, Cargo.toml, and Cargo.lock equal that base.
+The source conclusions and R-66 proof limits from Rounds 176 and 177 transfer without a runtime control change.
+
+### Supplied exact-head gate
+
+Log: `gates/botster-core-stage1-p3-route-reports-eda6efc9-pool-20261011-081237-93666.log`.
+The header names this exact head and base. It runs the full Linux gate.
+All ten steps report PASS. Default: 1700 passed, 481 skipped. Slow: 548 passed, 2000 skipped.
+The renamed session-instance control test passes in the default tier.
+Stage 1 tests 36 mutants: 27 caught, six missed, three unviable, zero timeout.
+Stage 2 catches all six remaining real.rs mutants. Its unmutated slow baseline passes 548 tests.
+The route_reports body and both tapped-guard mutants fail the named existing real slow_controls tests.
+The has_control true mutant fails the plain-versus-tapped control test.
+The has_control false mutant fails a10_1_wrong_token_is_never_signalled.
+The broad control-body mutant fails a2_1_adopt_completes_ok_with_the_state_it_reached.
+The reviewer reads all raw mutant outcomes and the named catcher records in both stages.
+The control and harness record mutants fail the renamed session-instance test.
+The observer record mutants fail the EdgeTap boundary test, which now checks control answers and wake signals.
+Final result: 33 caught, zero missed, zero timeout, three unviable. No FLAKY record appears.
+The unviable identities remain Directories::open, reports_of returning Some(Default::default()), and TestkitHarness::open.
+The gate selects no changed decoder harness. Total step time is 390.9 seconds.
+Jobq exits zero after 498 seconds, with 97 seconds queued and 401 seconds running.
+botster-gate exits zero after 499 seconds.
+The historical Mac proof retains its original head and local transcript/pin scope. It is not relabeled as execution at this merge head.
+The later pin gate still owns Linux proof of the changed ev_5 transcript.
+
+### Final body and verdict
+
+Verified full body: `/private/tmp/review-p3-pr271-eda6efc9-final.json`.
+The reviewer verifies the exact head/base and reads every body change.
+The final body names this gate, labels the 3b9db42f gate Earlier, and explains every commit after the first READY.
+The complete supplied aa219941-to-eda6efc9 check appears in the body byte for byte.
+The accepted source scope, Prior art, and historical proof descriptions remain unchanged.
+F130, F131, and F132 remain CLOSED. No package finding remains for #271 at this head.
+The package CLEAN transfers to eda6efc9 with the accepted supplied gate and final body.
+Formal integration acceptance at this new head remains separate. The lead owns the merge decision.
+The fetched PR reports merged at e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47. That status does not expand this verdict's proof scope.
+No future import, pending removal, or changed-transcript Linux proof follows from this verdict.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All prior verdict history remains preserved.
+
+VERDICT: CLEAN
