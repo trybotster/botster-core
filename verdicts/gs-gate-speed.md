@@ -1753,3 +1753,14 @@ GS-BW-1 remains CLOSED: its Mac evidence covers unchanged own wait code and the 
 The lead requires one final exact-head Linux gate. Sol must complete the HIGH integration delta. Both conditions remain pending.
 
 The package source verdict does not claim final gate acceptance or merge readiness. I ran no gate, build, or test.
+
+
+### Core PR #270: integration source completion
+
+Integration source CLEAN is published in `b421411dde23c595d42d448bbc49fe26f54a4b59` at `b038bac80c7939343433ec2e843c393f694470ce`.
+
+The base remains `1da39f7c9bb99b8cf8c8fd85355e5e48fd7b4c21`. I read the complete artifact and verified its publication.
+
+Both source reviews have zero open findings. Sol independently confirms the own diff, imported export context, unchanged platform adapters, and Mac evidence transfer.
+
+The final exact-head Linux gate remains pending. Neither source verdict accepts a future gate. I ran no gate, build, or test.
