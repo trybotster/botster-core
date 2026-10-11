@@ -169,3 +169,42 @@ The reported final gate result and final body remain pending. This verdict accep
 I changed no product code and ran no execution job.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-11: final gate and body completion
+
+Exact head: `888a9d32880d92e49f92501671cbb987df972318`.
+Base: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+Tree: `0bcf6a379cb06106e1cdad282c97332588feab45`.
+The source verdict carries under the complete passing base check reviewed in Round 4.
+Both findings remain closed. No finding remains.
+
+I read the complete final body and retained gate stage records, summaries, changed test results, and all mutation identities.
+Gate: `~/botster-sessions/gates/botster-core-stage1-p6-accept-under-gate-888a9d32-pool-20261011-091642-28196.log`.
+SHA256: `b543226ec615ea432c7ee2ad8e4f8c1b9cd04614321ebafefc148067e72ee9d3`.
+The header and checkout record identify this exact head and base. The ordinary Linux gate uses four CPUs.
+All ten stages pass in 241.0 seconds. The job exits zero after 252 seconds, with zero queued and 252 running.
+The wrapper exits zero after 253 seconds. Default passes 1725 tests, with 481 skipped, in 15.611 seconds.
+Slow passes 553 tests, with 2022 skipped, in 46.799 seconds. Both changed tests pass. No FLAKY record appears.
+
+Stage 1 tests 22 mutants in 74.7 seconds: 21 caught, one unviable, zero missed, and zero timeout.
+All 21 complete raw caught identities match the 21 reported catch identities, with no duplicate identity.
+The unviable mutation replaces End::readiness with Default::default(); Readiness has no Default implementation.
+Stage 2 does not run because stage 1 misses no mutant. Fuzz reports no changed crate with a decoder harness.
+The strict record runs 370 of 390 pending ids; 20 real-only ids do not run and two remain held.
+The testkit minimum remains 56 / 69. The real minimum remains 46 / 68 passing and 47 / 69 accepted.
+The named AD-6 real proof passes in this job's slow step.
+Four of 30 pending-real ids pass: dp_7_revoked_reason_reaches_client_and_host,
+ou_2b_handoff_failure_is_reported_as_handoff_failed, ou_2b_healthy_reasons_send_route_closed_last,
+and ou_7_exit_after_tail_queued_then_close, each with its conf:: prefix.
+The body keeps those ids pending under the lead's contracts-v0.1.38 pin rule. This review approves no list removal or minimum increase.
+
+The final body identifies this exact head, passing base check, and final gate. It preserves the earlier evidence heads and seed limits.
+I read integration's complete correction verdict at `51a2be6760ffae44d8db773e231c8a77d3c2ea61`.
+Integration closes both findings at the reviewed pre-merge head and retains the final-gate requirement.
+This round closes the package review's source, body, and final-evidence requirements. It accepts no future import.
+
+GitHub reports #274 merged at `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+I verify that merge's parents are this base and exact head. Its tree equals the reviewed head's tree above.
+I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
+
+VERDICT: CLEAN
