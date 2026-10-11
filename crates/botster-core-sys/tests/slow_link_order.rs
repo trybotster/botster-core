@@ -12,39 +12,12 @@
 use std::io::{ErrorKind, Read, Write};
 use std::os::fd::OwnedFd;
 use std::os::unix::net::UnixStream;
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use botster_test_process::OwnedChild;
+use std::process::{Command, Stdio};
+use std::time::Duration;
 
 /// What the peer writes before it ends.
 const FRAME: &[u8] = b"exited-frame\n";
-
-/// A peer process that is killed and reaped on every exit path of a test (own pid only).
-struct Peer(Child);
-
-impl Drop for Peer {
-    fn drop(&mut self) {
-        if matches!(self.0.try_wait(), Ok(None)) {
-            let _ = self.0.kill();
-            let _ = self.0.wait();
-        }
-    }
-}
-
-impl Peer {
-    /// Waits for the peer to end by itself, and reaps it.
-    fn ended(&mut self) {
-        // timer: deadline — bounds the wait for a peer that ends by itself at once
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if self.0.try_wait().expect("the peer's status").is_some() {
-                return;
-            }
-            assert!(Instant::now() < deadline, "the peer did not end");
-            // timer: poll interval — the peer is not ours to be woken by
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-}
 
 /// A link whose peer process wrote `FRAME` and ended without reading the bytes that the host sent first (`unread`, or as
 /// many as the socket takes). The host holds no copy of the peer's end.
@@ -70,16 +43,16 @@ fn link_of_an_ended_peer(unread: usize) -> UnixStream {
         .unwrap();
     let as_stdin = OwnedFd::from(worker.try_clone().unwrap());
     let as_stdout = OwnedFd::from(worker);
-    let mut peer = Peer(
+    // The peer ends by itself at once; the owned child is reaped here, and its drop ends it on every other path.
+    let mut peer = OwnedChild::spawn(
         Command::new("/bin/echo")
             .arg(std::str::from_utf8(&FRAME[..FRAME.len() - 1]).unwrap())
             .stdin(Stdio::from(as_stdin))
             .stdout(Stdio::from(as_stdout))
-            .stderr(Stdio::null())
-            .spawn()
-            .unwrap(),
-    );
-    peer.ended();
+            .stderr(Stdio::null()),
+    )
+    .unwrap();
+    assert!(peer.status().success(), "the peer wrote its frame");
     host
 }
 
