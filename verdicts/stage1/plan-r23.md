@@ -2827,3 +2827,70 @@ Later held R-73, R-78, and R-79 terms are outside this plan delta and require th
 This review accepts no future implementation, gate, tag, pin, or pending removal. Sol runs no execution job.
 
 VERDICT: CLEAN (0 open) at aeb6815e9178f58c001eecf6e58480b8200788f6
+
+## Round 78 — revisions 23bw through 23by, 2026-10-11
+
+Head: `4268404115f706a890c6fadbf27110f15df3f7da`.
+Prior reviewed head: `aeb6815e9178f58c001eecf6e58480b8200788f6`.
+Intermediate heads: `7b0bf406457f53272e3eef918b757a53c03a8f55` and `5224c5dcbe991fbc499e7c284e998855826c25b0`.
+Sol reads every changed term across all three revisions and their history rows.
+Each pin equals its committed plan bytes and has mode 0444.
+Pin SHA-256, 23bw: `27b7ddc1be27f5daf1d52f4e9015be198343cf1fe3cdf737699775180801114a`.
+Pin SHA-256, 23bx: `64977fbc8080379f6b684eb1c2dd0d5aa307b574f26a1193a911451c62c5038c`.
+Pin SHA-256, 23by: `86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb`.
+Only the plan changes in this review range. Sections 5, 6.3, and 8 retain their reviewed rules.
+Sol reads the complete held-rulings file, R-73 draft, A21 notes, and relevant R-28, R-53, and R-72 text.
+The lead's handoff records the steward's confirmations and corrections.
+
+23bw records R-73 follow-up 2. Without-op accounting rejects an unplaced known-byte run; it adds failures only.
+Observed zero-effect refusals remove their op from the known runs. Exact partial counts retain a run of that length.
+Absent partial counts remain unknown. Paste bodies remain known bytes.
+Key, mouse, and focus encoding remains an explicit limit; the harness obtains no private worker attribution.
+The sent-body lint also rejects 0d when that session's log has a without-op assertion.
+This prevents ICRNL from hiding a sent body from exact-byte accounting.
+The plan retains this requirement on both tiers and assigns the contracts work to P3.
+
+R-78 assigns adopted-worker cases 1, 2, and 6 to A21 with no Core change now. Case 5 needs no action.
+Case 3 extends R-72 to Stopping for spawned workers. It prefers a non-blocking exit check at stop_grace.
+Its fallback uses an existing named deadline, adds no CoreLimits field, and retains LC-5.
+Case 4 handles complete control messages through EOF before classifying the worker's exit.
+PC owns one HIGH Core PR after #283. Both-order reversal proofs remain required.
+The held ruling also requires an A5-4 table with no PASS-to-non-PASS change. No design or implementation is accepted here.
+
+23bx withdraws R-79 and moves the kitty transcript correction to an R-28 follow-up owned by P5.
+23by corrects the claim that its forbid_events step would hold under a later masking pin.
+The step is pin-specific. A changed parser can require a changed transcript without proving a Core defect.
+The flags and later key bytes come from oracle_state and oracle_encode, not literal terminal expectations.
+Sol reads the complete existing kitty transcript at .36 and the original R-28 ruling.
+The plan keeps the id pending while Core lacks those controls and assigns their implementation to RC.
+The 28-transcript control count remains the lead's inventory; this review does not independently recompute it.
+
+R-80 replaces R-77's narrow lint inside one HIGH contracts PR, #54. The narrow lint does not merge alone.
+The general rule requires a fence between an output and a model read on the same session.
+It names screen reads, captures, terminal_state, and guarded begins. It does not infer assertion dependencies.
+Output-derived event fences must end the wait, be distinct, and follow the last bytes of that output step.
+An event from an output prefix cannot prove that the worker consumed its suffix.
+Quiet waits, ordinary pumps, clock steps, and the read's own reply wait do not qualify.
+A title sentinel covers cases where an Activity wait would consume an event needed later.
+Exceptions remain shrink-only and require a reviewed reason. The self-test must reject the present ST-6 form.
+Sol reads the complete ST-6 transcript at .36 and .39. Both output steps precede model reads without a waiting output fence.
+The plan fences both capture/read positions, also fences the two named ST-6b positions, and lists the page-structure-only case.
+The 16-match measurement remains P5's report. This verdict accepts no future lint, fence proof, or causal execution trace.
+The optional .40 inclusion retains its window; otherwise this work rides .41.
+
+R-81 corrects the input-queue premise. The transcript already sets route_input_queue_bytes to 8.
+Sol reads that complete transcript and the worker's input_bound and read_allowances paths.
+R-53 keeps the allowance at least one maximum frame plus its four-byte prefix. The stream also has capacity.
+The proposed volume must exceed both bounds on each tier. It uses a named constant and repeat.
+Any lower frame bound must use a non-literal A19 floor; otherwise the transcript keeps the default.
+Release must preserve all sent bytes in order. No kernel count is asserted, and no 0d is sent.
+The fake admission script remains fake-only. Real input_blocked and measured capacity precede a real-pending removal.
+
+The budget-held root fix adds full-seed slow coverage without changing timeout or budget values.
+GS must send a design first and measure the slow-step and stage-2 cost under the lead's assignment.
+The two real_wait causes remain explicit. This plan review accepts no #284 hold or future gate evidence.
+The active Core pin remains .36. Contracts reviews remain with 017f; Sol keeps Core and plan reviews.
+Zero plan findings remain. No implementation, gate, tag, pin, or pending removal is approved by this plan verdict.
+Sol runs no execution job.
+
+VERDICT: CLEAN (0 open) at 4268404115f706a890c6fadbf27110f15df3f7da

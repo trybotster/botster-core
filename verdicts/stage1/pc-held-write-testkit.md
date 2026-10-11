@@ -104,3 +104,26 @@ The new exact-head gate remains pending. This source verdict accepts no running 
 After both source CLEANs, PC needs the lead's SLOT, one current-v1 import, applicable base check, and final exact-head gate.
 The live body must name the completed evidence. No later import or `.40` transcript result is accepted here.
 Sol ran no build, test, gate, reversal, mutant, measurement, or executable base check. Never poll.
+
+## Round 3 — fixed-head red gate attribution, 2026-10-11
+
+Source CLEAN remains at `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`; zero source findings remain.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-held-write-testkit-bd4c6f16-pool-20261011-113530-95097.log`.
+SHA-256: `4208ebc4b8ac166e5e7686c6f87daa02940f462b9f9b96f4acd27090116fbd49`.
+Sol reads the exact-head header, complete failed-step output, ten summaries, and final exits.
+Sol reads the complete package audit at `9609f88011fe6f6fc6c8c6669eee91dbf5fa896a`.
+The gate base is `926dfb62f3f7168990b2a48741946932d84b2fbb`; the PR base remains `9f7085f703457b0669785697dbeb14ac687a8942`.
+Fmt, clippy, and taint PASS. Lists FAIL on exactly four retained old-base entries.
+They are dp_3_unknown_type_closes_route, ou_10_no_authorization_in_core, ou_11_transport_ownership_is_defined, and ou_1_attach_hands_transport_to_worker.
+Sol independently verifies that the later base removes exactly those four entries from core-pending.txt.
+The original head and fixed head have the same pending-file blob, `2658d84019768cc372f3c31993429e182ccd3b31`.
+The complete source correction touches only the two reviewed testkit files. It changes no conformance file.
+The failed comparison thus treats the old-base entries as additions against the advanced base.
+
+Public-api, prebuild-worker, test-budget, slow, mutants, and fuzz are NOT RUN.
+The CI steps total 75.6 seconds. The job and wrapper exit 1 after 160 seconds; queued 1, running 159.
+This red gate supplies no mutation evidence for the correction. The earlier 28 catches cover only its parent.
+Lead handoff 07:38 chooses FINAL-READY now and SLOT after #282. No separate same-head retry is required.
+The approved current-v1 import must remove the diagnosed cause and receive its applicable review or proven carry.
+A complete final exact-head green gate and updated body remain due. This record accepts no unseen import or gate.
+Sol ran no execution job or executable base check. Never poll.
