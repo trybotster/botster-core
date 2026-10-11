@@ -2376,3 +2376,34 @@ No implementation, pin, gate, source import, or pending removal is approved by t
 I ran no execution job.
 
 VERDICT: NOT CLEAN (1 open: AZ-SI-1; AY-SI-1 closed) at 16ce6e6fc919467b2fe6bafdd45707f0fb26cada
+
+## Round 67 — revision 23ba correction, 2026-10-11
+
+Head: `c7865db7563a527fb93cb65222b2f30395df74b5`.
+Parent: `16ce6e6fc919467b2fe6bafdd45707f0fb26cada`.
+Pin: `~/botster-sessions/pins/stage1-plan.c7865db7.md`, mode `0444`.
+SHA256: `23f292e6fa11dda0493cf548af37a49f7496e5b1651214b167c19c519908900b`.
+Lead receipt: `msg_plugin-w_1791734366_49e58a`.
+
+I verify the parent, pin mode, hash, and committed bytes. I read the complete correction and revision row.
+The plan now distinguishes Created setters, the unchanged-size completion, and operations forwarded to the worker.
+The oracle record point stays at the host wrapper in every session state. AY-SI-1 remains closed.
+I read the complete worker on_op match at the named d582853d base.
+The worker handles WriteInput, ReadScreen, ReadCursor, ReadModeFlags, CaptureSnapshot, and Signal.
+The catch-all reports Internal. Forwarded Resize, SetSizePolicy, and SetColorProfile reach that catch-all.
+I check the worker and sys source for PTY resize and SizeChanged. Only the spawn PTY resize call appears.
+The plan labels this diagnosis as source evidence and does not claim proof from a pending identifier's failing step.
+AZ-SI-1 closes. The pending and minimum facts retain the Round 66 scope.
+
+### BA-SI-1 — LOW — unchanged-size Resize completes in the next pump
+
+The corrected paragraph says the unchanged-size Resize completes Applied at once.
+Pinned SZ-2 says it completes Applied in the next pump and posts no SizeChanged.
+At d582853d, admit.rs stores Step::Ready(Next::Complete(...)); it does not complete the operation in begin.
+Change at once to in the next pump. Preserve the current-size and no-resize-in-flight conditions.
+This is a timing correction in the plan text. It requires no product change or new gate.
+
+No future implementation, pin, gate, source import, or pending removal is approved.
+I ran no execution job.
+
+VERDICT: NOT CLEAN (1 open: BA-SI-1; AZ-SI-1 closed) at c7865db7563a527fb93cb65222b2f30395df74b5
