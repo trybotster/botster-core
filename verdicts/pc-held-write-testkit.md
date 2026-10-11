@@ -169,3 +169,15 @@ PC reports that the new exact-head gate follows its running contracts job. No co
 The new mutation results, exact-head gate, Sol's same-head integration verdict, and updated body remain required.
 After both source CLEANs, PC must request the lead's final-gate slot. The current-v1 import and Q7 conditions remain due.
 This source CLEAN approves no later head or incomplete gate. No execution job ran here. Never poll.
+
+
+## Sol Round 1 receipt
+
+Receipt: `msg_plugin-w_1791743437_932a8d`.
+Sol verdict: `951091b9b7bec3b686731eaafc98e247b02f87be`, `verdicts/stage1/pc-held-write-testkit.md`, Round 1.
+The reviewer reads the complete verdict and verifies its publication on `origin/stage1/integration-review-sol`.
+Sol independently confirms HW-TK-1 and HW-TK-2 on original head `646ebe7321cc5a5de46f15d9aa6b61028ffec1e5`.
+This receipt adds no separate source finding. Sol leaves the correction unread in that Round 1 verdict.
+Package Round 2 source CLEAN remains on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+Sol's review of that fixed head and its exact-head gate remain pending here.
+No execution job runs here. Wait for the doorbell. Never poll.

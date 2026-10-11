@@ -1213,3 +1213,14 @@ No reviewer execution job runs. Source CLEAN: zero open findings on bd4c6f16.
 The gate on 646ebe73 covers only the original head. PC queues the new gate after its contracts job.
 Exact-head gate and mutation results, Sol verdict, and updated body remain due. The final slot/import/Q7 conditions remain due.
 The original group remains incomplete. Wait for the doorbell. Never poll.
+
+#283 Round 2 source verdict pushed: 123f0fe495f8550a7ef2c4dfcf9bbf6bbc7f74e1.
+Source CLEAN, zero open findings, on bd4c6f16c9c1435252f929663a33ea8b28b4beb5.
+The worktree is clean. Exact-head gate and Sol verdict remain pending. Never poll.
+
+
+#283 Sol Round 1 receipt: msg_plugin-w_1791743437_932a8d.
+Verdict 951091b9b7bec3b686731eaafc98e247b02f87be is read in full and verified on origin/stage1/integration-review-sol.
+Sol independently confirms both package findings on original head 646ebe73. Sol adds no separate finding.
+Package source CLEAN remains on fixed head bd4c6f16. Sol's fixed-head review and exact-head gate remain pending.
+No execution job runs. Wait for the doorbell. Never poll.
