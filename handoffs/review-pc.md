@@ -1481,3 +1481,28 @@ Body hash c70e93fae81bf832f3e26cb5ffa91f0319f5025b84b8c5961dd6403be2e76dfa is ve
 The IN-7 rule-9 record is read; hash 0f92c5759c624a1a9a5bc85b947ffa42e9567a7e21920f8d897bc8b957d21f29.
 IN-7 remains pending with open diagnosis, owner PC after #289 and R-78. No replacement successful run or R-88 cause is claimed.
 Final SLOT import/check/review, exact-head final gate, completed body, and Q7 remain due. No executable job runs here. Never poll.
+
+Matching #289 CLEAN receipt pushed: f6ed6253428bbfa553e2c4a11491bc4d1b2f5d04.
+The worktree is clean. Both source/evidence CLEANs are verified. Wait for the final-slot doorbell. Never poll.
+
+## #291 R-78 Round 1: two source findings
+
+Reviewed head 79f31be3b3213e362539a51c35a1a1273a5aee26, base 5e953398925351c12e463a7b0a946b79d9841edc.
+The reviewer read all 27 changed files, relevant callers, all changed tests, and retained evidence.
+R78-PC-1 MEDIUM: ProcessExited after Exited closes the readable link and discards later complete Done and RouteClosed frames.
+The production worker sends Exited before its route-close reports. An undelivered route can then close SessionLost.
+The old #217 R2-1 test pins this behavior; this is an R-78 completeness defect, not a new regression.
+Lead FINAL msg_plugin-w_1791760401_5c2be8 supersedes the transfer decisions and keeps this finding on #291.
+The fix must read without blocking until EOF or would-block. It must not wait for EOF.
+Evidence must show that Done and RouteClosed{SessionEnded} after Exited are delivered. The old R2-1 test must change under the ruling.
+R78-PC-2 MEDIUM: kill_payload still probes a worker already known gone after a write failure, contrary to accepted revision 3.
+PC reports fix dc47d2b474826e99c9c80cacf64b47a031f7e0d7. That head's completed gate and READY remain due.
+Verdict NOT CLEAN (2 open) applies to 79f31be3; file verdicts/pc-r78-stopping.md.
+The exact-head Linux gate passes all ten steps. Default 1806, slow 587; 49 caught mutants, zero missed, two unviable.
+All 49 raw caught identities match the 49 named test citations. No FLAKY line appears in the gate.
+Both A5-4 tables have 690 ids and zero cell mismatches against independently parsed raw records.
+Testkit seeds 0–31: 230→230 must-pass PASS, zero changes. Real seeds 0–7: 200→201, seven changes.
+AD-3 PASS-to-FAIL remains preserved. The same step-16 failure occurs without R-78; the R-80 fence repair belongs to P3.
+Mac 3/3 records use intermediate commits; the later socket and facade changes replace polling loops with process helpers.
+The facade test uses a real worker process with a test-owned worker link. It does not prove production route-frame order.
+No reviewer execution job runs. Wait for the fixed-head READY doorbell. Never poll.
