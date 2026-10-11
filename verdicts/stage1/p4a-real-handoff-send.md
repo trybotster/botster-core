@@ -139,3 +139,77 @@ The required corrections remain in the source inspection above. Every finding, L
 No round-limit decision is due. I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN (5 open).
+
+## Round 2 — replacement at eded8086 — 2026-10-10
+
+Exact head: `eded8086c6cf1a7e94b9577029a0229abb854484`.
+Exact base: `e418bf5a8bcc7c18313e7d82775e8ae29368b366`.
+Previous head: `bd800194a0ce3da217409ce334183589c5f0763d`.
+Previous integration verdict: `9ce578168884e1f106c2c556f9b74979ad976ec5`.
+Same-head package CLEAN: `381a695c617280ce79aafb741e6c9bd7a94e9aaf`, package round 154, `verdicts/p3-worker.md`.
+I read that complete round, the five-path replacement delta, the current PR body, and the supplied evidence.
+The remote head and v1 base still match at review completion.
+
+### Closure evidence
+
+SI-1 / F108 LOW is CLOSED.
+Received describes the measured segment position on each operating system and associates descriptors with the AttachRoute frame start.
+It no longer associates them with the first byte of every read.
+The gone-reader comment, A49 design row, and PR condition 6 describe the recording handler and raw control write.
+The design cites revision 23ac at the current b895ad49 plan pin.
+
+SI-2 / F109 LOW is CLOSED.
+The full-socket proof reads once after the successful synchronous descriptor send. The WouldBlock polling loop is gone.
+The named proof passes on both operating systems at this head.
+
+SI-3 / F110 MEDIUM is CLOSED.
+The stand-in records the descriptor count when its empty FrameDecoder takes the first bytes of a frame.
+It retains that count until completion, across later reads.
+FrameDecoder::push takes no bytes beyond one complete frame. next_frame empties the decoder after completion.
+The facade proof limits reads to three bytes, below the five-byte header size.
+It checks that AttachRoute spans multiple reads and that the exact route has one descriptor.
+The assertion observes the socket result. It does not expose private product state.
+The existing marked thirty-second receive deadline remains unchanged.
+The supplied completing-read reversal fails with `(RouteId(1), 0)` instead of `(RouteId(1), 1)`.
+The corrected facade proof passes on Linux and macOS.
+PR B still owns the production receiver and invalid-framing proofs.
+
+SI-4 / F111 MEDIUM is CLOSED.
+ci/high-tier-paths.txt lists fd_pass.rs and fd_pass/** with descriptor-handoff and signal reasons under BUILD rule 5.
+
+SI-5 / F112 LOW is CLOSED.
+The PR body contains the feature's Prior art note under BUILD Starting fresh rule 0.
+It names the vault lessons, pinned old source 72b2e33, rebuild row 5.4, parity audits, and library decisions.
+It records the retained signal and close-on-exec lessons, rejected raw calls, and reasons for the Core-specific rustix glue.
+The package review checks the named sources and closes the same finding.
+
+### Evidence and retained scope
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-send-eded8086-pool-20261010-182012-72346.log`.
+Its header names this exact head and base. All ten CI jobs pass.
+Default: 1524 tests pass in 13.247 seconds. Slow: 396 tests pass in 139.516 seconds.
+Both testkit reports give 193 passed, zero failed, and minimum 50/69.
+Strict pending runs 386 of 407 IDs, with 21 real-only IDs not run and two held.
+Real minimum remains 31/68 passing and 31/69 accepted. Pending-real remains 81, with zero passing IDs in that list.
+Stage 1 tests seventeen mutants: nine caught, eight unviable, zero missed, and zero timeouts, in 97.7 seconds.
+Stage 2 does not run because stage 1 misses none.
+CI takes 344.5 seconds. The job exits zero after 355 seconds, with zero queue time. The wrapper exits zero after 356 seconds.
+
+I read `shared/core-stage1/evidence/p3-handoff-send/mac-run-eded8086.log` and `facade-frame-start-revert-macos.log`.
+The focused Mac header names this head and macOS 27.0.1 arm64.
+Forty core-sys tests pass. The separate signal proof records one hundred successful control and protected-send rounds.
+Core slow selections report twenty library, seventeen facade, and twenty-five real-core tests passing.
+Worker slow summaries report fifty-seven, seventeen, and thirty-four passing tests, with filtered subprocess results also retained.
+This is the supplied focused run, not a full macOS gate.
+The frame-start reversal reports zero passed, one failed, and sixteen filtered tests in 0.17 seconds.
+
+No descriptor-send or payload-spawn product logic changes after the previous reviewed head.
+The remaining own paths retain Round 1's endpoint ownership, partial-send, signal, and loop-thread review.
+No source merge, contract pin, pending list, public facade, or mutation exclusion pattern changes in this replacement.
+The lead's rustix 1.1.5 CTRUNC exception remains: the buffer is not parsed, and received descriptors remain open until process exit.
+This verdict does not claim descriptor closure for that accepted defence branch.
+PR B must prove ordinary mismatch closure and the end-to-end payload descriptor exclusion on both operating systems.
+This verdict accepts no completed real route or minimum-ID flip.
+I ran no build, test, gate, mutation, measurement, reversal, or executable merge-check job.
+
+VERDICT: CLEAN (0 open).
