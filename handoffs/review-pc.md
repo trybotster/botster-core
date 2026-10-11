@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.ddc8da81.md`, revision 23bl.
-- Verified plan SHA-256: `01c67e1d00ce13f29dc1991c03a52d4469a75aa3d452140648dd4d88a4411fe7`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.5c247504.md`, revision 23bo.
+- Verified plan SHA-256: `0c4aed22c9810d623b2b75e0da9073aff4d0d3d742db3db315f659d39d9caa7c`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -941,3 +941,54 @@ READY: msg_plugin-w_1791737722_0fd975. Tier HIGH.
 Head: 7d7d429f06335c18e8a21e6c63085be4c5465eb0. PR and gate base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
 PC reports a green gate and R-72 evidence. No package source review or verdict exists yet.
 Next: publish #276 CLEAN. Then read the brief first and review #277. Never poll.
+
+
+Push record: #276 package CLEAN (0 open) is on origin/stage1/review-pc at fd6eeeb3343a7768b8550c872139a85cac308757.
+Exact source head: 67fd9112d0e7554d39be6eb6b43260c782dda200. Parent/own base a0adb132; PR/green gate base 42d7056e.
+Sol's integration verdict and the final current-base gate remain required. No future source delta is approved.
+The reviewer worktree is clean. Next: review #277 READY. Never poll.
+
+
+## Plan 23bo receipt and #276 historical correction
+
+Lead receipt: msg_plugin-w_1791737924_13369e. The reviewer read the complete changes from 23bl to 23bo.
+23bm permits a scratch diagnostic in the worker binary that only changes timing and supplies no missing behavior.
+23bo corrects both references to #264: two OU-9 FLAKY outcomes under mutants, not an unmutated-baseline failure.
+The #276 verdict already preserves the correct historical distinction. Its exact-head package CLEAN remains fd6eeeb3.
+The controlled diagnostic stays scratch-only. Contracts #49 and the Core pin still own the structural fix.
+
+## PR #277: package review round 1
+
+READY: msg_plugin-w_1791737722_0fd975. Tier HIGH. Contracts pin .36, unchanged. Plan 23bo.
+Head: 7d7d429f06335c18e8a21e6c63085be4c5465eb0. Parent: f46a1fff431f30851d642447ebc32b3e5ef5425d.
+Own-diff, PR, and gate header base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+Package verdict: CLEAN (0 open), verdicts/pc-a2-3-lost-before-running.md.
+The reviewer read the brief first, BUILD.md, R-46 to R-50, R-72, the design note, and the complete eight-file diff.
+R-72 changes the classification premise. The reviewer applied the previously read orchestrate-delivery skill and kept this handoff.
+LinkLost waits in Starting for the worker exit or the existing startup deadline. EOF posts no event.
+The exit gives WorkerFailed and Lost(WorkerGone). The deadline gives the old WorkerFailed/Exited(Other) link-failure outcome, without a signal.
+Adopted and Running link loss retain their existing paths. SendLaunch with no link covers the early-hello/identity-row path.
+The unchanged failed-start path closes every attached route after the state, once, with that state's reason.
+The reviewer read the four relevant engine tests and traced the stated reverts without executing them.
+The pending file removes only a2_3. No transcript, timeout value, pin, worker, unsafe code, or mutation profile changes.
+The Prior art note rejects the old immediate-EOF behavior. The reviewer read the old implementation and named test.
+The body lists six other classification places. Their separate gaps remain outside this verdict.
+
+Mac evidence: six fixed a2_3 runs PASS; three immediate-failure controls FAIL at seed 0, step 29.
+A5-4: all four tables and raw logs contain 690 unique results; each raw result agrees with the table.
+Testkit before/after: 209 PASS, zero FAIL, 481 ignored; identical tables.
+Real before: 179 PASS, one FAIL, 510 ignored. Real after: 180 PASS, zero FAIL, 510 ignored.
+Only a2_3 changes FAIL to PASS. No PASS becomes non-PASS.
+
+Gate: gates/botster-core-stage1-pc-a2-3-lost-before-running-7d7d429f-pool-20261011-094729-72318.log.
+SHA-256: d034fd8d28a3c205f3ad496eb0c25318ee8641d0c670b40f1712d08ab7334548.
+All ten steps PASS in 316.6 seconds. Linux wrapper exit 0 after 434 seconds.
+Default 1727 PASS, 481 skipped, 12.342 seconds. Slow 554 PASS, 2021 skipped, 42.168 seconds.
+Testkit a2_3 PASS in 0.231 seconds at line 557. Real a2_3 PASS in 0.207 seconds at line 4042.
+Six mutants are caught in stage 1. Stage 2 does not run. Zero missed, timeout, unviable, or FLAKY outcomes.
+The reviewer matched all six raw records and named catchers. No execution job ran here.
+Counts: testkit 56/69; real-passing 47/68; real-accepted 48/69. This head does not contain #276's E1-1 proof.
+Sol's same-head integration verdict remains required. Current v1 has an overlapping pending-list path.
+After both CLEANs, PC merges current v1 once, posts the base-merge check, and runs one final exact-head gate.
+No later source delta or conflict resolution is approved. The original program-controls group remains incomplete.
+Next: publish the verdict and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
