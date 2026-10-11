@@ -96,14 +96,15 @@ pub trait HostEdges: Send {
     /// can take it.
     fn set_read_interest(&mut self, link: LinkId, on: bool);
     /// Writes `bytes` (the start of a route's `AttachRoute` frame) with the route's stream riding on their first byte, as
-    /// `sendmsg` with `SCM_RIGHTS` does (DP-2). `Ok(n)`, `n >= 1`: the link took the endpoint and the first `n` bytes, and
-    /// the edge owns the endpoint. An error took nothing and gives the endpoint back.
+    /// `sendmsg` with `SCM_RIGHTS` does (DP-2). `Ok((n, held))`, `n >= 1`: the link took the endpoint and the first `n`
+    /// bytes. `held` is the host's own copy when the transport duplicates the descriptor (`SCM_RIGHTS`: the message holds
+    /// another), and `None` when the endpoint itself travels. An error took nothing and gives the endpoint back.
     fn link_send_descriptor(
         &mut self,
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)>;
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)>;
     /// Closes a route stream that the host still holds (OU-2, steward ruling R-50): writes `bytes` once, without waiting,
     /// then closes the stream. Best effort: a write that takes fewer bytes, or fails, still closes the stream. It never
     /// blocks the pump.
@@ -152,6 +153,10 @@ struct LinkState {
     pending: Vec<u8>,
     /// A decoded input that the engine cannot take now (EV-5b): the link is not read until it can.
     held: Option<Input>,
+    /// The host's copies of the route streams that left on this link, until the worker has its own (DP-2, steward ruling
+    /// R-65): its `RouteReceived`, or a `RouteClosed` of the route, closes the copy. A copy in flight is not the worker's
+    /// own: a socket in flight with no other reference can lose its receive side (macOS).
+    sent: BTreeMap<RouteId, StreamEndpoint>,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -278,6 +283,16 @@ impl<E: HostEdges> HostDriver<E> {
 
     /// Gives the engine an input at the time of the last `pump` (TM-1: only `pump` moves the clock).
     fn feed(&mut self, input: Input) {
+        if let Input::LinkMsg {
+            link,
+            msg: WorkerMsg::RouteReceived { route } | WorkerMsg::RouteClosed { route, .. },
+        } = &input
+        {
+            // The worker holds its own copy, or the route is closed: the host's copy closes as it drops (R-65).
+            if let Some(state) = self.links.get_mut(link) {
+                drop(state.sent.remove(route));
+            }
+        }
         self.engine.input(input);
     }
 
@@ -433,7 +448,12 @@ impl<E: HostEdges> HostDriver<E> {
                     .edges
                     .link_send_descriptor(link, &state.out[..mark.len], mark.endpoint)
                 {
-                    Ok(n) => n,
+                    Ok((n, held)) => {
+                        if let Some(held) = held {
+                            state.sent.insert(mark.route, held);
+                        }
+                        n
+                    }
                     Err((endpoint, DescriptorSendError::Blocked)) => {
                         state.marks.push_front(Mark { endpoint, ..mark });
                         break;
@@ -485,6 +505,12 @@ impl<E: HostEdges> HostDriver<E> {
                 self.failed_handoffs
                     .push_back(Input::HandoffLost { route: mark.route });
             }
+            // The streams that left with no `RouteReceived`: Core cannot confirm the handoff, so the host's copy closes and
+            // the engine decides each route's close as for a stream that never left (R-65; the steward's lost-ack ruling).
+            for (route, held) in state.sent {
+                drop(held);
+                self.failed_handoffs.push_back(Input::HandoffLost { route });
+            }
             self.edges.link_close(link);
             self.feed(Input::LinkClosed { link });
         }
@@ -501,6 +527,7 @@ impl<E: HostEdges> HostDriver<E> {
                 hello_seen: false,
                 pending: Vec::new(),
                 held: None,
+                sent: BTreeMap::new(),
             },
         );
     }

@@ -193,11 +193,11 @@ impl HostEdges for Fake {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         self.calls.push(format!("descriptor {} {bytes:?}", link.0));
         if self.take_descriptors {
             self.sent.push((link, bytes.to_vec()));
-            return Ok(bytes.len());
+            return Ok((bytes.len(), None));
         }
         Err((endpoint, DescriptorSendError::Failed))
     }
@@ -276,12 +276,19 @@ struct Rig {
     edges: EdgeTap<Fake>,
     tap: Weak<Mutex<Tap<Fake>>>,
     rows: Rows,
+    heard: Heard,
 }
 
 fn rig(fake: Fake) -> Rig {
     let rows = Rows::default();
-    let (edges, tap) = EdgeTap::new(fake, Arc::clone(&rows));
-    Rig { edges, tap, rows }
+    let heard = Heard::default();
+    let (edges, tap) = EdgeTap::new(fake, Arc::clone(&rows), Arc::clone(&heard));
+    Rig {
+        edges,
+        tap,
+        rows,
+        heard,
+    }
 }
 
 impl Rig {
@@ -378,6 +385,8 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
                 "close stream Some(6) [114, 99]"
             ]
         );
+        // The record of Core's signals (`signals_received` for a session of `reuse_pid`, R-55).
+        assert_eq!(t.signals(), [(identity(5), GroupSignal::Term)]);
         assert_eq!(
             t.inner.picks.calls,
             vec![(ChoicePoint::ReadyWork, 3), (ChoicePoint::ReadyWork, 8)]
@@ -541,6 +550,26 @@ fn a_link_or_an_exit_held_alone_keeps_the_edges_busy() {
         Some((identity(4), exit_status()))
     );
     assert!(exits.with(Tap::quiet));
+}
+
+/// [`Heard`]: the hello of an accepted link, or Core's connection to a worker's endpoint, puts the instance in the record
+/// of the directory, and the record outlives the tap. A link with no hello read yet puts nothing in it.
+#[test]
+fn a_hello_or_a_connection_to_the_endpoint_marks_the_worker_heard() {
+    let mut fake = fake_with_link(vec![Read::Data(hello_frame("1-7"))]);
+    fake.connects.insert(InstanceId("5-5".into()), B);
+    let mut rig = rig(fake);
+    let id = |s: &str| InstanceId(s.into());
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert!(!rig.with(|t| t.heard(&id("1-7"))), "no hello read yet");
+    assert_eq!(rig.recv(A, 4096).unwrap(), hello_frame("1-7"));
+    assert!(rig.with(|t| t.heard(&id("1-7"))));
+    assert!(!rig.with(|t| t.heard(&id("5-5"))));
+    assert_eq!(rig.edges.connect_worker(&id("5-5")), Some(B));
+    assert!(rig.with(|t| t.heard(&id("5-5"))));
+    let heard = Arc::clone(&rig.heard);
+    drop(rig);
+    assert_eq!(*lock(&heard), BTreeSet::from([id("1-7"), id("5-5")]));
 }
 
 #[test]
@@ -1137,7 +1166,8 @@ mod held_starts {
         assert_eq!(
             rig.edges
                 .link_send_descriptor(A, first, StreamEndpoint::new(5u8))
-                .unwrap(),
+                .unwrap()
+                .0,
             first.len()
         );
         let bytes = [rest.to_vec(), launch()].concat();
@@ -1206,4 +1236,36 @@ mod held_starts {
         assert_eq!(rig.edges.link_send(A, rest).unwrap(), rest.len());
         assert_eq!(sent(&rig), bytes, "no byte reordered, dropped or changed");
     }
+}
+
+#[test]
+fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes_nothing() {
+    let mut rig = rig(Fake {
+        take_descriptors: true,
+        ..Fake::default()
+    });
+    rig.with(|t| t.fail_next_handoff());
+    // Core DP-2: the endpoint comes back with `Failed`, as from a `sendmsg` that fails.
+    let (endpoint, why) = rig
+        .edges
+        .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8))
+        .unwrap_err();
+    assert_eq!(why, DescriptorSendError::Failed);
+    assert_eq!(endpoint.downcast::<u8>().ok(), Some(5));
+    rig.with(|t| {
+        assert!(t.inner.calls.is_empty(), "{:?}", t.inner.calls);
+        assert!(t.inner.sent.is_empty());
+    });
+    // Once: the next hand-over reaches the inner edge, which takes it.
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(6u8))
+            .ok()
+            .map(|(sent, _)| sent),
+        Some(2)
+    );
+    rig.with(|t| {
+        assert_eq!(t.inner.calls, ["descriptor 1 [114, 116]"]);
+        assert_eq!(t.inner.sent, vec![(A, b"rt".to_vec())]);
+    });
 }

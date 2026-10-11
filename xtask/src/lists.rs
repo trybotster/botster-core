@@ -24,7 +24,7 @@ use std::path::Path;
 
 const LEDGER_FILE: &str = "conformance/core-ledger-ids.txt";
 const PENDING_FILE: &str = "conformance/core-pending.txt";
-const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
+pub const REAL_PENDING_FILE: &str = "conformance/core-real-pending.txt";
 const MINIMUM_FILE: &str = "conformance/minimum-core.txt";
 const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// Verbatim copies of the contracts' status files at the pinned tag (`conformance/deferred.txt`, `conformance/withdrawn.txt`).
@@ -528,6 +528,10 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let real_only = pending::parse_real_only(&read(REAL_ONLY_FILE)?).map_err(anyhow::Error::msg)?;
     let held = pending::parse_held(&read(HELD_FILE)?).map_err(anyhow::Error::msg)?;
     let transcripts = pending::transcript_ids().map_err(anyhow::Error::msg)?;
+    // The known-flaky list (flake guard PR 2): a malformed entry is a problem of this step, before the mutation step reads it.
+    if let Err(problem) = crate::known_flaky::parse(&read(crate::known_flaky::FILE)?) {
+        problems.push(problem);
+    }
     problems.extend(pending::held_problems(
         &held,
         &pending,

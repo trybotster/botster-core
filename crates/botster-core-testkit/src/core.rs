@@ -338,7 +338,7 @@ impl HostEdges for SimEdges {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         // The descriptor travels with the link by value, on the first byte of `bytes` (plan 2.3: "descriptor objects passed
         // by value"; `SCM_RIGHTS`).
         let Some(end) = self.links.get_mut(&link) else {
@@ -362,7 +362,9 @@ impl HostEdges for SimEdges {
                 end.end().control().fail_next_handoff();
             }
         }
+        // The endpoint itself travels, so the host keeps no copy.
         end.send_with_descriptor(bytes, crate::net::Descriptor::new(endpoint))
+            .map(|n| (n, None))
             .map_err(|(descriptor, error)| {
                 let endpoint = descriptor
                     .downcast::<StreamEndpoint>()
