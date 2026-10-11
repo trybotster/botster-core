@@ -238,3 +238,42 @@ The final exact-head gate and final body remain due under that rule.
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: CLEAN (0 open; source and supplied evidence before final import) at 6363d55936ff193c2c1164943b80a3f1adc90ada
+
+## Supplemental B13 evidence receipt — 2026-10-11
+
+Exact #285 head remains `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Sol reads both complete reproduction logs, the updated B13 catalog entry, and the complete updated pair-common rules.
+These logs test the shared-target hazard. They are not acceptance gates for either PR.
+Both headers state Cargo 1.92.0 and the shared target `~/botster-sessions/targets/rc`.
+
+Same-pin log: `~/botster-sessions/gates/botster-core-rc-b13-repro-samepin-mac-20261011-124836.log`.
+SHA-256: `a95f272f251856807d5ded619614244fe4aab3c5d484e9999ce53b9ca92dfcaa`.
+The header identifies #285 at the exact head above and #284 at `8d56987ec2d7983bdeebd2101cca751f1d2c92ee`.
+Both worktrees use contracts .36. Each has a local, uncommitted pending-list edit.
+After a clean, #285 compiles and fails at seed 0, step 16.
+The next #284 command has no Compiling line. It runs the same `conformance-30f1f7d856298029` artifact and fails at step 16.
+After another clean, #284 compiles and fails at seed 0, step 9.
+That failure reports ``unknown field `scripted`, expected `session` or `bytes_hex` ``.
+The changed failure demonstrates reuse of the wrong test result before the clean.
+The log also records absolute dep-info paths into the #285 worktree for the test source and included conformance lists.
+The log does not trace Cargo's internal freshness decision. That detailed causal account remains an owner inference.
+The log demonstrates a wrong FAIL. It demonstrates no false PASS or prebuilt candidate-worker result.
+
+Negative-control log: `~/botster-sessions/gates/botster-core-rc-b13-repro-4step-mac-20261011-124502.log`.
+SHA-256: `598043bcc5ee6342a5c1e1eccc3ee31ecddb2ed0cf78cb31b2f172520b73a2a2`.
+The scratch head is `b4626b848cabb52343242675c1131d832020e3b8`, with the stated #284/#285/v1 composition and contracts .39.
+The header states that commit `17ff45db` removes the identifier from pending in that scratch composition.
+After the #285 failure, the scratch command compiles and runs `conformance-c0cedb3ddc2850f2` without an intervening clean.
+It passes once. After a clean, the scratch command compiles again and passes once with the same artifact name.
+The different pin produces a different artifact name in this record. The log's expected-hazard label is not its actual result.
+This control does not establish a general rule for every Cargo.lock change.
+
+This receipt adds stronger B13 evidence. It preserves the earlier record's limits for the earlier 120659 log.
+Neither new log reproduces the original withdrawn scratch PASS. That withdrawn evidence remains invalid.
+The #285 source CLEAN in `7009eba6960ba4e260f1026c12015e40e612585b` remains unchanged with zero open integration findings.
+The #284 source CLEAN remains unchanged. These local pending-list edits authorize no pending removal or import.
+The final SLOT, applicable import review and check, exact final gate, and final body remain due.
+The future GS structural refusal remains unimplemented and unaccepted in this review.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: CLEAN (supplemental B13 evidence within the stated limits; source verdict unchanged) at 6363d55936ff193c2c1164943b80a3f1adc90ada
