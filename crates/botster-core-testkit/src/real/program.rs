@@ -89,6 +89,32 @@ impl Hub {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// [`Programs::connected`]: waits until the probe of `worker` connected, by the cleanup bound.
+    fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
+        let deadline = Deadline::cleanup();
+        let mut state = self.lock();
+        loop {
+            if state.probes.contains_key(&worker) {
+                return Ok(state);
+            }
+            if !live(worker) {
+                return Err(ControlError::Bad(format!(
+                    "the worker {} exited before its probe connected to the control socket (a probe that cannot connect \
+                     exits {CONNECT_FAILED_EXIT}): a setup failure",
+                    worker.pid
+                )));
+            }
+            state = self.wait(state, deadline).ok_or_else(|| {
+                ControlError::Bad(format!(
+                    "the probe of the worker {} did not connect to the control socket within {:?} (is {CONTROL_ENV} in \
+                     its environment?): a setup failure",
+                    worker.pid,
+                    deadline.limit()
+                ))
+            })?;
+        }
+    }
+
     /// Waits for the next change of the state, by `deadline`; `None` once the deadline has passed. A probe connects right
     /// after its terminal setup and acknowledges a request as soon as it is in effect, so a wait that reaches the deadline is
     /// a setup failure, never a slow probe.
@@ -159,28 +185,12 @@ impl Programs {
     /// longer the live process of its identity (it exited, or its pid was reused) fails at once, and at the bound: a worker ends
     /// with its payload, so a probe that exited (69 included: it could not connect) never connects.
     fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
-        let deadline = Deadline::cleanup();
-        let mut state = self.hub.lock();
-        loop {
-            if state.probes.contains_key(&worker) {
-                return Ok(state);
-            }
-            if !live(worker) {
-                return Err(ControlError::Bad(format!(
-                    "the worker {} exited before its probe connected to the control socket (a probe that cannot connect \
-                     exits {CONNECT_FAILED_EXIT}): a setup failure",
-                    worker.pid
-                )));
-            }
-            state = self.hub.wait(state, deadline).ok_or_else(|| {
-                ControlError::Bad(format!(
-                    "the probe of the worker {} did not connect to the control socket within {:?} (is {CONTROL_ENV} in \
-                     its environment?): a setup failure",
-                    worker.pid,
-                    deadline.limit()
-                ))
-            })?;
-        }
+        self.hub.connected(worker)
+    }
+
+    /// A handle on the probes' input logs, for a route of the session (`pty_input` on a route).
+    pub(super) fn inputs(&self) -> Inputs {
+        Inputs(Arc::clone(&self.hub))
     }
 
     /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it. The
@@ -258,6 +268,18 @@ impl Programs {
     /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
     fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
         let state = self.connected(worker)?;
+        Ok(state.probes[&worker].input.clone())
+    }
+}
+
+/// The probes' input logs, for a route of a session: what `pty_input` answers (`pty_input` on a route, lead plan 23aw).
+#[derive(Clone)]
+pub(super) struct Inputs(Arc<Hub>);
+
+impl Inputs {
+    /// Every byte of PTY input that the probe of `worker` read, in order, as [`Programs`] answers `pty_input`.
+    pub(super) fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
+        let state = self.0.connected(worker)?;
         Ok(state.probes[&worker].input.clone())
     }
 }
