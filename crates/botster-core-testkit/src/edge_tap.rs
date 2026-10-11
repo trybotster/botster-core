@@ -219,6 +219,20 @@ struct Hold {
     write_interest: bool,
 }
 
+/// A hand-over that the tap holds (`hold_handoff`, Core OU-9, A5-1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HandoffHold {
+    Off,
+    /// The next `link_send_descriptor` meets the hold.
+    Armed,
+    /// Core's hand-over met the hold on `link`: every descriptor send there is `Blocked` until the release.
+    Held {
+        link: LinkId,
+        /// The last write interest that Core asked for on that link during the hold.
+        write_interest: bool,
+    },
+}
+
 /// The registry rows that passed through the taps of one data directory, by session: Core's own decoding of each row.
 /// They outlive the handle and the row's removal, so a later handle of the directory can name a session's processes.
 pub type Rows = Arc<Mutex<BTreeMap<SessionId, Row>>>;
@@ -251,6 +265,8 @@ pub struct Tap<E> {
     holds: BTreeMap<InstanceId, Hold>,
     /// The next hand-over of a route's stream endpoint fails, once (`fail_handoff`, Core DP-2).
     fail_handoff: bool,
+    /// The held hand-over (`hold_handoff`, Core OU-9).
+    handoff: HandoffHold,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
     /// and the bytes that they gave count, never the tap's take-ahead.
     reports: RouteReports,
@@ -433,7 +449,10 @@ impl<E: HostEdges> Tap<E> {
             return false;
         };
         if let Some(link) = hold.link {
-            self.inner.set_write_interest(link, hold.write_interest);
+            let handoff_held =
+                matches!(self.handoff, HandoffHold::Held { link: held, .. } if held == link);
+            self.inner
+                .set_write_interest(link, hold.write_interest && !handoff_held);
         }
         true
     }
@@ -443,6 +462,48 @@ impl<E: HostEdges> Tap<E> {
     /// end of its stream, and the route closes `HandoffFailed`.
     pub fn fail_next_handoff(&mut self) {
         self.fail_handoff = true;
+    }
+
+    /// Arms `hold_handoff` (Core OU-9, A5-1): the next `link_send_descriptor` is `Blocked`, and so is every later one on
+    /// its link until [`Tap::release_handoff`]. The driver keeps the frame and the endpoint in order, so `attach` returns
+    /// and the worker has no transport for the route. A held hand-over is not a report, so it does not make the edges
+    /// busy. False when a hand-over is already armed or held.
+    pub fn hold_handoff(&mut self) -> bool {
+        if self.handoff != HandoffHold::Off {
+            return false;
+        }
+        self.handoff = HandoffHold::Armed;
+        true
+    }
+
+    /// Ends the hold of `hold_handoff` (Core OU-9, A5-2). The write interest that Core asked for on the held link reaches
+    /// the inner edge, and the wake edge signals, so the next pump sends the held frame with its endpoint first.
+    pub fn release_handoff(&mut self) {
+        if let HandoffHold::Held {
+            link,
+            write_interest,
+        } = std::mem::replace(&mut self.handoff, HandoffHold::Off)
+        {
+            let launch_held = self.holds.values().any(|hold| hold.link == Some(link));
+            self.inner
+                .set_write_interest(link, write_interest && !launch_held);
+        }
+        self.inner.wake().signal();
+    }
+
+    /// Whether a descriptor send on `link` meets the hold of `hold_handoff`. An armed hold takes `link`.
+    fn handoff_held(&mut self, link: LinkId) -> bool {
+        match self.handoff {
+            HandoffHold::Armed => {
+                self.handoff = HandoffHold::Held {
+                    link,
+                    write_interest: false,
+                };
+                true
+            }
+            HandoffHold::Held { link: held, .. } => held == link,
+            HandoffHold::Off => false,
+        }
     }
 
     /// The hold whose `Launch` met it on `link`.
@@ -546,6 +607,7 @@ impl<E: HostEdges> EdgeTap<E> {
             stand_ins: Vec::new(),
             holds: BTreeMap::new(),
             fail_handoff: false,
+            handoff: HandoffHold::Off,
             reports: RouteReports::default(),
         }));
         let weak = Arc::downgrade(&tap);
@@ -689,14 +751,23 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn set_write_interest(&mut self, link: LinkId, on: bool) {
         let mut tap = self.tap();
-        let on = match tap.hold_on(link) {
-            Some(hold) => {
-                hold.write_interest = on;
-                false
+        // A held link keeps Core's interest for its release; the inner edge gets none.
+        let mut held = false;
+        if let Some(hold) = tap.hold_on(link) {
+            hold.write_interest = on;
+            held = true;
+        }
+        if let HandoffHold::Held {
+            link: handoff_link,
+            write_interest,
+        } = &mut tap.handoff
+        {
+            if *handoff_link == link {
+                *write_interest = on;
+                held = true;
             }
-            None => on,
-        };
-        tap.inner.set_write_interest(link, on);
+        }
+        tap.inner.set_write_interest(link, on && !held);
     }
 
     fn set_read_interest(&mut self, link: LinkId, on: bool) {
@@ -710,7 +781,7 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         endpoint: StreamEndpoint,
     ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         let mut tap = self.tap();
-        if tap.hold_on(link).is_some() {
+        if tap.hold_on(link).is_some() || tap.handoff_held(link) {
             return Err((endpoint, DescriptorSendError::Blocked));
         }
         if std::mem::take(&mut tap.fail_handoff) {

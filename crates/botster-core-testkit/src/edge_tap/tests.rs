@@ -1270,6 +1270,72 @@ fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes
     });
 }
 
+/// `hold_handoff` (Core OU-9, A5-1, plan 23bf): the next hand-over and every later one on its link are `Blocked` with the
+/// endpoint given back, and the inner edge sees neither them nor Core's write interest on that link. Another link passes.
+/// The edges stay quiet. The release gives the inner edge Core's last interest, signals the wake, and the next hand-over
+/// reaches the inner edge.
+#[test]
+fn a_held_hand_over_is_blocked_on_its_link_until_the_release() {
+    let mut rig = rig(Fake {
+        take_descriptors: true,
+        ..Fake::default()
+    });
+    assert!(rig.with(|t| t.hold_handoff()));
+    assert!(!rig.with(|t| t.hold_handoff()), "one hold at a time");
+    for (n, endpoint) in [5u8, 6].into_iter().enumerate() {
+        let (back, why) = rig
+            .edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(endpoint))
+            .unwrap_err();
+        assert_eq!(
+            (why, back.downcast::<u8>().ok()),
+            (DescriptorSendError::Blocked, Some(endpoint)),
+            "send {n}"
+        );
+    }
+    assert!(
+        !rig.with(|t| t.hold_handoff()),
+        "a held hand-over is still one hold"
+    );
+    rig.edges.set_write_interest(A, true);
+    rig.edges.set_write_interest(B, true);
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(B, b"b", StreamEndpoint::new(7u8))
+            .ok()
+            .map(|(sent, _)| sent),
+        Some(1),
+        "the hold is on its own link only"
+    );
+    assert!(rig.with(|t| t.quiet()), "a held hand-over is not a report");
+    let before = rig.signals();
+    rig.with(|t| {
+        assert_eq!(
+            t.inner.calls,
+            ["write 1 false", "write 2 true", "descriptor 2 [98]"]
+        );
+        t.inner.calls.clear();
+        t.release_handoff();
+        assert_eq!(t.inner.calls, ["write 1 true"]);
+    });
+    assert_eq!(rig.signals(), before + 1, "the release wakes the host");
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(8u8))
+            .ok()
+            .map(|(sent, _)| sent),
+        Some(2)
+    );
+    rig.with(|t| assert_eq!(t.inner.sent, vec![(B, b"b".to_vec()), (A, b"rt".to_vec())]));
+    // A new hold after the release is allowed, and a release with no hold only wakes the host.
+    assert!(rig.with(|t| t.hold_handoff()));
+    rig.with(|t| {
+        t.release_handoff();
+        t.release_handoff();
+        assert_eq!(t.inner.calls, ["descriptor 1 [114, 116]"]);
+    });
+}
+
 fn route_frames(route: RouteId) -> Vec<u8> {
     let activity = WorkerMsg::Observed {
         observation: botster_core_link::msg::Observation::ClientInput {
