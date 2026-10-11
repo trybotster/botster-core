@@ -19,6 +19,10 @@ Gate log: `~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-0e222c59-
 
 The lead owns the merge decision and current-base check. I ran no gate or build.
 
+The integration reviewer reports completion CLEAN on the same exact head and base in commit `3204d4a5dc9615fb0783e38149c4c0e6a765f17e`.
+
+No merge receipt has been reviewed.
+
 The parser now detects a status-line candidate before it parses the known envelope. An unknown candidate returns an error.
 
 The source and PR now state the retry limit. A fail followed by a pass is no catch. Two failed attempts can count as a catch.

@@ -510,3 +510,9 @@ This log satisfies the exact-head full gate condition for the recorded base. Sou
 The failed `db4fd197` gate remains on the record. This green gate runs on the new committed head required by the lead.
 
 The lead owns the merge decision and current-base check. I ran no gate or build.
+
+The integration reviewer reports completion CLEAN on the same exact head and base in commit `3204d4a5dc9615fb0783e38149c4c0e6a765f17e`.
+
+The integration reviewer independently checked that every caught mutant identity has exactly one catching-test report. The integration reviewer ran no execution job.
+
+No merge receipt has been reviewed. The lead still owns the current-base check.
