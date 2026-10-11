@@ -104,7 +104,7 @@ pub(super) fn restore_socket(path: &Path, mode: u32) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::*;
     use std::os::unix::net::UnixStream;
 

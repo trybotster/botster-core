@@ -58,7 +58,7 @@ pub(super) fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+mod slow_tests {
     use super::*;
     use botster_core_contract::prelude::*;
     use botster_core_host::session::{unknown_request, RowWorker, ROW_VERSION};
