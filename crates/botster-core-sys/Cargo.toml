@@ -18,9 +18,16 @@ botster-core-edges.workspace = true
 data-encoding.workspace = true
 getrandom.workspace = true
 pty-process.workspace = true
-rustix.workspace = true
+# `net`: `sendmsg` and `recvmsg` with `SCM_RIGHTS`, the descriptor handoff of DP-2 (fd_pass.rs; plan line 452).
+rustix = { workspace = true, features = ["net"] }
+
+# Core A49: a SIGPIPE handler for the whole process; libtest-mimic runs its one test on the main thread (see the file).
+[[test]]
+name = "no_sigpipe"
+harness = false
 
 [dev-dependencies]
+libtest-mimic.workspace = true
 signal-hook.workspace = true
 tempfile.workspace = true
 
