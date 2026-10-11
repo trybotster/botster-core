@@ -127,3 +127,7 @@ Commits since round 1: `72eb31b` (R-80: the rule, addition (1), the fences, the 
 - Header: head `381e4bb8843063e47929e197be87b0efa4144115`, base `16fdb77854c1fd3859e4645797c927dfa1a8195f` (BOTSTER_CI_BASE_REF), Linux pool.
 - Result (read by me): all 10 steps PASS, with `a_model_read_after_an_output_of_its_session_needs_an_output_fence` and the corpus test; `botster-gate: exit 0 after 441 s on msa1`.
 - Main is now `71f01c8812132fa979b8584f12a92ba2efde071e` (#65: `ci/remote/` and a doc only, disjoint from this PR). F4 changes the lint, so the next head needs its own gate. P5 merges main once after both CLEANs, then the final gate.
+
+### Steward's R-80 correction after round 2 (2026-10-11): one more open item
+
+- **F6 (open, by ruling):** `st_6_pages_owned_last_flag_and_range` step 8 is FENCED with an appended R-57 title sentinel, not listed in the exception file. The steward: "A sentinel works there." So the R-80 exception entry and its comment leave the list, and the transcript gets the sentinel and its `await_title`. On the next head I check the sentinel's distinctness (R-61 (a)(2)) and that no later step asserts an event that the fence consumes.
