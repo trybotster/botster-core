@@ -2684,3 +2684,58 @@ Zero plan findings remain. The active Core pin remains .36. Historical review an
 Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at 8476eb8780136420a6ae108a202790ff7a331923
+
+## Round 75 — revisions 23bo through 23br, 2026-10-11
+
+Head: `d1ec3a9ba60af9f051e354d423cffca7ca2fe400`.
+Prior reviewed head: `8476eb8780136420a6ae108a202790ff7a331923` (23bn).
+Sequential heads: `5c2475049ddd2730c9ada171c7a4a66020468c67`, `5f0cb800ada3ad882c1afda4ab0c74e4e30403ef`,
+`c42fdc7018eefbf51b38fad1aa3464a41cfe00fe`, and `d1ec3a9ba60af9f051e354d423cffca7ca2fe400`.
+Sol read every changed term in all four deltas. All four pins have mode 0444 and equal their committed plan bytes.
+Their SHA256 values, in the same order, are:
+
+- `0c4aed22c9810d623b2b75e0da9073aff4d0d3d742db3db315f659d39d9caa7c`
+- `bb2207af675a1b929dbecad8c0ca64eda82d423f2639f6e5170352031fe2c520`
+- `5dc773bf8dd6d574bb4ce809c51fc47a0471e1ea474aa4514de75853f42c6403`
+- `d312af1cd91ec1b107ccebeaa3debee37b1dadd58d27bba3476c4997c0dc9d4f`
+
+### BQ-SI-1 — LOW — the paste-body rule omits the steward's correction
+
+Section 0 requires printable ASCII in each paste-body `contains`. The 23bq history row repeats this requirement.
+The R-73 follow-up at Contracts `194643cf65bb4418c522322fb94c5461b65b5757` corrects that requirement.
+IN-8 writes the payload verbatim. Only the markers depend on the mode. Every body byte except `0d` is exact.
+R-61(c) excludes `0d` because ICRNL changes it to `0a`. The two existing `contains 610a62` assertions remain valid.
+Sol read the complete R-73 entry and its correction. Steward receipt: `msg_plugin-w_1791739994_565bda`.
+
+Required correction: use the corrected byte rule in section 0 and the 23bq history row.
+Retain the fallback on every subject, the body assertion, run order, negative proof, and unchanged frozen fake.
+This is a plan-text correction. It requires no reviewer execution job.
+
+### Checked, no additional finding
+
+23bo correctly separates #264's two FLAKY outcomes under mutants from #276's failed unmutated stage-2 baseline.
+The narrow diagnostic exception and its case-specific lead approval remain required. No plain-v1 failure record is established.
+
+Sol read the .39 annotated tag. Tag `de6f5d0912da2eae2209e883f9ddea497a835e05` targets the accepted Contracts head `ddce507e`.
+The one Core pin move remains future work. The active Core code pin remains .36 at `96f48d6d3d7a0e75e752d78433eff92efad0e77e`.
+Contracts `a017ee1f841fa639dd6648eebc1f4cd7b1d00152` changes steward documentation only. Open Contracts PRs retain the one-import rule.
+
+Sol read the complete R-74 and R-75 drafts and PC's group-9 design note.
+The retained PTY-capacity source equals the decoded Linux job source. The supplied Linux and Mac measurements support the selected 40960-byte fixture.
+These measurements do not establish a universal PTY capacity. The future probe must report failure to apply noncanonical mode.
+The plan keeps the real read-only queue observation, the frozen FakeCore's structural case, and the deterministic AM-2 negative proof.
+The stop/remove fences use await_get. The Bell fence uses distinct OSC titles and asserts the trailing TitleChanged.
+Sol read the traced Bell failures and the final fenced PASS records. Sol did not read every intervening trace line.
+The future Contracts PRs still require their source, negative evidence, complete outcome comparisons, required reviews, and exact-head gates.
+
+R-75 retains zero-effect field-rule refusals, separate paste and file slots, and wrong_route precedence.
+The resize gap still requires an owner. RC must submit a file design before file implementation.
+Sol read RC's complete route-input design note and the lead's scope conditions.
+23br closes the earlier count error: PR A targets 34 identifiers, including four minimum identifiers.
+RC confirms that this count describes the target, not 34 established PASS outcomes. Receipt: `msg_plugin-w_1791739711_2c96ad`.
+
+BQ-SI-1 is the only open finding. Earlier findings remain closed.
+This review accepts no future implementation, PR, gate, tag, pin, pending removal, or diagnostic change.
+Sol ran no test, build, gate, measurement, or mutant.
+
+VERDICT: NOT CLEAN (1 open: BQ-SI-1, LOW) at d1ec3a9ba60af9f051e354d423cffca7ca2fe400
