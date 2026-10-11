@@ -6,9 +6,9 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, gate_decisions, high_tier, lists, mutant_logs, mutants_cited, mutants_stale,
-    platform_code, prebuild, process_check, public_api, signals, taint, test_budget, timers,
-    unsafe_exception,
+    caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs, mutants_cited,
+    mutants_stale, platform_code, prebuild, process_check, public_api, signals, taint, test_budget,
+    timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -494,6 +494,19 @@ fn mutants_job(root: &Path) -> Result<()> {
         .chain(exclusions.iter().cloned())
         .collect();
     let listed = split_listed(listed, &every_exclusion)?;
+    // The known-flaky tests (flake guard PR 2): no mutation stage runs them; the slow step and the stage-2 baseline do.
+    let flaky = known_flaky::parse(
+        &std::fs::read_to_string(root.join(known_flaky::FILE))
+            .with_context(|| format!("read {}", known_flaky::FILE))?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    let stage1_filter = known_flaky::stage_filter(&flaky, known_flaky::Tier::Default, None);
+    let stage2_filter = known_flaky::stage_filter(
+        &flaky,
+        known_flaky::Tier::Slow,
+        Some(test_budget::SLOW_FILTER),
+    )
+    .unwrap_or_else(|| test_budget::SLOW_FILTER.to_string());
     let outcomes_of = |out: &Path| -> Result<Option<Outcomes>> {
         match std::fs::read_to_string(out.join("outcomes.json")) {
             Ok(text) => Ok(Some(parse_stage_outcomes(&text, |path| {
@@ -520,9 +533,12 @@ fn mutants_job(root: &Path) -> Result<()> {
             // An outcomes file left by an earlier run must not stand for this one: `write_skip` replaces the directory.
             let out = stage1_dir.join("mutants.out");
             write_skip(&stage1_dir, skip)?;
+            for line in known_flaky::report(&flaky, known_flaky::Tier::Default) {
+                println!("mutants: stage 1 (default): {line}");
+            }
             let mut cmd = cargo(root);
             mutants(&mut cmd);
-            cmd.args(stage1_run_args(&stage1_dir))
+            cmd.args(stage1_run_args(&stage1_dir, stage1_filter.as_deref()))
                 .envs(test_budget::tier_env(false));
             let started = Instant::now();
             let status = cmd.status().context("start cargo mutants (stage 1)")?;
@@ -551,6 +567,9 @@ fn mutants_job(root: &Path) -> Result<()> {
         |selection| {
             let out = stage2_dir.join("mutants.out");
             write_skip(&stage2_dir, &selection.skip)?;
+            for line in known_flaky::report(&flaky, known_flaky::Tier::Slow) {
+                println!("mutants: stage 2 (slow): {line}");
+            }
             let diff = ["--in-diff".to_string(), diff_path.display().to_string()];
             let mut cmd = cargo(root);
             cmd.args(stage2_args(
@@ -559,6 +578,7 @@ fn mutants_job(root: &Path) -> Result<()> {
                 &exclusions,
                 &selection.missed,
                 &stage2_dir,
+                &stage2_filter,
             ))
             .envs(test_budget::tier_env(true));
             let started = Instant::now();
@@ -1034,26 +1054,35 @@ fn two_stage_decision(
 /// in both places (a test can differ only under a mutant). The equal outcomes rest on the review of the tests that read
 /// the repository and on a comparison of each mutant, copied and in place (PR #252). The gate runs on a snapshot of the
 /// commit that it removes when it ends.
-fn stage1_run_args(output: &Path) -> Vec<String> {
+///
+/// `filter` is the nextest filter of the run: `None` (every test) unless the known-flaky list names a test of the default
+/// tier (`known_flaky::stage_filter`).
+fn stage1_run_args(output: &Path, filter: Option<&str>) -> Vec<String> {
     let mut args = vec!["--in-place".to_string()];
     args.extend(MUTANTS_PROGRESS.iter().map(|s| s.to_string()));
     args.push("--iterate".into());
     args.push("--output".into());
     args.push(output.display().to_string());
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
+    if let Some(filter) = filter {
+        args.push("-E".into());
+        args.push(filter.into());
+    }
     args
 }
 
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
 /// the slow features of `slow_packages`, the workspace's tests, and the slow tier's filter; exactly the stage-1 misses
 /// (`-F` with each whole name, and `--iterate`, which skips the names of `write_skip`: `Stage2Selection`); the same
-/// exclusions; and the slow tier's deadline as the timeout of each mutant.
+/// exclusions; and the slow tier's deadline as the timeout of each mutant. `filter` is the slow tier's filter without the
+/// known-flaky tests of the slow tier (`known_flaky::stage_filter`).
 fn stage2_args(
     selection: &[String],
     slow_packages: &[String],
     exclusions: &[String],
     missed: &[String],
     output: &Path,
+    filter: &str,
 ) -> Vec<String> {
     let mut args = vec!["mutants".to_string()];
     args.extend(selection.iter().cloned());
@@ -1098,7 +1127,7 @@ fn stage2_args(
     args.push(output.display().to_string());
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
     args.push("-E".into());
-    args.push(test_budget::SLOW_FILTER.into());
+    args.push(filter.into());
     args
 }
 
@@ -2396,9 +2425,16 @@ mod tests {
         let stage1: Vec<String> = MUTANTS_OPTIONS
             .iter()
             .map(|s| s.to_string())
-            .chain(stage1_run_args(Path::new("out")))
+            .chain(stage1_run_args(Path::new("out"), None))
             .collect();
-        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        let stage2 = stage2_args(
+            &[],
+            &[],
+            &[],
+            &[],
+            Path::new("out"),
+            test_budget::SLOW_FILTER,
+        );
         for (name, args) in [("stage 1", &stage1), ("stage 2", &stage2)] {
             assert!(args.iter().any(|a| a == "--in-place"), "{name}: {args:?}");
             assert!(
@@ -2431,8 +2467,26 @@ mod tests {
         .iter()
         .map(|s| s.to_string())
         .collect();
-        assert_eq!(stage1_run_args(Path::new("out")), expected);
-        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        assert_eq!(stage1_run_args(Path::new("out"), None), expected);
+        // An empty known-flaky list gives stage 1 no filter: the same arguments, byte for byte.
+        assert_eq!(
+            stage1_run_args(
+                Path::new("out"),
+                known_flaky::stage_filter(&[], known_flaky::Tier::Default, None).as_deref()
+            ),
+            expected
+        );
+        let filtered = stage1_run_args(Path::new("out"), Some("all() - (x)"));
+        assert_eq!(filtered[..expected.len()], expected[..]);
+        assert_eq!(filtered[expected.len()..], ["-E", "all() - (x)"]);
+        let stage2 = stage2_args(
+            &[],
+            &[],
+            &[],
+            &[],
+            Path::new("out"),
+            test_budget::SLOW_FILTER,
+        );
         for flag in MUTANTS_PROGRESS {
             assert!(
                 stage2.iter().any(|a| a == flag),
@@ -2452,6 +2506,13 @@ mod tests {
             &["x\\.rs".into()],
             &["a.rs:1:2: replace f -> bool with true".into()],
             Path::new("out"),
+            // An empty known-flaky list leaves the slow filter, so the arguments are those of the slow tier.
+            &known_flaky::stage_filter(
+                &[],
+                known_flaky::Tier::Slow,
+                Some(test_budget::SLOW_FILTER),
+            )
+            .unwrap(),
         );
         let expected: Vec<String> = [
             "mutants",
@@ -2869,7 +2930,7 @@ mod slow_tests {
         command
             .arg("mutants")
             .args(MUTANTS_OPTIONS)
-            .args(stage1_run_args(&out))
+            .args(stage1_run_args(&out, None))
             .envs(test_budget::tier_env(false))
             .stdout(std::process::Stdio::null());
         let mut run = OwnedChild::spawn_group(&mut command).unwrap();
@@ -3034,7 +3095,7 @@ mod slow_tests {
                         command.arg("--exclude-re").arg(re);
                     }
                     command
-                        .args(stage1_run_args(&out))
+                        .args(stage1_run_args(&out, None))
                         .envs(test_budget::tier_env(false));
                     finish(command, &out)
                 },
@@ -3066,7 +3127,14 @@ mod slow_tests {
                     write_skip(&out, &skipped).unwrap();
                     let mut command = crate::tools::cargo(dir);
                     command
-                        .args(stage2_args(&[], &slow_packages, &exclusions, missed, &out))
+                        .args(stage2_args(
+                            &[],
+                            &slow_packages,
+                            &exclusions,
+                            missed,
+                            &out,
+                            test_budget::SLOW_FILTER,
+                        ))
                         .envs(test_budget::tier_env(true));
                     finish(command, &out)
                 },
@@ -3261,5 +3329,80 @@ mod slow_tests {
         assert_eq!((code, missed > 0), (Some(2), true));
         let (code, missed, caught) = run(&derived, "derived");
         assert_eq!((code, missed, caught > 0), (Some(0), 0, true));
+    }
+
+    /// Flake guard PR 2, on real nextest runs of the fixture `xtask/fixtures/mutants-two-stage` with stage 1's nextest
+    /// arguments (`stage1_run_args`, after `--`): a known-flaky entry of the default tier removes exactly its test, and
+    /// the run passes; an entry with the wrong tier names a binary that the stage does not build (as `slow_conformance`
+    /// in stage 1), nextest refuses the filter, and the run fails (fail closed).
+    #[test]
+    fn a_known_flaky_entry_removes_its_test_and_one_of_the_wrong_tier_fails_the_stage() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/mutants-two-stage");
+        let dir = tempfile::tempdir().unwrap();
+        for sub in ["src", "tests", ".config", "other/src"] {
+            std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+        }
+        for (from, to) in [
+            ("Cargo.toml.in", "Cargo.toml"),
+            ("src/lib.rs", "src/lib.rs"),
+            ("other/Cargo.toml.in", "other/Cargo.toml"),
+            ("other/src/lib.rs", "other/src/lib.rs"),
+            ("tests/slow_triple.rs", "tests/slow_triple.rs"),
+        ] {
+            std::fs::copy(fixture.join(from), dir.path().join(to)).unwrap();
+        }
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let entry = |binary: &str, test: &str| known_flaky::Entry {
+            binary: binary.into(),
+            test: test.into(),
+            tier: known_flaky::Tier::Default,
+            diagnosis: "d".into(),
+            owner: "o".into(),
+            removed_by: "#1".into(),
+        };
+        let run = |entries: &[known_flaky::Entry]| {
+            let filter = known_flaky::stage_filter(entries, known_flaky::Tier::Default, None);
+            let args = stage1_run_args(Path::new("out"), filter.as_deref());
+            let nextest = &args[args.iter().position(|a| a == "--").unwrap() + 1..];
+            let mut command = Command::new("cargo");
+            command
+                .current_dir(dir.path())
+                .args(["nextest", "run", "--target-dir"])
+                .arg(dir.path().join("target"))
+                .args(nextest);
+            // As the stages run: its own process group, within the slow deadline.
+            let output = botster_test_process::run_to_completion(
+                &mut command,
+                Deadline::after(test_budget::SLOW_DEADLINE),
+            )
+            .unwrap();
+            (
+                output.status.success(),
+                String::from_utf8_lossy(&output.stderr).into_owned(),
+            )
+        };
+        let (passed, log) = run(&[entry("twostage", "tests::three_doubled_is_six")]);
+        assert!(passed, "{log}");
+        assert!(
+            log.contains("twostage tests::wide_keeps_its_width"),
+            "{log}"
+        );
+        assert!(!log.contains("three_doubled_is_six"), "{log}");
+
+        let (passed, log) = run(&[entry(
+            "botster-core::slow_conformance",
+            "conf::ev_5_repeated_attach_detach_without_polling_stays_bounded",
+        )]);
+        assert!(!passed, "{log}");
+        assert!(log.contains("no binary IDs matched"), "{log}");
     }
 }
