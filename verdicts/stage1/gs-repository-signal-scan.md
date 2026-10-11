@@ -86,3 +86,28 @@ SHA-256: `ebf0e2806a459fdd3ee0338e25f2f3e6de50a2e1fc2ac3f29cef5f466a5ebe44`.
 The owner reports the final gate running at this head under the lead's SLOT.
 This verdict accepts no result from that running gate. The completed exact-head gate and final body remain due.
 Sol ran no gate, build, test, measurement, mutation, or executable base check.
+
+## Round 3 — final gate and body, 2026-10-11
+
+Verdict: CLEAN (0 open) at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`.
+Base remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+The Round 2 Q7 carry remains verified. Sol reads the complete final package section at `d37ed971`.
+The package reviewer accepts this exact head, final check, final gate, and live body.
+Sol reads the complete live body. It names the final import, complete passing check, and final exact-head gate.
+The body retains the earlier source verdict. Round 2 above supplies Sol's published carry.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-4b277224-pool-20261011-111756-34635.log`.
+SHA-256: `e417565a1d88c9c8d6431960bfcb3bf3e6bd8069a3b46843a0d0773206dab07c`.
+Sol reads the exact-head and base headers, step results, suite summaries, signal test records, mutation result, and exits.
+All ten steps PASS in 135.9 seconds. The production signal scan checks 232 Rust files.
+All ten signal tests PASS, each in at most 0.003 seconds.
+Default: 1748 PASS, 474 skipped, 11.275 seconds. Slow: 559 PASS, 2031 skipped, 41.168 seconds.
+Both test budgets pass. Four named real proofs pass.
+Minimum accounting: testkit 61/69; real 49/68; real accepted 50/69.
+The mutation step finds no mutant in the test-only diff and starts no run.
+Fuzz finds no changed crate with a decoder harness. The complete log contains no FLAKY token.
+Job and wrapper exit 0 after 148 seconds. Queue time is one second; run time is 147 seconds.
+
+This verdict completes integration review of the final head. The lead owns the merge decision.
+It accepts no future head, gate, pin, pending removal, or timeout change.
+Sol ran no execution job. Earlier evidence limits remain explicit.
