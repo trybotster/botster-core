@@ -396,7 +396,21 @@ impl HostEngine {
             "host_epoch": self.cfg.host_epoch,
             "final_row_failures": self.final_row_failures,
             "link_closes": self.link_closes,
+            // The test control `op_posted` reads these two (steward ruling R-88 (B)): an op's terminal `Completed` is posted,
+            // polled or not, when its id was minted (below `next_op`) and it is not in `unposted_ops`.
+            "next_op": self.next_op,
+            "unposted_ops": self.unposted_ops(),
         })
+    }
+
+    /// The ops whose terminal `Completed` is not posted yet. An op whose `Completed` is posted keeps its entry, at `Step::Done`,
+    /// until a poll takes the event; then it leaves the table.
+    fn unposted_ops(&self) -> Vec<u64> {
+        self.ops
+            .iter()
+            .filter(|(_, p)| !matches!(p.step, Step::Done))
+            .map(|(id, _)| id.0)
+            .collect()
     }
 
     pub fn terminal_state(&self, id: &SessionId) -> Result<TerminalState, CoreError> {
