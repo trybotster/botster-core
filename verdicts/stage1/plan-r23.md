@@ -2597,3 +2597,51 @@ This CLEAN accepts the plan text. It accepts no future implementation, PR, tag, 
 The active Core code pin remains .36. Earlier findings remain closed. Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at 00635d10bbf580efe096b5139d6816b8e3de5aea
+
+## Round 73 — revision 23bl, 2026-10-11
+
+Head: `ddc8da8182014676b5ace1a4807d655a9fcc2427`.
+Parent: `00635d10bbf580efe096b5139d6816b8e3de5aea` (23bk).
+Pin: `stage1-plan.ddc8da81.md`, mode 0444.
+SHA256: `01c67e1d00ce13f29dc1991c03a52d4469a75aa3d452140648dd4d88a4411fe7`.
+Lead receipt: `msg_plugin-w_1791737498_7c89f8`.
+The pin bytes equal the committed plan bytes. Sol read every added term and the complete surrounding section-8 conditions.
+Only the first-of-two triage note, the section-8 amendments and assignment, and the appended history row change.
+
+### BL-SI-1 — LOW — the diagnostic boundary does not match the accepted evidence
+
+Amendment A requires a controlled change "outside Core" and names P3's delayed-first-read reproduction as its first use.
+That retained patch changes `crates/botster-worker/src/main.rs`, in Driver::read_pty_chunk.
+It delays the first readable PTY read by one second. It is a local diagnostic patch, never a product change accepted for merge.
+Sol read the complete patch again. The mechanism is in the worker's source, not outside the Core repository or shipped implementation.
+The boundary therefore excludes the first use that the same paragraph accepts, or leaves "Core" with an undefined narrower meaning.
+
+Required correction: define the permitted diagnostic boundary accurately.
+For example, require a scratch-only timing change outside the PR's own change, and require unchanged behavior apart from the controlled timing.
+Keep the exact-signature requirement, written acceptance for each case, and independent confirmation that the PR does not alter the cause.
+The text must not accept a diagnostic patch that supplies missing behavior or changes the result under test.
+This is a plan-text correction. Sol requests no reproduction or other execution job.
+
+### Checked, no additional finding
+
+The lead explicitly accepts the #276 diagnostic evidence in receipt msg_plugin-w_1791737460_dd4f32.
+The lead states that no unmodified plain-v1 failure record exists. Sol preserves that limit and does not claim such a record.
+The diagnostic before/after records and the two independent PR failures identify the missing output fence.
+Sol's #49 source verdict already accepts that cause and repair. Core propagation remains pending.
+
+Amendment A otherwise restricts the substitution to a timing race, the same identifier, step and symptom, and written acceptance for that case.
+Amendment B substitutes implementer data only for the reviewer line before the first review and only for the first-READY gate.
+It still requires package confirmation in round 1. The other section-8 conditions remain in force.
+The one-re-gate limit, every-step green result, exact-head requirement, and recorded structural repair remain unchanged.
+Neither amendment supplies a source CLEAN or permits a merge without both required reviews.
+The listed #275 timings are the plan's reported evidence. Sol has not reviewed #275's execution records.
+
+GS owns the root repair as HIGH. The repository scan must remain in every taint gate.
+Small default-tier fixtures replace that scan's default-tier test. The two-second budget remains unchanged.
+The other repository-reading tests still require inspection. This plan review accepts no future #278 implementation or proof.
+The six additional first-of-two locations remain triage work after #277. The plan claims no repair for them.
+
+BL-SI-1 is the only open finding. Earlier findings remain closed. The active Core pin remains .36.
+Sol ran no execution job. This review approves no future PR, gate, pin, pending removal, or diagnostic change.
+
+VERDICT: NOT CLEAN (1 open: BL-SI-1, LOW) at ddc8da8182014676b5ace1a4807d655a9fcc2427
