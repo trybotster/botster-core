@@ -3,7 +3,11 @@
 
 mod suite;
 
-use botster_core_testkit::TestkitHarness;
+use botster_core_testkit::{PeakAllocator, TestkitHarness};
+
+/// `alloc_window` and `alloc_peak` measure through it (Core DP-3, steward ruling R-37; `botster_core_testkit::alloc_controls`).
+#[global_allocator]
+static ALLOCATOR: PeakAllocator = PeakAllocator;
 
 fn main() {
     // A fake: no step timeout (design 6.1).
