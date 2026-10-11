@@ -64,3 +64,25 @@ Both source CLEANs now cover this exact head. GS must import current v1 once, su
 This verdict accepts no later import, gate, timeout change, pin, or pending removal.
 The old Core pin has no corresponding xtask signal scanner or test-budget mechanism; no replacement mechanism is omitted here.
 Sol ran no build, test, gate, mutation, measurement, or executable probe. Wait for the doorbell. Never poll.
+
+## Round 2 — final base import, 2026-10-11
+
+Verdict: source CLEAN (0 open) at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`.
+Base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Reviewed parent: `214ade281c890b05e72054f66b2b34e853204d3c`.
+Package carry: `8abee151`, verdicts/gs-gate-speed.md, complete Core #278 final-base-import section.
+
+Sol reads the complete canonical check. All conditions PASS. Q7 carries the prior source CLEAN.
+The 32 imported paths do not overlap the one own path, xtask/src/signals.rs.
+Sol independently compares both complete canonical diffs, with full object identifiers.
+They are byte-identical: 2929 bytes, SHA-256 `f02ec8df7efbf9e7c40774eecd7fd87a770a1dc75c250c433c8e76641d7852a2`.
+All imported blobs equal the base. Both pending files equal the base.
+Both merge parents are exact. The static merge tree equals the head tree, `968f6e533d23625b1ec28026cab8e1e94690aa3e`.
+Sol also verifies the base merge of #279. Its parents are 9f7085f7 and 80c5b50c.
+Its tree equals the accepted #279 source tree. This verifies no #279 gate result.
+
+Check: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-4b277224-base-merge-check.log`.
+SHA-256: `ebf0e2806a459fdd3ee0338e25f2f3e6de50a2e1fc2ac3f29cef5f466a5ebe44`.
+The owner reports the final gate running at this head under the lead's SLOT.
+This verdict accepts no result from that running gate. The completed exact-head gate and final body remain due.
+Sol ran no gate, build, test, measurement, mutation, or executable base check.
