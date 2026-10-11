@@ -1,5 +1,37 @@
 # Core #276 — host-supplied worker file name
 
+## Round 2 — 2026-10-11 — overlapping base import
+
+Verdict: source CLEAN (0 open) at `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+First parent: reviewed head `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+Second parent and new base: `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+Head tree: `ca4b8722aebb4e0a737b902aa4776c4681a8d966`.
+READY: `msg_plugin-w_1791740971_ca538d`. Package CLEAN: `ce5d6b6d1de679907a29b54e1330a7923bfb5625`, Round 2.
+Sol read the complete package round and the complete failed base-check report.
+Report: `~/botster-sessions/shared/core-stage1/evidence/base-merge-check-276-300eccec.out`.
+The report fails conditions 1–3 because the proof file conflicts, real.rs overlaps, and the own diff has different context and blob identities.
+Both pending-file conditions pass. Q7 does not apply to this overlap. This round supplies the required integration source review.
+
+Sol verifies the exact two parents and the complete new own diff.
+All three own paths retain exactly the same added and removed lines as Round 1.
+All nineteen imported paths outside own scope equal the base blobs. The complete real.rs import delta is read.
+The imported oracle module, three dispatch arms, capability term, and test entries retain their base text.
+The merged capability expression keeps self.tapped around the entire control set, including worker_file_name and the oracle term.
+The capability test retains the PC entry and chains the imported oracle names. Plain-harness checks remain present.
+The imported oracle names do not intercept worker_file_name. The worker wrapper, candidate validation, and open path remain unchanged.
+
+Sol independently checks both pending files and the proof file against the union of both parents' changes.
+All three line unions match, and none has a duplicate identifier row.
+The resolved proof file equals the base with exactly one E1-1 row added between AD-6 and the two LC-2 rows.
+No base proof row is lost or changed. The proof checker, suite path, transcript, and Contracts pin remain unchanged.
+The imported source supplies no OU-9 output fence. Round 1's cause and narrow retry limits remain explicit.
+
+Both source delta CLEANs now cover this head. The owner reports that the final gate is running.
+Sol has no completed gate receipt for this head. The old gate remains evidence only for 67fd9112.
+The body must record the merge, failed check, both delta verdicts, and final exact-head gate before merge.
+This verdict accepts no later import, final gate, pin, or pending removal.
+Sol ran no execution job. Wait for the doorbell. Never poll.
+
 ## Round 1 — 2026-10-11
 
 Verdict: source CLEAN (0 open) at `67fd9112d0e7554d39be6eb6b43260c782dda200`.
