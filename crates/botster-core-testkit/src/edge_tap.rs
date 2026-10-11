@@ -394,8 +394,16 @@ impl<E: HostEdges> Tap<E> {
                         state.observe(&buf[..n], launches, heard);
                         state.held.extend(&buf[..n]);
                     }
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    // A read that makes no progress ends this call's reading; the link waits, and the next call reads
+                    // again (#287 RC-R1-1: no retry without progress).
+                    Err(e)
+                        if matches!(
+                            e.kind(),
+                            io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                        ) =>
+                    {
+                        break
+                    }
                     Err(e) => state.end = Some(End::Failed(e.kind())),
                 }
             }

@@ -1024,6 +1024,8 @@ mod slow_tests {
         worker.write_all(b"unread").unwrap();
         route.control("drop_transport", &json!({})).unwrap();
         route.write(b"lost");
+        // Nonblocking: the close is done, so the read gives the end or the reset at once; a wait would be a regression.
+        worker.set_nonblocking(true).unwrap();
         let mut buf = [0u8; 8];
         match worker.read(&mut buf) {
             Ok(0) => {}
@@ -1043,16 +1045,24 @@ mod slow_tests {
             .unwrap()
     }
 
-    /// Writes `worker`'s bytes until the stream takes no more, and gives how many it took.
+    /// Writes `worker`'s bytes until a write makes no progress (the stream takes no more), and gives how many it took. Each
+    /// write that continues takes at least one byte, and the kernel's buffers are finite, so the loop ends.
     fn fill(worker: &mut UnixStream) -> u64 {
         worker.set_nonblocking(true).unwrap();
         let chunk = [b'x'; 4096];
         let mut took = 0u64;
         loop {
             match worker.write(&chunk) {
-                Ok(n) => took += n as u64,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return took,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Ok(n) if n > 0 => took += n as u64,
+                Ok(_) => return took,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    return took
+                }
                 Err(e) => panic!("the worker's write: {e}"),
             }
         }
