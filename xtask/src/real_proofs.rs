@@ -159,7 +159,7 @@ mod tests {
         }
     }
 
-    /// The form of cargo-nextest's JUnit file: a pass with its output in CDATA, a pass with no children, and a failure.
+    /// A hand-written report: a pass with its output in CDATA, a pass with no children, and a failure.
     const JUNIT: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <testsuites name="nextest-run" tests="3" failures="1" errors="0">
     <testsuite name="botster-core::slow_lock" tests="3" disabled="0" errors="0" failures="1">
@@ -200,6 +200,42 @@ mod tests {
                 "conf::lock botster-core::slow_lock locks::fails: the slow step did not run this test to PASS (its JUnit test case has failure)",
                 "conf::lock botster-core::slow_lock locks::absent: the slow step did not run this test (no JUnit test case), so it proves nothing",
                 "conf::lock botster-core::other locks::passes: the slow step did not run this test (no JUnit test case), so it proves nothing",
+            ]
+        );
+    }
+
+    /// A report that cargo-nextest 0.9.146, the gate image's version, wrote (`xtask/fixtures/junit/nextest-0.9.146.xml`, whose
+    /// comment says how it was made): only the test that passed on its first try passes. Its output, which prints a test
+    /// case and a failure tag as escaped text, is not a test case.
+    #[test]
+    fn a_report_of_the_gate_s_nextest_passes_only_the_test_that_passed() {
+        let junit = include_str!("../fixtures/junit/nextest-0.9.146.xml");
+        let of = |test: &str| RealProof {
+            id: "conf::a".into(),
+            binary: "junit-probe".into(),
+            test: test.into(),
+        };
+        let problems = unproven(
+            &[
+                of("tests::passes"),
+                of("tests::flaky"),
+                of("tests::fails"),
+                of("tests::ignored"),
+                RealProof {
+                    binary: "y".into(),
+                    ..of("x")
+                },
+            ],
+            junit,
+        )
+        .unwrap();
+        assert_eq!(
+            problems,
+            [
+                "conf::a junit-probe tests::flaky: the slow step did not run this test to PASS (its JUnit test case has flakyFailure)",
+                "conf::a junit-probe tests::fails: the slow step did not run this test to PASS (its JUnit test case has failure, rerunFailure)",
+                "conf::a junit-probe tests::ignored: the slow step did not run this test (no JUnit test case), so it proves nothing",
+                "conf::a y x: the slow step did not run this test (no JUnit test case), so it proves nothing",
             ]
         );
     }
@@ -271,6 +307,14 @@ mod tests {
                 "not well-formed",
             ),
             (format!("{pass}<testsuites/>"), "not well-formed"),
+            (
+                suite(r#"<testcase name="t" classname="b"><system-out>x</testcase>"#),
+                "not well-formed",
+            ),
+            (
+                suite(r#"<testcase name="t" classname="b"><system-out>x</system-out>"#),
+                "not well-formed",
+            ),
             (
                 suite(
                     r#"<testcase name="t" classname="b"><system-out><![CDATA[x</system-out></testcase>"#,

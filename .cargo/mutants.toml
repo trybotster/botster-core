@@ -170,8 +170,9 @@ exclude_re = [
     # replacement is excluded; the body has no operator. A body replaced by Ok(()) prints no "real-proofs: N named proofs
     # checked" line, which every gate log of the slow step shows. Its decision stays mutation-tested: verdicts
     # (a_proof_passes_only_with_a_passing_test_case_of_its_binary_and_name), with results
-    # (a_skipped_errored_flaky_or_unknown_result_is_not_a_pass, a_duplicate_test_case_cannot_hide_a_failure), without_cdata
-    # (a_malformed_junit_file_is_an_error) and unescape (escaped_names_are_read_as_written); verdict
+    # (a_report_of_the_gate_s_nextest_passes_only_the_test_that_passed, a_skipped_errored_flaky_or_unknown_result_is_not_a_pass,
+    # a_duplicate_test_case_cannot_hide_a_failure, a_malformed_junit_file_is_an_error,
+    # a_test_case_in_a_comment_or_in_output_is_not_a_test_case, escaped_names_are_read_as_written); verdict
     # (a_check_passes_only_with_no_violation).
     'xtask/src/real_proofs\.rs:\d+:\d+: replace check_slow_run -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants-stale command -> Ok(()): process glue. It runs `cargo mutants --list` on the whole workspace and `git
