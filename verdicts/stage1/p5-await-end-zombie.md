@@ -246,3 +246,46 @@ This Mac record covers inspected 312b48a1 and the exact unchanged own code in 2c
 The later import changes only the Linux gate script. This inspection claims no exact-head Mac run on 2c8f6ea4.
 No source finding appears. Formal CLEAN waits for final READY/body, the new-head full Linux gate, and the package artifact.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 2 — 2026-10-11 — formal import verdict
+
+- Exact head: `2c8f6ea45f3815fda9728cf4d2900971fd0d3bc7`.
+- Base: `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+- Tree: `63b3c6fbe0733cac4ba07feee1bb045b9c0f8088`.
+- READY: `msg_plugin-w_1791726036_a3ac18`.
+- Package artifact: `e2e8ee6103db08deec24a4b7b1a15c0712a62251`, `verdicts/p5-await-end-zombie.md`, Round 2.
+- Risk: HIGH. Plan 23ar remains applicable.
+
+Sol reads the complete published body and complete package round. The published PR names the exact reviewed head and base. The body states both shared-path overlaps and both Mac evidence limits. The origin package branch contains its artifact.
+
+The source and import inspections above remain applicable. They cover both shared paths, both canonical base-check failures, every imported-only blob, and the unchanged own source. The independent static merge tree matches the recorded tree. The prior source closures and prior-art conclusions remain applicable. Zero source or body findings remain open.
+
+### Final exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-2c8f6ea4-pool-20261011-063327-26304.log`.
+
+SHA256: `369fdd1a08b1ab3f027d7df5738e2ed982ca89a263912548fcb19b1a0d33b32d`.
+
+Sol reads the identity, CI results, suite summaries, affected proof results, accounting reports, and mutation and fuzz selections. All ten steps pass in 391.5 seconds. The job exits zero after 398 seconds. The wrapper exits zero after 399 seconds.
+
+- Default suite: 1688 passed, 481 skipped, 17.297 seconds.
+- Slow suite: 515 passed, 2016 skipped, 53.923 seconds.
+- Static parsing finds 515 distinct slow PASS identities and 151 distinct real-conformance PASS identities.
+- Both affected wait proofs pass by exact name, in 0.004 and 0.003 seconds.
+- The imported count proof passes in the default suite.
+- EV-5 repeated attach/detach passes in both suites, in 0.323 and 0.448 seconds.
+- Slow coverage checks 1046 slow-only tests.
+- Minimum remains 56/69 testkit-passing, 41/68 real-passing, and 42/69 real-accepted. The change from round 1 comes from imported #257.
+- The report retains 58 real-pending IDs, with 34 passing under the ignored selection. This PR removes none.
+- The own diff has no Linux-compiled mutant. The mutation step starts no run.
+- Fuzz reports no changed crate with a decoder harness.
+
+The supplied 312b48a1 Mac record above covers the unchanged own executable code. It supplies no exact-head Mac run on 2c8f6ea4. It prints no individual mutation catcher. The earlier failed Linux and Mac records remain failed. The earlier 312b48a1 Linux gate is not accepted as this head's full gate.
+
+The package and integration conclusions agree on source, import composition, body, and evidence. This round grants no separate formal #266 verdict, extra pending removal, or acceptance of unread local reversal claims. The prior PID reuse and exit-status limits remain explicit.
+
+Zero findings remain open. This CLEAN covers only the exact head, base, source, body, and supplied evidence. A later import needs its own review. The lead retains merge order. Section 8 requires no repeat full gate on this unchanged head.
+
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
+
+VERDICT: CLEAN (0 open)

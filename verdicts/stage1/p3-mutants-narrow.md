@@ -49,3 +49,7 @@ Both package findings remain open. Package artifact publication failed on DNS. I
 Sol ran no test, build, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: NOT CLEAN (2 open)
+
+### Publication receipt
+
+DNS recovers after the local round. Package receipt `msg_plugin-w_1791726527_0c8e47` confirms publication of `752307ff148e715557c9929ff5982018e63e310d`. Sol publishes this NOT CLEAN round in `d63047dedc28842d39a2a342b5dec1cd000e866c`. Both findings remain open. No later source correction is reviewed here.
