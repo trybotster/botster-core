@@ -33,7 +33,7 @@ fn contracts_source(cargo_toml: &str) -> Result<(String, String)> {
     Ok((field("git")?, field("tag")?))
 }
 
-fn sha256_hex(path: &Path) -> Result<String> {
+pub(crate) fn sha256_hex(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path).with_context(|| format!("read {}", path.display()))?;
     Ok(Sha256::digest(&bytes)
         .iter()

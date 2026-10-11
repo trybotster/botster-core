@@ -2,12 +2,14 @@
 //!
 //! The slow step (`cargo xtask test-budget --slow`) and the stage-2 baseline run the same tests: the slow selection
 //! (`test_budget::slow_selection`) over the unmutated tree, each bounded by the slow deadline with the leftover check.
-//! When the slow tier passes, it writes a record: the commit, whether the tree is clean, the selection, and each test that
-//! the selection runs, with its test binary (`cargo nextest list`). The binary path holds cargo's metadata hash of the
-//! build (profile, features, dependencies). `cargo xtask ci` removes the record before its first step, so only the slow
-//! step of the same run can leave one. Before stage 2, the step makes the same record again; when the two are equal and
-//! the tree is clean, the slow step of this run already passed exactly the tests of the baseline from the same builds, and
-//! the baseline is not run again. On any difference, or with no record, the baseline runs, and the step prints why.
+//! When the slow tier passes, it writes a record: the commit, whether the tree is clean, the selection, the sha256 of each
+//! file of `target/candidate` (the prebuilt binaries and their manifest, which the tests execute and git does not see),
+//! the sha256 of each test binary of the selection, and each test that the selection runs with its binary
+//! (`cargo nextest list`). `cargo xtask ci` removes the record before its first step, so only the slow step of the same
+//! run can leave one. Before stage 2, the step makes the same record again; when the two are equal and the tree is clean,
+//! the slow step of this run already passed exactly the tests of the baseline, from the same bytes of every test binary
+//! and every candidate file, and the baseline is not run again. On any difference, on a list form that `parse_list` does
+//! not know, or with no record, the baseline runs, and the step prints why.
 
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
@@ -25,7 +27,9 @@ pub fn path(target_dir: &Path) -> PathBuf {
 /// `<binary id>\t<binary path>\t<test name>` for each test that the filter matches and that is not ignored, sorted.
 ///
 /// # Errors
-/// The text is not JSON, or it has no `rust-suites` map, or a suite has no binary path or test map.
+/// The text is not JSON, or it has no `rust-suites` map, or a suite has no binary path or test map, or a test has no
+/// boolean `ignored` or a filter status other than `matches` and `mismatch`: an unknown form is never read as "does not
+/// run".
 pub fn parse_list(json: &str) -> Result<Vec<String>> {
     let v: serde_json::Value = serde_json::from_str(json).context("parse the nextest list")?;
     let suites = v["rust-suites"]
@@ -40,7 +44,16 @@ pub fn parse_list(json: &str) -> Result<Vec<String>> {
             .as_object()
             .with_context(|| format!("the suite {id} has no testcases"))?;
         for (name, case) in cases {
-            let runs = case["filter-match"]["status"] == "matches" && case["ignored"] == false;
+            let ignored = case["ignored"]
+                .as_bool()
+                .with_context(|| format!("the test {id} {name} has no boolean `ignored`"))?;
+            let runs = match case["filter-match"]["status"].as_str() {
+                Some("matches") => !ignored,
+                Some("mismatch") => false,
+                other => bail!(
+                    "the test {id} {name} has the filter status {other:?}, not \"matches\" or \"mismatch\""
+                ),
+            };
             if runs {
                 tests.push(format!("{id}\t{binary}\t{name}"));
             }
@@ -50,12 +63,81 @@ pub fn parse_list(json: &str) -> Result<Vec<String>> {
     Ok(tests)
 }
 
-/// The text of a record.
-pub fn record_text(head: &str, clean: bool, selection: &[String], tests: &[String]) -> String {
+/// The identity lines of the files that the tests use and git does not see: `binary <id>\t<path>\t<sha256>` for each
+/// test binary of `tests` (the lines of `parse_list`), and `artifact <path>\t<sha256>` for each file of `artifacts`, each
+/// group sorted. `hash` gives a file's sha256.
+///
+/// # Errors
+/// A test line has no binary, or a file could not be hashed.
+pub fn identity_lines(
+    tests: &[String],
+    artifacts: &[PathBuf],
+    hash: impl Fn(&Path) -> Result<String>,
+) -> Result<Vec<String>> {
+    let mut binaries = std::collections::BTreeSet::new();
+    for test in tests {
+        let mut fields = test.split('\t');
+        let (Some(id), Some(binary)) = (fields.next(), fields.next()) else {
+            bail!("the test line {test:?} names no binary");
+        };
+        binaries.insert((id, binary));
+    }
+    let mut lines = Vec::new();
+    let mut files: Vec<&PathBuf> = artifacts.iter().collect();
+    files.sort();
+    for file in files {
+        lines.push(format!("artifact {}\t{}", file.display(), hash(file)?));
+    }
+    for (id, binary) in binaries {
+        lines.push(format!(
+            "binary {id}\t{binary}\t{}",
+            hash(Path::new(binary))?
+        ));
+    }
+    Ok(lines)
+}
+
+/// Every file under `dir`, at any depth (none when `dir` does not exist).
+///
+/// # Errors
+/// A directory could not be read.
+pub fn files_under(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut files = Vec::new();
+    let mut dirs = vec![dir.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            entries => entries.with_context(|| format!("read {}", dir.display()))?,
+        };
+        for entry in entries {
+            let path = entry?.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// The text of a record: the commit, the clean flag, the selection, the identity lines (`identity_lines`) and the tests.
+pub fn record_text(
+    head: &str,
+    clean: bool,
+    selection: &[String],
+    identities: &[String],
+    tests: &[String],
+) -> String {
     let mut text = format!(
         "head {head}\nclean {clean}\nselection {}\n",
         selection.join("\t")
     );
+    for line in identities {
+        text.push_str(line);
+        text.push('\n');
+    }
     for test in tests {
         text.push_str("test ");
         text.push_str(test);
@@ -105,12 +187,18 @@ pub fn reuse(stored: Option<&str>, current: &str) -> std::result::Result<usize, 
 }
 
 /// The record of `selection` on the tree at `root` now: the commit, whether `git status --porcelain` is empty (untracked
-/// files count), and `cargo nextest list` of the selection, with the environment `env` of the tier. The list builds the
-/// selection first. An I/O shell: its decisions are `parse_list` and `record_text`, and `reuse` judges its result.
+/// files count), the identity of each file under `candidate_dir` and of each test binary, and `cargo nextest list` of the
+/// selection, with the environment `env` of the tier. The list builds the selection first. An I/O shell: its decisions
+/// are `parse_list`, `identity_lines` and `record_text`, and `reuse` judges its result.
 ///
 /// # Errors
-/// git or the list did not start or failed, or the list is not readable.
-pub fn current(root: &Path, selection: &[String], env: &[(&str, &str)]) -> Result<String> {
+/// git or the list did not start or failed, the list is not readable, or a file could not be hashed.
+pub fn current(
+    root: &Path,
+    candidate_dir: &Path,
+    selection: &[String],
+    env: &[(&str, &str)],
+) -> Result<String> {
     let git = |args: &[&str]| -> Result<String> {
         let output = Command::new("git")
             .arg("-C")
@@ -123,15 +211,24 @@ pub fn current(root: &Path, selection: &[String], env: &[(&str, &str)]) -> Resul
     let head = git(&["rev-parse", "HEAD"])?;
     let status = git(&["status", "--porcelain", "--untracked-files=all"])?;
     let mut list = crate::tools::cargo(root);
+    // The list does not depend on a nextest profile (no profile sets a default filter), so an inherited `NEXTEST_PROFILE`
+    // (a test under nextest gets one) does not choose it.
     list.args(["nextest", "list", "--message-format", "json"])
         .args(selection)
-        .envs(env.iter().copied());
+        .envs(env.iter().copied())
+        .env_remove("NEXTEST_PROFILE");
     let output = list.output().context("start cargo nextest list")?;
     let tests = parse_list(&crate::tools::stdout_of(&output, "cargo nextest list")?)?;
+    let identities = identity_lines(
+        &tests,
+        &files_under(candidate_dir)?,
+        crate::prebuild::sha256_hex,
+    )?;
     Ok(record_text(
         head.trim(),
         status.trim().is_empty(),
         selection,
+        &identities,
         &tests,
     ))
 }
@@ -146,7 +243,7 @@ pub fn write(
     selection: &[String],
     env: &[(&str, &str)],
 ) -> Result<()> {
-    let text = current(root, selection, env)?;
+    let text = current(root, &target_dir.join("candidate"), selection, env)?;
     let file = path(target_dir);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
@@ -178,7 +275,7 @@ pub fn check(
     env: &[(&str, &str)],
 ) -> Result<std::result::Result<usize, String>> {
     let stored = std::fs::read_to_string(path(target_dir)).ok();
-    let now = current(root, selection, env)?;
+    let now = current(root, &target_dir.join("candidate"), selection, env)?;
     Ok(reuse(stored.as_deref(), &now))
 }
 
@@ -209,14 +306,111 @@ mod tests {
         assert!(parse_list("not json").is_err());
     }
 
-    fn record(head: &str, clean: bool, selection: &[&str], tests: &[&str]) -> String {
-        let selection: Vec<String> = selection.iter().map(|s| s.to_string()).collect();
-        let tests: Vec<String> = tests.iter().map(|s| s.to_string()).collect();
-        record_text(head, clean, &selection, &tests)
+    /// A test whose `ignored` or filter status has an unknown form refuses the list, so the baseline runs.
+    #[test]
+    fn a_test_of_an_unknown_list_form_refuses_the_list() {
+        let list = |case: &str| {
+            format!(r#"{{"rust-suites":{{"s":{{"binary-path":"b","testcases":{{"t":{case}}}}}}}}}"#)
+        };
+        assert_eq!(
+            parse_list(&list(
+                r#"{"ignored":false,"filter-match":{"status":"matches"}}"#
+            ))
+            .unwrap(),
+            ["s\tb\tt"]
+        );
+        for (case, why) in [
+            (
+                r#"{"filter-match":{"status":"matches"}}"#,
+                "no boolean `ignored`",
+            ),
+            (
+                r#"{"ignored":"no","filter-match":{"status":"matches"}}"#,
+                "no boolean `ignored`",
+            ),
+            (r#"{"ignored":false}"#, "the filter status None"),
+            (
+                r#"{"ignored":false,"filter-match":{}}"#,
+                "the filter status None",
+            ),
+            (
+                r#"{"ignored":false,"filter-match":{"status":"partial"}}"#,
+                "the filter status Some(\"partial\")",
+            ),
+            (
+                r#"{"ignored":true,"filter-match":{"status":1}}"#,
+                "the filter status None",
+            ),
+        ] {
+            let error = format!("{:#}", parse_list(&list(case)).unwrap_err());
+            assert!(error.contains(why), "{case}: {error}");
+        }
+    }
+
+    /// Each candidate file and each test binary is named with its hash; a test line without a binary is refused.
+    #[test]
+    fn the_identities_are_each_candidate_file_and_each_test_binary_with_its_hash() {
+        let hash = |path: &Path| -> Result<String> { Ok(format!("h({})", path.display())) };
+        let tests: Vec<String> = ["b\t/t/b-1\tx", "b\t/t/b-1\ty", "a\t/t/a-2\tz"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let artifacts = [
+            PathBuf::from("/c/worker"),
+            PathBuf::from("/c/manifest.json"),
+        ];
+        assert_eq!(
+            identity_lines(&tests, &artifacts, hash).unwrap(),
+            [
+                "artifact /c/manifest.json\th(/c/manifest.json)",
+                "artifact /c/worker\th(/c/worker)",
+                "binary a\t/t/a-2\th(/t/a-2)",
+                "binary b\t/t/b-1\th(/t/b-1)",
+            ]
+        );
+        assert!(identity_lines(&["no-binary".to_string()], &[], hash).is_err());
+        let failing = |_: &Path| -> Result<String> { bail!("unreadable") };
+        assert!(identity_lines(&tests, &[], failing).is_err());
+        assert!(identity_lines(&[], &artifacts, failing).is_err());
+        assert_eq!(
+            identity_lines(&[], &[], failing).unwrap(),
+            Vec::<String>::new()
+        );
     }
 
     #[test]
-    fn a_record_names_the_commit_the_clean_tree_the_selection_and_each_test() {
+    fn the_files_under_a_directory_are_every_file_at_any_depth() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(files_under(&dir.path().join("none")).unwrap().is_empty());
+        std::fs::create_dir_all(dir.path().join("x/y")).unwrap();
+        std::fs::write(dir.path().join("b"), "").unwrap();
+        std::fs::write(dir.path().join("x/y/a"), "").unwrap();
+        assert_eq!(
+            files_under(dir.path()).unwrap(),
+            [dir.path().join("b"), dir.path().join("x/y/a")]
+        );
+        std::fs::write(dir.path().join("file"), "").unwrap();
+        assert!(files_under(&dir.path().join("file")).is_err());
+    }
+
+    fn record(head: &str, clean: bool, selection: &[&str], tests: &[&str]) -> String {
+        let selection: Vec<String> = selection.iter().map(|s| s.to_string()).collect();
+        let tests: Vec<String> = tests.iter().map(|s| s.to_string()).collect();
+        record_text(head, clean, &selection, &[], &tests)
+    }
+
+    #[test]
+    fn a_record_names_the_commit_the_clean_tree_the_selection_the_identities_and_each_test() {
+        assert_eq!(
+            record_text(
+                "abc",
+                true,
+                &["s".to_string()],
+                &["artifact c\th".to_string(), "binary b\tp\th".to_string()],
+                &["b\tp\tt1".to_string()]
+            ),
+            "head abc\nclean true\nselection s\nartifact c\th\nbinary b\tp\th\ntest b\tp\tt1\n"
+        );
         assert_eq!(
             record(
                 "abc",
@@ -278,6 +472,25 @@ mod tests {
             Some(&base),
             &record("abc", true, &["s"], &["b\tq\tt1", "b\tp\tt2"]),
             "the slow step has test b\tp\tt1, the tree now has test b\tq\tt1",
+        );
+        let identified = |identity: &str| {
+            record_text(
+                "abc",
+                true,
+                &["s".to_string()],
+                &[identity.to_string()],
+                &["b\tp\tt1".to_string()],
+            )
+        };
+        refused(
+            Some(&identified("artifact c\th1")),
+            &identified("artifact c\th2"),
+            "the slow step has artifact c\th1, the tree now has artifact c\th2",
+        );
+        refused(
+            Some(&identified("binary b\tp\th1")),
+            &identified("binary b\tp\th2"),
+            "the slow step has binary b\tp\th1, the tree now has binary b\tp\th2",
         );
         refused(
             Some(&base),
@@ -377,6 +590,21 @@ mod slow_tests {
             .contains("the tree now: the tree differs"));
         std::fs::remove_file(repo.join("src/extra.rs")).unwrap();
         assert_eq!(check(&repo, &target, &selection, &env).unwrap(), Ok(2));
+        // A candidate file that changes after the pass (target/ is ignored, so git does not see it) refuses the reuse.
+        let candidate = target.join("candidate");
+        std::fs::create_dir_all(&candidate).unwrap();
+        std::fs::write(candidate.join("manifest.json"), "{}").unwrap();
+        assert!(check(&repo, &target, &selection, &env)
+            .unwrap()
+            .unwrap_err()
+            .contains("the tree now has artifact"));
+        write(&repo, &target, &selection, &env).unwrap();
+        assert_eq!(check(&repo, &target, &selection, &env).unwrap(), Ok(2));
+        std::fs::write(candidate.join("manifest.json"), "{\"changed\":1}").unwrap();
+        let changed = check(&repo, &target, &selection, &env)
+            .unwrap()
+            .unwrap_err();
+        assert!(changed.contains("manifest.json"), "{changed}");
         clear(&target).unwrap();
         assert!(check(&repo, &target, &selection, &env).unwrap().is_err());
     }
