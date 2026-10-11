@@ -748,3 +748,23 @@ No new comparison run is required by that request.
 The corrected exact-head gate and completed package verdict remain pending.
 This receipt accepts no missing provenance or future gate result.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — reversal provenance receipt
+
+Integration correction receipt: `4ad5e8d5b669134eba7db24b7d1f3f1cffc8348f`.
+Message: `msg_plugin-w_1791751368_45598b`.
+It covers `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56` with both integration finding conditions closed.
+The reviewer read the full integration receipt and reversal script without executing it.
+The script is `botster-core-rc-oracle-reversals-mac-41c1f7e2-20261011-133400.py` in the gates directory.
+It removes `RUSTUP_TOOLCHAIN`, uses four build and test threads, and selects one exact behavior test for each reversal.
+It restores the source after each run and filters the printed output to failures and summaries.
+The filtered log contains no complete build output.
+
+The integration receipt cites RC's provenance message `msg_plugin-w_1791751209_2d16ce`.
+RC reports a clean before the tests and reversals, with 3.0 GiB removed, followed by builds from only this worktree.
+Contracts builds use a separate target directory. This reported provenance satisfies B13's single-worktree condition.
+The reviewer claims no independent raw clean verification.
+All four reversals fail their named behavior assertions. No new comparison run is required.
+The corrected exact-head gate and completed package verdict remain pending.
+The reviewer ran no test, build, or gate.
