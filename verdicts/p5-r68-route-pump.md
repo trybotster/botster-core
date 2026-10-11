@@ -134,3 +134,106 @@ This finding matches reviewer 016c's evidence finding.
 I changed no product code. I ran no tests, builds, gates, or mutation jobs.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11 — controlled late acknowledgement evidence
+
+- PR: https://github.com/trybotster/botster-contracts/pull/47.
+- Exact head: `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+- Tree: `c5e63ca03ffbbb2ca0c803602a34139a0458a883`.
+- Base: `5ff1b52be672bc107e80cd0d911110034745eda4`.
+- Parents: `2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190` and `5ff1b52be672bc107e80cd0d911110034745eda4`.
+- Evidence receipt: `msg_plugin-w_1791737368_b336d2`.
+- Body correction receipt: `msg_plugin-w_1791737695_aa3851`.
+- Tier: HIGH. BUILD.md rules 1 and 3 apply.
+- Plan: revision 23bk, `stage1-plan.00635d10.md`, SHA256 `d90aab57ce819b2607339cfe0c92a1d5b60987db52d3b111ce1f223af6354bf6`.
+- Authority: the lead approved the scratch seam. The stall rule places #47 in contracts-v0.1.39. The lead requires no source change, base merge, or new gate.
+
+This section supersedes Round 1 on the same head. All four source findings remain closed. R68-E1 now closes.
+
+### Source and proof checks
+
+I read the entire README, both seam patches, job script, four late logs, and published PR body.
+Both retained patches exactly equal their committed Git records. Their 131 added lines are identical.
+Each commit changes only the scratch harness files `crash.rs` and `real.rs`.
+
+The before Core head is `59d32bba6c6076dbf295cc5c83cc27cd0627efb3`.
+Its tree is `85bdfae469b8d111a1f58a01bb3814224492469d`.
+Its parent is `f04f7c553f43c449b77c07dd8cc4122cb9555803`.
+Cargo.lock resolves its scratch tag to contracts `56e5b744588b98ccbbb892d6b0a63522317284f0`.
+
+The after Core head is `5e0ea617a6b1371fa3007791e37ea4fc64356d55`.
+Its tree is `a0d81e38a52bc1167f6f45f67e67b4e391ee7734`.
+Its parent is `516c1dbb4a0095caf5cb1b77ca6ddd884f4c8dff`.
+Cargo.lock resolves its scratch tag to contracts `2f1749ee1e89ae8e422c7dcf602e1b6efcdfc190`.
+
+The worker source tree is identical on both sides.
+The earlier reviewed Core delta supplies the descriptor adapters on the after side.
+The driver, harness, clock test, and driver tests at the after contracts pin equal those files at the final head.
+
+The proof and both controls are identical on both sides.
+The proof starts a probe and waits for `program_ready`.
+It pauses the recorded worker before it attaches r1 and begins Stop.
+The controls check the recorded worker's pid and start time. They signal one pid, never a process group.
+The harness runs the one-shot resume step after the next Core pump returns and releases the slot lock.
+The worker can then acknowledge the route and close its copy.
+The old driver pumps once for handoff. It cannot process the later acknowledgement without another pump.
+The new driver supplies that pump during the route wait.
+
+The proof checks `expect_closed null` on r1 and ignores all frames.
+Thus, a PASS requires EOF (the end of the stream).
+Both sides use seed 0 and `Limits::real()`. The ten-second step limit remains unchanged.
+The seam adds no sleep. The scratch seam is evidence only.
+
+### Execution evidence
+
+Each command in the four logs matches `late-job.sh` after substitution of the before or after tree value.
+Each log names its exact scratch head and reports successful creation of the worker manifest.
+Each log has five outcome records and five test-result records, with indexes 1 through 5 and no duplicate index.
+
+| Operating system | Before | After |
+|---|---|---|
+| Linux 6.12.111+deb13-amd64 | 5 of 5 Inconclusive at step 8, step_timeout, seed 0; 10.01 to 10.02 s | 5 of 5 Passed at EOF; 21 to 24 ms |
+| macOS, Darwin 27.0.0 | 5 of 5 Inconclusive at step 8, step_timeout, seed 0; 10.34 to 10.76 s | 5 of 5 Passed at EOF; 357 to 679 ms |
+
+The before test asserts Passed and therefore reports FAILED for the required timeout outcomes.
+The after test reports one pass and zero failures in each run.
+The script filters output and does not propagate the cargo exit through its pipeline.
+A zero wrapper exit alone does not prove PASS. The retained outcome and test-result records supply the proof.
+The four wrappers exit with zero after 106, 142, 877, and 213 seconds, respectively.
+
+The published body now states the correct macOS before range.
+This closes the LOW body correction. The final head remains unchanged.
+The previously reviewed exact-head gate remains green.
+The N-run and full A5-4 evidence retains the scope recorded in Round 1. No PASS becomes non-PASS.
+
+Artifact SHA256 values:
+
+| Artifact | SHA256 |
+|---|---|
+| `late-README.md` | `46d795e0b89cfdfc9e278578614dafbff4411f0270cde87e6aca86b7c6179266` |
+| `late-job.sh` | `1556b3b7f943de6450f06bbf2778bf5cbf63d6d67a3acdd9abc6d78791c1bb94` |
+| `late-seam-before-59d32bba.patch` | `4e5c9b4f44ee8e9506bcb0ffb138b9d942763d332de34173894c71ef6b9e94b7` |
+| `late-seam-after-5e0ea617.patch` | `a5de10020b1e6a99e607a0f06f13dbb35a777f659ad9cbb35e7234dec06c6b7d` |
+| `late-linux-before-59d32bba.log` | `534e078596c6295aaad1365fc2d6efa560882e1147993b22ee8bd25d9f881745` |
+| `late-linux-after-5e0ea617.log` | `2f1aa6221ec94354ba5c24df389026921a7bf35a665f3058a2761f92b59847e1` |
+| `late-mac-before-59d32bba.log` | `607ada74b40f9d93f45b492e22e45f65b15880cbaaf1e7de0da4574b4f17722d` |
+| `late-mac-after-5e0ea617.log` | `c7bb7e895fb2371b1d082f3f11f9d4a36b748685fb0730c2c24e4c2d7691a44f` |
+
+### Required reviewer records
+
+Reviewer 016c accepts this exact head and closes R68-E1.
+The local record is `r68-route-pump-f303ccdb-accept.md`, SHA256 `6db224a04b29c944db455e97b51da61a850b31441f138b075cc32e5fdfe4dbe7`.
+Receipt: `msg_plugin-w_1791737474_ddb3df`.
+Reviewer 016c permitted me to preserve the entire record. The companion verdict file records its authorship.
+Reviewer 016c did not make this commit.
+
+Sol is CLEAN on this exact head in `85f9206ba5c9265917a4d3a55a5412322f8ba6d6`, Round 2.
+Receipt: `msg_plugin-w_1791737633_f6e7c5`.
+I read that committed section.
+
+No finding remains open.
+This verdict accepts only the named contracts head and supplied evidence.
+It does not accept a future tag, Core pin, or pending-ID removal.
+I changed no product code. I ran no builds, tests, gates, mutation jobs, or executable merge checks.
+
+VERDICT: CLEAN
