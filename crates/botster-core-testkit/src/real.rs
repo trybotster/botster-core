@@ -29,8 +29,13 @@
 //!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A payload
 //!   that is not known (the tap has not read the report, or another handle's tap read it) is never taken as ended: the
 //!   answer is whether the recorded worker, which still matches its identity, has a live child
-//!   ([`botster_test_process::platform::live_children`]; each worker has at most one child, its payload). A worker that
-//!   does not match is `Bad`, because its payload can outlive it. It sends no signal.
+//!   ([`botster_test_process::platform::live_children`]). "The only child is the payload" is true only of the worker
+//!   binary, so the answer needs proof that the recorded pid runs it: a tap of the data directory met the worker
+//!   ([`Tap::heard`]). Only the worker binary sends the hello or listens on the worker's endpoint, so either one proves that
+//!   the pid has exec'd the worker; the guard's wrap stage reaps its own child (the intermediate that starts the anchor)
+//!   before that exec. Without that proof the pid may still run the wrap stage, whose child is no payload, and no worker
+//!   has launched one: the answer is `false`. This is a fact about the process, not a wait. A worker that does not match
+//!   is `Bad`, because its payload can outlive it. It sends no signal.
 //! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
 //!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
 //!   so a reused pid is never signalled (AD-6). The worker's group is the worker's own (Core spawns it as a group leader),
@@ -57,8 +62,8 @@
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
-use crate::edge_tap::{EdgeTap, Rows, Tap};
-use crate::harness::{limits_of, no_route};
+use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
+use crate::harness::limits_of;
 use crate::process_controls::LoseReason;
 use crate::refusal::{arm_refusal, RefusalHandle, RefusalLayer};
 use crate::stand_in::{self, StandIn};
@@ -77,9 +82,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
+
+mod route;
 
 /// The binary that a wrapper execs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,6 +174,8 @@ pub struct RealCoreHarness {
     handles: BTreeMap<String, Handle>,
     /// The registry rows of each data directory, across every handle that opened it.
     rows: BTreeMap<PathBuf, Rows>,
+    /// The instances whose worker a tap of each data directory met, across every handle that opened it.
+    heard: BTreeMap<PathBuf, Heard>,
     /// The stand-ins that controls armed, by data directory, until the next `open` of that directory installs them.
     armed: BTreeMap<PathBuf, Vec<Arm>>,
     /// The number of stand-ins installed: each one puts its real endpoint aside under its own name.
@@ -220,6 +230,7 @@ impl RealCoreHarness {
             tapped,
             handles: BTreeMap::new(),
             rows: BTreeMap::new(),
+            heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
             stand_ins: 0,
@@ -426,6 +437,11 @@ impl RealCoreHarness {
         {
             let alive = lives(&tap, payload).map_err(unreadable)?;
             return Ok(json!({ "alive": alive }));
+        }
+        if !tap.heard(&processes.instance) {
+            // No proof that the recorded pid runs the worker binary (its hello, or its endpoint): it may still run the guard's
+            // wrap stage, whose child is no payload, and no worker has launched one.
+            return Ok(json!({ "alive": false }));
         }
         let children = platform::pid(worker.pid)
             .and_then(platform::live_children)
@@ -675,7 +691,8 @@ impl CoreHarness for RealCoreHarness {
                 .map_err(RealCoreHarness::harness_failed)?;
             let (cfg, edges) = botster_core::open_parts(config)?;
             let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
-            let (edges, tap) = EdgeTap::new(edges, rows);
+            let heard = Arc::clone(self.heard.entry(data_dir.clone()).or_default());
+            let (edges, tap) = EdgeTap::new(edges, rows, heard);
             if let Some(tap) = tap.upgrade() {
                 let mut tap = lock(&tap);
                 for stand_in in stand_ins {
@@ -737,8 +754,10 @@ impl CoreHarness for RealCoreHarness {
     }
 
     fn has_control(&self, op: &str) -> bool {
+        // The route's own controls count too: the runner checks `requires.controls` against the harness before step 0,
+        // and the driver then hands each one to the route (`RealRoute::control`).
         self.tapped
-            && matches!(
+            && (matches!(
                 op,
                 "edges_quiet"
                     | "break_control"
@@ -754,7 +773,7 @@ impl CoreHarness for RealCoreHarness {
                     | "hold_start_at"
                     | "release_start_at"
                     | "fail_next"
-            )
+            ) || route::CONTROLS.contains(&op))
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -797,15 +816,34 @@ impl CoreHarness for RealCoreHarness {
         self.probe.display().to_string()
     }
 
+    /// A route over a Unix stream pair (R-47 A): Core receives one end as the route's transport and hands it to the
+    /// worker; the client keeps the other ([`route::RealRoute`]). The harness keeps no copy of the worker's end. Both
+    /// harnesses serve it: the route is the client's, not the tap's.
     fn attach_stream(
         &mut self,
         _handle: &str,
-        _core: &mut dyn CoreApi,
-        _client: ClientId,
-        _session: &SessionId,
-        _options: AttachOptions,
+        core: &mut dyn CoreApi,
+        client: ClientId,
+        session: &SessionId,
+        options: AttachOptions,
     ) -> Result<(AttachResult, Box<dyn RouteClient>), CoreError> {
-        Err(no_route("attach_stream"))
+        let stream_failed = |error: io::Error| {
+            CoreError::new(
+                ErrorCode::Internal,
+                format!("the real harness could not make the route's stream: {error}"),
+            )
+        };
+        let (worker_end, client_end) = UnixStream::pair().map_err(stream_failed)?;
+        let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
+        let result = core
+            .attach(
+                client,
+                session.clone(),
+                RouteTransport::Stream(StreamEndpoint::new(worker_end)),
+                options,
+            )
+            .map_err(|refused| refused.error)?;
+        Ok((result, Box::new(route)))
     }
 }
 
@@ -826,6 +864,7 @@ fn runs(identity: ProcessIdentity) -> io::Result<bool> {
 #[cfg(test)]
 mod slow_controls {
     use super::*;
+    use botster_core_host::session::{unknown_request, RowWorker, ROW_VERSION};
     use botster_test_process::{Blocker, Deadline, OwnedChild};
     use std::os::unix::fs::MetadataExt as _;
     use std::process::Command;
@@ -1015,8 +1054,9 @@ mod slow_controls {
     }
 
     /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
-    /// - `hold_start_at` holds the start at the host's `Launch`: the stored row (`registry_row`) is `Starting` with the
-    ///   worker identity, the worker launched no payload, and the start completes only after `release_start_at`. A second
+    /// - `hold_start_at` holds the start at the host's `Launch`: Core's `Launch` meets the hold before the worker has any
+    ///   child, so the worker never received it (R-49 Q2). The stored row (`registry_row`) is `Starting` with the worker
+    ///   identity, and the start completes only after `release_start_at`. A second
     ///   hold, a hold of a begun start, a release with no hold and an unknown session are `Bad`; a hold before another step
     ///   is `unsupported_control`.
     /// - `fail_next` refuses the named call of the handle without calling Core: the session stays `Created`, and the call
@@ -1061,10 +1101,50 @@ mod slow_controls {
 
         core.begin(Op::Start { id: sid("s1") }).expect("start");
         let tap = harness.tap("a").unwrap();
+        let instance = harness
+            .session_processes(&data_dir, &sid("s1"))
+            .expect("the row of s1")
+            .instance;
+        // No pump has run since the `Start` began, so Core has sent no `Launch`: the hold is only armed.
+        assert!(
+            !lock(&tap).launch_held(&instance),
+            "an armed hold has met nothing"
+        );
+        // Whichever comes first: the `Launch` meets the hold, or the worker has a child (the worker spawns its payload only
+        // on the `Launch`, so a child means that the `Launch` passed the hold). A child counts only after a tap met the
+        // worker: before that, the recorded pid can still run the guard's wrap stage, whose intermediate is a child that is
+        // no payload (the same proof as in `payload_alive`).
+        let mut child = None;
         pump_until(core.as_mut(), |_| {
-            let row = harness.control("a", "registry_row", &json!({"session": "s1"}));
-            row.is_ok_and(|row| row["identity_recorded"] == json!(true)) && lock(&tap).quiet()
+            let tap = lock(&tap);
+            if tap.launch_held(&instance) {
+                return true;
+            }
+            if !tap.heard(&instance) {
+                return false;
+            }
+            let worker = harness
+                .session_processes(&data_dir, &sid("s1"))
+                .and_then(|p| p.worker);
+            child = worker.and_then(|w| {
+                let children = platform::live_children(platform::pid(w.pid).unwrap()).unwrap();
+                (!children.is_empty()).then_some(children)
+            });
+            child.is_some()
         });
+        assert_eq!(child, None, "the Launch passed the hold");
+        // Core sends the `Launch` only after the worker's hello, so the recorded pid now runs the worker binary.
+        assert!(
+            lock(&tap).heard(&instance),
+            "the hello came before the Launch"
+        );
+        let worker = harness
+            .session_processes(&data_dir, &sid("s1"))
+            .and_then(|p| p.worker)
+            .expect("the worker is recorded before the Launch (AD-7)");
+        let children = platform::live_children(platform::pid(worker.pid).unwrap()).unwrap();
+        assert!(children.is_empty(), "the worker has no child: {children:?}");
+        pump_until(core.as_mut(), |_| lock(&tap).quiet());
         let mut control = |op: &str, args: Value| harness.control("a", op, &args);
         assert_eq!(
             control("registry_row", json!({"session": "s1"})),
@@ -1117,9 +1197,86 @@ mod slow_controls {
         pump_until(core.as_mut(), |c| state(c, "s2") == SessionState::Running);
     }
 
+    /// Core AD-7 (`conf::ad_7_payload_launches_after_durable_identity`, red at #240's gate `e493ff5f`): before a tap of the
+    /// directory met the worker, the recorded pid may still run the guard's wrap stage, whose live child (the intermediate
+    /// that starts the anchor) is no payload. Here the recorded worker is a shell that waits for its own live child, as wrap
+    /// waits for its intermediate, and it never says hello: `payload_alive` is `false`, though the pid matches and has a
+    /// live child. The test below proves that a live child after the hello still reads as the payload.
+    #[test]
+    fn a_child_of_a_worker_that_no_tap_met_is_no_payload() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let core = harness
+            .open(&OpenSpec {
+                handle: "a".into(),
+                data_dir: data_dir.clone(),
+                worker: harness.worker(WorkerBuild::Current),
+                limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+            })
+            .expect("open");
+
+        // The shell runs `cat` as its child (a command that is not the last one is never exec'd in place). The byte that
+        // comes back through the child proves that the child runs.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut hold = Blocker::new(tmp.path(), "hold").unwrap();
+        let mut shell = Command::new("/bin/sh");
+        shell
+            .arg("-c")
+            .arg(format!("{}; exit 0", hold.shell()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped());
+        let mut wrap = OwnedChild::spawn_group(&mut shell).unwrap();
+        let stdout = wrap.take_stdout().expect("the shell's stdout");
+        hold.send(b"running\n").unwrap();
+        let (_rest, line) = botster_test_process::first_line(stdout);
+        assert_eq!(line, "running\n");
+        let pid = wrap.id();
+        let children = platform::live_children(platform::pid(pid).unwrap()).unwrap();
+        assert_eq!(
+            children.len(),
+            1,
+            "the shell has one live child: {children:?}"
+        );
+
+        let worker = RowWorker {
+            pid,
+            start_time: botster_core_sys::process::start_time(pid).expect("a start time"),
+        };
+        let row = Row {
+            version: ROW_VERSION,
+            id: sid("s1"),
+            instance: InstanceId("1-1".into()),
+            state: SessionState::Starting,
+            request: unknown_request(),
+            labels: BTreeMap::new(),
+            token: Some("00".repeat(32)),
+            worker: Some(worker),
+            payload: None,
+            worker_protocol: None,
+            worker_features: None,
+        };
+        lock(&harness.rows[Path::new(&data_dir.0)]).insert(sid("s1"), row);
+        let tap = harness.tap("a").unwrap();
+        assert_eq!(
+            lock(&tap).identity_state(worker.identity()),
+            IdentityState::Matches
+        );
+        assert!(!lock(&tap).heard(&InstanceId("1-1".into())));
+        assert_eq!(
+            harness.control("a", "payload_alive", &json!({ "session": "s1" })),
+            Ok(json!({ "alive": false }))
+        );
+        hold.release();
+        drop(tap);
+        drop(core);
+    }
+
     /// Core EV-5(c), AD-7 (#222 RC-A-F1): `payload_alive` never takes a `Launched` report that the tap has not read for an
     /// ended payload. A started session's row names no payload. After a reopen, the new handle's tap has read no report
-    /// while the payload runs: the answer comes from the worker's live child, `true`. After the identity-checked kill of
+    /// and no hello while the payload runs; the tap of the first handle read the hello, and the record of the directory
+    /// keeps it ([`Heard`]). So the answer comes from the worker's live child, `true`. After the identity-checked kill of
     /// the payload's group and its end by the deadline, the worker has no live child: `false`. A worker that is gone is
     /// `Bad`, never `false`: its payload could outlive it.
     #[test]
@@ -1460,6 +1617,10 @@ mod slow_tests {
             "release_start_at",
             "fail_next",
         ] {
+            assert!(tapped.has_control(op), "{op}");
+            assert!(!plain.has_control(op), "{op}");
+        }
+        for op in route::CONTROLS {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
         }
