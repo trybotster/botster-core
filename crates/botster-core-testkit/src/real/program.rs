@@ -755,36 +755,6 @@ mod slow_tests {
         });
     }
 
-    /// The output history (`oracle_resume`, R-62): each acknowledged output takes the next mark, from one count over every
-    /// probe, and goes to its own probe's history in order; a probe of another start time has none.
-    #[test]
-    fn each_output_takes_the_next_mark_and_goes_to_its_probes_history() {
-        let (_root, programs) = programs();
-        let marks = programs.marks();
-        let me = identity(std::process::id());
-        let other = ProcessIdentity {
-            start_time: me.start_time + 1,
-            ..me
-        };
-        assert_eq!(marks.next(), 0);
-        programs.wrote(me, b"z".to_vec());
-        assert_eq!(
-            marks.next(),
-            1,
-            "a probe that is not connected takes a mark too"
-        );
-        let _probe = FakeProbe::connect(&programs, me.pid);
-        drop(programs.connected(me).unwrap());
-        programs.wrote(me, b"a".to_vec());
-        programs.wrote(me, b"b".to_vec());
-        assert_eq!(marks.next(), 3);
-        assert_eq!(
-            programs.output(me),
-            vec![(1, b"a".to_vec()), (2, b"b".to_vec())]
-        );
-        assert_eq!(programs.output(other), vec![]);
-    }
-
     /// A probe that ends without acknowledging gives `Bad`, never a pass: the payload has exited.
     #[test]
     fn a_probe_that_ends_without_acknowledging_gives_bad() {

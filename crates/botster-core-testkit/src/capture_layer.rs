@@ -1,13 +1,15 @@
-//! The capture layer of the real `oracle_resume` (steward ruling R-62). The control itself is the real harness's
+//! The capture layer of the real `oracle_resume` (steward rulings R-62 and R-69). The control itself is the real harness's
 //! (`real/resume.rs`, the `slow` feature).
 //!
-//! [`CaptureLayer`] sits between the driver and Core's own composition. It passes every call through unchanged, and it
-//! records each `CaptureSnapshot` that the transcript begins: the mark of the output history at the `begin` (the cut) and,
-//! when Core completes it, every page that `read_page` gives, before the transcript can release it. For the second capture
-//! the control begins its own `CaptureSnapshot` through the layer and pumps Core with the driver's latest `now` until it
-//! completes. The events that those pumps take are held, and the driver gets them first, in order, with its next poll; its
-//! next `pump` reports them in `events_posted`. It also records each session that a `Resize` or a `SetColorProfile` reached
-//! (R-62 condition 3).
+//! [`CaptureLayer`] sits between the driver and Core's own composition. It passes every call and its result through
+//! unchanged, and it records each `CaptureSnapshot` that the transcript begins: the mark of the output history at the
+//! `begin` (the cut) and, when Core completes it, every page that `read_page` gives, before the transcript can release it.
+//! It also records each session that a `Resize` or a `SetColorProfile` reached (R-62 condition 3).
+//!
+//! The second capture runs only at a quiet point (R-69). The control begins its own `CaptureSnapshot` through the layer,
+//! pumps Core with the driver's latest `now` (no clock step) and polls. A poll that returns any event other than the
+//! capture's own `Completed` gives `unsupported_control` `events_pending`: the control never holds or re-injects an event,
+//! and the transcript ends there.
 //!
 //! Only the real harness composes it. It is outside that module so that its tests run in the default tier too: a layer that
 //! drops a call would otherwise stall every real transcript before a test could fail.
@@ -15,7 +17,7 @@
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::*;
 use serde_json::Value;
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -28,11 +30,22 @@ const OWNER: &str = "oracle_resume";
 /// A capture that Core completed for the transcript.
 #[derive(Debug, Clone)]
 pub(crate) struct Recorded {
-    pub(crate) session: SessionId,
+    session: SessionId,
     /// The mark of the output history at its `begin`: the outputs of a lower mark are before its cut.
-    pub(crate) mark: u64,
+    mark: u64,
     /// Every page, in order, or why `read_page` refused one.
     pub(crate) pages: Result<Vec<u8>, String>,
+}
+
+/// What `oracle_resume {session, capture}` reads from the layer (R-62, R-69).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Resumed {
+    /// The mark of the output history at the capture's `begin`: the outputs of a lower mark are before its cut.
+    pub(crate) mark: u64,
+    /// The pages of the transcript's capture.
+    pub(crate) pages: Vec<u8>,
+    /// The pages of the second capture, taken now.
+    pub(crate) second: Vec<u8>,
 }
 
 /// What the layer shares with the harness.
@@ -41,15 +54,12 @@ pub(crate) struct Shared {
     marks: Marks,
     /// The `now` of the driver's latest `pump`.
     now: Option<Now>,
-    /// The events that the control's pumps took, for the driver's next polls.
-    held: VecDeque<Event>,
-    /// How many of `held` no `pump` has reported yet.
-    unreported: u32,
     /// The transcript's `CaptureSnapshot` begins that Core has not completed: their session and mark.
     begun: BTreeMap<OpId, (SessionId, u64)>,
+    /// The transcript's completed captures. Only a test's fault injection writes them from outside.
     pub(crate) captures: BTreeMap<CaptureId, Recorded>,
     /// The sessions that a `Resize` or a `SetColorProfile` reached (condition 3).
-    pub(crate) changed: BTreeSet<SessionId>,
+    changed: BTreeSet<SessionId>,
     /// The pages that replace the next second capture: the negative proof through comparison 2.
     #[cfg(test)]
     pub(crate) second: Option<Vec<u8>>,
@@ -99,9 +109,46 @@ impl Shared {
         }
     }
 
-    /// Takes a capture of `session` now and returns its pages, then releases it. The events that the pumps take are held
-    /// for the driver. Core completes a capture after one round trip to the worker; `bound` ends a wait that never ends.
-    pub(crate) fn capture_now(
+    /// The transcript's capture `capture` of `session`, with its mark and pages, and a second capture of `session` taken now
+    /// ([`Shared::capture_now`]). A session that a `Resize` or a `SetColorProfile` reached gives plain `unsupported_control`
+    /// (R-62 condition 3); a capture that is not a completed capture of `session` gives `Bad`.
+    pub(crate) fn resume(
+        &mut self,
+        session: &SessionId,
+        capture: CaptureId,
+        bound: Duration,
+    ) -> Result<Resumed, ControlError> {
+        if self.changed.contains(session) {
+            return Err(ControlError::Unsupported);
+        }
+        let recorded = self
+            .captures
+            .get(&capture)
+            .filter(|recorded| recorded.session == *session)
+            .cloned()
+            .ok_or_else(|| {
+                ControlError::Bad(format!(
+                    "no completed capture {} of the session {}",
+                    capture.0, session.0
+                ))
+            })?;
+        let pages = recorded
+            .pages
+            .map_err(|e| ControlError::Bad(format!("oracle_resume: {e}")))?;
+        let second = self.capture_now(session, bound)?;
+        #[cfg(test)]
+        let second = self.second.take().unwrap_or(second);
+        Ok(Resumed {
+            mark: recorded.mark,
+            pages,
+            second,
+        })
+    }
+
+    /// Takes a capture of `session` at a quiet point and returns its pages, then releases it (R-69). Each poll must return
+    /// nothing or only the capture's own `Completed`; any other event gives `unsupported_control` `events_pending`. Core
+    /// completes a capture after one round trip to the worker; `bound` ends a wait that never ends.
+    fn capture_now(
         &mut self,
         session: &SessionId,
         bound: Duration,
@@ -120,17 +167,19 @@ impl Shared {
         let end = Instant::now() + bound;
         loop {
             self.core.pump(now);
-            let events = self.core.poll_events(usize::MAX);
-            self.record(&events);
             let mut done = None;
-            for event in events {
+            let mut pending = false;
+            for event in self.core.poll_events(usize::MAX) {
                 match event {
                     Event::Completed { op: id, result } if id == op => done = Some(result),
-                    event => {
-                        self.held.push_back(event);
-                        self.unreported = self.unreported.saturating_add(1);
-                    }
+                    _ => pending = true,
                 }
+            }
+            if pending {
+                if let Some(OpResult::Ok(OpOutput::Capture(capture))) = done {
+                    self.core.release(capture.capture);
+                }
+                return Err(ControlError::UnsupportedFor("events_pending".into()));
             }
             match done {
                 Some(OpResult::Ok(OpOutput::Capture(capture))) => {
@@ -167,8 +216,6 @@ impl CaptureLayer {
             core,
             marks,
             now: None,
-            held: VecDeque::new(),
-            unreported: 0,
             begun: BTreeMap::new(),
             captures: BTreeMap::new(),
             changed: BTreeSet::new(),
@@ -206,20 +253,13 @@ impl CoreApi for CaptureLayer {
     fn pump(&mut self, now: Now) -> PumpReport {
         let mut shared = self.shared();
         shared.now = Some(now);
-        let mut report = shared.core.pump(now);
-        report.events_posted = report.events_posted.saturating_add(shared.unreported);
-        shared.unreported = 0;
-        report
+        shared.core.pump(now)
     }
 
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
         let mut shared = self.shared();
-        let held = shared.held.len().min(max);
-        let mut events: Vec<Event> = shared.held.drain(..held).collect();
-        // Core reads at most the room that is left: none when the held events filled `max`.
-        let more = shared.core.poll_events(max - events.len());
-        shared.record(&more);
-        events.extend(more);
+        let events = shared.core.poll_events(max);
+        shared.record(&events);
         events
     }
 
@@ -349,6 +389,7 @@ mod tests {
     use super::*;
     use botster_route_codec::prelude::HexBytes;
     use serde_json::json;
+    use std::collections::VecDeque;
     use std::os::fd::RawFd;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -384,8 +425,8 @@ mod tests {
         }
     }
 
-    /// A Core that posts an unrelated event for each `CaptureSnapshot` and, when it `completes`, the completion after it, at
-    /// the next `pump`: two pages of two bytes, the capture's id and the page's index. It records the captures that it
+    /// A Core that completes each op at the next `pump`: a `CaptureSnapshot` only when it `completes`, with two pages of two
+    /// bytes (the capture's id and the page's index), and every other op with `Unit`. It records the captures that it
     /// released.
     struct Fake {
         next: u64,
@@ -409,11 +450,24 @@ mod tests {
         }
     }
 
-    /// An event that is not the control's.
-    fn other() -> Event {
+    /// The completion of an op that is not a capture: an event that is not the control's.
+    fn other(op: OpId) -> Event {
         Event::Completed {
-            op: OpId(999),
+            op,
             result: OpResult::Ok(OpOutput::Unit),
+        }
+    }
+
+    /// The completion of the capture of `op`.
+    fn captured(op: OpId) -> Event {
+        Event::Completed {
+            op,
+            result: OpResult::Ok(OpOutput::Capture(Capture {
+                capture: CaptureId(op.0),
+                page_count: 2,
+                total_bytes: 4,
+                model_rev: ModelRev(0),
+            })),
         }
     }
 
@@ -421,19 +475,10 @@ mod tests {
         fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
             self.next += 1;
             let id = OpId(self.next);
-            if let Op::CaptureSnapshot { .. } = op {
-                self.posted.push(other());
-            }
-            if let (Op::CaptureSnapshot { .. }, true) = (&op, self.completes) {
-                self.posted.push(Event::Completed {
-                    op: id,
-                    result: OpResult::Ok(OpOutput::Capture(Capture {
-                        capture: CaptureId(id.0),
-                        page_count: 2,
-                        total_bytes: 4,
-                        model_rev: ModelRev(0),
-                    })),
-                });
+            match (&op, self.completes) {
+                (Op::CaptureSnapshot { .. }, true) => self.posted.push(captured(id)),
+                (Op::CaptureSnapshot { .. }, false) => {}
+                _ => self.posted.push(other(id)),
             }
             Ok(id)
         }
@@ -568,98 +613,64 @@ mod tests {
         }
     }
 
-    /// The layer records the transcript's capture with its mark and pages; the control's own capture is not recorded, is
-    /// released, and the events that its pumps took reach the driver first, in order, and in the next `events_posted`.
+    /// The control reads the transcript's capture with its mark and pages, and a second capture that Core then releases.
+    /// Only a completed capture of the same session qualifies, and only a `Resize` or a `SetColorProfile` of that session
+    /// makes it unsupported. The layer passes Core's events through as they are.
     #[test]
-    fn the_layer_records_captures_and_holds_the_controls_events_for_the_driver() {
+    fn the_control_reads_the_transcripts_capture_and_a_second_one() {
         let (fake, released) = Fake::new(true);
         let (marks, _next) = marks_from(4);
         let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
         let shared = shared.upgrade().unwrap();
-        assert!(
-            matches!(
-                lock(&shared).capture_now(&sid("s1"), Duration::from_secs(10)),
-                Err(ControlError::Bad(_))
-            ),
-            "no pump yet"
-        );
-
+        let bound = Duration::from_secs(10);
         let op = layer
             .begin(Op::CaptureSnapshot {
                 session: sid("s1"),
                 owner: ClientId("c1".into()),
             })
             .unwrap();
+        let start = layer.begin(Op::Start { id: sid("s1") }).unwrap();
+        assert!(
+            matches!(
+                lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound),
+                Err(ControlError::Bad(_))
+            ),
+            "not completed yet"
+        );
         assert_eq!(layer.pump(now()).events_posted, 2);
-        let events = layer.poll_events(8);
-        assert_eq!(events.len(), 2);
-        {
-            let shared = lock(&shared);
-            let recorded = &shared.captures[&CaptureId(op.0)];
-            assert_eq!(recorded.session, sid("s1"));
-            assert_eq!(recorded.mark, 4);
-            assert_eq!(recorded.pages, Ok(vec![1, 0, 1, 1]));
-            assert!(shared.begun.is_empty());
-        }
+        assert_eq!(layer.poll_events(1), vec![captured(op)]);
+        assert_eq!(layer.poll_events(8), vec![other(start)]);
 
-        // A transcript capture that Core has not completed yet: the control's pump takes its two events too.
-        let pending = layer
-            .begin(Op::CaptureSnapshot {
-                session: sid("s1"),
-                owner: ClientId("c1".into()),
+        assert_eq!(
+            lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound),
+            Ok(Resumed {
+                mark: 4,
+                pages: vec![1, 0, 1, 1],
+                second: vec![3, 0, 3, 1],
             })
-            .unwrap();
-        let second = lock(&shared)
-            .capture_now(&sid("s1"), Duration::from_secs(10))
-            .unwrap();
-        assert_eq!(second, vec![3, 0, 3, 1]);
+        );
         assert_eq!(*released.lock().unwrap(), vec![CaptureId(3)]);
-        {
-            let shared = lock(&shared);
+        assert_eq!(
+            lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound),
+            Ok(Resumed {
+                mark: 4,
+                pages: vec![1, 0, 1, 1],
+                second: vec![4, 0, 4, 1],
+            }),
+            "the second capture is not the transcript's, and it is taken again"
+        );
+        for (session, capture) in [("s2", op.0), ("s1", start.0), ("s1", 99)] {
             assert!(
-                !shared.captures.contains_key(&CaptureId(3)),
-                "not the transcript's"
+                matches!(
+                    lock(&shared).resume(&sid(session), CaptureId(capture), bound),
+                    Err(ControlError::Bad(_))
+                ),
+                "{session} {capture}"
             );
-            assert_eq!(shared.captures[&CaptureId(pending.0)].mark, 5);
         }
-        let inner = layer
-            .begin(Op::CaptureSnapshot {
-                session: sid("s1"),
-                owner: ClientId("c1".into()),
-            })
-            .unwrap();
-        assert_eq!(
-            layer.pump(now()).events_posted,
-            2 + 3,
-            "the held events are reported with the new ones"
-        );
-        assert_eq!(layer.pump(now()).events_posted, 0, "once");
-        let held = [
-            other(),
-            Event::Completed {
-                op: pending,
-                result: OpResult::Ok(OpOutput::Capture(Capture {
-                    capture: CaptureId(pending.0),
-                    page_count: 2,
-                    total_bytes: 4,
-                    model_rev: ModelRev(0),
-                })),
-            },
-            other(),
-        ];
-        assert_eq!(layer.poll_events(0), vec![]);
-        assert_eq!(layer.poll_events(2), held[..2].to_vec());
-        assert_eq!(
-            layer.poll_events(2),
-            vec![held[2].clone(), other()],
-            "the held event first, then Core's"
-        );
-        let last = layer.poll_events(8);
-        assert_eq!(last.len(), 1);
-        assert!(matches!(last[0], Event::Completed { op, .. } if op == inner));
-        assert_eq!(layer.poll_events(8), vec![]);
 
-        for (op, session) in [
+        let capture = CaptureId(op.0);
+        for (change, session) in [
             (
                 Op::Resize {
                     session: sid("s2"),
@@ -684,26 +695,85 @@ mod tests {
                 "s3",
             ),
         ] {
-            layer.begin(op).unwrap();
-            assert!(lock(&shared).changed.contains(&sid(session)));
+            let id = layer.begin(change).unwrap();
+            assert_eq!(layer.pump(now()).events_posted, 1);
+            assert_eq!(layer.poll_events(8), vec![other(id)]);
+            assert_eq!(
+                lock(&shared).resume(&sid(session), capture, bound),
+                Err(ControlError::Unsupported)
+            );
         }
-        assert!(!lock(&shared).changed.contains(&sid("s1")));
+        assert!(
+            lock(&shared).resume(&sid("s1"), capture, bound).is_ok(),
+            "only the changed sessions"
+        );
     }
 
-    /// A second capture that Core never completes gives `Bad` at the bound; the events of its pumps are still held.
+    /// At a quiet point, the second capture returns its pages and releases the capture. It is not the transcript's, and it
+    /// leaves no event for the driver (R-69 item 3).
+    #[test]
+    fn a_quiet_second_capture_returns_its_pages_and_releases_it() {
+        let (fake, released) = Fake::new(true);
+        let (marks, _next) = marks();
+        let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
+        let shared = shared.upgrade().unwrap();
+        assert_eq!(layer.pump(now()).events_posted, 0);
+        let second = lock(&shared)
+            .capture_now(&sid("s1"), Duration::from_secs(10))
+            .unwrap();
+        assert_eq!(second, vec![1, 0, 1, 1]);
+        assert_eq!(*released.lock().unwrap(), vec![CaptureId(1)]);
+        assert_eq!(layer.pump(now()).events_posted, 0);
+        assert_eq!(layer.poll_events(8), vec![]);
+    }
+
+    /// An event that the driver has not polled gives `events_pending`, also when it arrives with the capture's completion.
+    /// The control releases a completed capture and never gives the drained event back (R-69 item 2).
+    #[test]
+    fn an_event_that_the_driver_did_not_poll_gives_events_pending() {
+        for completes in [true, false] {
+            let (fake, released) = Fake::new(completes);
+            let (marks, _next) = marks();
+            let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
+            let shared = shared.upgrade().unwrap();
+            layer.begin(Op::Start { id: sid("s1") }).unwrap();
+            assert_eq!(layer.pump(now()).events_posted, 1);
+            assert!(
+                matches!(
+                    lock(&shared).capture_now(&sid("s1"), Duration::from_secs(10)),
+                    Err(ControlError::UnsupportedFor(name)) if name == "events_pending"
+                ),
+                "completes: {completes}"
+            );
+            let expected = if completes {
+                vec![CaptureId(2)]
+            } else {
+                vec![]
+            };
+            assert_eq!(*released.lock().unwrap(), expected);
+            assert_eq!(layer.pump(now()).events_posted, 0);
+            assert_eq!(layer.poll_events(8), vec![], "never given back");
+        }
+    }
+
+    /// A second capture before the driver's first `pump` gives `Bad`, and one that Core never completes gives `Bad` at the
+    /// bound.
     #[test]
     fn a_second_capture_that_never_completes_is_bad_at_the_bound() {
         let (fake, released) = Fake::new(false);
         let (marks, _next) = marks();
         let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
         let shared = shared.upgrade().unwrap();
+        assert!(matches!(
+            lock(&shared).capture_now(&sid("s1"), Duration::ZERO),
+            Err(ControlError::Bad(message)) if message.contains("never pumped")
+        ));
         assert_eq!(layer.pump(now()).events_posted, 0);
         assert!(matches!(
             lock(&shared).capture_now(&sid("s1"), Duration::ZERO),
             Err(ControlError::Bad(message)) if message.contains("did not complete")
         ));
         assert!(released.lock().unwrap().is_empty());
-        assert_eq!(layer.poll_events(8), vec![other()]);
     }
 
     /// The second capture pumps Core again after each wait until Core completes it.
@@ -720,7 +790,6 @@ mod tests {
             .unwrap();
         assert_eq!(second, vec![1, 0, 1, 1]);
         assert_eq!(*released.lock().unwrap(), vec![CaptureId(1)]);
-        assert_eq!(layer.poll_events(8), vec![other()]);
     }
 
     /// Every call reaches the Core behind the layer, and every result comes back unchanged: the layer only records

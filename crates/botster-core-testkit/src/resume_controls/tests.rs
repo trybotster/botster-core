@@ -240,11 +240,9 @@ fn the_log_keeps_the_first_position_of_each_revision() {
     log.read(b"c");
     log.rev(ModelRev(1));
     log.rev(ModelRev(2));
-    assert_eq!(
-        log.revs,
-        [(ModelRev(0), 0), (ModelRev(1), 2), (ModelRev(2), 3)]
-    );
+    assert_eq!(log.read_at(ModelRev(0)), Some(0));
     assert_eq!(log.read_at(ModelRev(1)), Some(2));
+    assert_eq!(log.read_at(ModelRev(2)), Some(3));
     assert_eq!(log.read_at(ModelRev(3)), None);
 }
 
