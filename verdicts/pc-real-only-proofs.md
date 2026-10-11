@@ -2,6 +2,8 @@
 
 VERDICT: CLEAN (0 open) at 46094d5b504861e59b66ac8cf16b399841d7ec71
 
+This CLEAN carries to final head `2f26928054d225875b866a40d3cfdc3a83820b3b` under the verified base-only merge exception below.
+
 ## Round 1 — historical NOT CLEAN at 617c1422
 
 - PR: #264, `stage1/pc-real-only-proofs`.
@@ -235,4 +237,55 @@ The separate OU-9 structural fix stays OPEN with P3. This package CLEAN does not
 Sol's integration delta verdict at this head remains required.
 After both CLEANs, PC must merge current v1 once, check that merge, and run one final exact-head gate.
 This package CLEAN covers this exact source head and recorded base only. It approves no later head or merge.
+Wait for the doorbell. Never poll.
+
+
+## Final base import, gate, and merge receipt
+
+Status: CLEAN (0 open). No new source delta round is required.
+
+- Reviewed head: `46094d5b504861e59b66ac8cf16b399841d7ec71`.
+- Final gated head: `2f26928054d225875b866a40d3cfdc3a83820b3b`.
+- Final base: `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9`.
+- GitHub merge commit: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+- PC receipt: `msg_plugin-w_1791734846_1e91a0`.
+- Current brief plan: revision 23bb, `stage1-plan.6251ffcb.md`.
+- Plan SHA-256: `fa582f203df6e3ccc51df2d6756e5ef96002c5d52a12896a056c5a1ee8dc2e9c`.
+
+The reviewer read the updated brief first and checked BUILD.md and the applicable plan text.
+Plan sections 5 and 8 equal the reviewed 23au sections. Section 0 now records the approved own-trial decision.
+The reviewer read `shared/core-stage1/handoffs/pc-264-base-merge-check-2f269280.txt` completely.
+The shared script reports PASS for ancestry, a conflict-free merge, disjoint paths, and the unchanged own diff.
+Both pending files remain equal to the final base.
+An independent read-only comparison confirms 18 changed base paths, 16 own paths, and no overlap.
+The own binary diff with full blob identities is byte-identical: 85,312 bytes.
+Its SHA-256 is `0a93c082c309db2832ab3dc5359ab75bfc2fa3fc78e0152c0803b70ddf06eb4f`, which matches the shared report.
+BUILD.md's base-only merge exception therefore carries both published source CLEANs to this final head.
+The package verdict is `f9875367aea4d5b2811ac62b2c93c94532892562`; Sol's verdict is `294f42cb67387cc308fb139afaca6220054bcadb`.
+
+The first-parent history after CLEAN contains two base imports, not one:
+`e363e24fbfbd1696c568467809f8248e03af073a` imports `d582853da895688710ab97f8f1a0858599e8ba18`.
+The final head imports `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9` onto that merge.
+The PR body records the stopped first gate. The lead's 20:10 handoff directs PC to import the new base before the final gate.
+This record preserves the actual history. It does not describe these two imports as one.
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-pc-real-only-proofs-2f269280-pool-20261011-085825-53068.log`.
+SHA-256: `d18ee68b43e1c5c3de937235ef24feb47f168beeeac06cd40dcc961f71601dc9`.
+The header names the final head and base. All ten steps PASS in 492.8 seconds.
+The Linux job exits 0 after 502 seconds. The wrapper exits 0 after 503 seconds on msa1.
+Default: 1724 PASS, 481 skipped, 15.755 seconds. Slow: 553 PASS, 2021 skipped, 43.410 seconds.
+AD-6's own trial passes in 0.209 seconds. The result check names its exact identity and checks one proof.
+The report remains 56 / 69 testkit, 46 / 68 real-passing, and 47 / 69 real-accepted.
+Mutation stage 1 has 83 identities: 78 caught, 3 missed, 2 unviable, and 0 timeout in 213.3 seconds.
+Stage 2 catches exactly the three misses in 94.1 seconds. Its baseline passes all 553 tests.
+The reviewer matched all 86 raw records and all 81 named catch reports.
+Final result: 81 caught, 2 unviable, 0 missed, 0 timeout. The gate contains no FLAKY token.
+The two unviable replacements still require unavailable Default implementations. Fuzz finds no changed decoder-harness crate.
+The earlier OU-9 structural fix remains OPEN with P3. This green gate does not close that defect.
+
+The GitHub API reports PR #264 MERGED at `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+The merge commit and gated head share tree `8b603a9d4533360ab0ab2e89212aa4e71df45bbb`.
+The lead's 20:40 handoff confirms the merge and tree check.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable merge-check job.
+This receipt closes the final gate condition for #264. It does not complete the original program-controls group.
 Wait for the doorbell. Never poll.

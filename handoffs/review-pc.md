@@ -5,15 +5,15 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.0af4db8d.md`, revision 23au.
-- Verified plan SHA-256: `8c4f8bb51f2d3defe02822c4ed0b03d6f7a08f5b693950d4746fd6fd8139e3d9`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.6251ffcb.md`, revision 23bb.
+- Verified plan SHA-256: `fa582f203df6e3ccc51df2d6756e5ef96002c5d52a12896a056c5a1ee8dc2e9c`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
 - Last #233 review base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Active review: PR #264 at `46094d5b504861e59b66ac8cf16b399841d7ec71`, base `010f2a49952f9b77581f304dbaa41006b115d40b`. Package CLEAN (0 open).
+- PR #264 is MERGED at `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`. Final gated head: `2f26928054d225875b866a40d3cfdc3a83820b3b`. Both source CLEANs carry under the verified base-only merge exception.
 - Last #233 status: package and integration CLEAN at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. All five findings are closed. Its final gate receipt remains pending here.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
@@ -796,3 +796,49 @@ Next: push this exact-head verdict and send its commit to PC, Sol, and the lead.
 Sol's same-head integration delta remains required. After both CLEANs, PC merges current v1 once and runs the final exact-head gate.
 This verdict covers no later head or merge. Wait for the doorbell. Never poll.
 The original program-controls group remains incomplete.
+
+
+Push record: PR #264 package CLEAN (0 open) is on origin/stage1/review-pc at f9875367aea4d5b2811ac62b2c93c94532892562.
+Reviewed head: 46094d5b504861e59b66ac8cf16b399841d7ec71. Base: 010f2a49952f9b77581f304dbaa41006b115d40b.
+Verdict: verdicts/pc-real-only-proofs.md, Rounds 2 and 3. RP-PC-1 is closed.
+The final delta changes comments and documentation only. The supplied gate remains prior-head evidence at c0f295ab.
+Sol's same-head integration delta and the final current-base exact-head gate remain required.
+The separate OU-9 structural fix remains OPEN with P3. The reviewer worktree is clean.
+Wait for the doorbell. Never poll.
+
+
+Sol Round 3 CLEAN receipt: msg_plugin-w_1791733149_ef7519.
+Source head: 46094d5b504861e59b66ac8cf16b399841d7ec71. Base: 010f2a49952f9b77581f304dbaa41006b115d40b.
+Sol verdict: 294f42cb67387cc308fb139afaca6220054bcadb, verdicts/stage1/pc-real-only-proofs-implementation.md, Round 3.
+The package reviewer read Sol's complete Round 3 and verified that origin/stage1/integration-review-sol contains the verdict commit.
+RP-SI-2 is closed. RP-SI-1 stays closed. Both source verdicts are CLEAN with 0 open at the same head and base.
+The lead's standing rule now permits the one current-v1 merge, its base check, and the final exact-head gate.
+The final body record remains required. Neither verdict approves a later head or source transfer.
+The c0f295ab gate remains prior-head evidence. The separate OU-9 structural fix remains OPEN with P3.
+Wait for the doorbell. Never poll.
+
+
+## PR #264: final gate and merged receipt
+
+PC receipt: msg_plugin-w_1791734846_1e91a0.
+Final gated head: 2f26928054d225875b866a40d3cfdc3a83820b3b. Base: 0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9.
+Reviewed head: 46094d5b504861e59b66ac8cf16b399841d7ec71. Package verdict f9875367; Sol verdict 294f42cb.
+Current brief plan: 23bb. Sections 5 and 8 equal 23au. Section 0 records the own-trial decision.
+The reviewer read the complete shared base-merge-check report: PASS. No source delta round is required.
+The independent own-diff comparison matches its 85,312-byte SHA-256 0a93c082c309db2832ab3dc5359ab75bfc2fa3fc78e0152c0803b70ddf06eb4f.
+The 18 changed base paths and 16 own paths have no overlap. Both pending files equal the final base.
+History contains two imports: e363e24f imports d582853d; 2f269280 imports 0e1f2fee.
+The PR body records the stopped first gate. The lead's 20:10 handoff directs the final import.
+Final gate: gates/botster-core-stage1-pc-real-only-proofs-2f269280-pool-20261011-085825-53068.log.
+SHA-256: d18ee68b43e1c5c3de937235ef24feb47f168beeeac06cd40dcc961f71601dc9.
+All ten steps PASS in 492.8 seconds. Linux wrapper exit 0 after 503 seconds on msa1.
+Default 1724 PASS, 481 skipped, 15.755 seconds. Slow 553 PASS, 2021 skipped, 43.410 seconds.
+AD-6 own trial PASS in 0.209 seconds. Same-run result check names it and checks one proof.
+Mutants: 83 identities, 81 caught, 2 unviable, 0 missed, 0 timeout. Stage 2 catches exactly the three stage-1 misses.
+All 86 raw records and 81 named catch reports match. No FLAKY token exists in this gate.
+The separate earlier OU-9 structural fix remains OPEN with P3.
+GitHub and the lead's 20:40 handoff confirm PR #264 MERGED at a0adb1321bfc3deb7d16735e9a622775ba5f1a2d.
+The merge commit and gated head share tree 8b603a9d4533360ab0ab2e89212aa4e71df45bbb.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable merge-check job.
+The #264 final gate condition is closed. The original program-controls group remains incomplete.
+Next: push this evidence record and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
