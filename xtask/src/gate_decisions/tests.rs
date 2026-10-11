@@ -40,6 +40,7 @@ fn exclusion(pattern: &str, reason: &str) -> Exclusion {
     Exclusion {
         pattern: pattern.into(),
         reason: reason.into(),
+        count: None,
     }
 }
 
@@ -219,6 +220,44 @@ fn each_entry_takes_the_comment_block_above_it_or_above_its_group() {
         ]
     );
     assert!(exclusions_of("exclude_re = [\n    \"d\",\n]\n").is_err());
+}
+
+/// An entry counts one mutant, or the `N` of a trailing `# N mutants` (N of 2 or more); any other text after the string
+/// fails the parse.
+#[test]
+fn an_entry_counts_one_mutant_or_the_n_of_its_note() {
+    let toml = "exclude_re = [\n    'a',\n    'b', # 3 mutants\n    'c',  # 12 mutants\n    'd # 2 mutants',\n]\n";
+    let read: Vec<(String, Option<usize>)> = exclusions_of(toml)
+        .unwrap()
+        .into_iter()
+        .map(|e| (e.pattern, e.count))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("a".to_string(), Some(1)),
+            ("b".to_string(), Some(3)),
+            ("c".to_string(), Some(12)),
+            ("d # 2 mutants".to_string(), Some(1)),
+        ]
+    );
+    for line in [
+        "'e', # 1 mutants",
+        "'e', # 0 mutants",
+        "'e', # 02 mutants",
+        "'e', # 3 mutant",
+        "'e', #3 mutants",
+        "'e', # three mutants",
+        "'e', # -2 mutants",
+        "'e', # 3 mutants and more",
+        "'e', # 3",
+        "'e', 'f',",
+        "'e', x",
+    ] {
+        let toml = format!("exclude_re = [\n    {line}\n]\n");
+        let error = exclusions_of(&toml).unwrap_err().to_string();
+        assert!(error.contains("is not `# N mutants`"), "{line}: {error}");
+    }
 }
 
 #[test]
