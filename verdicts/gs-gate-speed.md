@@ -1980,6 +1980,43 @@ The mutation log supplies aggregate counts without individual mutant identities.
 
 The later #47 import, its exact-head gate, and the Core pin remain separate. I ran no gate, build, test, or executable probe.
 
+### Contracts PR #50: #47 import source review
+
+- Head: `efbb30636b29d506ab04acdb9f7f90031601c674`.
+- Base: `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+- Previously reviewed head: `338008cbeea0bc1e675680e2d1c2935bf4702383`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package source review).
+- Open findings: 0.
+
+I verified both merge parents and read the complete canonical base-check log. Conditions (1), (2), and (3) fail; condition (4) passes.
+
+The conflicting file is `crates/botster-core-conformance/src/driver.rs`. The overlapping documentation file is `docs/core-testkit-controls.md`.
+
+Log: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-efbb3063-base-merge-check.log`.
+
+I compared both complete own diffs after removal of Git blob index lines. The differences are shifted hunk positions, one imported context line, and the wake-handle access.
+
+The moved wait now obtains its owned wake handle through `self.handle(&name)?.core.borrow_mut().wake_handle()`. The removed old-position wait uses that same imported access.
+
+The temporary mutable borrow ends at the assignment statement. The later wait keeps its existing thread selection, timeout, expected value, and failure mapping.
+
+The merged driver keeps one wait branch at the reviewed first-dispatch position. The strict-wait scanner, empty-set rule, direct acknowledgements, and recursive barriers remain unchanged.
+
+The imported shared Core type and route wait code remain in the base. The PR's own delta makes no further change to their behavior.
+
+The documentation context line is the imported R-69 `oracle_resume` refusal text. The `no_spurious_wakes` row remains the reviewed row.
+
+All other own changes remain identical. GS-R43-1 and GS-R43-R3-LOW-1 remain CLOSED.
+
+I verified the live head and base. The body identifies its supplied gate as the historical `338008cb` gate; it is not a gate on this merge head.
+
+The lead requires the final gate after the #49 import. That later head needs its canonical base check and any required source delta review.
+
+This source verdict does not accept a future gate or declare merge readiness. Sol must complete the HIGH integration delta review.
+
+I ran no gate, build, test, base-check script, or executable probe.
+
 ## Core PR #278: repository signal scan
 
 - Head: `214ade281c890b05e72054f66b2b34e853204d3c`.

@@ -329,6 +329,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Contracts #50 has package source CLEAN at `efbb30636b29d506ab04acdb9f7f90031601c674`, base `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+
+The failed canonical base check required a source delta review. The sole changed own code line adapts the moved wait to the imported shared Core type.
+
+Sol's integration delta and the final #49 import/check/gate remain pending. The historical gate does not validate this head.
+
 Core #278 is package CLEAN at `214ade281c890b05e72054f66b2b34e853204d3c`, with zero open findings.
 
 The test-only change removes the duplicate repository signal scan. The unchanged `taint` job retains the scan, and fixture tests retain decision coverage.
