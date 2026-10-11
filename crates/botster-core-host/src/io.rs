@@ -183,9 +183,10 @@ pub enum Input {
     HandoffFailed {
         route: RouteId,
     },
-    /// The worker's link closed while the driver still held the route's stream: no byte of its handoff was sent, and the
-    /// stream closed with the link. A session that is starting or stopping ends by that loss, and its end closes the route
-    /// after its state (steward ruling R-50); any other route closes `HandoffFailed`.
+    /// The worker's link closed while the driver still held the route's stream: no byte of its handoff was sent, or the
+    /// stream left and the worker did not report `RouteReceived` (steward ruling R-65: Core cannot confirm the handoff). The
+    /// host's copy closed with the link. A session that is starting or stopping ends by that loss, and its end closes the
+    /// route after its state (steward ruling R-50); any other route closes `HandoffFailed`.
     HandoffLost {
         route: RouteId,
     },

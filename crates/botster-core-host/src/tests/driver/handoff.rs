@@ -680,3 +680,113 @@ fn a_held_handoff_of_a_stopping_session_closes_with_its_end_after_the_state() {
         "no route is retained"
     );
 }
+
+/// The closes of `route` among the posted events.
+fn closes_of(rig: &mut Rig, route: RouteId) -> Vec<RouteCloseReason> {
+    rig.drain_events()
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::RouteClosed {
+                route: r, reason, ..
+            } if r == route => Some(reason),
+            _ => None,
+        })
+        .collect()
+}
+
+/// DP-2, steward ruling R-65: the host closes its copy of the stream once the worker has its own. A copy in flight is not the
+/// worker's own, so the host keeps its copy until the worker reports `RouteReceived`. The mock is `SCM_RIGHTS`: the message
+/// holds one copy of the token, and the host's copy comes back from the edge.
+#[test]
+fn the_host_keeps_its_copy_of_the_stream_until_the_worker_reports_it_received() {
+    let mut rig = running();
+    let token = Arc::new(8);
+    let result = attach(&mut rig, Arc::clone(&token));
+    rig.pump();
+    assert_eq!(attach_frames(&rig).len(), 1, "the frame went");
+    assert_eq!(
+        Arc::strong_count(&token),
+        3,
+        "the test's token, the message's copy and the host's copy: the host keeps its copy while the stream is in flight"
+    );
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteReceived {
+            route: result.route,
+        },
+    );
+    rig.pump();
+    assert_eq!(
+        Arc::strong_count(&token),
+        2,
+        "the worker has its own copy: the host closed its copy"
+    );
+    assert!(
+        closes_of(&mut rig, result.route).is_empty(),
+        "the route stays open"
+    );
+}
+
+/// R-65, the steward's ruling on the lost ack: a link that closes before `RouteReceived` closes the host's copy. The session
+/// runs (lc_5: it stays Running with a broken link), so Core cannot confirm the handoff, and the route closes `HandoffFailed`,
+/// once.
+#[test]
+fn a_link_lost_before_the_ack_closes_the_host_copy_and_the_route_handoff_failed() {
+    let mut rig = running();
+    let token = Arc::new(9);
+    let result = attach(&mut rig, Arc::clone(&token));
+    rig.pump();
+    assert_eq!(
+        descriptors(&rig).len(),
+        1,
+        "the stream went (the message's copy is dropped here)"
+    );
+    assert_eq!(Arc::strong_count(&token), 2, "the host keeps its copy");
+    with_link(&rig, |l| l.peer_closed = true);
+    for _ in 0..4 {
+        rig.pump();
+    }
+    assert_eq!(
+        Arc::strong_count(&token),
+        1,
+        "the host's copy closed with the link"
+    );
+    assert_eq!(
+        closes_of(&mut rig, result.route),
+        vec![RouteCloseReason::HandoffFailed],
+        "one close of the route"
+    );
+}
+
+/// R-65: a worker that refuses the descriptor closes the route (`RouteClosed`). The host's copy closes with the route.
+#[test]
+fn a_route_closed_by_the_worker_before_the_ack_closes_the_host_copy() {
+    let mut rig = running();
+    let token = Arc::new(10);
+    let result = attach(&mut rig, Arc::clone(&token));
+    rig.pump();
+    assert_eq!(
+        descriptors(&rig).len(),
+        1,
+        "the stream went (the message's copy is dropped here)"
+    );
+    assert_eq!(Arc::strong_count(&token), 2, "the host keeps its copy");
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteClosed {
+            route: result.route,
+            reason: RouteCloseReason::HandoffFailed,
+            route_tag: None,
+        },
+    );
+    rig.pump();
+    assert_eq!(
+        Arc::strong_count(&token),
+        1,
+        "the host's copy closed with the route"
+    );
+    assert_eq!(
+        closes_of(&mut rig, result.route),
+        vec![RouteCloseReason::HandoffFailed]
+    );
+}

@@ -588,7 +588,7 @@ impl HostEdges for RealEdges {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         // `SCM_RIGHTS` over the control link (DP-2). The embedder's stream is a connected unix stream, as a `UnixStream` or
         // as its `OwnedFd` (as for `close_route_stream`); another type cannot ride, and the route closes `HandoffFailed`.
         let stream = match Endpoint::of(endpoint) {
@@ -602,8 +602,8 @@ impl HostEdges for RealEdges {
             None => Err(io::ErrorKind::BrokenPipe.into()),
         };
         match sent {
-            // The link holds its own copy of the descriptor now: this one closes as `stream` drops.
-            Ok(n) => Ok(n),
+            // The message holds its own copy of the descriptor now; this one is the host's copy.
+            Ok(n) => Ok((n, Some(stream.into_endpoint()))),
             Err(e)
                 if matches!(
                     e.kind(),
@@ -1027,11 +1027,13 @@ mod slow_tests {
             } else {
                 StreamEndpoint::new(core)
             };
-            let sent = edges
+            let (sent, held) = edges
                 .link_send_descriptor(link, b"attach", endpoint)
                 .ok()
                 .unwrap();
             assert_eq!(sent, 6);
+            assert!(held.is_some(), "the host's copy comes back to the driver");
+            drop(held);
             // Each read follows its write, so a nonblocking read takes the bytes at once: no read waits.
             let mut buf = [0u8; 16];
             let received = recv_with_fds(&peer, &mut buf).unwrap();
