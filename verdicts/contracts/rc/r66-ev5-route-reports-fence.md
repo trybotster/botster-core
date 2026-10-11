@@ -19,3 +19,14 @@ Checks:
 - **F1 LOW (evidence: no run of the fenced form).** The body shows the failure three times, but no Core run of the changed transcript. This is the same requirement as #54 F3: evidence for every changed transcript. Required:
   - the controlled reproduction (the 1 s held input on v1 `f68f26a7`) run with the fenced transcript, giving PASS. This is the direct proof that the fence closes the window.
   - the fenced transcript on the Core testkit with `BOTSTER_SEEDS=0-31`, and on the Linux real tier, with the Core revision and the contracts tree in each log header, and the transcript blob equal to this head's.
+
+## Round 2 (evidence only, same head): no open finding on 06488fb53bfdbd3deeefc9ba067a1ddd2276c8ea
+
+- **F1 closed.** Log `~/botster-sessions/gates/botster-core-detached-f68f26a7-f68f26a7-pool-20261011-153357-47910.log` (sha256 `ab3f90982a6672ec8375a62ceb4763c28204419693fa30fd7e9dac569280483d`), Linux msa1, exit 0.
+  - Core is `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`, and contracts is `2c7682f4fe6009fc27a9b6cbef656e11e6e5be1b` (`.39` + this PR's commit).
+  - I checked the blob: `2c7682f4:conf::ev_5_route_closed_retires_route_keyed_events.json` is `3d9a76ccc41311348cd702237df57be75cc316ad`, which equals `06488fb5`'s blob. That replaces the job's empty blob line (no python3 in the pool image).
+  - (a) The 1 s held-input reproduction, real tier, `BOTSTER_SEEDS=0-31`: PASS (32.50 s). The trace has "held: 32 released: 32", and each release comes before r2's `RouteClose` (`held_inputs=0`). So the fence waits for the consumed activity report in the exact window that failed before.
+  - (b) The plain worker, `BOTSTER_SEEDS=0-31`: testkit PASS and real tier PASS.
+  - The diff hash `f80397a6...` differs from the accepted `027d7d7a...` only by the index abbreviation length (7 against 8), as RC states.
+
+Still to do: one merge of main `c0c2abc09f208fea39896972373da53cb90dd830` (Q7), and the gate on that exact head. Then the final CLEAN.
