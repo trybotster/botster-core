@@ -1436,3 +1436,14 @@ The two held-write removals are in_2_link_loss and in_7. The planned event-fence
 PC confirms both records are absent and plans serial pool evidence jobs in msg_plugin-w_1791755816_ab4038.
 The verdict is NOT CLEAN (2 open), verdicts/pc-pin-41.md. Sol's same-head source verdict remains due.
 No execution job runs here. R-78 source/evidence and F-283-1 remain separate PC work. Never poll.
+
+#289 package verdict pushed: 42f295473daa793617c78aca4da7d454eaa703af (initial source/evidence review 267ce3688ff02f057789edb53524a7c55e0381e5).
+The worktree is clean. Two evidence findings remain. Wait for the completed evidence doorbell. Never poll.
+
+## #289 Sol Round 1: same two evidence findings
+
+Receipt msg_plugin-w_1791756279_bad220 and verdict 45307d6fe71f09a1e5302d45dfd25c488d20d804 are read.
+Publication on Sol's remote branch is verified. Both reviews cover head 4e26982b4c8ed836e43baa30f18fbf8134db90d5 and base f68f26a7b12738f2b19ab39fe76a93f3d1a72f12.
+Sol's two findings match PIN41-1 and PIN41-2. No new integration source defect is identified.
+Sol independently verifies the exact-head gate and the eight matching mutation identities/citations with normal PASS records.
+Both evidence findings stay open. No running or future evidence is accepted. Wait for the completed evidence doorbell. Never poll.

@@ -129,3 +129,16 @@ PC plans two separate pool evidence jobs, one at a time, and will send the compl
 Both evidence findings must close before CLEAN. The HIGH PR also needs Sol's same-head source verdict.
 The current final-slot queue gives #289 a later slot. No final import, final gate, Q7, or merge is approved here.
 The reviewer runs no build, test, gate, reversal, mutant, or executable base check. Never poll.
+
+## Sol Round 1 receipt
+
+Receipt: `msg_plugin-w_1791756279_bad220`.
+Sol verdict: `45307d6fe71f09a1e5302d45dfd25c488d20d804`, `verdicts/stage1/pc-pin-41.md`, Round 1.
+The reviewer reads the complete verdict and verifies publication on `origin/stage1/integration-review-sol`.
+Both reviews cover head `4e26982b4c8ed836e43baa30f18fbf8134db90d5` and base `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+P289-SI-1 matches PIN41-1. P289-SI-2 matches PIN41-2, including the six-id scope and no added event-fence repetition requirement.
+Sol identifies no new integration source defect.
+Sol independently verifies the pin, ledger, control boundary, pending accounting, and completed gate.
+Its eight raw catches, Stage 1 misses, and named citations match uniquely. Each named catcher has a normal PASS.
+The two evidence findings remain open. This receipt closes neither finding and accepts no running evidence job.
+The final-slot and merge conditions remain due. No execution job runs here. Never poll.
