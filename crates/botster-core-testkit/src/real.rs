@@ -812,12 +812,7 @@ impl RealCoreHarness {
             .ok_or_else(|| ControlError::Bad(format!("the row of {} names no worker", session.0)))?
             .identity();
         end_worker(worker).map_err(|e| failed("the worker's end", e))?;
-        let recorded: Vec<u32> = lock(&self.rows[&data_dir])
-            .values()
-            .flat_map(|row| [row.worker, row.payload])
-            .flatten()
-            .map(|w| w.pid)
-            .collect();
+        let recorded = self.recorded_pids();
         let bystander = self
             .bystander(worker, &recorded)
             .map_err(|e| failed("the bystander", e))?;
@@ -852,6 +847,22 @@ impl RealCoreHarness {
     /// `recorded` and whose start time is not the worker's. A process that fails a check ends with its drop, and the harness
     /// makes a new one, until the cleanup deadline. On Linux a start time counts clock ticks since boot (10 ms at 100 Hz),
     /// and a worker can start, run and end within one tick, so the first new processes can share its start time.
+    /// Every worker and payload pid that a row of any data directory of the harness records (R-55 (2) condition 4: "in no
+    /// recorded identity", not only those of the session's directory).
+    fn recorded_pids(&self) -> Vec<u32> {
+        self.rows
+            .values()
+            .flat_map(|rows| {
+                lock(rows)
+                    .values()
+                    .flat_map(|row| [row.worker, row.payload])
+                    .flatten()
+                    .map(|w| w.pid)
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     fn bystander(&mut self, worker: ProcessIdentity, recorded: &[u32]) -> io::Result<Bystander> {
         if self.hold.is_none() {
             self.hold = Some(Blocker::new(self.root.path(), "bystander")?);
@@ -1804,23 +1815,13 @@ mod slow_controls {
         )
     }
 
-    /// Ends `worker` and waits until this process has `threads` threads. A reaper thread ends just after its reap, and its
-    /// end has no event that the test can wait on, so the loop yields until the count is reached or the cleanup deadline
-    /// expires.
-    fn end_with_reaper(worker: ProcessIdentity, threads: usize) {
-        end_worker(worker).expect("the worker ends");
-        let deadline = Deadline::cleanup();
-        while platform::threads().unwrap() != threads {
-            assert!(!deadline.expired(), "the reaper of {worker:?} never ended");
-            std::thread::yield_now();
-        }
-    }
-
     /// Steward ruling R-55 (1), `host_crash` on real sessions:
     /// - Condition 1: when an exit is unread, the edges are not quiet and the control is `Bad`; it acts after a pump.
-    /// - Condition 2: the tap goes with the Core, so no edge call follows. The drop leaves one reaper thread for each live
-    ///   worker and a fixed count of wake descriptors, the same for two reapers as for one. Each reaper ends when its worker
-    ///   ends, and then the counts are the ones before the open.
+    /// - Condition 2, in the form of the steward's follow-up (draft `shared/steward/drafts/r55-cond2-b.md`): the tap goes
+    ///   with the Core, so no edge call follows. At the crash there is one reaper thread for each live worker, and the
+    ///   descriptors beyond the count before the open are the wake's. One reap after the crash is a real event: the reaper's
+    ///   notify on the kept wake. The wake's descriptors are a fixed count: the same for two reapers as for one. That each
+    ///   reaper ends right after its notify is proven in core-sys (`process::slow_tests`, the reaper body joined).
     /// - Conditions 3 and 4: the control socket is back as a stale socket with no listener; the workers keep running.
     #[test]
     fn a_host_crash_leaves_the_workers_their_reapers_and_a_stale_socket() {
@@ -1869,8 +1870,8 @@ mod slow_controls {
         pump_until(core.as_mut(), |c| {
             state(c, "s0") == SessionState::Lost(LostReason::WorkerGone) && lock(&tap).quiet()
         });
-        // The test's own reference to the wake would keep its descriptors open after the crash.
-        drop(wake);
+        // The test keeps the wake: after the crash, a reaper's notify on it is the event of a reap. `pump_until` pumped until
+        // no more work, so the host drained the wake, and no host drains it after the crash: its next wake is a notify.
 
         let socket = Path::new(&data_dir.0).join("c");
         assert!(std::fs::symlink_metadata(&socket)
@@ -1904,15 +1905,22 @@ mod slow_controls {
 
         let (threads, descriptors) = counts();
         assert_eq!(threads, before.0 + 2, "one reaper for each live worker");
-        let wake_descriptors = descriptors - before.1;
-        end_with_reaper(w1, before.0 + 1);
+        assert!(descriptors > before.1, "the wake's descriptors stay open");
+        // One reap: a second notify would bring no new wake, because nothing drains the first. w2 ends with the harness (its
+        // guard ends every group).
+        end_worker(w1).expect("w1 ends");
+        assert!(matches!(
+            // timer: deadline — the cleanup bound ends a wait for a notify that never comes.
+            wake.wait(Deadline::cleanup().remaining()),
+            Wake::Woken
+        ));
+        assert_eq!(identity_state(w1), IdentityState::Absent, "w1 is reaped");
+        assert!(runs(w2).unwrap(), "w2 still runs");
         assert_eq!(
             counts().1,
-            before.1 + wake_descriptors,
-            "the wake descriptors are a fixed count"
+            descriptors,
+            "the wake descriptors are a fixed count: the same for one reaper as for two"
         );
-        end_with_reaper(w2, before.0);
-        assert_eq!(counts(), before, "the counts before the open");
         drop(core);
     }
 
@@ -2005,6 +2013,35 @@ mod slow_controls {
             harness.control("b", "reuse_pid", &of("s1")),
             Err(ControlError::Bad(_))
         ));
+    }
+
+    /// R-55 (2) condition 4: the pids that a bystander must not have are the recorded workers of every data directory of the
+    /// harness, not only of the session's own directory.
+    #[test]
+    fn the_recorded_pids_come_from_every_directory() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let mut workers = Vec::new();
+        let mut cores = Vec::new();
+        for handle in ["a", "c"] {
+            let data_dir = harness.data_dir(handle);
+            let mut core = harness
+                .open(&spec_of(handle, &data_dir, &harness))
+                .expect("open");
+            running(&harness, core.as_mut(), "s1");
+            let worker = harness
+                .session_processes(&data_dir, &sid("s1"))
+                .and_then(|p| p.worker)
+                .expect("the worker is recorded");
+            workers.push(worker.pid);
+            cores.push(core);
+        }
+        let recorded = harness.recorded_pids();
+        for pid in workers {
+            assert!(recorded.contains(&pid), "{pid} in {recorded:?}");
+        }
+        drop(cores);
     }
 
     /// R-49 Q4 and Q1, on real sessions: the stand-in controls arm at the open handle and install at the next open of the

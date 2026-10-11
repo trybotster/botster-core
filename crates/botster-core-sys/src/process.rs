@@ -13,6 +13,7 @@ use rustix::process::Signal;
 use std::collections::{BTreeSet, VecDeque};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex};
 
 /// The start time of `pid` in the unit of the platform (microseconds since the Unix epoch on macOS, clock ticks since boot
@@ -54,6 +55,25 @@ type Exits = Arc<(Mutex<VecDeque<(ProcessIdentity, ExitStatus)>>, Condvar)>;
 
 /// Called by a reaper thread after it queued an exit: the host wakes and polls (TM-6).
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
+
+/// The body of a reaper thread: it takes its child from `spawn`, waits for the child's exit and reaps it, queues the exit,
+/// and calls the notifier. The notifier is its last act, so the thread ends right after it (steward ruling R-55 (1)
+/// condition 2). When `spawn` could not start the child, the sender is dropped and the body returns at once.
+fn reap(take: &Receiver<(Child, ProcessIdentity)>, exits: &Exits, notify: Option<&Notify>) {
+    let Ok((mut child, identity)) = take.recv() else {
+        return;
+    };
+    let status = child.wait().map_or(ExitStatus::Code(-1), exit_status);
+    let (queue, ready) = &**exits;
+    queue
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push_back((identity, status));
+    ready.notify_all();
+    if let Some(notify) = notify {
+        notify();
+    }
+}
 
 fn exit_status(status: std::process::ExitStatus) -> ExitStatus {
     match (status.code(), status.signal()) {
@@ -114,23 +134,10 @@ impl Children {
         let (hand_over, take) = std::sync::mpsc::sync_channel::<(Child, ProcessIdentity)>(1);
         let exits = Arc::clone(&self.exits);
         let notify = self.notify.clone();
+        // The thread only runs `reap`; it is detached, because a live worker outlives the host (adoption).
         std::thread::Builder::new()
             .name("botster-reaper".into())
-            .spawn(move || {
-                let Ok((mut child, identity)) = take.recv() else {
-                    return;
-                };
-                let status = child.wait().map_or(ExitStatus::Code(-1), exit_status);
-                let (queue, ready) = &*exits;
-                queue
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .push_back((identity, status));
-                ready.notify_all();
-                if let Some(notify) = notify {
-                    notify();
-                }
-            })
+            .spawn(move || reap(&take, &exits, notify.as_ref()))
             .map_err(|e| SpawnError {
                 errno: e.raw_os_error().unwrap_or(0),
             })?;
@@ -307,5 +314,67 @@ mod tests {
             exit_status(std::process::ExitStatus::from_raw(9)),
             ExitStatus::Signal(9)
         );
+    }
+}
+
+#[cfg(test)]
+#[cfg(feature = "slow")]
+mod slow_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc::sync_channel;
+
+    /// A queue of exits and a notifier that counts its calls.
+    fn outputs() -> (Exits, Notify, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let notify: Notify = {
+            let calls = Arc::clone(&calls);
+            Arc::new(move || {
+                calls.fetch_add(1, Ordering::SeqCst);
+            })
+        };
+        (Exits::default(), notify, calls)
+    }
+
+    /// Steward ruling R-55 (1) condition 2, item 4: the reaper body runs on a thread that the test owns, and the join is the
+    /// event. The body reaps its child, queues its one exit, calls the notifier once, and returns. Its only outputs are the
+    /// queue and the notifier, so it makes no edge call.
+    #[test]
+    fn a_reaper_returns_right_after_its_notify() {
+        let (exits, notify, calls) = outputs();
+        let (hand_over, take) = sync_channel(1);
+        let reaper = {
+            let exits = Arc::clone(&exits);
+            std::thread::spawn(move || reap(&take, &exits, Some(&notify)))
+        };
+        // A child that ends by itself at once.
+        let child = Command::new("/bin/sh")
+            .args(["-c", "exit 3"])
+            .spawn()
+            .expect("the child starts");
+        let identity = ProcessIdentity {
+            pid: child.id(),
+            start_time: 1,
+        };
+        hand_over.send((child, identity)).expect("the reaper waits");
+        reaper.join().expect("the reaper returns");
+        assert_eq!(calls.load(Ordering::SeqCst), 1, "one notify");
+        let queued: Vec<_> = exits.0.lock().unwrap().drain(..).collect();
+        assert_eq!(queued, [(identity, ExitStatus::Code(3))]);
+    }
+
+    /// When `spawn` could not start the child, the sender is dropped: the body returns with no exit and no notify.
+    #[test]
+    fn a_reaper_without_a_child_returns_at_once() {
+        let (exits, notify, calls) = outputs();
+        let (hand_over, take) = sync_channel::<(Child, ProcessIdentity)>(1);
+        drop(hand_over);
+        let reaper = {
+            let exits = Arc::clone(&exits);
+            std::thread::spawn(move || reap(&take, &exits, Some(&notify)))
+        };
+        reaper.join().expect("the reaper returns");
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(exits.0.lock().unwrap().is_empty());
     }
 }
