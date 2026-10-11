@@ -993,7 +993,6 @@ impl Worker {
         self.epoch = epoch;
         // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
         self.actions.push_back(Action::AdoptLink(id));
-        self.close_unchecked();
         self.queued_total = 0;
         self.written_total = 0;
         // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
@@ -1006,6 +1005,9 @@ impl Worker {
         self.send_hello();
         let report = self.adoption_report();
         self.report(&report);
+        // The old link's reads that were not checked close on the new link, after its hello and `Adopted` (F120): a route
+        // that took a descriptor of one ends `HandoffFailed`, and the new host is told after the hello.
+        self.close_unchecked();
         // Bytes that came after the hello in the same read belong to the new link.
         self.on_link_bytes(now, rest, Vec::new());
     }

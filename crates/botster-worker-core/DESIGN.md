@@ -132,7 +132,7 @@ descriptors come before the hello passes. The worker closes the link and each de
 `CloseDescriptor` for each unbound one, and a route that took one ends `HandoffFailed` (lead ruling Q1). A read leaves
 the machine when it is checked. Every close of the link (a fault, a frame above the bound, a frame that closes the link,
 `Terminate`, `LinkClosed`, `AdoptLink`; DP-8) closes each read that is left in the same way, because it was not proven;
-the routes of checked reads stay (F117).
+the routes of checked reads stay (F117). At adoption the close comes after the new link's hello and `Adopted` (F120).
 
 ### Worker-core inputs and actions (sans-IO)
 
