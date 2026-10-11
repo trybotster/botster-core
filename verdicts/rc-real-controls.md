@@ -1710,3 +1710,15 @@ The controlled trace supports the pre-existing unfenced window as the failure me
 The lead must approve one same-head re-gate and retain the cause, owner, and repair PR before RC runs it.
 Both reviewers must accept the evidence. A second red gate requires a repair commit under the plan.
 Final acceptance remains pending. The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #285 — lead accepts controlled reproduction
+
+Lead decision: `msg_plugin-w_1791756275_141a13`.
+The lead accepts the controlled reproduction under plan 23bl A as evidence for condition (1).
+The lead records the repair in its handoff: an R-66 activity fence, owner RC, in a contracts transcript PR reviewed by 016c, for .42.
+The lead approves ONE re-gate of `3cf460714016af6683ea6c60f1753dfc0055c660`.
+That re-gate may start only after the integration reviewer also accepts the reproduction.
+Package acceptance is `1ad1761f78871340bc7745580755080544203d8e`.
+This decision accepts no future gate result. Final acceptance remains pending.
+The reviewer ran no test, build, gate, or diagnostic.
