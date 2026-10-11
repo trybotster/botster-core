@@ -588,7 +588,7 @@ impl HostEdges for RealEdges {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         // `SCM_RIGHTS` over the control link (DP-2). The embedder's stream is a connected unix stream, as a `UnixStream` or
         // as its `OwnedFd` (as for `close_route_stream`); another type cannot ride, and the route closes `HandoffFailed`.
         let stream = match Endpoint::of(endpoint) {
@@ -602,8 +602,8 @@ impl HostEdges for RealEdges {
             None => Err(io::ErrorKind::BrokenPipe.into()),
         };
         match sent {
-            // The link holds its own copy of the descriptor now: this one closes as `stream` drops.
-            Ok(n) => Ok(n),
+            // The message holds its own copy of the descriptor now; this one is the host's copy.
+            Ok(n) => Ok((n, Some(stream.into_endpoint()))),
             Err(e)
                 if matches!(
                     e.kind(),
@@ -1027,11 +1027,13 @@ mod slow_tests {
             } else {
                 StreamEndpoint::new(core)
             };
-            let sent = edges
+            let (sent, held) = edges
                 .link_send_descriptor(link, b"attach", endpoint)
                 .ok()
                 .unwrap();
             assert_eq!(sent, 6);
+            assert!(held.is_some(), "the host's copy comes back to the driver");
+            drop(held);
             // Each read follows its write, so a nonblocking read takes the bytes at once: no read waits.
             let mut buf = [0u8; 16];
             let received = recv_with_fds(&peer, &mut buf).unwrap();
@@ -1052,6 +1054,35 @@ mod slow_tests {
             edges.link_send_descriptor(link, b"attach", StreamEndpoint::new(core))
         else {
             panic!("a gone peer fails the handoff");
+        };
+        assert!(
+            endpoint.downcast::<Std>().is_ok(),
+            "the endpoint comes back as it came"
+        );
+    }
+
+    /// DP-2: a link that takes no byte now (`WouldBlock`) blocks a route's stream, and does not fail it: the send is
+    /// `Blocked`, so the driver keeps the frame and the stream for a later flush, and the endpoint comes back as it came.
+    #[test]
+    fn a_full_link_blocks_a_route_stream_and_gives_it_back() {
+        use std::os::unix::net::UnixStream as Std;
+        let (mut edges, tmp) = edges();
+        // The peer reads nothing, so the link's buffers fill and a send ends at `WouldBlock`.
+        let _peer = connect(&tmp);
+        let link = accept(&mut edges);
+        let chunk = [0u8; 65_536];
+        loop {
+            match edges.link_send(link, &chunk) {
+                Ok(n) => assert!(n > 0, "a send takes bytes or blocks"),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => panic!("a full link blocks: {e}"),
+            }
+        }
+        let (core, _client) = Std::pair().unwrap();
+        let Err((endpoint, DescriptorSendError::Blocked)) =
+            edges.link_send_descriptor(link, b"attach", StreamEndpoint::new(core))
+        else {
+            panic!("a full link blocks the handoff");
         };
         assert!(
             endpoint.downcast::<Std>().is_ok(),

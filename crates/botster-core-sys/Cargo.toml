@@ -27,8 +27,9 @@ name = "no_sigpipe"
 harness = false
 
 [dev-dependencies]
-# `alone`: a test that changes state of its whole process runs in a new process. A dev-dependency cycle (it depends on this
-# crate); its copy of this crate is a separate build, and no type crosses between the two.
+# The owned children of tests/slow_data_dir_lock.rs (BUILD.md testing rule 10), and `alone`: a test that changes state of
+# its whole process runs in a new process. A dev-dependency cycle (it depends on this crate); its copy of this crate is a
+# separate build, and no type crosses between the two.
 botster-test-process.workspace = true
 libtest-mimic.workspace = true
 signal-hook.workspace = true

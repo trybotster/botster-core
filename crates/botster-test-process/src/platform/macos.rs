@@ -5,6 +5,19 @@ use super::{gone, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
+/// The number of threads of this process, as libproc's task information gives it.
+///
+/// # Errors
+/// The information was refused.
+pub fn threads() -> std::io::Result<usize> {
+    use libproc::proc_pid::pidinfo;
+    use libproc::task_info::TaskInfo;
+    let info = pidinfo::<TaskInfo>(std::process::id().cast_signed(), 0)
+        .map_err(|refused| std::io::Error::other(format!("this process: {refused}")))?;
+    usize::try_from(info.pti_threadnum)
+        .map_err(|_| std::io::Error::other("this process: a negative thread count"))
+}
+
 /// The start time of `pid` in microseconds since the Unix epoch, or `None` when the process has ended (gone, or exiting: macOS
 /// refuses the information of a zombie). Callers compare start times only for equality. It reads the same field as
 /// `botster_core_sys::process::start_time`, so the two agree.
@@ -30,6 +43,10 @@ pub fn start_time(pid: Pid) -> std::io::Result<Option<u64>> {
 /// pid that was reused meanwhile can make it wait for another process, within the deadline; a caller that must not be
 /// misled holds the process unreaped (its own child), so that the pid cannot be reused.
 ///
+/// A process that began to exit before the wait (exiting, or a zombie) is `Exited`, as a zombie is on Linux, and only a
+/// reaped one is `Gone`: see [`ended_before_the_watch`]. `Exited` does not mean that the status is available: XNU posts
+/// `NOTE_EXIT` before it makes the process a zombie (see [`await_status`]).
+///
 /// # Errors
 /// The wait could not be set up, or it failed.
 pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
@@ -40,7 +57,7 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         kqueue::FilterFlag::NOTE_EXIT,
     )?;
     match watcher.watch() {
-        Err(error) if gone(&error) => return Ok(Waited::Gone),
+        Err(error) if gone(&error) => return ended_before_the_watch(pid),
         other => other?,
     }
     exit_after_polls(
@@ -48,6 +65,26 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         || polled(watcher.poll(Some(deadline.remaining()))),
         || deadline.expired(),
     )
+}
+
+/// The answer for a process whose exit watch the kernel refused with ESRCH: it is exiting or a zombie already, or it was
+/// reaped (see [`exiting_or_gone`]). A probe with no signal tells them apart: an exiting process and a zombie still have
+/// their pid, so the probe succeeds (or is refused with EPERM, for a process of another user), and the answer is `Exited`,
+/// as Linux gives for a zombie (its pidfd is readable at once). A reaped process has no pid, so the probe fails with ESRCH,
+/// and the answer is `Gone`.
+///
+/// One limit: when another thread reaps the zombie and the pid is reused between the refused watch and the probe, the probe
+/// meets the new process and the answer is `Exited` where `Gone` was true. Both mean that the watched process ended, and
+/// [`Waited`] carries no status, so the answer stays true about the end.
+///
+/// # Errors
+/// The probe failed for another reason.
+fn ended_before_the_watch(pid: Pid) -> std::io::Result<Waited> {
+    match rustix::process::test_kill_process(pid) {
+        Ok(()) | Err(rustix::io::Errno::PERM) => Ok(Waited::Exited),
+        Err(rustix::io::Errno::SRCH) => Ok(Waited::Gone),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// The outcome of the polls of a wait for an exit event: an event ends it as `Exited`, a timeout as `Deadline`. An
