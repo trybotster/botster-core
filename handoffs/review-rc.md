@@ -448,3 +448,28 @@ The earlier list and mutation gate failures remain explicit in the PR body.
 
 One MEDIUM finding remains open. Every finding must close before CLEAN.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — additional round 1 findings
+
+VERDICT: NOT CLEAN (3 open)
+Exact source remains `b5ca83e2825dc9404a3c6634fd97d755cf8f5d37`.
+This record supplements round 1. RC-TK-1 remains open.
+Integration message: `msg_plugin-w_1791746783_b7fc1d`.
+
+RC-TK-2 — MEDIUM — The real socket test has an unbounded retry loop.
+Evidence: `real/route.rs`, `slow_tests::input_blocked_reports_a_stream_that_takes_no_more_client_bytes`.
+The loop continues while `got.len() < VOLUME`. `WouldBlock` calls the control and retries without a progress bound.
+`Ok(0)` also repeats without progress. A stopped flush or an unexpected EOF can leave this test running forever.
+Required change: fail on EOF before the expected volume. Bound the attempts that make no read progress.
+Keep the bound local to this test. Do not add sleeps or a polling wait for external progress.
+The two socket ends run in the same test, so a bounded sequence can drive reads and flushes directly.
+Keep the exact byte-order and final readiness checks.
+
+RC-TK-3 — LOW — The body omits the reported evidence cause and replacement provenance.
+The body says the withdrawn `114153` log's cause is unknown.
+The implementer already reported a stale binary from the shared target directory, catalog B13, in `msg_plugin-w_1791745887_85d3e0`.
+Required change: record that reported cause and identify the clean build from #285 used for the replacement evidence.
+Keep the withdrawn log explicitly invalid. Do not claim that its PASS proves this branch's behavior.
+
+All three findings must close before CLEAN. The reviewer ran no test, build, or gate.
