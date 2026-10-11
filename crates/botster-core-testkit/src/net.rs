@@ -1142,7 +1142,11 @@ mod tests {
             io::ErrorKind::WouldBlock
         );
         control.accept_at_most(2);
-        assert_eq!(worker.write(b"def").unwrap(), 2, "a second limit, still gated");
+        assert_eq!(
+            worker.write(b"def").unwrap(),
+            2,
+            "a second limit, still gated"
+        );
         assert_eq!(
             worker.write(b"f").unwrap_err().kind(),
             io::ErrorKind::WouldBlock
