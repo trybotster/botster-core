@@ -818,6 +818,35 @@ mod tests {
         );
     }
 
+    /// Plan 23ae, the Linux form: a read that ends just before a descriptor segment holds no byte of the segment, so it
+    /// carries no descriptor; the next read holds the segment's first byte and carries it.
+    #[test]
+    fn a_linux_read_that_ends_before_the_segment_carries_no_descriptor() {
+        let (mut a, mut b) = link_pair(8);
+        a.send(b"ab").unwrap();
+        assert_eq!(
+            a.send_with_descriptor(b"cd", Descriptor::new(1u8)).unwrap(),
+            2
+        );
+        let mut buf = [0u8; 2];
+        let (n, descriptors) = b
+            .recv_with_descriptors(&mut buf, DescriptorForm::StopsAfterTheSegment)
+            .unwrap();
+        assert_eq!((&buf[..n], descriptors.len()), (&b"ab"[..], 0));
+        let mut buf = [0u8; 8];
+        let (n, descriptors) = b
+            .recv_with_descriptors(&mut buf, DescriptorForm::StopsAfterTheSegment)
+            .unwrap();
+        assert_eq!(&buf[..n], b"cd");
+        assert_eq!(
+            descriptors
+                .into_iter()
+                .map(|d| d.downcast::<u8>().unwrap())
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+    }
+
     /// A5-2: the read size of a route stream is a seed-chosen number of bytes. Every byte arrives in order whatever the sizes,
     /// the sizes vary with the seed, and the same seed repeats them.
     #[test]

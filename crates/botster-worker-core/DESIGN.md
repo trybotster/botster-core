@@ -120,7 +120,7 @@ read holds at most one segment, and the read that holds the segment's first byte
 
 - testkit: `LinkEnd::send_with_descriptor(bytes, descriptor)` tags the descriptor with the stream offset of its first byte
   and the length of its segment. `LinkEnd::recv_with_descriptors(buf, form)` reads in either kernel form
-  (`DescriptorForm`). The testkit worker reads its link in its `Workers`' form (the macOS form unless a test sets it);
+  (`DescriptorForm`). The testkit worker reads its link in the macOS form; each framing proof sets both forms on its edges;
 - real: `fd_pass::recv_with_fds` on the `mio` loop. The driver keeps each descriptor (close-on-exec) in a table under a
   `DescriptorId`, gives the machine the ids with the read, and closes the descriptors of reads that the adoption fence drops.
 
