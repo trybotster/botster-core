@@ -288,3 +288,88 @@ This CLEAN covers the exact head and its supplied gate evidence. It does not cov
 The reviewer changed no product code and ran no tests, builds, gates, mutations, reversal, measurement, or executable merge-check jobs.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-11 — base import delta
+
+- PR: https://github.com/trybotster/botster-core/pull/257.
+- Exact reviewed head: `0fed25b32a2db1c025ba04233ea3826555b1b26a`.
+- Parents: `15d682b2f45c5b11fc664078292d89198dcf6585` and `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- Tree: `6550b4deaf8a5d3b0bdf9536c49164e53b76e874`.
+- Reviewed base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- Previous CLEAN head: `5e6b15184bf4ab9d4bb1e572925b201409ea3d20`; verdict commit `7c5a20c82f8516fe757fda4d25e8781d0ac60eec`.
+- READY: `msg_plugin-w_1791724664_40a6e9`.
+- Body correction: `msg_plugin-w_1791724733_22cccf`.
+- Risk: HIGH. Authority: BUILD.md, R-55, approved plan 23ar, and the lead's stat-only snapshot instruction.
+
+### Findings
+
+**D-F7 LOW is CLOSED.** The final gate bullet initially said that the imports changed no own path. The #243 import changes four ordinary own paths and `core-pending.txt`. The reviewer sent this finding to P5 and Sol. P5 corrected the published body without changing the head. The reviewer read the corrected body.
+
+The body now distinguishes the two imports. #243 changes the shared paths. #265 changes none of the fifteen own paths. The imports preserve the reviewed own added and deleted line sequences. The body limits the prior Mac evidence to unchanged own executable code. The imported changes have their separate accepted base evidence.
+
+D-F1 through D-F6 and D-SI-1 remain CLOSED. No finding remains open.
+
+### Import review
+
+The reviewer read the four ordinary shared-path deltas from #243:
+
+- `.cargo/mutants.toml` retains the accepted own reaper entry. It imports the worker constant location change and the route-read proof reason.
+- `.config/process-check-allow.txt` retains the accepted own reaper allowance. It imports the worker launch rename to `launch_with_route`.
+- `edge_tap.rs` accepts `(usize, Option<StreamEndpoint>)`. It borrows a successful result to record bytes and returns the original result unchanged. It preserves the retained endpoint and the own `Tap::signals` method.
+- `edge_tap/tests.rs` adapts the fake and assertions to the tuple. It retains the own signal-record assertion.
+
+The pending file combines the base's three IN-10 removals with the own AD-6 removal. The real-pending file equals the base. The lead keeps the 33 passing pending-real IDs for a separate follow-up; this import removes none of them.
+
+The #265 import changes five paths: Cargo.lock, the core-sys manifest, lock.rs, storage.rs, and slow_data_dir_lock.rs. Each blob equals the new base. All fifteen own blobs equal the inspected `15d682b2` head. All original own added and deleted line sequences match `5e6b1518`. All 37 combined imported-only paths equal the new base.
+
+The reviewer read the imported record lock, its storage documentation, and its new proofs for the snapshot interaction. The snapshot retains the exact `5e6b1518` blob. It does not open Core's top-level lock file. The child probe opens that file in another process. Other regular files retain byte comparison. The lead-authorized lock comparison limit remains kind, mode, and length.
+
+The reviewer checked `host_crash`, `row_file::find`, and `unheld_dir_of`. The row reader starts under `rows`. The directory check uses harness state. The own code adds no other open of Core's top-level lock file. This delta review does not repeat the accepted #265 package review.
+
+The base is an ancestor of the head. The diff check passes. The published PR names the exact reviewed head. Sol's inspection records `ae7ca202f15ccb271a2b7565e3cdb679952dba42` and `6a7e23f7d5ea127fae33237c56bf617f5dc96b1d` agree with these source checks. Those records are inspections, not formal imported-head CLEAN verdicts.
+
+### Canonical base check
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-0fed25b3-pool-20261011-060113-32411.log`.
+
+SHA256: `eb8b02485f2e4fea085b28a0540b6a47e6e592eff14ac0fd9efd55f548901309`.
+
+The reviewer read the complete log. It names the exact previous CLEAN head, new head, and base. Conditions (1) and (4) pass. Conditions (2) and (3) fail on the four ordinary shared paths. The set check confirms one own removal and three base removals, with no shared removed ID. The job and wrapper exit one after eleven seconds. This failure requires both reviewer delta rounds. It supplies no automatic CLEAN transfer.
+
+### Exact-head Linux evidence
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-0fed25b3-pool-20261011-060128-33639.log`.
+
+SHA256: `ac776a2e81ce317ba89894415efcbde3eb1a4a88eda24d20296c4d81e92ada37`.
+
+The header names the exact head and base. All ten CI steps pass in 928.2 seconds. The job exits zero after 941 seconds. The wrapper exits zero after 942 seconds on `msa1`.
+
+- Default tier: 1688 passed, 481 skipped, 10.326 seconds.
+- Slow tier: 514 passed, 2016 skipped, 38.786 seconds.
+- Slow coverage: 1045 slow-only tests checked.
+- Both crash proofs, both reaper proofs, the lock-file proof, the root-mode proof, and the two-directory proof pass.
+- All five imported data-directory lock tests pass. The real `id_2` trial passes.
+- Real conformance: 151 distinct PASS IDs. AD-6 passes in 0.164 seconds.
+- Minimum: testkit-passing 56/69; real-passing 41/68; real-accepted 42/69.
+- Pending-real: 58 IDs; 33 pass and remain pending under the lead's separate follow-up decision.
+- Mutation stage 1: 122 distinct identities; 31 caught, 62 missed, 29 unviable, zero timeout; 144.6 seconds.
+- The unmutated slow baseline passes all 514 tests, with ten slow and 2700 skipped, in 40.354 seconds. Its complete step takes 50.5 seconds.
+- Mutation stage 2: exactly the 62 stage-1 miss identities, each once; 57 caught, five unviable, zero missed or timeout; 618.6 seconds.
+- The reviewer parses all 184 raw records and compares both identity multisets. The reviewer matches all 31 stage-1 catches and 57 stage-2 catches to nonempty named catch reports.
+- Final mutation result: 88 caught, 34 unviable, zero missed or timeout. The mutation step takes 816.0 seconds.
+- The lock-name replacements remain caught by `the_snapshot_never_opens_the_lock_file`. All three `recorded_pids` replacements remain caught by the two-directory proof. The named `reap` replacement is caught by the slow tier.
+- Fuzz passes. The own diff changes no crate with a decoder harness.
+
+The stopped `15d682b2` gate supplies no acceptance evidence.
+
+### Mac evidence and verdict scope
+
+The accepted Mac log from round 3 remains evidence for unchanged own executable code:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-5e6b1518-pool-20261011-052405-65143.log`.
+Its SHA256 is `1fafb463717485a0eb58b1b3e8b5ce0854400b6fe354fe6d1949b7a1ecbe951c`.
+
+That log passes the 113-test focused suite, separate AD-6 trial, and both own Mac mutants. It is not an exact-head Mac run on `0fed25b3`. The imported changes have their separate accepted base evidence. The four shared-path deltas have this static review and the exact-head Linux gate. No new own Mac function or mutation decision enters this import. The reviewer requests no repeat Mac job.
+
+This CLEAN covers the exact reviewed head, base, source composition, corrected body, and supplied evidence. It does not cover a later import. The reviewer changed no product code and ran no tests, builds, gates, mutations, reversal, measurement, or executable merge-check jobs.
+
+VERDICT: CLEAN
