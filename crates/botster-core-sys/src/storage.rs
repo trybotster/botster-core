@@ -378,6 +378,10 @@ impl DataDir {
     /// - The parent of `path` is readable, because Core syncs it on every open. A parent that cannot be opened fails the open.
     ///
     /// Core syncs `path` and its parent and no other ancestor: the durability of the parent's own entry is the host's.
+    ///
+    /// The lock is a POSIX record lock on `path/lock` ([`LockFile`]): the drop releases it at once, also while another
+    /// thread starts a child. The process loses it when it closes ANY descriptor of that file, so the host must never open
+    /// `path/lock` (a read, a copy or a snapshot that opens it releases the lock); a stat of it is safe.
     pub fn open(path: &Path) -> Result<DataDir, OpenError> {
         create_data_dir(path, &mut sync_dir)?;
         let lock = LockFile::try_exclusive(&path.join("lock")).map_err(|error| match error {
