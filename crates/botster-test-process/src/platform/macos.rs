@@ -5,6 +5,19 @@ use super::{gone, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
+/// The number of threads of this process, as libproc's task information gives it.
+///
+/// # Errors
+/// The information was refused.
+pub fn threads() -> std::io::Result<usize> {
+    use libproc::proc_pid::pidinfo;
+    use libproc::task_info::TaskInfo;
+    let info = pidinfo::<TaskInfo>(std::process::id().cast_signed(), 0)
+        .map_err(|refused| std::io::Error::other(format!("this process: {refused}")))?;
+    usize::try_from(info.pti_threadnum)
+        .map_err(|_| std::io::Error::other("this process: a negative thread count"))
+}
+
 /// The start time of `pid` in microseconds since the Unix epoch, or `None` when the process has ended (gone, or exiting: macOS
 /// refuses the information of a zombie). Callers compare start times only for equality. It reads the same field as
 /// `botster_core_sys::process::start_time`, so the two agree.
