@@ -1584,3 +1584,18 @@ Reversal log 1ff76822 records R1–R5 failures and a restored 319/319 PASS; it p
 The source-path analysis establishes the flag's equivalence. No direct reversal of drain_due is claimed from that log.
 Both original source findings remain open on 79f31be3 until the repaired-head source review establishes closure.
 No execution job runs. Wait for the repaired-head READY. Never poll.
+
+R-78 revised implementation-note design CLEAN pushed: 93eade7e762d949a9ceba6d0de78b22ad536ba4c.
+The worktree is clean. Current design hash bb550e41 is accepted; repaired source and evidence remain due.
+Sol receipt msg_plugin-w_1791761629_eabb0d and verdict 304f97f9da358b4ff2b9e480b5b2588eb1149b80, Round 6, are read.
+Sol's publication is verified. That matching design CLEAN covers cf3914bc, before the current equivalent-rule delta.
+Sol's same-hash review of bb550e41 remains due. No new source or execution approval is given. Never poll.
+
+## #291 current design: both CLEANs verified
+
+Sol receipt msg_plugin-w_1791761880_008d02 and verdict 5bfb2bbee7e98ead84fdd3fea7f2d4c31b72c266, Round 7, are read.
+Publication is verified on origin/stage1/integration-review-sol.
+Both design CLEANs cover bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2e811f8d4f.
+The matching design receipt condition closes. This approves no source head or execution result.
+The repaired-head review, retained reversals, revised both-OS facade proof, completed gate, and final acceptance remain due.
+No execution job runs. Wait for the repaired-head READY. Never poll.

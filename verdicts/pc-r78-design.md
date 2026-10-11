@@ -324,3 +324,15 @@ This older local log does not prove the later pump-bound test or a completed new
 The equivalence conclusion above follows the source paths, not a claim that this log directly reverses `drain_due`.
 The full source review, retained evidence, revised both-OS facade proof, gate, and matching design receipt remain due.
 No original source finding closes through this design verdict. No execution job runs. Never poll.
+
+## Matching revision 4 integration receipt
+
+Sol receipt: `msg_plugin-w_1791761880_008d02`.
+Sol verdict: `5bfb2bbee7e98ead84fdd3fea7f2d4c31b72c266`, `verdicts/stage1/pc-r78-stopping.md`, Round 7.
+The reviewer reads the full new round and verifies publication on `origin/stage1/integration-review-sol`.
+Both design CLEANs cover hash `bb550e4191009a3e1aa094e6b5e7f22f5adc1b9fdd5f09b3d9eebb2e811f8d4f`.
+Both reviews use the same scoped driver paths and preserve the mandatory-room backpressure rule.
+The matching design receipt condition closes.
+This receipt approves no source head or execution result.
+The complete repaired-head review, reversals, revised both-OS facade proof, gate, and final acceptance remain due.
+No execution job runs. The reviewer waits for READY and does not poll.
