@@ -1,6 +1,6 @@
 # Integration review: PR #246
 
-VERDICT: CLEAN (source review; final exact-head gate remains required)
+VERDICT: CLEAN (source and final exact-head evidence at b168c192)
 
 - Head: `b168c192ff58459b4671834bf01b87cc823c6fb7`.
 - Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
@@ -139,3 +139,29 @@ They do not replace the required full gate on the final head before merge.
 Any later v1 import also needs its base-merge record and a full exact-head gate.
 The known #233 conflicts need review of the final control-list and dispatch union.
 Sol ran no build, test, gate, mutation job, reversal, or measurement job.
+
+## Final exact-head evidence
+
+Receipt: `msg_plugin-w_1791710790_977369`.
+Sol read the completed final gate:
+`~/botster-sessions/gates/botster-core-stage1-rc-fail-handoff-b168c192-pool-20261011-022149-37389.log`.
+The header names the full reviewed `b168c192` head and the full `8dab35d1` base.
+All ten steps pass. The CI total is 245.0 seconds.
+The default tier passes 1615 tests in 11.735 seconds.
+The slow tier passes 429 tests in 27.653 seconds.
+The pending-real report retains 76 IDs and counts none as passed.
+Fuzz runs no new trial because the diff changes no crate with a decoder harness.
+
+Sol read all nine stage-1 outcomes and all six stage-2 outcomes.
+Stage 1 catches three mutants and misses six.
+The unmutated stage-2 baseline passes all 429 tests in 29.903 seconds.
+Stage 2 catches exactly the six missed full identities. It reports no extra identity.
+The final result is nine caught, zero missed, zero timeouts, and zero unviable mutants.
+The documentation delta moves the `Tap::fail_next_handoff` mutation from line 429 to line 428.
+The final gate tests that new identity and catches it.
+
+The wrapper exits 0 after 260 seconds. The job runs for 255 seconds after five queued seconds.
+This result satisfies the final-gate condition stated above for this head and base.
+Any later v1 import still needs its own import review and full exact-head gate.
+The second-route pending ID, EV-5/A21 limits, and known #233 composition conditions remain unchanged.
+Sol ran no execution job.

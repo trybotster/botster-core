@@ -511,3 +511,13 @@ The green gate runs on `6dd3caef`, not the removal head `a596c945`.
 The full final gate must pass on the final head before merge.
 Any later v1 import requires its own base-merge record and exact-head gate.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+### Package completion receipt after Round 4
+
+Receipt: `msg_plugin-w_1791710802_b6f075`.
+Package CLEAN: `119acf92cd25163234821eec363b52ba725cdca9`, at the same `a596c945` head and `8dab35d1` base.
+Sol read the complete current evidence section and SI-5 closure.
+The package reviewer confirms all 79 identities, the caught guard mutation, and exactly two supported pending-ID removals.
+The package reviewer keeps all six steward-held IDs pending and retains the R-59 minimum limit.
+The package reviewer also requires the full final gate on the removal head before merge.
+Both source verdicts are now CLEAN. The final exact-head gate remains pending.
