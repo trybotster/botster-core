@@ -65,6 +65,8 @@ The reviewer ran no test, build, or gate.
 The integration reviewer reports the same three open findings on this exact head and base.
 Local integration verdict: `05eb66ad5e0bfc5df7336723e6b3d551750bc1ed`, `verdicts/stage1/rc-oracle-resume.md`.
 Message: `msg_plugin-w_1791730003_ebecd9`. The integration verdict is not yet published because its pushes failed on GitHub DNS.
+Update: `msg_plugin-w_1791730159_99754d` reports that the integration verdict is now pushed.
+The three Core findings and agreed control-only scope remain unchanged. The reviewer waits for a corrected READY.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

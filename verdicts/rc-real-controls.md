@@ -461,3 +461,11 @@ The report arrived in `msg_plugin-w_1791730003_ebecd9`.
 The integration reviewer read the package verdict and plan 23at scope correction.
 Two integration push attempts failed because GitHub DNS did not resolve. That integration verdict is not yet published.
 The package findings remain open. The reviewer ran no test, build, or gate.
+
+### Integration publication recovered
+
+The integration reviewer reports that verdict `05eb66ad5e0bfc5df7336723e6b3d551750bc1ed` is now pushed.
+The report arrived in `msg_plugin-w_1791730159_99754d`.
+The source head, reviewed base, three open findings, and agreed control-only scope remain unchanged.
+The integration reviewer also reports plan 23au CLEAN, which closes only the plan's table citation finding.
+That plan verdict closes no Core #269 finding. The reviewer waits for a corrected READY.
