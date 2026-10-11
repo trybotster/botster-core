@@ -1056,6 +1056,7 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
 }
 
 mod handoff;
+mod paste;
 
 /// DP-5, IN-4, AM-2: after `live`, a client's `bytes` and `text` frames go to the PTY in their receive order. Each complete
 /// frame advances `input_rev{client}` on receipt and is reported with its route; a frame split across reads waits for its
@@ -1173,10 +1174,6 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
     ]
     .concat();
     for bytes in [
-        client_frame(&ToWorker::PasteChunk {
-            op: Op(2),
-            bytes: b"p".to_vec().into(),
-        }),
         client_frame(&ToWorker::FileChunk {
             op: Op(3),
             bytes: b"f".to_vec().into(),
@@ -1195,7 +1192,6 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
     assert_eq!(
         refusals(&client),
         vec![
-            unsupported(Some(2), "paste_chunk"),
             unsupported(Some(3), "file_chunk"),
             unsupported(Some(5), "input"),
         ]
