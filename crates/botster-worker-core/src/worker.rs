@@ -471,12 +471,21 @@ impl Worker {
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
     fn close_link(&mut self) {
-        // No route will take a descriptor of a closed link, so each close closes them (F117).
-        self.close_unbound();
+        // No read of a closed link can be checked, so each close ends the reads that are left (F117).
+        self.close_unchecked();
         if matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
             self.link = LinkState::Closing;
         }
         self.finish_close();
+    }
+
+    /// Closes the link at once, with no wait for the bytes already sent (an end that does not wait for the host).
+    fn close_link_now(&mut self) {
+        self.close_unchecked();
+        if self.link != LinkState::Closed {
+            self.link = LinkState::Closed;
+            self.actions.push_back(Action::LinkClose);
+        }
     }
 
     /// A staged close completes when nothing sent is left in the driver; a staged end follows the close.
@@ -860,10 +869,7 @@ impl Worker {
             return;
         }
         self.terminating = false;
-        if self.link != LinkState::Closed {
-            self.link = LinkState::Closed;
-            self.actions.push_back(Action::LinkClose);
-        }
+        self.close_link_now();
         self.exit_pending = false;
         self.end();
     }
@@ -919,10 +925,7 @@ impl Worker {
         }
         if self.orphan.is_some_and(|at| at <= now) {
             // AD-7: no payload and no host for `startup`. The worker ends; no unregistered payload can follow.
-            if self.link != LinkState::Closed {
-                self.link = LinkState::Closed;
-                self.actions.push_back(Action::LinkClose);
-            }
+            self.close_link_now();
             self.end();
         }
     }
@@ -990,7 +993,7 @@ impl Worker {
         self.epoch = epoch;
         // The driver drops the bytes that are still unwritten on the old link; they never reach the new one.
         self.actions.push_back(Action::AdoptLink(id));
-        self.close_unbound();
+        self.close_unchecked();
         self.queued_total = 0;
         self.written_total = 0;
         // The new link counts its bytes from zero, so an `Output` report of the old link waits for nothing on it. The
@@ -1077,7 +1080,7 @@ impl Machine for Worker {
                 // DP-8: the worker keeps its payload and its model when the host is gone. Unwritten bytes are lost with
                 // the link, so a staged close is complete, and a staged end follows.
                 self.link = LinkState::Closed;
-                self.close_unbound();
+                self.close_unchecked();
                 self.finish_close();
             }
             Input::LinkWritten { total } => {

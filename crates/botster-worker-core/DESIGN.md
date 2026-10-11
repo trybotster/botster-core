@@ -129,8 +129,10 @@ read. A frame keeps the read of its first byte until it is complete. The bind is
 frame is complete. A host fault breaks the link: a read with descriptors holds the first byte of no `AttachRoute` frame or
 of more than one, an `AttachRoute` frame starts in a read with no descriptor, its read has another count than one, or
 descriptors come before the hello passes. The worker closes the link and each descriptor of that read once:
-`CloseDescriptor` for each unbound one, and a route that took one ends `HandoffFailed` (lead ruling Q1). At `LinkClosed`
-and at `AdoptLink` (DP-8), the machine emits `CloseDescriptor` for each unbound descriptor of the old link.
+`CloseDescriptor` for each unbound one, and a route that took one ends `HandoffFailed` (lead ruling Q1). A read leaves
+the machine when it is checked. Every close of the link (a fault, a frame above the bound, a frame that closes the link,
+`Terminate`, `LinkClosed`, `AdoptLink`; DP-8) closes each read that is left in the same way, because it was not proven;
+the routes of checked reads stay (F117).
 
 ### Worker-core inputs and actions (sans-IO)
 
