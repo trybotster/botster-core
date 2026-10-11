@@ -104,3 +104,5 @@ The corpus test requires the exception list to equal the findings. #73 lists R-8
 4. MEDIUM: a `Completed` whose outcome is `$one_of [NotWritten SessionEnded, Written]` clears the session through a string search of the result (lines 450-452). Only a result that requires `NotWritten SessionEnded` proves the end.
 
 I check all four, with their regression cases, on the next head, together with my F1 and F2.
+5. MEDIUM (an extension of item 1): `RouteClosed`, `RouteStalled` and `RouteResumed` clear route causes by the text of the route variable, with no handle filter (lines 486-489). 016c's fifth proof reuses `r1` on h2 and waits for h2's `RouteClosed`. That clears h's `Detach` cause: the result is `[]`, not `[5]`. **My round 1 saw this code and assumed that route names are unique per transcript. That was wrong.**
+6. LOW (016c F5): the debt owners for `a2_3_close_first_reason_wins_with_new_reasons` and `tm_6_begin_and_attach_signal_wake` differ from R-88's explicit PC assignment.
