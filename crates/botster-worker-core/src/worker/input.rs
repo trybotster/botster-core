@@ -11,7 +11,7 @@
 //!   cancelled op's completion reports exactly what happened").
 //!
 //! `Paste`, `Key`, `Mouse` and `Focus` are encoded by the terminal model at the start of their transaction (IN-8, IN-9:
-//! libghostty). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
+//! libghostty), for the host's writes and for a route's input alike (`model::encode`, the one encoder). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
 //! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
 
 use super::{PayloadState, Worker};
@@ -34,7 +34,7 @@ pub(super) enum Pending {
     Host(HostWrite),
     /// A reply of the model to the program (EV-8 shadow reply, a model PTY write).
     Reply(Vec<u8>),
-    /// A client's `bytes` or `text` frame (DP-5): fire-and-forget, in its receive order on the route.
+    /// A client's input (DP-5): a `bytes` or `text` frame, or a committed paste, in its receive order on the route.
     Route(RouteInput),
 }
 
@@ -51,7 +51,18 @@ enum Source {
 pub(super) struct RouteInput {
     route: RouteId,
     op: Option<Op>,
-    bytes: Vec<u8>,
+    payload: InputPayload,
+    /// `paste_commit{want_result: true}`: a written paste is answered with `input_done` (Codec TS-5b).
+    want_result: bool,
+}
+
+/// The caller's bytes of a payload: the unit of a route's held input (DP-5, the read allowance).
+fn payload_len(payload: &InputPayload) -> usize {
+    match payload {
+        InputPayload::Bytes { bytes } | InputPayload::Paste { bytes, .. } => bytes.0.len(),
+        InputPayload::Text { text } => text.len(),
+        _ => 0,
+    }
 }
 
 /// Who owns a transaction, and so where its outcome goes.
@@ -61,8 +72,8 @@ enum Owner {
     Host(u64),
     /// A reply of the model: it reports nothing.
     Reply,
-    /// A client's input: only an exception goes back, on its route (DP-5).
-    Route(RouteId, Option<Op>),
+    /// A client's input: only an exception goes back, on its route (DP-5), and `input_done` when the paste asked for it.
+    Route(RouteId, Option<Op>, bool),
 }
 
 /// The transaction that owns the PTY input (AM-2).
@@ -120,14 +131,14 @@ impl InputState {
             .queue
             .iter()
             .filter_map(|p| match p {
-                Pending::Route(input) if input.route == route => Some(input.bytes.len()),
+                Pending::Route(input) if input.route == route => Some(payload_len(&input.payload)),
                 _ => None,
             })
             .sum();
         let active = self
             .active
             .as_ref()
-            .filter(|a| matches!(a.owner, Owner::Route(r, _) if r == route))
+            .filter(|a| matches!(a.owner, Owner::Route(r, ..) if r == route))
             .map_or(0, |a| a.bytes.len() - a.written);
         queued + active
     }
@@ -143,7 +154,7 @@ impl InputState {
         let active = self
             .active
             .as_ref()
-            .is_some_and(|a| matches!(a.owner, Owner::Route(r, _) if r == route));
+            .is_some_and(|a| matches!(a.owner, Owner::Route(r, ..) if r == route));
         queued + usize::from(active)
     }
 
@@ -160,6 +171,9 @@ impl InputState {
         }
     }
 }
+
+/// The bytes of a transaction, and where the caller's payload is in them (`Active`).
+type Encoded = (Vec<u8>, usize, usize);
 
 /// A write that writes zero bytes: a certain zero (IN-2).
 fn not_written(reason: NotWrittenReason, detail: &str) -> InputResult {
@@ -192,10 +206,19 @@ impl Worker {
 
     /// DP-5: a client's input joins the admission point in its receive order, with its route and op. An empty frame joins
     /// too: at its turn it takes the same admission as every other client input (PR3 R5, Sol), and then writes nothing.
-    pub(super) fn enqueue_route_input(&mut self, route: RouteId, op: Option<Op>, bytes: Vec<u8>) {
-        self.input
-            .queue
-            .push_back(Pending::Route(RouteInput { route, op, bytes }));
+    pub(super) fn enqueue_route_input(
+        &mut self,
+        route: RouteId,
+        op: Option<Op>,
+        payload: InputPayload,
+        want_result: bool,
+    ) {
+        self.input.queue.push_back(Pending::Route(RouteInput {
+            route,
+            op,
+            payload,
+            want_result,
+        }));
         self.try_start();
     }
 
@@ -249,19 +272,13 @@ impl Worker {
                 Pending::Reply(bytes) => {
                     // A reply goes only to a live payload. It advances no revision and completes no operation (EV-8).
                     if self.admission(Source::Reply).is_ok() && !bytes.is_empty() {
-                        self.start_unowned(Owner::Reply, bytes);
+                        let len = bytes.len();
+                        self.start_unowned(Owner::Reply, (bytes, 0, len));
                     }
                     continue;
                 }
-                Pending::Route(RouteInput { route, op, bytes }) => {
-                    // A client's input advanced its revision on receipt (IN-4). On a payload that ended or is being
-                    // stopped it is refused `session_ended`, with nothing written (DP-5: `NotWritten(SessionEnded)` and
-                    // `NotWritten(Stopping)`).
-                    if self.admission(Source::Route).is_err() {
-                        self.refuse(route, op, RefusalReason::SessionEnded, None);
-                    } else if !bytes.is_empty() {
-                        self.start_unowned(Owner::Route(route, op), bytes);
-                    }
+                Pending::Route(input) => {
+                    self.start_route(input);
                     continue;
                 }
                 Pending::Host(write) => write,
@@ -270,22 +287,7 @@ impl Worker {
                 self.complete_write(write.req, result);
                 continue;
             }
-            let encoded = match &write.payload {
-                InputPayload::Bytes { bytes } => {
-                    let len = bytes.0.len();
-                    Ok(Some((bytes.0.clone(), 0, len)))
-                }
-                InputPayload::Text { text } => {
-                    let len = text.len();
-                    Ok(Some((text.as_bytes().to_vec(), 0, len)))
-                }
-                // IN-8, IN-9: the model encodes with its modes at this start.
-                other => match self.model.as_ref() {
-                    Some(model) => super::model::encode(model, other),
-                    None => Ok(None),
-                },
-            };
-            let (bytes, payload_start, payload_len) = match encoded {
+            let (bytes, payload_start, payload_len) = match self.encoded(&write.payload) {
                 Ok(Some(encoded)) => encoded,
                 Err(reason) => {
                     self.complete_write(
@@ -354,14 +356,71 @@ impl Worker {
         self.termed || self.killed || self.grace.is_some()
     }
 
+    /// The bytes of a payload at the start of its transaction, with the caller's payload in them: `bytes` and `text` as they
+    /// are; the other kinds encoded by the model with its modes at this start (IN-8, IN-9). `Err` is the certain zero of
+    /// IN-8 or IN-9; `None` is a payload that this worker cannot write.
+    fn encoded(&self, payload: &InputPayload) -> Result<Option<Encoded>, NotWrittenReason> {
+        match payload {
+            InputPayload::Bytes { bytes } => {
+                let len = bytes.0.len();
+                Ok(Some((bytes.0.clone(), 0, len)))
+            }
+            InputPayload::Text { text } => {
+                let len = text.len();
+                Ok(Some((text.as_bytes().to_vec(), 0, len)))
+            }
+            other => match self.model.as_ref() {
+                Some(model) => super::model::encode(model, other),
+                None => Ok(None),
+            },
+        }
+    }
+
+    /// A client's input at its turn (DP-5). It advanced its revision on receipt (IN-4).
+    /// - On a payload that ended or is being stopped, it is refused `session_ended`, with nothing written (DP-5:
+    ///   `NotWritten(SessionEnded)` and `NotWritten(Stopping)`).
+    /// - It is encoded now, with the model's modes at this start (IN-8). A certain zero of the encoding is refused with its
+    ///   reason (Codec TS-5b: `mode_precondition_failed`), with nothing written.
+    /// - An input with no bytes writes nothing; a paste that asked for its result gets `input_done` with 0 bytes.
+    fn start_route(&mut self, input: RouteInput) {
+        let RouteInput {
+            route,
+            op,
+            payload,
+            want_result,
+        } = input;
+        if self.admission(Source::Route).is_err() {
+            self.refuse(route, op, RefusalReason::SessionEnded, None);
+            return;
+        }
+        let refusal = match self.encoded(&payload) {
+            Ok(Some(encoded)) if encoded.0.is_empty() => {
+                if want_result {
+                    self.input_done(route, op, 0);
+                }
+                return;
+            }
+            Ok(Some(encoded)) => {
+                self.start_unowned(Owner::Route(route, op, want_result), encoded);
+                return;
+            }
+            Err(NotWrittenReason::ModePreconditionFailed) => RefusalReason::ModePreconditionFailed,
+            // A route's input is `bytes`, `text` or a paste, and their encoding has no other certain zero. The keys and the
+            // mouse, whose encoding can be `Unsupported{what}`, are later P4a work.
+            Err(_) | Ok(None) => RefusalReason::Unsupported {
+                what: "input".into(),
+            },
+        };
+        self.refuse(route, op, refusal, None);
+    }
+
     /// Starts a transaction that no host request owns: a reply, or a client's input.
-    fn start_unowned(&mut self, owner: Owner, bytes: Vec<u8>) {
-        let len = bytes.len();
+    fn start_unowned(&mut self, owner: Owner, (bytes, payload_start, payload_len): Encoded) {
         self.input.active = Some(Active {
             owner,
             bytes,
-            payload_start: 0,
-            payload_len: len,
+            payload_start,
+            payload_len,
             written: 0,
             in_flight: false,
             cancelled: false,
@@ -500,16 +559,21 @@ impl Worker {
             }
             Owner::Reply => {}
             // DP-5: a client's input that is not written as sent is refused on its route, with the bytes written when
-            // part of it was. A written input sends no frame.
-            Owner::Route(route, op) => {
-                let written = active.payload_written();
+            // part of it was. A written input sends no frame, except a paste that asked for its result (Codec TS-5b).
+            // `written_bytes` counts the PTY bytes after encoding, markers included (Codec TS-5b, Core IN-2).
+            Owner::Route(route, op, want_result) => {
+                let written = active.written as u64;
                 let refusal = match outcome {
                     WriteOutcome::Written => None,
                     WriteOutcome::Failed => Some(RefusalReason::Failed),
                     _ => Some(RefusalReason::SessionEnded),
                 };
-                if let Some(reason) = refusal {
-                    self.refuse(route, op, reason, (written > 0).then_some(written));
+                match refusal {
+                    Some(reason) => {
+                        self.refuse(route, op, reason, (written > 0).then_some(written))
+                    }
+                    None if want_result => self.input_done(route, op, written),
+                    None => {}
                 }
                 // The route holds one input less: its reserved refusal room is free (DP-5).
                 self.settle_routes();
