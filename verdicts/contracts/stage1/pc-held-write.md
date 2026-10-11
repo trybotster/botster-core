@@ -56,3 +56,14 @@ VERDICT: CLEAN (0 open in my scope) on this exact head. Not merge-ready: 016c's 
 
 - The parent is `4b7c2bb044b7d0e74b31d04cc0b3e9d1517ec08f`. The delta is one phrase in the same row: "`pty_blocked` on the Core testkit and the real tier" becomes "the testkit's `pty_blocked`", as the steward requires through the lead. Nothing else changes. The branch head on origin is this commit, and main is still `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0`.
 - **016c's REJECT on `4b7c2bb0` (package scope):** a MEDIUM in the R-74 lint case (`fence_lint.rs`). The `writes` map keeps a `WriteInput`'s old session after a `let` or another binding replaces its op variable. So a count can fence a capture of the wrong session, against R-74 condition 2. My round 1 missed it. I do not withdraw a CLEAN for a package-scope finding, and I review the fix as a delta on the next head: entries cleared on every replacement binding (`let` and `Rebound::All` included), an entry only for a current `WriteInput` binding, and a regression test.
+
+## Round 4 (delta): head `bd95b2acde7327fa6e3f9372c08677fa1f2526f9`
+
+VERDICT: CLEAN (0 open) on this exact head. The gate on this head is still to come; I read it before I send CLEAN to the lead.
+
+- The parent is `c212576f5e643c43b436614103e0b8589a7e2ea6`. The delta is `fence_lint.rs` only. It fixes 016c's R1-1 (R-74 condition 2):
+  - `written_counts` runs before the step's own rebinding, so a `Completed` names the op variable as it was bound before this step.
+  - Every replacement form removes the variable from `writes`: `Rebound::Names` (`bind`, `bind_fields`, an `attach_route` route), `Rebound::All`, and each `let` name.
+  - Only the step's own `WriteInput` binding installs the variable again, with that write's session.
+- The regression cases cover 016c's `let $w = $v + 0` case and the other three replacement forms, each with one unfenced capture. They also cover a `WriteInput` rebinding of `$w` to s2 before and after s1's write.
+- No transcript, exception line or other file changes.
