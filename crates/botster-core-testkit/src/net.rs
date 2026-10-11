@@ -57,7 +57,7 @@ impl std::fmt::Debug for Descriptor {
 /// control is state of the edge, never a branch in a machine.
 #[derive(Debug, Default, Clone)]
 struct SideControl {
-    /// While set, this side's stream takes no byte from its owner (`route_gate`).
+    /// While set, this side's stream takes no byte from its owner beyond an accept limit (`route_gate`).
     gate: bool,
     /// At most this many more bytes are taken, then none (`route_accept`). `None`: no limit.
     accept: Option<usize>,
@@ -71,6 +71,19 @@ struct SideControl {
     read_cap: Option<usize>,
     /// The next descriptor that this side hands over fails (`fail_handoff`).
     fail_descriptor: bool,
+}
+
+impl SideControl {
+    /// The most bytes that the stream takes from this side's owner now, before the room of its queue; `None`: no limit. An
+    /// accept limit admits its bytes under the gate too: `route_accept` is a partial opening of a closed gate, until
+    /// `route_gate` with `on: false` (the control row; `ou_12` and `ou_3` accept only under the gate). A gate with no accept
+    /// limit takes nothing.
+    fn limit(&self) -> Option<usize> {
+        match self.accept {
+            None if self.gate => Some(0),
+            accept => accept,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -158,8 +171,7 @@ impl End {
                 || !shared.descriptors[peer].is_empty()
                 || shared.closed[peer]);
         let control = &shared.control[me];
-        let takes =
-            !control.gate && control.accept != Some(0) && shared.queues[me].len() < shared.capacity;
+        let takes = control.limit() != Some(0) && shared.queues[me].len() < shared.capacity;
         let writable = !shared.closed[me]
             && (shared.reset
                 || control.fail_write.is_some()
@@ -246,8 +258,8 @@ impl End {
         }
         let control = &shared.control[me];
         let room = shared.capacity - shared.queues[me].len();
-        let room = control.accept.map_or(room, |accept| room.min(accept));
-        if (control.gate || room == 0) && !bytes.is_empty() {
+        let room = control.limit().map_or(room, |limit| room.min(limit));
+        if room == 0 && !bytes.is_empty() {
             return Err(io::ErrorKind::WouldBlock.into());
         }
         let n = room.min(bytes.len());
@@ -305,8 +317,8 @@ impl EndControl {
         f(&mut lock(&self.shared).control[self.side])
     }
 
-    /// While `on`, the stream takes no byte from this end's owner; `route_accept` limits end with it (`route_gate`, Core OU-2,
-    /// OU-3b). `on: false` releases the gate and the limit.
+    /// While `on`, the stream takes no byte from this end's owner, except the bytes of a `route_accept` limit (`route_gate`,
+    /// Core OU-2, OU-3b). `on: false` releases the gate and the limit.
     pub fn gate(&self, on: bool) {
         self.with(|c| {
             c.gate = on;
@@ -367,15 +379,14 @@ impl EndControl {
     }
 
     /// The bytes that the stream takes from this end's owner now: the free room of its queue, limited by `route_accept`, and 0
-    /// while gated (`route_fill`, R-47 item 3). A write of this end takes exactly this many bytes, if no failure comes first.
+    /// while gated with no accept limit (`route_fill`, R-47 item 3). A write of this end takes exactly this many bytes, if no
+    /// failure comes first.
     pub fn room(&self) -> usize {
         let shared = lock(&self.shared);
-        let control = &shared.control[self.side];
-        if control.gate {
-            return 0;
-        }
         let room = shared.capacity - shared.queues[self.side].len();
-        control.accept.map_or(room, |accept| room.min(accept))
+        shared.control[self.side]
+            .limit()
+            .map_or(room, |limit| room.min(limit))
     }
 
     /// The owner of this side holds it from now on (the worker's bind of a route stream, DP-2): the bytes through it are the
@@ -1104,6 +1115,50 @@ mod tests {
         assert_eq!(
             worker.write(b"g").unwrap_err().kind(),
             io::ErrorKind::WouldBlock
+        );
+    }
+
+    /// `route_accept` under `route_gate` (the control row; `ou_12`, `ou_3`): the limit opens the closed gate for its bytes, a
+    /// straddling write takes its prefix, and then the gate holds again until `on: false`. A gate with no limit takes nothing.
+    #[test]
+    fn an_accept_limit_under_the_gate_takes_its_bytes_and_then_the_gate_holds() {
+        let (mut worker, _client) = pair_of_streams();
+        worker.end().set_interest(Interest {
+            read: false,
+            write: true,
+        });
+        let control = worker.end().control();
+        control.gate(true);
+        assert_eq!(control.room(), 0, "a gate with no limit");
+        assert!(!worker.is_ready());
+        control.accept_at_most(3);
+        assert_eq!(control.room(), 3);
+        assert!(worker.is_ready(), "the limit makes the gated end writable");
+        assert_eq!(worker.write(b"abcdef").unwrap(), 3);
+        assert_eq!(control.room(), 0);
+        assert!(!worker.is_ready());
+        assert_eq!(
+            worker.write(b"d").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.accept_at_most(2);
+        assert_eq!(
+            worker.write(b"def").unwrap(),
+            2,
+            "a second limit, still gated"
+        );
+        assert_eq!(
+            worker.write(b"f").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        control.gate(false);
+        assert!(worker.is_ready());
+        assert_eq!(worker.write(b"f").unwrap(), 1, "released");
+        control.gate(true);
+        assert_eq!(
+            worker.write(b"g").unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "the release ended the limit: a new gate takes nothing"
         );
     }
 
