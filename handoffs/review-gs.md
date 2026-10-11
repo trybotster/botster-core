@@ -3,19 +3,21 @@
 ## Current review result
 
 - PR: #261, known-flaky list.
-- Head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
+- Head: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
 - Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
-- Verdict: NOT CLEAN (2 open).
-- Findings: GS-KF-R1-1 HIGH and GS-KF-R2-2 MEDIUM.
+- Verdict: NOT CLEAN (1 open), third package round.
+- Finding: GS-KF-R1-1 HIGH remains OPEN. GS-KF-R2-2 MEDIUM is CLOSED.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The delta removes the declared tier. The original shared-test case is corrected, but the stage-1 workspace list can differ from cargo-mutants' package-only build.
+The new verdict rule refuses catches only when every failed identity is listed. It can skip a listed first failure and credit an unlisted cancellation result.
 
-Feature unification can suppress a workspace-listed test that a package-only build runs. Its exclusion can remain absent, while the slow list validates the entry.
+With `--max-fail 1:immediate`, a listed failure can cause SIGTERM of another test. The existing CATCH fixture proves that reporting form.
 
-Required correction: cover the actual stage-1 feature selections, or prevent a known-flaky identity from adding a catch despite missing preliminary-list membership.
+Required correction: fail the report when the actual first final failure is listed. Do not replace it with a later cancellation failure.
 
-GS-KF-R2-2: the fixture's slow-only shared-binary test does not match the slow filter before subtraction. Make it selected and prove exclusion in a real run.
+GS-KF-R2-2 is source-fixed and CLOSED. The fixture now selects the slow-only shared-binary identity and asserts before/after execution.
+
+I asked the lead to settle the first-failure rule or replan before round four. The exact-head gate is reported running; no new execution evidence is accepted yet.
 
 The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
 

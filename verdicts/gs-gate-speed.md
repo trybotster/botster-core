@@ -794,3 +794,50 @@ Stage 2 lists the workspace with the same slow features as its build. The standa
 The delta adds no timeout change or mutation exclusion. Its full gate has not yet been supplied.
 
 I ran no gate, build, or test. I will wait for the next exact head and the required evidence.
+
+## PR #261: round 3 delta review
+
+- Head: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Previous reviewed head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
+- VERDICT: NOT CLEAN (1 open).
+
+### GS-KF-R1-1 HIGH: cancellation can replace the listed first failure as catcher
+
+Status: OPEN. The delta adds a verdict rule, but that rule can still accept a catch caused by a known-flaky test.
+
+`mutant_logs::report` now searches all final failed tests for the first identity outside the known-flaky list.
+
+The mutation stages pass `--max-fail 1:immediate`. A known-flaky test's final failure can therefore terminate other running tests.
+
+The existing `CATCH` fixture and `the_first_final_failure_is_the_catching_test` explicitly show that order: first FAIL, then another test's SIGTERM.
+
+If the first identity is listed, the new search skips it. It can credit the unlisted SIGTERM result as the catcher.
+
+That termination is caused by the listed failure. It does not establish an independent mutant catch. The guard can still accept a false CAUGHT.
+
+Required change: refuse the catch when the actual first final failure is listed, unless separate evidence proves an independent catch.
+
+A conservative report error on a listed first failure is sufficient. Do not search later failures to replace that first failure.
+
+Add a regression with a listed first FAIL and a later unlisted SIGTERM or ABORT caused by immediate cancellation.
+
+The current new unit test uses two FAIL lines and credits the second. It does not cover cancellation from the first failure.
+
+The multi-member fixture correctly establishes the workspace/package feature mismatch. Its report-error case has only the listed failure, so it misses this cancellation case.
+
+### GS-KF-R2-2 MEDIUM: CLOSED
+
+The copied fixture now renames `mod tests` to `mod slow_tests`. The slow filter selects its slow-only shared-binary test before exclusion.
+
+The fixture asserts pre-exclusion execution and post-exclusion absence. It also asserts that an unrelated selected test still runs.
+
+I read those source assertions. The implementer reports that the exact-head gate is running; I have not accepted execution evidence for this correction.
+
+### Round limit and evidence
+
+The PR body now describes the removed tier and the verdict rule. The slow step and standalone stage-2 baseline remain unchanged.
+
+The delta adds no timeout change or mutation exclusion. I ran no gate, build, or test.
+
+This is the third NOT CLEAN package round. I asked the lead to settle the first-failure rule or replan before round four, as section 8 requires.
