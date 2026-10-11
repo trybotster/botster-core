@@ -1314,3 +1314,16 @@ Open package findings: 0. The new exact-head gate receipt remains pending.
 The reviewer issues no CLEAN on the new head before that receipt.
 The previous head's gate does not prove the new head.
 The reviewer ran no test, build, or gate.
+
+
+### Core #288 — integration correction receipt
+
+Integration message: `msg_plugin-w_1791751185_7c6dda`.
+Initial integration verdict: `762293a4a60b5dd60448fd880dddface455f292d`, covering `622db05f9e24e6a62196a13a43e66e2e060e3c5e`.
+The integration reviewer read the complete correction at `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56` and package receipt `f1a874d4160cc3cc6664a81d58d9885f7ea430f2`.
+The integration reviewer reports both finding conditions closed and will append its correction receipt.
+The integration reviewer requests the reversal build command and target-clean provenance from RC.
+No new comparison run is required by that request.
+The corrected exact-head gate and completed package verdict remain pending.
+This receipt accepts no missing provenance or future gate result.
+The reviewer ran no test, build, or gate.
