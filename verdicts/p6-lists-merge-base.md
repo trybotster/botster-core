@@ -113,3 +113,48 @@ The exact-head final gate and completed final evidence body remain due. No later
 I changed no product code and ran no execution job.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-11: completed final gate, body, and merge
+
+Exact head: `f6bdb3f8ff0836b3e85f534033dda08daf00416a`.
+Imported and gate base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Tree: `ea7fb10d35543372956bba732418903d5796d7dc`.
+The head and tree retain Round 2's verified source carryover. No source change follows that review.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-p6-lists-merge-base-f6bdb3f8-pool-20261011-164701-94465.log`.
+SHA256: `ce6e57e1610ed852204036887e3cf86c6e86f22c2cba1ab0043ac953a6681479`.
+I read the exact-head/base headers, lists output, tier/stage summaries, all raw mutation and catcher records, and final exits.
+All ten stages pass in 134.5 seconds. The job exits zero after 145 seconds: two queued and 143 running.
+The wrapper exits zero after 146 seconds.
+Default passes 1802 tests, with 460 skipped, in 11.261 seconds.
+Slow passes 597 tests, with 2031 skipped, in 42.101 seconds.
+The lists output names f6025aed as both run base and merge base, and passes with the base's 26 real-pending identifiers.
+This demonstrates the approved merged-head behavior in the actual command: it compares with the imported base itself.
+
+All six raw mutation identities are unique. The five raw catches exactly match the five unique named catches.
+The named merge_base test is selected and passing normally in the gate.
+Stage 1 reports five caught, zero missed, zero timeout, and one unviable, in 13.7 seconds.
+The unviable BaseFiles default-return mutant supplies no catch evidence. Stage 2 does not run because stage 1 misses none.
+The complete log has no FLAKY record. Fuzz reports no changed crate with a decoder harness.
+This PR changes no pending file or mutation exclusion. Its inherited conformance outcomes approve no additional removal.
+
+I read the complete final live body delta through the GitHub CLI after MCP truncates the body.
+The final section records the merge, canonical PASS, exact-head gate, and source-carryover receipts.
+It matches the reviewed source and completed records. The initial-head proof retains its recorded original-head scope.
+Raw body SHA256: `23615bcf2a62ea8486ea3b74915fb7fd45e08133e84c0135fe1ec172c88ba31c`.
+The CLI form with its extra newline has SHA256 `749d03cfa161b08d436b472f418ea97b01e6b910bdceedef01f9b935e0d40b01`.
+That hash matches P6's final-body receipt `msg_plugin-w_1791762595_6b5c34`.
+The canonical PASS from Round 2 completes the import condition; no unreviewed delta remains.
+I also read Sol-B's complete source and carryover record at `f3c45a93167c88ecce74b00c9f6f5f1b59d4d32d`.
+Its head, base, source scope, and pending final-gate condition agree with the package records.
+
+GitHub reports #294 merged at 23:50:24Z, merge `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+I independently inspect that Git object. Its parents are the exact base and reviewed head above.
+Its tree exactly equals the reviewed and gated tree above. The merge adds no source delta.
+
+No package finding or required acceptance record remains open for this exact head.
+The source, permitted carryover, completed canonical check, final gate, final body, and exact-tree merge are reviewed.
+This verdict accepts no later source head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
