@@ -93,19 +93,25 @@ conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
 
 # oracle_encode, oracle_modes and oracle_state pass on the testkit (RC, R-84 with the corrected base of R-84 (1)). On the real tier
-# (macOS, ~/botster-sessions/gates/botster-core-rc-oracle-ids-evidence-mac-7b19bfe2-20261011-125939.log), the oracle read is not the
-# step that fails:
-# - in_9_legacy_keys_table and in_9_non_us_layout_uses_supplied_text read an empty pty_input log at step 7: no await_pty fence
-#   (R-83 fence class), P3 with the R-83 contracts PR.
-# - in_9_application_cursor_and_keypad: the program receives 0a for kp_enter's 0d at step 128 (the real PTY's line discipline maps
-#   CR to LF; the oracle never models the line discipline, R-62 Q3), steward via the lead.
-# - ev_5_keyed_events_bounded_by_keys: at step 78 Core's terminal_state title is one output behind the O_raw title after
-#   await_quiet (the model is not fenced to the probe's output history), P3 with the fence PRs.
-# - ev_1_replaced_keyed_event_moves_to_latest_position: no Bell at 3000 at step 13 (expect_eventually), unowned; the lead assigns it.
-# - ev_6_loss_leaves_marker_then_state_is_readable: INCONCLUSIVE at step 60 (step_timeout), unowned; the lead assigns it.
+# the oracle read is not the step that fails (macOS evidence:
+# ~/botster-sessions/gates/botster-core-rc-oracle-ids-evidence-mac-7b19bfe2-20261011-125939.log; the gate on 1c4ce117:
+# ~/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-1c4ce117-pool-20261011-130557-86252.log):
+# - the in_9 ids below except in_9_application_cursor_and_keypad read pty_input after a WriteInput with no await_pty fence: an
+#   empty log fails them (in_9_legacy_keys_table and in_9_non_us_layout_uses_supplied_text at step 7 on macOS,
+#   in_9_kitty_flag_16_needs_flag_8 at step 8 in the gate; the others passed once by timing). P3, the R-56 burn-down.
+# - in_9_application_cursor_and_keypad: the program receives 0a for kp_enter's 0d at step 128 (the real PTY's line discipline).
+#   R-85, P3.
+# - ev_5_keyed_events_bounded_by_keys: at step 78 Core's terminal_state title differs from the O_raw title after await_quiet
+#   (the model is not fenced to the probe's output history). P5, the R-80 lint of contracts #54.
+# - ev_1_replaced_keyed_event_moves_to_latest_position: no Bell at 3000 at step 13. PC, diagnosis first.
+# - ev_6_loss_leaves_marker_then_state_is_readable: INCONCLUSIVE at step 60 (step_timeout). PC, diagnosis first.
 conf::ev_1_replaced_keyed_event_moves_to_latest_position
 conf::ev_5_keyed_events_bounded_by_keys
 conf::ev_6_loss_leaves_marker_then_state_is_readable
 conf::in_9_application_cursor_and_keypad
+conf::in_9_key_shifted_and_alternate_keys_omission_rule
+conf::in_9_kitty_flag_16_needs_flag_8
+conf::in_9_kitty_text_with_control_codepoint_omitted
 conf::in_9_legacy_keys_table
+conf::in_9_legacy_release_is_not_reported
 conf::in_9_non_us_layout_uses_supplied_text
