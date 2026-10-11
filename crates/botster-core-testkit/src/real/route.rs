@@ -25,6 +25,7 @@ pub(super) const CONTROLS: &[&str] = &[
     "route_accept",
     "drop_transport",
     "route_fill",
+    "route_stream_written",
 ];
 
 /// The most bytes that one read of a `route_accept` drain takes.
@@ -80,6 +81,16 @@ pub(super) struct RealRoute {
     taken: Vec<u8>,
     /// Set by the first empty read: the driver pumped after it, so the worker holds the stream.
     handed: bool,
+    /// The bytes that the client's end read from the stream, and the unread bytes that a close of that end lost
+    /// (`route_stream_written`).
+    received: u64,
+}
+
+/// The bytes that the stream holds for the client's end and that the client has not read (`FIONREAD`). On Linux and macOS,
+/// a write to an `AF_UNIX` stream socket puts its bytes on the receiving socket's queue at once, so these are all the bytes
+/// that the kernel accepted from the worker and the client has not read.
+fn unread(end: &UnixStream) -> io::Result<u64> {
+    rustix::io::ioctl_fionread(end).map_err(io::Error::from)
 }
 
 /// How long a read waits for bytes: only after the handoff, and only under a deadline that has time left. With no
@@ -177,6 +188,7 @@ impl RealRoute {
             accept: None,
             taken: Vec::new(),
             handed: false,
+            received: 0,
         })
     }
 
@@ -219,7 +231,11 @@ impl RealRoute {
     /// the next call of the route drains again; the end or the error then reaches a read of the stream.
     fn drain(&mut self) {
         let RealRoute {
-            end, accept, taken, ..
+            end,
+            accept,
+            taken,
+            received,
+            ..
         } = self;
         let (Some(end), Some(left)) = (end.as_mut(), accept.as_mut()) else {
             return;
@@ -230,14 +246,19 @@ impl RealRoute {
                 Ok(n) if n > 0 => {
                     taken.extend_from_slice(&buf[..n]);
                     *left -= n;
+                    *received += n as u64;
                 }
                 _ => return,
             }
         }
     }
 
-    /// The client's end is gone: its unread and taken bytes are lost, and no allowance is left.
+    /// The client's end is gone: its unread and taken bytes are lost, and no allowance is left. The kernel accepted the
+    /// unread bytes from the worker, so `route_stream_written` keeps them. The caller drops the end after this call.
     fn closed(&mut self) {
+        if let Some(end) = &self.end {
+            self.received += unread(end).unwrap_or(0);
+        }
         self.unsent.clear();
         self.taken.clear();
         self.accept = None;
@@ -294,7 +315,12 @@ impl RouteClient for RealRoute {
             None => RouteRead::Eof { ended: None },
             Some(_) if self.gated => RouteRead::Empty,
             Some(end) => {
-                RealRoute::read_stream(end, max, wait_of(self.handed, deadline.remaining()))
+                let read =
+                    RealRoute::read_stream(end, max, wait_of(self.handed, deadline.remaining()));
+                if let RouteRead::Bytes(bytes) = &read {
+                    self.received += bytes.len() as u64;
+                }
+                read
             }
         };
         if read == RouteRead::Empty {
@@ -348,6 +374,18 @@ impl RouteClient for RealRoute {
             }
             // R-47 item 3, Core OU-3b: the session's output fills the transport and one frame more.
             "route_fill" => self.route_fill(),
+            // Core OU-9, OU-3, DP-5 (plan 23bf): the bytes that the stream accepted from the worker, cumulative (R-14.3): what
+            // the client read, and what the kernel holds for the client unread (`FIONREAD`). After a close of the client's
+            // end, the count at the close stays.
+            "route_stream_written" => {
+                let held = match &self.end {
+                    Some(end) => {
+                        unread(end).map_err(|e| format!("route_stream_written: FIONREAD: {e}"))?
+                    }
+                    None => 0,
+                };
+                Ok(json!({ "bytes": self.received + held }))
+            }
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
@@ -837,5 +875,52 @@ mod slow_tests {
             route.read(8, &deadline(Duration::ZERO)),
             RouteRead::Eof { ended: None }
         );
+    }
+
+    fn written(route: &mut RealRoute) -> u64 {
+        route.control("route_stream_written", &json!({})).unwrap()["bytes"]
+            .as_u64()
+            .unwrap()
+    }
+
+    /// Writes `worker`'s bytes until the stream takes no more, and gives how many it took.
+    fn fill(worker: &mut UnixStream) -> u64 {
+        worker.set_nonblocking(true).unwrap();
+        let chunk = [b'x'; 4096];
+        let mut took = 0u64;
+        loop {
+            match worker.write(&chunk) {
+                Ok(n) => took += n as u64,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return took,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => panic!("the worker's write: {e}"),
+            }
+        }
+    }
+
+    /// `route_stream_written` (Core OU-9, OU-3, DP-5; plan 23bf) on the OS that runs the test (the Linux gate and the Mac slow
+    /// tier): the bytes that the client read, a `route_accept` drain included, plus `FIONREAD` at the client's end equal the
+    /// bytes that the worker's writes gave the stream, also when the stream is full. So the kernel keeps no accepted byte
+    /// that `FIONREAD` does not count. After `drop_transport` or `client_close`, the count at the close stays.
+    #[test]
+    fn the_written_count_is_what_the_client_read_and_what_the_stream_holds_unread() {
+        for close in ["drop_transport", "client_close"] {
+            let (mut route, mut worker) = pair();
+            assert_eq!(written(&mut route), 0, "{close}");
+            worker.write_all(b"abcdef").unwrap();
+            assert_eq!(written(&mut route), 6, "6 unread");
+            assert_eq!(
+                route.read(2, &deadline(LONG)),
+                RouteRead::Bytes(b"ab".to_vec())
+            );
+            assert_eq!(written(&mut route), 6, "2 read, 4 unread");
+            route.control("route_accept", &json!({"bytes": 3})).unwrap();
+            assert_eq!(written(&mut route), 6, "2 read, 3 taken, 1 unread");
+            let total = 6 + fill(&mut worker);
+            assert!(total > 6, "the stream took bytes");
+            assert_eq!(written(&mut route), total, "a full stream");
+            route.control(close, &json!({})).unwrap();
+            assert_eq!(written(&mut route), total, "{close}: the count stays");
+        }
     }
 }

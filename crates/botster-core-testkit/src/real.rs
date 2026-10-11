@@ -67,6 +67,13 @@
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
 //!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
 //!   `HandoffFailed`. Core sees exactly the result of a real failed send: the endpoint back, with `Failed`.
+//! - `hold_handoff` and `release_handoff` (no arguments, Core OU-9, A5-1, plan 23bf): the tap holds the next
+//!   `link_send_descriptor` of the handle's host, and every later one on its link, with `Blocked` until the release
+//!   ([`Tap::hold_handoff`], [`Tap::release_handoff`]). Core keeps the frame and the endpoint in order, as after a real send
+//!   that takes nothing now, so `attach` returns and the worker has no transport for the route. The tap keeps Core's write
+//!   interest on the held link from the inner edge, so no readiness wakes the host for it. A held hand-over is not a report:
+//!   `edges_quiet` can be true while it is held. The release gives the inner edge that interest and signals the wake. A
+//!   second `hold_handoff` before the release is `Bad`.
 //! - `oracle_resume` (`{session, capture}` → `{equal}`, Core ST-6b, R-62): the real form, through a capture layer between the
 //!   driver and Core's composition ([`resume`]).
 //!
@@ -154,6 +161,10 @@ struct EdgesQuiet {}
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FailHandoff {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HandoffHoldArgs {}
 
 fn on() -> bool {
     true
@@ -636,6 +647,27 @@ impl RealCoreHarness {
         Ok(Value::Null)
     }
 
+    /// Core OU-9, A5-1: the tap holds the next hand-over of a route's stream endpoint ([`Tap::hold_handoff`]).
+    fn hold_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let HandoffHoldArgs {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        if lock(&tap).hold_handoff() {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(
+                "a hand-over is already held (`hold_handoff` twice)".into(),
+            ))
+        }
+    }
+
+    /// Core OU-9, A5-2: the tap delivers the held hand-over in the next pump ([`Tap::release_handoff`]).
+    fn release_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let HandoffHoldArgs {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        lock(&tap).release_handoff();
+        Ok(Value::Null)
+    }
+
     /// Core A5-3, R-49 Q3: arms a synchronous refusal of the handle's next named call, which the refusal layer returns
     /// without calling Core.
     fn fail_next(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -1092,6 +1124,8 @@ impl CoreHarness for RealCoreHarness {
                     | "route_reports"
                     | "fail_next"
                     | "fail_handoff"
+                    | "hold_handoff"
+                    | "release_handoff"
                     | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
@@ -1124,6 +1158,8 @@ impl CoreHarness for RealCoreHarness {
             "route_reports" if self.tapped => self.route_reports(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
+            "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
@@ -1365,6 +1401,8 @@ mod slow_controls {
             "route_reports",
             "fail_next",
             "fail_handoff",
+            "hold_handoff",
+            "release_handoff",
             "oracle_resume",
             "host_crash",
             "reuse_pid",
@@ -2410,6 +2448,8 @@ mod slow_tests {
             "route_reports",
             "fail_next",
             "fail_handoff",
+            "hold_handoff",
+            "release_handoff",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
