@@ -10857,3 +10857,174 @@ DP-2 PR B awaits its later direct READY. F39 and F61/F62 retain their separate s
 The non-minimum P3 queue remains parked. All earlier verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+## Round 159 — PR #240, package round 1 — 2026-10-10
+
+Head: `950527a6ff470b7f893cbb1a73b9d0efb918cf3d`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Initial READY: msg_plugin-w_1791697719_a3544b, at d901242ded24e77d17b0647b221f878b6be8976e.
+Base-merge update: msg_plugin-w_1791697799_08af42, at this reviewed head.
+The complete current GitHub body confirms the exact head and base.
+Body record: /private/tmp/review-p3-pr240-round159.json.
+This is the first formal package round for #240.
+
+### Authority and scope
+
+The stated HIGH tier is correct under BUILD rules 3 and 5: shared testkit, workspace configuration, and descriptor handoff.
+The reviewer reads the binding testing rules and the lead's DP-2 rulings.
+Plan 23ae replaces byte-position descriptor association with frame-start association within a read.
+The host starts each AttachRoute at its descriptor send. The worker associates the read's descriptors with that frame's first-byte offset.
+The read can begin with an earlier frame's tail or another complete frame.
+The lead approves Input::LinkBytes { bytes, descriptors } in worker-core. Guardian-core's separate Input stays unchanged.
+The lead approves binding in frame order. A later descriptor fault ends the route that took that read's descriptor with HandoffFailed.
+The link closes, every unbound descriptor closes once, and the route end is reported at most once.
+PR B owns receipt, framing, binding, descriptor closure, and the payload descriptor-exclusion proof.
+PR C retains the real route transport, its allowances, and the PTY read budget.
+The lead's pool-saving rule permits disjoint base merges with supplied base-merge-check records before the final gate.
+No gate is required for each such merge head. The final gate remains required after both CLEAN reviews.
+
+The reviewer reads all fifteen own changed paths and their relevant source contexts.
+The review includes the complete handoff module, worker input and decoder loop, route binding changes, both testkit forms, and driver descriptor ownership.
+It includes the complete new framing proofs, modified call sites, descriptor-table decisions, adoption fence, and condition-2 test.
+The process-check allowance only follows the existing guarded accept function's rename to launch_with_route.
+No new allowance or polling implementation is added by that rename.
+The proof calls Guard, OwnedChild, Bounded, Blocker, and Deadline from the existing test-process infrastructure.
+The reviewer changes no product code and runs no execution job.
+
+### F117 MED — OPEN: a decoder error retains an unbound descriptor
+
+Location: crates/botster-worker-core/src/worker.rs:534-537; worker/handoff.rs:44-56.
+On a Ready link, link_read_begins records the descriptors before the decoder reads the bytes.
+A descriptor-bearing read with an oversized frame header reaches the decoder error arm.
+That arm calls close_link and returns before link_read_ends. It never calls close_unbound or emits CloseDescriptor.
+close_link and finish_close only stage and emit LinkClose; they do not release the handoff records.
+The production Driver handles LinkClose with drop_link.
+drop_link closes the control socket, but emits no Input::LinkClosed and retains DescriptorTable.
+The descriptor therefore remains open until a later adoption or worker exit.
+This violates the required closure of received descriptors on a protocol error.
+
+Required correction: close received unbound descriptors on this error path.
+Add a behavior proof that supplies a descriptor with an oversized header and observes LinkClose plus exactly one CloseDescriptor.
+The proof must not depend on later Input::LinkClosed, adoption, or worker exit for descriptor closure.
+Package receipt to P3: msg_plugin-w_1791697856_4a9006.
+Integration receipt: msg_plugin-w_1791697856_0f69f4.
+
+### F118 MED — OPEN: the condition-2 proof races hello acceptance
+
+Location: crates/botster-worker/tests/common/session.rs, hello_and_launch, the HELLO send followed by send_with_fd.
+The helper sends the host HELLO and immediately sends [Launch][AttachRoute] with the descriptor.
+No worker event proves that the worker accepted the HELLO before the descriptor send.
+On Linux, one recvmsg can contain the earlier HELLO bytes and the later descriptor segment.
+The worker is still AwaitHello when link_read_begins examines that read.
+link_read_begins rejects descriptors before decoding the valid HELLO that precedes them.
+The condition-2 test therefore depends on the worker processing HELLO between the two sends.
+A passing run does not remove this scheduling race.
+
+Required correction: wait for a worker event that proves hello acceptance before the descriptor send.
+Retain the proof that the worker receives and holds the descriptor before it starts the payload.
+Use an event boundary, without a sleep or polling loop, under BUILD Testing rules 5 and 9.
+The reviewer identifies the legal Linux receive order from source and the accepted kernel form; the reviewer runs no reproduction.
+Package receipt to P3: msg_plugin-w_1791697856_b1188e.
+Integration receipt: msg_plugin-w_1791697856_44c3ed.
+
+### F119 MED — OPEN: checking two completed reads can panic
+
+Location: crates/botster-worker-core/src/worker/handoff.rs:109-123.
+check_reads snapshots completed read keys into done, then indexes self.handoffs.reads[&read] for each key.
+descriptor_fault removes the current entry and calls close_unbound, which removes every other entry.
+The next iteration can index a key that descriptor_fault already removed.
+
+Concrete input: a Ready link receives a non-AttachRoute frame split across two LinkBytes reads.
+Each read carries one descriptor. The second read completes the frame and starts no other frame.
+The decoder retains the first read as the frame start. Both descriptor records remain unbound until link_read_ends(false).
+check_reads collects both keys. It faults the first key and clears both records.
+It then indexes the absent second key and panics.
+The required result is a link protocol error with each descriptor closed once, rather than a worker panic.
+
+Required correction: stop checking after the fault or otherwise iterate without indexing removed entries.
+Add a behavior proof for this two-read input that observes LinkClose and exactly one CloseDescriptor for each ID.
+The proof must exercise Worker inputs and actions, without inspecting the private handoff map.
+Package receipt to P3: msg_plugin-w_1791697932_3bf993.
+Integration receipt: msg_plugin-w_1791697932_5f51fa.
+
+### Other whole-change conclusions
+
+Frame-start tracking survives split headers and payloads. The decoder takes no bytes beyond one complete frame per push.
+The normal split AttachRoute, earlier-tail, ordered two-route, wrong-count, and second-start paths retain their intended behavior.
+The second-start proof observes one HandoffFailed report and one route transport close after the first bind.
+The testkit models the accepted macOS and Linux receive forms and tests both forms explicitly at its receive edge.
+Its general worker runs use the macOS form without changing seeded draws.
+The worker-core proofs cover both manual read forms for split, ordered, no-start, wrong-count, and second-start cases.
+The earlier-tail-specific proof uses its required tail form; some kernel-independent fault proofs use one input shape.
+This review does not infer missing fault coverage from the passing ordinary cases; F117 and F119 name concrete uncovered inputs.
+
+The production driver receives through the already accepted fd_pass module and stores each OwnedFd under a fresh DescriptorId.
+BindRoute transfers ownership to the route map. CloseDescriptor and RouteClose drop their owned streams.
+The adoption fence returns descriptors from discarded old-link reads, and the driver closes those entries.
+The driver leaves RouteWrite, RouteReadAllowance, and PtyReadBudget as the explicitly tracked PR C stubs.
+No real route ID moves in this PR. No own contract pin, facade, C ABI, HIGH-path list, or mutation exclusion changes occur.
+The accepted LoopThread invariant remains intact: only the loop thread forks or execs, while the payload exit thread only waits.
+The receiver sets close-on-exec before returning to that loop. The accepted CTRUNC defence remains a separate prior PR scope.
+
+The Prior art section satisfies BUILD Starting fresh rule 0.
+The reviewer reads the cited vault note about SCM_RIGHTS and close-on-exec.
+A read-only search at 72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c finds no SCM_RIGHTS, recvmsg, or cmsg mechanism.
+The rebuild plan's 5.4 row identifies descriptor passing and worker route I/O as new work.
+The cited parity audits contain no descriptor-handoff obligation.
+The feature uses the accepted rustix net receiver. The local framing code implements Core's approved rule rather than a replacement transport library.
+Nothing is stolen, and no old test is ported.
+
+### Merge and completed evidence
+
+The reviewer reads both supplied base-merge-check files in shared/core-stage1/evidence/p3-handoff-recv.
+4c3fd5a3 to d901242d: all four conditions PASS; twelve base paths are disjoint from fifteen own paths.
+d901242d to 950527a6: all four conditions PASS; six base paths are disjoint from fifteen own paths.
+Both records report 108255 bytes and SHA256 ce3d9d0d0d2104285de91b1461e8457c819d9055e3ee16528a80a61a222033f5 for the unchanged own diff.
+The reviewer verifies the exact merge bases through read-only Git object queries.
+The earlier #227 conflict resolution retains its refusal bound, adds RouteReadAllowance to the PR C stubs, and adapts thirteen attach call sites.
+The own final delta against 11a5246a contains no guardian, pin, conformance-list, or mutation-configuration change.
+
+Pre-review gate: ~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-recv-4c3fd5a3-pool-20261010-220401-68609.log.
+Its exact head is 4c3fd5a343a855c495a9afa9235d2bb2ad846a73, with base cf3bcaa93faa240b418fa2248884a96581fd82c3.
+All ten steps PASS on msa1. Default: 1598 passed in 12.956 seconds, with 485 skipped.
+Slow: 410 passed in 118.863 seconds, with 1981 skipped.
+Both testkit reports: 205 passed, zero failed. Minimum: 54/69.
+Strict pending: 374/395 run, 21 real-only not run, two held.
+Real: 35/68 passing, 35/69 accepted. Real-pending: 83, with zero passing in that list.
+Mutation stage 1: 79 mutants, 70 caught, nine unviable, zero missed, zero timeouts, in 263.5 seconds.
+Full CI: 473.6 seconds. Queue: 384 seconds. Job: 483 running seconds, exit zero after 867 seconds.
+
+Additional gate: ~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-recv-d901242d-pool-20261010-222142-3248.log.
+Its exact head is d901242ded24e77d17b0647b221f878b6be8976e, with base 08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83.
+All ten steps PASS on msa1. Default: 1609 passed in 14.939 seconds, with 484 skipped.
+Slow: 410 passed in 112.139 seconds, with 1991 skipped.
+Both testkit reports: 206 passed, zero failed. Minimum: 55/69.
+Strict pending: 373/394 run, 21 real-only not run, two held.
+Real: 35/68 passing, 36/69 accepted. Real-pending: 83, with zero passing in that list.
+Mutation stage 1: 79 mutants, 70 caught, nine unviable, zero missed, zero timeouts, in 199.3 seconds.
+The reviewer reads all seventy-nine individual outcomes in this gate. Stage 2 skips because stage 1 misses none.
+The named condition-2 proof passes in both compiled test targets at 5.014 seconds each.
+Full CI: 422.4 seconds. Queue: 1190 seconds. Job: 434 running seconds, exit zero after 1624 seconds.
+The gate wrapper also exits zero after 1624 seconds.
+The #230 import accounts for the extra testkit ID and accepted minimum ID. This PR flips no ID.
+The #239 import accounts for later real-list changes in the final base. Neither supplied gate measures that later base.
+
+The reviewer reads all four supplied Mac evidence files completely.
+mac-slow-d901242d.log names the exact head and Darwin 27.0.0 after prebuild-worker.
+It reports 59 worker slow tests, 17 slow_cli tests, and 35 slow_session tests passing.
+worker-core-reverts-macos.log records six failed framing reversals.
+condition2-cloexec-revert-macos.log records the failed macOS close-on-exec reversal on the guarded fixture.
+link-loop-manual-mutants-macos.log records the failed loop, receive-boundary, and descriptor-table mutants.
+These are selected correction records; the reviewer does not claim they are complete exact-final-head gates.
+Passing supplied evidence does not close the three source findings.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+
+### Verdict
+
+PR #240 is NOT CLEAN at `950527a6ff470b7f893cbb1a73b9d0efb918cf3d`.
+F117 MED, F118 MED, and F119 MED remain OPEN. All must close before CLEAN on this HIGH PR.
+The artifact goes directly to P3 and current Sol integration. The reviewer sends no ordinary NOT CLEAN report to the lead.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
