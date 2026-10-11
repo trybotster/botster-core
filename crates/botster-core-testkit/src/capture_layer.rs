@@ -703,18 +703,11 @@ mod tests {
                     "size_or_profile_changed".into()
                 ))
             );
-            assert_eq!(
-                lock(&shared).check(&sid(session)),
-                Err(ControlError::UnsupportedFor(
-                    "size_or_profile_changed".into()
-                ))
-            );
         }
         assert!(
             lock(&shared).resume(&sid("s1"), capture, bound).is_ok(),
             "only the changed sessions"
         );
-        assert_eq!(lock(&shared).check(&sid("s1")), Ok(()));
     }
 
     /// At a quiet point, the second capture returns its pages and releases the capture. It is not the transcript's, and it

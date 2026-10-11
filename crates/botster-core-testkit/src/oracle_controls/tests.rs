@@ -82,6 +82,22 @@ fn running(harness: &mut TestkitHarness) -> (Box<dyn CoreApi>, Instant) {
     (core, at)
 }
 
+/// Creates and starts a second session `session` on the Core of [`running`], with the same request.
+fn started(harness: &TestkitHarness, core: &mut dyn CoreApi, at: Instant, session: &str) {
+    let mut create = json!({"Create": {"session": session, "request": {
+        "program": [{"hold": {}}], "size": {"rows": SIZE.rows, "cols": SIZE.cols}}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(complete(core, at, create), OpResult::Ok(_)));
+    let start = core
+        .begin(Op::Start {
+            id: SessionId(session.into()),
+        })
+        .unwrap();
+    assert!(matches!(complete(core, at, start), OpResult::Ok(_)));
+    settle(core, at);
+}
+
 fn sid() -> SessionId {
     SessionId("s1".into())
 }
@@ -321,18 +337,50 @@ fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
     }
 }
 
-/// Only the session that the op names is changed, and an op that is not a `Resize` or a `SetColorProfile` changes nothing.
+/// Condition 3 names only the session that the op reached, through the controls: a `Resize` of `s2` refuses `s2`'s history
+/// controls and leaves `s1`'s answering, and an op that is not a `Resize` or a `SetColorProfile` (a capture of each
+/// session) refuses neither.
 #[test]
-fn the_record_names_only_the_resized_or_recolored_session() {
-    let mut record = Changed::default();
-    record.begun(&Op::Start { id: sid() });
-    assert_eq!(record.check(&sid()), Ok(()));
-    record.begun(&Op::Resize {
-        session: SessionId("s2".into()),
-        size: SIZE,
-    });
-    assert_eq!(record.check(&sid()), Ok(()));
-    assert_eq!(record.check(&SessionId("s2".into())), changed().map(|_| ()));
+fn only_the_resized_or_recolored_session_refuses() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    started(&harness, core.as_mut(), at, "s2");
+    output(&mut harness, core.as_mut(), at, b"abc");
+    let screen = |h: &mut TestkitHarness, session: &str| {
+        h.control(
+            "a",
+            "oracle_screen",
+            &json!({"session": session, "history": false}),
+        )
+    };
+    for session in ["s1", "s2"] {
+        let op = core
+            .begin(Op::CaptureSnapshot {
+                session: SessionId(session.into()),
+                owner: ClientId("c1".into()),
+            })
+            .unwrap();
+        complete(core.as_mut(), at, op);
+    }
+    assert!(screen(&mut harness, "s1").is_ok());
+    assert!(
+        screen(&mut harness, "s2").is_ok(),
+        "a capture changes nothing"
+    );
+
+    let op = core
+        .begin(Op::Resize {
+            session: SessionId("s2".into()),
+            size: SIZE,
+        })
+        .unwrap();
+    complete(core.as_mut(), at, op);
+    assert_eq!(screen(&mut harness, "s2"), changed());
+    assert_eq!(
+        screen(&mut harness, "s1"),
+        Ok(json!({"text": text(&applied(b"abc"), false), "rows": SIZE.rows, "cols": SIZE.cols})),
+        "another session's resize"
+    );
 }
 
 /// OU-9, DP-3: a fresh oracle terminal loads the payload of a `screen` frame and reads its visible screen, with its size.
