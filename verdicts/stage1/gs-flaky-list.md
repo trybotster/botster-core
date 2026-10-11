@@ -235,3 +235,25 @@ The older 80af70d2 gate does not cover this correction. This round accepts no ne
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open) at eb7f5c1264efe3346890d831af27c0cf3ba584ac
+
+### Round 3 publication and next correction receipt
+
+Sol pushed Round 3 as 5fbee0a420c854abc602fbfb0b82015b0108934a.
+The package reviewer reports publication in msg_plugin-w_1791718880_a044b3.
+Sol independently fetches stage1/review-gs and confirms d1411892 is an ancestor of the fetched head.
+The package publication limit is closed.
+
+The implementer supplies correction 727a1c5043ad007f5b2d0a3353be657cf240e403 in msg_plugin-w_1791718915_2d70ae.
+Sol reads its complete two-file delta and the complete updated PR body at that exact head.
+The body removes the obsolete tier representation and states the lead's settled first-final-failure rule.
+The body correction check is closed.
+
+The correction selects only run.failed.first(). A listed first failure supplies a MISSED name instead of a catch.
+The outcome parser moves that name and count from caught to missed. The stage changes success code 0 to missed code 2.
+The two-stage decision sends that exact name to stage 2. A second MISSED fails the step.
+The two required fixtures check these paths. The parser fixture also checks later SIGTERM, ABORT, and FAIL results.
+Sol inspects the downstream decision code. Report errors still fail before a successful mutation verdict.
+
+This is preliminary source inspection within the settled round-four scope.
+The exact-head full gate and formal package round remain pending. This addendum approves no new head, gate, or merge.
+Round 3 stays NOT CLEAN at eb7f5c12. Sol ran no execution job.

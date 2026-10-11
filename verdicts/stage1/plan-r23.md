@@ -2150,3 +2150,11 @@ This CLEAN approves only the plan. It approves no future combined source, pin im
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at a2897c1204dbfe6bbc44f476783686a68cabf57a
+
+### Round 60 publication checks
+
+Sol pushes verdict 1269657511861ce87e76a8082c0fc5f181154840 after DNS returns.
+Sol independently hashes pins/stage1-plan.a2897c12.md. Its SHA-256 equals the exact plan hash in Round 60.
+Sol queries the contracts remote. Its .36 tag object is 49f82ad13472a21cf47415f296f96dff0fae277f.
+The remote tag resolves to 96f48d6d3d7a0e75e752d78433eff92efad0e77e, equal to the checked local tag and plan target.
+The DNS publication limit is closed. All Round 60 scope limits remain.
