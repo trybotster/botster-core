@@ -2293,3 +2293,49 @@ The code pin remains .36. Historical proof limits and the open ou_9 structural d
 I ran no execution job.
 
 VERDICT: CLEAN (0 open) at 70cc9bcb28d9b816e3f6a7768eb33c4f31eeac3e
+
+## Round 65 — revisions 23aw through 23ay, 2026-10-11
+
+Head: `ed7604f382c687319c15d39a1d7689c006fc7e30`.
+Comparison base: accepted 23av `70cc9bcb28d9b816e3f6a7768eb33c4f31eeac3e`.
+Parents: 23aw `e66abd21df3c8b446cbaf06423413a7556dbbb70`, then 23ax `75268739895906d2d98bab342728c08e2e1ea2a6`, then this head.
+Pin: `~/botster-sessions/pins/stage1-plan.ed7604f3.md`, mode `0444`.
+SHA256: `d17895aedf41bfa918ef7612ded50904656390ff04b07a9d1ed871740a2b91cf`.
+Lead receipts: `msg_plugin-w_1791733665_3e51d9`, `msg_plugin-w_1791733888_397544`, and `msg_plugin-w_1791733928_0d5c6b`.
+
+I verify the complete parent chain, pin mode, hash, and committed bytes.
+I read the full added section-0 text and all three revision rows against 23av.
+The manifest and active Core identifiers do not change. Revision 23ay withdraws the 23ax resize replay branch.
+
+I read pinned TM-6, IN-6, TH-2, and the three oracle control rows.
+I read the existing attach, cancel, wake, ModelLog, oracle helper, and DESIGN dispatch paths at Core `e4b6cdf5`.
+Queued handoffs leave local actions that `engine.runnable()` does not count in `sync_wake`.
+The proposed queued-action signal addresses that producer-to-host gap. Parked work must remain excluded.
+IN-6 separates queue admission from the operation's final progress. TM-6 requires a signal when the call leaves runnable work.
+The steward concurs with the queued cancel form, according to the lead.
+The lead states the required precision: cancel returning Admitted must signal; other results create no new work, and TH-2 permits spurious Woken.
+This interpretation does not require a transcript change. The future PR must preserve that conditional signal requirement and the typed cancel results.
+
+The shared oracle module and existing output anchors avoid a second feed to a live per-session oracle.
+The future PR must update DESIGN.md and prove actual dispatch on both tiers.
+The existing ModelLog stores the first size but no Resize or SetColorProfile record.
+Condition 3 of the oracle_resume specification requires a ruling for histories with those changes.
+A shared refusal for history-based oracle_resume and oracle_screen avoids false comparisons until such a ruling exists.
+The minimum and pending changes remain conditional on the future gate's actual PASS results.
+
+### AY-SI-1 — MEDIUM — the blanket resize refusal lacks a session for the payload control
+
+Section 0 requires every oracle control on both tiers to refuse after Resize or SetColorProfile through one shared check.
+The same paragraph defines `oracle_screen_payload {payload}` with no session argument or output history.
+The pinned controls document also defines that control as a fresh oracle that loads only the GHOSTSNP payload.
+The adapter cannot identify the source session's resize history from those arguments.
+A handle-wide refusal could reject a payload from an unrelated session. An added session requirement would change the specified control form.
+The stateless oracle_query_reply helper also differs from an oracle that replays a session's output history.
+The cited condition 3 belongs to the oracle_resume history specification; it does not define the blanket control scope.
+The lead must state the exact affected controls and the check each control can perform with its specified arguments.
+Keep the approved history refusal. Define the payload-only and stateless query forms explicitly before implementation.
+
+This review approves no future implementation, pin, gate, source import, or pending removal.
+I ran no execution job.
+
+VERDICT: NOT CLEAN (1 open: AY-SI-1) at ed7604f382c687319c15d39a1d7689c006fc7e30
