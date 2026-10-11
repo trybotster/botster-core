@@ -340,3 +340,44 @@ This CLEAN accepts the source delta only. It does not accept a running gate or m
 The completed exact-head final gate, its mutation result, and the final body remain due.
 
 VERDICT: CLEAN (0 open source or body findings; final gate pending) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+
+## Round 5 — completed final gate, 2026-10-11
+
+Exact head: `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+Tree: `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+Base: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+The reviewed source and retention remain unchanged. Round 4's source CLEAN and matching package source CLEAN remain applicable.
+Sol reads the completed final gate header, raw mutation records, catcher lines, suite summaries, step summary, and final exits.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.39-d893833e-pool-20261011-135858-40112.log`.
+SHA-256: `d17929b646821a20475a0b4380165e98140bb515b66c1ca62864c1ee64927386`.
+The header names the exact head and base above. The job uses four CPUs on structvr-MS-7C77, Linux kernel 6.8.0-142-generic.
+All ten steps PASS. The step total is 744.9 seconds.
+The job and wrapper exit zero after 759 seconds on linux. The job queues one second and runs 758 seconds.
+Default: 1756 PASS, 474 skipped, 16.805 seconds. Slow: 573 PASS, 2027 skipped, 58.975 seconds.
+Lists records 690 ledger ids, 451 pending, and 219 to run. Strict testkit records 216 PASS and zero failures.
+Real minimum: 54/68 passing and 55/69 accepted. The real pending set contains 24 ids.
+All twelve own removed ids have normal PASS in both the slow step and the unmutated stage-2 baseline.
+Five retained pending-real ids pass in the ignored run, including EV-5 and a2_2_missing_op.
+This verdict removes none of them. Their retained diagnosis and plain-Core limits remain applicable.
+
+Stage 1 tests twelve mutants: two caught, eight missed, two unviable, no timeout, 101.5 seconds.
+Both pinned_job_common replacements are caught by the new default-tier equality test.
+The stage-2 baseline passes: 573 PASS, 2717 skipped, 59.049 seconds; baseline duration 80.7 seconds.
+Stage 2 retests the exact eight missed identities: five caught, three unviable, no miss or timeout, 192.5 seconds.
+The five catches cover both is_live replacements, wake_fd returning None, its crash-check inversion, and readiness returning None.
+Combined: twelve mutants, seven caught, five unviable, no miss or timeout.
+Sol independently parses the raw catches and citations: seven unique identities in each set, with equal sets.
+Every cited test has normal PASS in this gate. No FLAKY record exists in the log.
+Sol claims no Mac execution from this Linux gate.
+
+Sol reads the complete final body delta and verifies the live exact head and base.
+Body SHA-256: `17e6ce35140841eff7b113630a0cb656fae2be68d9625cd1975c7ec47952c2c7`.
+Only the d893833e gate paragraph changes from running to GREEN with the correct combined mutation counts and named catches.
+The body retains the two earlier red gates, their causes, the canonical failures, the explicit review scope, and twelve removals.
+It retains the historical A5-4 head and EV-5's separate diagnosis. No body finding reopens.
+The completed final package evidence record remains pending at this receipt.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+
+VERDICT: NOT CLEAN for final acceptance (0 open source or body findings; matching final package evidence record pending) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
