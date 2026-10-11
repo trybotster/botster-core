@@ -247,3 +247,45 @@ Current pin: `~/botster-sessions/pins/stage1-plan.42684041.md`.
 SHA-256: `86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb`.
 That delta does not change R-74's testkit queue or the final-gate slot rule.
 No execution job runs here. Wait for the final-slot evidence and the doorbell. Never poll.
+
+## B13: replacement local evidence
+
+PC receipts: `msg_plugin-w_1791746051_50c162` and `msg_plugin-w_1791746172_38a937`.
+The reviewer reads the shared-target rule in `pair-common.md` and the live PR body.
+The PR remains OPEN on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`.
+Its base remains `9f7085f703457b0669785697dbeb14ac687a8942`.
+
+B13 makes local evidence invalid if another worktree built into the shared target directory after its last clean.
+PC replaces the earlier local unit, conformance, and guard-revert results.
+The reviewer reads the replacement logs, summaries, failed assertions, revert patch, head record, and README.
+Directory: `~/botster-sessions/shared/core-stage1/evidence/pc-held-write-testkit/`.
+
+| File | Result | SHA-256 |
+| --- | --- | --- |
+| `clean-lib-bd4c6f16.log` | 394 passed, 0 failed | `5288f1fec2233ebcbfea9cb5a1140c519778909343afc99405d81dd3468a8878` |
+| `clean-conformance-bd4c6f16.log` | 212 passed, 0 failed; minimum 60/69 | `054e17a32cec4751ce85335582325aee681dcdbcade0f2c504e96a5e26994017` |
+| `revert-hw-tk-1.log` | 392 passed, 2 failed | `3b0eee6937b9b5a05f700fa49b17fb992f4cf52dd24c69c0da6965f12999fe50` |
+| `restored-bd4c6f16.log` | 394 passed, 0 failed | `a35c0b9258708863d90655da279816beabcaa2e2ed6b8127493b3e6b10f243ef` |
+| `revert-hw-tk-1.patch` | Only the corrected HW-TK-1 guard is reverted | `f9a0e6bdfe38f1d957068fd2ac9497be1cf6fc52c800c3fc761b4ca6d21b5ae2` |
+
+The revert fails `only_a_spent_chunk_waits_for_the_next_step` and `a_chunked_write_fills_the_kernel_queue_before_the_host_settles`.
+The pump test observes one queued byte instead of three. This agrees with the source finding.
+The revert and restoration logs each show compilation of this PR's testkit crate.
+PC reports a separate clean that removed 16.3 GiB before these runs.
+PC reports that no other worktree built into the directory after that clean.
+PC also reports that all dep-info files name this worktree. The README records these reports.
+No clean log exists. The reviewer does not independently verify the clean, writer history, or dep-info inventory.
+The reviewer runs no executable check. These are reviewed PC execution logs, not independent reviewer execution.
+
+The replacement evidence closes no new source finding. Both source CLEANs remain on the fixed head.
+The original pool gate is unaffected by B13. It still covers only `646ebe73`.
+The fixed-head gate stays RED. Its six later steps, including mutants, remain NOT RUN.
+The final-slot import, applicable review/check, final green gate, and body remain due.
+
+The reviewer asks PC about the pre-split six-transcript testkit result from contracts #52.
+Question: `msg_plugin-w_1791746248_58e78a`. PC answer: `msg_plugin-w_1791746265_3ec208`.
+PC confirms that the earlier run did not satisfy B13 and marks it invalid in the body.
+The reviewer verifies that correction in the live body. The head remains unchanged.
+The six-transcript result is no longer claimed here. PART B must supply valid evidence for both tiers.
+This evidence question is closed. No new source finding opens.
+No final merge approval is given. Wait for the doorbell. Never poll.

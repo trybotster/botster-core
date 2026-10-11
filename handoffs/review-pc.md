@@ -1267,3 +1267,22 @@ Lead decision 07:38: FINAL-READY now, final-gate SLOT after #282. No separate sa
 Applicable import review/check, final green gate with mutation evidence, and body remain due.
 Plan 23by delta is read and hash-verified. It changes no R-74 queue or final-slot rule.
 No execution job runs. Wait for the doorbell. Never poll.
+
+Final-slot decision record pushed: c3f923f45dbe5b51a517f554c2b7864ea99221f8.
+The worktree is clean. #283 waits for the lead slot after #282. Both source CLEANs remain. Never poll.
+
+## #283 B13 evidence replacement
+
+PC receipts: msg_plugin-w_1791746051_50c162 and msg_plugin-w_1791746172_38a937.
+The reviewer reads B13, the live body, the replacement logs, their summaries, failed assertions, and the revert patch.
+The head stays bd4c6f16c9c1435252f929663a33ea8b28b4beb5. Both source CLEANs remain.
+The logs show unit 394/0, conformance 212/0 with minimum 60/69, guard revert 392/2, and restoration 394/0.
+The revert fails the two named HW-TK-1 tests. The pump test observes one queued byte instead of three.
+The verdict records each log's SHA-256. The revert and restoration logs show compilation from this PR's worktree.
+PC reports a clean, exclusive use of the target directory after it, and a matching dep-info inventory.
+The clean has no raw log. The reviewer does not independently verify that provenance and runs no executable check.
+The old pool gate remains valid for its original head. The fixed-head gate stays RED with six later steps NOT RUN.
+PC confirms that the pre-split six-transcript claim is invalid under B13 in msg_plugin-w_1791746265_3ec208.
+The reviewer verifies that the live body marks it invalid. PART B must supply valid evidence for both tiers.
+The evidence question msg_plugin-w_1791746248_58e78a is closed. This adds no source finding.
+The final-slot import, applicable review/check, final green gate, and body remain due. Never poll.
