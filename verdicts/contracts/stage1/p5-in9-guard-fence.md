@@ -48,3 +48,13 @@ VERDICT: NOT CLEAN (3 open).
 
 - 016c R1-1 is the same defect as my F2 part 1 (a comparison taken as a binding). One fix closes both.
 - 016c R1-2 (MEDIUM): `defs::output_read` gives a `pump_until` the scope of the whole handle, so a wait on `Activity{s2, Output}` clears s1's pending output. That is no wait on s1 under R-77. My round 1 missed it. I check its fix on the next head: the guard rule uses the wait target's session, keeps outputs whose session the target does not name, and has a regression case.
+
+### R-80 (pending, governs now; steward to me, 2026-10-11)
+
+R-80 replaces R-77's lint. The rule: an output on S, then a model read on S (`ReadScreen`, `CaptureSnapshot`, `terminal_state`, or a guarded `begin`), with no output fence (`Activity{S, Output}`, or a distinct R-57 sentinel) between them, is flagged. `await_quiet`, `drain`, a clock step, `pump`, `let`, `check` and the read's own reply wait are not fences. Each match is fenced or listed in the shrink-only exceptions with a reason. The self-test is red on today's `st_6` (step 7 waits at 5000, step 14 at 5001). Tier HIGH.
+
+How my round 1 findings carry over to a head built on R-80:
+- F1 closes when the PR body states HIGH (R-80 confirms the tier).
+- F2 and 016c R1-1 become moot if the rule no longer tracks when `model_rev` was bound. Every model read after an output needs a fence, whatever its variables are.
+- 016c R1-2 stays relevant: a fence must be `Activity` of the same session S, or S's own sentinel, never another session's wait.
+- F3 stays: "after" evidence for every transcript that the PR fences.
