@@ -7,8 +7,8 @@
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
     caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs, mutants_cited,
-    mutants_stale, platform_code, prebuild, process_check, public_api, signals, slow_coverage,
-    taint, test_budget, timers, unsafe_exception,
+    mutants_stale, platform_code, prebuild, process_check, public_api, real_proofs, signals,
+    slow_coverage, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -255,6 +255,9 @@ fn slow_job(root: &Path) -> Result<()> {
         ],
     )?;
     slow_coverage::command(root, &[])?;
+    // Each named real-process proof of a real-only id passed in this slow tier (its JUnit file; plan 23s, lead 2026-10-11).
+    let target = fsutil::metadata(root)?.target_dir;
+    real_proofs::check_slow_run(root, &test_budget::junit_path(&target, "slow"))?;
     // The pending-real trials run under the slow tier's bounds: the same deadline, process group, tracker and leftover
     // check (#220 R1-1).
     let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
