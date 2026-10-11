@@ -2339,3 +2339,40 @@ This review approves no future implementation, pin, gate, source import, or pend
 I ran no execution job.
 
 VERDICT: NOT CLEAN (1 open: AY-SI-1) at ed7604f382c687319c15d39a1d7689c006fc7e30
+
+## Round 66 — revision 23az correction, 2026-10-11
+
+Head: `16ce6e6fc919467b2fe6bafdd45707f0fb26cada`.
+Parent: `ed7604f382c687319c15d39a1d7689c006fc7e30`.
+Pin: `~/botster-sessions/pins/stage1-plan.16ce6e6f.md`, mode `0444`.
+SHA256: `759f464a7b8deee176525246adcc962696e7e557c68ce0710e1a535e353a45ce`.
+Lead receipts: `msg_plugin-w_1791734089_82a1e1` and `msg_plugin-w_1791734110_6a955d`.
+
+I verify the exact parent, pin mode, hash, and committed bytes. I read the complete correction and revision row.
+The history refusal now guards only oracle_resume and oracle_screen on both tiers.
+The stateless oracle_query_reply and payload-only oracle_screen_payload do not check session history or gain a session argument.
+The host wrapper records Resize and SetColorProfile. The real CaptureLayer already records those calls at begin.
+AY-SI-1 closes. The shared refusal and future DESIGN update retain their approved scope.
+
+### AZ-SI-1 — MEDIUM — the Resize description omits the forwarding branch
+
+The oracle paragraph says Core sends neither Resize nor SetColorProfile to the worker.
+The new gap paragraph says Op::Resize is a host-only setter at v1 d582853d.
+I read the exact source at `d582853da895688710ab97f8f1a0858599e8ba18`.
+`admit.rs:705` selects Next::Setter only for Admit::Created.
+For Running at the current size, with no resize in flight, it selects a direct Applied completion under SZ-2.
+Every other admitted Resize selects Next::Forward. Starting operations can wait for the worker launch.
+`run.rs:462` forwards those operations as HostMsg::Op and waits for the worker result.
+The existing driver tests explicitly inspect the Resize frames sent to the worker.
+The quoted setter block therefore does not prove that Resize is always host-only.
+This finding does not claim that the worker resizes the PTY or posts SizeChanged correctly.
+
+Correct both blanket claims. Preserve the host-wrapper record point, which does not depend on worker execution.
+State the actual missing worker behavior and its evidence before assigning a production gap from this premise.
+I independently verify all eleven identifiers in the listed Resize groups are pending and none is a minimum identifier.
+Those list facts do not prove the stated cause of their failures.
+
+No implementation, pin, gate, source import, or pending removal is approved by this plan review.
+I ran no execution job.
+
+VERDICT: NOT CLEAN (1 open: AZ-SI-1; AY-SI-1 closed) at 16ce6e6fc919467b2fe6bafdd45707f0fb26cada
