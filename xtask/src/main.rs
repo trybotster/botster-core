@@ -15,6 +15,7 @@ mod platform_code;
 mod prebuild;
 mod process_check;
 mod public_api;
+mod real_proofs;
 #[cfg(test)]
 mod signal_bans;
 mod signals;

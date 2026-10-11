@@ -84,8 +84,9 @@ exclude_re = [
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
     # the slow-only test check (slow_coverage::command, which prints "slow-coverage: N slow-only tests checked"), then
-    # the real-tier conformance binary under `--ignored` with the slow tier's bounds (test_budget::pending_real; the ids of
-    # core-real-pending.txt, plan 23l), and prints its report;
+    # the check that each named real-process proof passed in that run (real_proofs::check_slow_run, which prints
+    # "real-proofs: N named proofs checked"), then the real-tier conformance binary under `--ignored` with the slow tier's
+    # bounds (test_budget::pending_real; the ids of core-real-pending.txt, plan 23l), and prints its report;
     # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
     # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
     # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
@@ -164,6 +165,16 @@ exclude_re = [
     # (a_listed_trial_of_each_kind_passes_and_a_pending_real_id_must_be_in_the_file) and parse_list
     # (a_list_of_an_unknown_form_is_an_error); verdict (a_check_passes_only_with_no_violation).
     'xtask/src/slow_coverage\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask real_proofs.rs check_slow_run -> Ok(()): process glue. It reads the proof file and the JUnit file that the slow tier
+    # of the same gate step just wrote; a test cannot run the slow tier inside the test run. Only this whole-body
+    # replacement is excluded; the body has no operator. A body replaced by Ok(()) prints no "real-proofs: N named proofs
+    # checked" line, which every gate log of the slow step shows. Its decision stays mutation-tested: verdicts
+    # (a_proof_passes_only_with_a_passing_test_case_of_its_binary_and_name), with results
+    # (a_report_of_the_gate_s_nextest_passes_only_the_test_that_passed, a_skipped_errored_flaky_or_unknown_result_is_not_a_pass,
+    # a_duplicate_test_case_cannot_hide_a_failure, a_malformed_junit_file_is_an_error,
+    # a_test_case_in_a_comment_or_in_output_is_not_a_test_case, escaped_names_are_read_as_written); verdict
+    # (a_check_passes_only_with_no_violation).
+    'xtask/src/real_proofs\.rs:\d+:\d+: replace check_slow_run -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants-stale command -> Ok(()): process glue. It runs `cargo mutants --list` on the whole workspace and `git
     # rev-parse`, and reads the mutants file; a test cannot list the mutants of the real workspace inside a mutation run of
     # it. Only this whole-body replacement is excluded; the body has no operator. Its decision stays mutation-tested: stale
@@ -201,6 +212,15 @@ exclude_re = [
     # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran
     # (the_pending_real_run_passes_only_with_a_success_and_its_report), and every gate's slow step runs it.
     'xtask/src/test_budget\.rs:\d+:\d+: replace pending_real -> ', # 4 mutants
+    # xtask test_budget.rs command -> Ok(()): process glue. The body builds and runs a nextest tier with run_nextest,
+    # removes the tier's earlier JUnit file, kills the leftovers and prints the budget report; a test cannot run a nextest
+    # tier inside the test run. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no
+    # "test-budget:" summary, which every gate log of the test-budget and slow steps shows. Its decisions are tested:
+    # remove_stale (an_earlier_report_is_removed_or_the_run_fails), parse_options (deadline_needs_slow), exit_failures
+    # (the_way_nextest_ended_is_judged) and budget_failures
+    # (a_test_over_two_seconds_fails_the_default_tier_and_exactly_two_does_not,
+    # a_default_tier_over_sixty_seconds_fails_and_sixty_does_not, the_slow_tier_has_no_per_test_or_tier_limit).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.
