@@ -214,3 +214,12 @@ No merge receipt has been read. The lead still checks the current v1 base before
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 0e222c592d17995380ec6f20449f91d71207d2fc; exact-head gate verified.
+
+
+### Merge receipt
+
+Lead receipt: `msg_plugin-w_1791715067_298a0b`.
+Sol independently checks merge `d86bfcc747718452efe57b2aa207492acde96573`.
+Its parents are the exact gate base c8907b74 and reviewed head 0e222c59.
+Its tree is `e39035ef298ac20f642a7f27f4f75c64081da2c7`, equal to the reviewed and gated head's tree.
+The merge introduces no tree delta. Completion remains CLEAN with the recorded failure and attribution limits.
