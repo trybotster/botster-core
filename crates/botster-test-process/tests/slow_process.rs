@@ -211,6 +211,10 @@ fn a_running_child_is_a_live_child_and_an_ended_one_is_not() {
         await_end(child_pid, Deadline::after(CLEANUP)).unwrap(),
         Waited::Exited
     );
+    // On macOS the exit event comes before the zombie state (`Waited::Exited`): wait for the status, without a reap.
+    assert!(await_status(child_pid, Deadline::after(CLEANUP))
+        .unwrap()
+        .is_some());
     assert!(peek(child_pid).unwrap().is_some(), "unreaped: a zombie");
     assert!(!is_live_child(), "a zombie is not live");
     assert_eq!(child.status().signal(), Some(KILL));
