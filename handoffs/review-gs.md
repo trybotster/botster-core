@@ -13,7 +13,13 @@ The base-merge-check from `f41e42e0` to `f291a5e6` passes every check. I read th
 
 Package CLEAN carries over to this exact head. The integration reviewer reports source CLEAN on the reviewed parent in commit `a57964bc`.
 
-The implementer reports that the one final gate is running. Gate acceptance remains pending.
+I read the one final gate log. All ten steps PASS, total 444.1 seconds. The check reports 1012 slow-only tests and no violation.
+
+Mutants: 38 caught, zero missed, zero timeout, and two unviable. Stage 2 catches all eight stage-1 misses after its baseline passes.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-slow-coverage-f291a5e6-pool-20261011-035822-73822.log`.
+
+Integration source carry-over CLEAN: `90be012585482b8187af03cb652c77bb672c7ded`. The lead owns the merge decision and current-base check.
 
 The source review found no gate-safety defect. The exact-head gate passes all ten steps and catches 38 of 40 mutants; two are unviable.
 
@@ -91,7 +97,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #260's final gate result or a delta review request. PR #256 source findings remain closed.
+Wait for PR #260's merge receipt or a delta review request. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

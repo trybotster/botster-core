@@ -630,3 +630,23 @@ My independent plain `git diff` comparison also finds byte-identical own diffs: 
 The package CLEAN carries over to the exact new head. The implementer reports that its one final gate is running.
 
 Gate acceptance remains pending. I ran no gate, build, or test.
+
+### Final exact-head gate for PR #260
+
+I read the retained gate log:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-slow-coverage-f291a5e6-pool-20261011-035822-73822.log`
+
+The log names exact head `f291a5e6d3f31e3ad769f52e125647a292076d52` and base `cfd6ee364e2eafd329ce4e665100168918d383cb`.
+
+All ten steps PASS, total 444.1 seconds. The check reports 1012 slow-only tests and no violation.
+
+Stage 1 reports 40 mutants: 30 caught, eight missed, and two unviable. Stage 2's baseline passes, and stage 2 catches all eight misses.
+
+The total is 38 caught, zero missed, zero timeout, and two unviable. I counted 38 catching-test report lines.
+
+The integration reviewer reports source carry-over CLEAN in commit `90be012585482b8187af03cb652c77bb672c7ded`. Its independent raw diff matches my comparison.
+
+The recorded exact-head gate condition is met. Package CLEAN remains unchanged with zero open findings. The lead owns the merge decision and current-base check.
+
+I ran no gate, build, or test. I will wait for a merge receipt or a delta review request.
