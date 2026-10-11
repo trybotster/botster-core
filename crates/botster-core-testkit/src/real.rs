@@ -29,7 +29,11 @@
 //!   ([`botster_test_process::platform::live_members`] of its own group: the payload leads its group, `setsid`). A payload
 //!   that is not known (the tap has not read the report, or another handle's tap read it) is never taken as ended: the
 //!   answer is whether the recorded worker, which still matches its identity, has a live child
-//!   ([`botster_test_process::platform::live_children`]; each worker has at most one child, its payload). A worker that
+//!   ([`botster_test_process::platform::live_children`]). That holds only after a tap of the data directory met the worker
+//!   ([`Tap::heard`]: its hello, or Core's connection to its endpoint): from then on the recorded pid runs the worker
+//!   binary, whose only child is its payload. Before that, the pid may still run the guard's wrap stage, whose own child
+//!   (the intermediate that starts the anchor) is no payload, and the worker has launched none: the answer is `false`.
+//!   A worker that
 //!   does not match is `Bad`, because its payload can outlive it. It sends no signal.
 //! - `lose_worker` (`{session, reason?}`, Core AD-2, IN-7): the recorded worker's process group gets `KILL` through the
 //!   inner edge's identity-checked `signal_group` ([`Tap::kill_group`]): only while the recorded pid and start time match,
@@ -57,7 +61,7 @@
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
-use crate::edge_tap::{EdgeTap, Rows, Tap};
+use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
 use crate::harness::{limits_of, no_route};
 use crate::process_controls::LoseReason;
 use crate::refusal::{arm_refusal, RefusalHandle, RefusalLayer};
@@ -166,6 +170,8 @@ pub struct RealCoreHarness {
     handles: BTreeMap<String, Handle>,
     /// The registry rows of each data directory, across every handle that opened it.
     rows: BTreeMap<PathBuf, Rows>,
+    /// The instances whose worker a tap of each data directory met, across every handle that opened it.
+    heard: BTreeMap<PathBuf, Heard>,
     /// The stand-ins that controls armed, by data directory, until the next `open` of that directory installs them.
     armed: BTreeMap<PathBuf, Vec<Arm>>,
     /// The number of stand-ins installed: each one puts its real endpoint aside under its own name.
@@ -220,6 +226,7 @@ impl RealCoreHarness {
             tapped,
             handles: BTreeMap::new(),
             rows: BTreeMap::new(),
+            heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
             stand_ins: 0,
@@ -426,6 +433,10 @@ impl RealCoreHarness {
         {
             let alive = lives(&tap, payload).map_err(unreadable)?;
             return Ok(json!({ "alive": alive }));
+        }
+        if !tap.heard(&processes.instance) {
+            // The recorded pid may still run the guard's wrap stage, whose child is no payload; no worker launched one.
+            return Ok(json!({ "alive": false }));
         }
         let children = platform::pid(worker.pid)
             .and_then(platform::live_children)
@@ -675,7 +686,8 @@ impl CoreHarness for RealCoreHarness {
                 .map_err(RealCoreHarness::harness_failed)?;
             let (cfg, edges) = botster_core::open_parts(config)?;
             let rows = Arc::clone(self.rows.entry(data_dir.clone()).or_default());
-            let (edges, tap) = EdgeTap::new(edges, rows);
+            let heard = Arc::clone(self.heard.entry(data_dir.clone()).or_default());
+            let (edges, tap) = EdgeTap::new(edges, rows, heard);
             if let Some(tap) = tap.upgrade() {
                 let mut tap = lock(&tap);
                 for stand_in in stand_ins {
@@ -826,6 +838,7 @@ fn runs(identity: ProcessIdentity) -> io::Result<bool> {
 #[cfg(test)]
 mod slow_controls {
     use super::*;
+    use botster_core_host::session::{unknown_request, RowWorker, ROW_VERSION};
     use botster_test_process::{Blocker, Deadline, OwnedChild};
     use std::os::unix::fs::MetadataExt as _;
     use std::process::Command;
@@ -1117,9 +1130,86 @@ mod slow_controls {
         pump_until(core.as_mut(), |c| state(c, "s2") == SessionState::Running);
     }
 
+    /// Core AD-7 (`conf::ad_7_payload_launches_after_durable_identity`, red at #240's gate `e493ff5f`): before a tap of the
+    /// directory met the worker, the recorded pid may still run the guard's wrap stage, whose live child (the intermediate
+    /// that starts the anchor) is no payload. Here the recorded worker is a shell that waits for its own live child, as wrap
+    /// waits for its intermediate, and it never says hello: `payload_alive` is `false`, though the pid matches and has a
+    /// live child. The test below proves that a live child after the hello still reads as the payload.
+    #[test]
+    fn a_child_of_a_worker_that_no_tap_met_is_no_payload() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let core = harness
+            .open(&OpenSpec {
+                handle: "a".into(),
+                data_dir: data_dir.clone(),
+                worker: harness.worker(WorkerBuild::Current),
+                limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+            })
+            .expect("open");
+
+        // The shell runs `cat` as its child (a command that is not the last one is never exec'd in place). The byte that
+        // comes back through the child proves that the child runs.
+        let tmp = tempfile::tempdir().unwrap();
+        let mut hold = Blocker::new(tmp.path(), "hold").unwrap();
+        let mut shell = Command::new("/bin/sh");
+        shell
+            .arg("-c")
+            .arg(format!("{}; exit 0", hold.shell()))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped());
+        let mut wrap = OwnedChild::spawn_group(&mut shell).unwrap();
+        let stdout = wrap.take_stdout().expect("the shell's stdout");
+        hold.send(b"running\n").unwrap();
+        let (_rest, line) = botster_test_process::first_line(stdout);
+        assert_eq!(line, "running");
+        let pid = wrap.id();
+        let children = platform::live_children(platform::pid(pid).unwrap()).unwrap();
+        assert_eq!(
+            children.len(),
+            1,
+            "the shell has one live child: {children:?}"
+        );
+
+        let worker = RowWorker {
+            pid,
+            start_time: botster_core_sys::process::start_time(pid).expect("a start time"),
+        };
+        let row = Row {
+            version: ROW_VERSION,
+            id: sid("s1"),
+            instance: InstanceId("1-1".into()),
+            state: SessionState::Starting,
+            request: unknown_request(),
+            labels: BTreeMap::new(),
+            token: Some("00".repeat(32)),
+            worker: Some(worker),
+            payload: None,
+            worker_protocol: None,
+            worker_features: None,
+        };
+        lock(&harness.rows[Path::new(&data_dir.0)]).insert(sid("s1"), row);
+        let tap = harness.tap("a").unwrap();
+        assert_eq!(
+            lock(&tap).identity_state(worker.identity()),
+            IdentityState::Matches
+        );
+        assert!(!lock(&tap).heard(&InstanceId("1-1".into())));
+        assert_eq!(
+            harness.control("a", "payload_alive", &json!({ "session": "s1" })),
+            Ok(json!({ "alive": false }))
+        );
+        hold.release();
+        drop(tap);
+        drop(core);
+    }
+
     /// Core EV-5(c), AD-7 (#222 RC-A-F1): `payload_alive` never takes a `Launched` report that the tap has not read for an
     /// ended payload. A started session's row names no payload. After a reopen, the new handle's tap has read no report
-    /// while the payload runs: the answer comes from the worker's live child, `true`. After the identity-checked kill of
+    /// and no hello while the payload runs; the tap of the first handle read the hello, and the record of the directory
+    /// keeps it ([`Heard`]). So the answer comes from the worker's live child, `true`. After the identity-checked kill of
     /// the payload's group and its end by the deadline, the worker has no live child: `false`. A worker that is gone is
     /// `Bad`, never `false`: its payload could outlive it.
     #[test]
