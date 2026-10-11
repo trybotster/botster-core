@@ -87,14 +87,22 @@ exclude_re = [
     # core-real-pending.txt, plan 23l), and prints its report;
     # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
     # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
-    # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
+    # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report,
+    # a_pending_real_id_that_passes_fails_the_step_and_is_named), with real_pending_passed and real_pending_passes
+    # (a_pending_real_id_that_passes_fails_the_step_and_is_named), the strict real tier of plan 23y.
     'xtask/src/ci\.rs:\d+:\d+: replace slow_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask lists.rs command -> Ok(()): process glue. The body reads the lists, the pinned ledger, the status copies, the
-    # replacement map and the base ref's files, and prints the verdict; a test cannot run it on the workspace. Only this
-    # whole-body replacement is excluded. A body replaced by Ok(()) prints no "lists: ok" line, which every gate log of the
-    # step shows. Its decisions are tested: check, check_real
-    # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven) and
-    # check_minimum (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id), report
+    # replacement map, both Cargo.lock files and the base ref's files, runs `changed_transcripts`, and prints the verdict; a
+    # test cannot run it on the workspace. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no
+    # "lists: ok" line, which every gate log of the step shows. The plan 23u exception is part of check and check_real. Its
+    # decisions are tested: check
+    # (a_moved_pin_may_re_pend_an_id_whose_transcript_changed, after_initialization_the_pending_file_may_shrink_but_not_grow),
+    # check_real
+    # (a_real_pending_id_is_a_ledger_id_that_is_not_pending_deferred_withdrawn_real_only_or_testkit_proven,
+    # a_moved_pin_may_re_pend_a_real_tier_id_whose_transcript_changed), check_minimum
+    # (a_minimum_id_is_listed_once_and_is_an_active_core_ledger_id), contracts_commit
+    # (the_contracts_commit_is_the_source_commit_of_botster_core_contract) and changed_transcripts
+    # (the_changed_transcripts_are_the_core_transcripts_that_differ_between_two_commits), report
     # (a_report_of_no_problem_passes_and_any_problem_fails); the held-file rules are
     # botster_core_testkit::pending::held_problems, a testkit function with its own tests.
     'xtask/src/lists\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',

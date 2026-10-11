@@ -36,7 +36,9 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
   (`botster_core_conformance::TESTKIT_PROVEN`, derived from the contract): each is listed as `testkit-proven`, not run
   and not a failure. `cargo xtask lists` refuses such an id in `core-real-pending.txt`.
 - An id of `conformance/core-real-pending.txt` runs only under `--ignored` and is reported as pending-real. The file was
-  initialized once from the gate's real run and only shrinks.
+  initialized once from the gate's real run and only shrinks, except in the commit that moves the contracts pin: it may
+  add an id whose transcript changed between the two tags (plan 23u). An id of the file that passes fails the slow step
+  of `cargo xtask ci` (plan 23y, the strict real tier), so a re-pended id fails at the new tag.
 - The report gives the minimum counts of `conformance/minimum-core.txt`, the canonical minimum list: "testkit-passing /
   69" on the testkit tier, and "real-passing / 68, real-accepted / 69" on the real tier. The denominators are derived:
   68 leaves out the A20-1 members of the list, and real-accepted adds back each A20-1 member that is not in

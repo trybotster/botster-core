@@ -225,7 +225,8 @@ fn pass_through(plain: Factory, limits: Limits, transcript: &Transcript) -> Resu
 
 /// A trial of an id of `core-real-pending.txt`: an ignored trial, so that nextest skips it. Under `--ignored` it runs and
 /// reports itself ignored with its outcome: it is never counted as passed, and its failure never fails the run. A pass is
-/// recorded in `passed`, so that the report names the id for removal.
+/// recorded in `passed`, so that the report names the id for removal; the slow step of `cargo xtask ci` fails on that
+/// line (plan 23y, the strict real tier).
 fn pending_real(
     make: Factory,
     limits: Limits,

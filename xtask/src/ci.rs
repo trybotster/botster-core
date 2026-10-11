@@ -241,7 +241,8 @@ fn test_budget_job(root: &Path) -> Result<()> {
 
 /// The slow tier: the slow tests, with every real-tier conformance id, under nextest; then the report of the ids of
 /// `conformance/core-real-pending.txt` (plan 23l). Nextest skips those ids (ignored trials); here they run once, and their
-/// outcome is reported, never counted as passed and never a failure of the step.
+/// outcome is reported, never counted as passed. A pending-real id that passes fails the step (plan 23y, the strict real
+/// tier): it must leave the file.
 fn slow_job(root: &Path) -> Result<()> {
     test_budget::command(
         root,
@@ -258,8 +259,9 @@ fn slow_job(root: &Path) -> Result<()> {
 }
 
 /// The verdict on the run of the real tier's pending-real ids: the binary succeeded and printed its report, with the count
-/// of the pending-real ids. A pending-real id never fails the run (its outcome is in the report); a binary that failed or
-/// printed no report did not run them.
+/// of the pending-real ids, and no pending-real id passed (plan 23y, the strict real tier). A pending-real id that fails is
+/// only reported; one that passes fails the step and is named, because it must leave `core-real-pending.txt`. A binary
+/// that failed or printed no report did not run them.
 fn real_report_ran(success: bool, report: &str) -> Result<()> {
     let has = |prefix: &str| report.lines().any(|line| line.starts_with(prefix));
     if !success {
@@ -268,7 +270,40 @@ fn real_report_ran(success: bool, report: &str) -> Result<()> {
     if !has("real conformance: passed ") || !has("real conformance: pending-real ") {
         bail!("the real-tier conformance binary printed no pending-real report");
     }
-    Ok(())
+    match real_pending_passed(report) {
+        Some(0) => Ok(()),
+        Some(count) => bail!(
+            "the real tier passed {count} ids of conformance/core-real-pending.txt: {:?}; remove them from the file \
+             (plan 23y: a pending-real id that passes fails the step)",
+            real_pending_passes(report)
+        ),
+        None => bail!("the real-tier report has no count of the pending-real ids that passed"),
+    }
+}
+
+/// The count of the pending-real ids that passed: `real conformance: pending-real N (...), of which passed M` gives `M`.
+fn real_pending_passed(report: &str) -> Option<usize> {
+    report.lines().find_map(|line| {
+        line.strip_prefix("real conformance: pending-real ")?
+            .rsplit_once(", of which passed ")?
+            .1
+            .trim()
+            .parse()
+            .ok()
+    })
+}
+
+/// The pending-real ids that passed, each named by its line `real conformance: pending-real <id> PASSED: ...`.
+fn real_pending_passes(report: &str) -> Vec<String> {
+    report
+        .lines()
+        .filter_map(|line| {
+            let (id, _) = line
+                .strip_prefix("real conformance: pending-real ")?
+                .split_once(" PASSED")?;
+            Some(id.to_string())
+        })
+        .collect()
 }
 
 /// The paths that the diff against the base changes.
@@ -1325,7 +1360,7 @@ mod tests {
     #[test]
     fn the_pending_real_run_passes_only_with_a_success_and_its_report() {
         let report = "real conformance: passed 0, failed 0, pending 3 (+ 1 with no transcript), deferred 2, withdrawn 17\n\
-                      real conformance: pending-real 2 (they run under --ignored, never counted as passed), of which passed 1\n";
+                      real conformance: pending-real 2 (they run under --ignored, never counted as passed), of which passed 0\n";
         assert!(real_report_ran(true, report).is_ok());
         assert!(real_report_ran(false, report).is_err());
         assert!(real_report_ran(true, "").is_err());
@@ -1333,6 +1368,36 @@ mod tests {
         assert!(real_report_ran(true, no_pending_line).is_err());
         let no_count_line = report.lines().nth(1).unwrap();
         assert!(real_report_ran(true, no_count_line).is_err());
+    }
+
+    /// Plan 23y, the strict real tier: a pending-real id that passes fails the step, which names it; a count of passes
+    /// without the named lines fails too, and a report without the count fails.
+    #[test]
+    fn a_pending_real_id_that_passes_fails_the_step_and_is_named() {
+        let summary = "real conformance: passed 0, failed 0, pending 3 (+ 1 with no transcript), deferred 2, withdrawn 17\n";
+        let count = |passed: usize| {
+            format!(
+                "real conformance: pending-real 2 (they run under --ignored, never counted as passed), of which passed {passed}\n"
+            )
+        };
+        let named = "real conformance: pending-real conf::x_1 PASSED: remove it from conformance/core-real-pending.txt\n";
+        let error = real_report_ran(true, &format!("{summary}{named}{}", count(1))).unwrap_err();
+        assert!(
+            format!("{error:#}")
+                .contains("passed 1 ids of conformance/core-real-pending.txt: [\"conf::x_1\"]"),
+            "{error:#}"
+        );
+        let error = real_report_ran(true, &format!("{summary}{}", count(1))).unwrap_err();
+        assert!(format!("{error:#}").contains("passed 1 ids"), "{error:#}");
+        assert!(real_report_ran(true, &format!("{summary}{}", count(0))).is_ok());
+        let no_count = "real conformance: pending-real 2 (they run under --ignored, never counted as passed)\n";
+        let error = real_report_ran(true, &format!("{summary}{no_count}")).unwrap_err();
+        assert!(format!("{error:#}").contains("no count"), "{error:#}");
+        assert_eq!(real_pending_passed(&count(3)), Some(3));
+        assert_eq!(
+            real_pending_passes(&format!("{named}{}", count(1))),
+            vec!["conf::x_1".to_string()]
+        );
     }
 
     #[test]
