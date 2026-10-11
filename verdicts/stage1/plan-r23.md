@@ -1534,3 +1534,33 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at 247f8e96678f7a4eb74d137a045897a2fc9d41ea
+
+## Round 45 — revision 23ai — 2026-10-10
+
+Reviewed head: `c014064c3d375595b0510de3a411a0097394ae9a`.
+Prior accepted head: `247f8e96678f7a4eb74d137a045897a2fc9d41ea`.
+Scope: section 8 adds a focused Mac run for portable code whose behavior depends on the OS.
+The revision changes one file in one commit, with one rule addition and one revision row.
+
+The rule covers process identity, signals, reaping, PTYs, sockets, and descriptor passing.
+It applies even when the source has no `cfg(target_os)`.
+The implementer must supply the real-process test log in the PR before the first READY.
+The focused Mac run adds evidence. The Linux gate remains the merging gate.
+The rule keeps the pool queue and the limit of one heavy job on the Mac.
+It does not require the reviewer to run any execution job.
+
+The lead reports that #239's zombie-identity test fails on macOS and assigns P5 to investigate.
+The lead handoff records that macOS reports Absent for that zombie.
+The lead has not yet decided whether this is a Core defect or a test expectation that differs by OS.
+This verdict accepts the prospective evidence rule. It does not decide that existing issue or accept a correction.
+I will apply this rule to later implementation reviews.
+For #240, the supplied Mac log already covers the descriptor receiver's real-process tests at d901242d.
+Its three source findings remain open despite that passing log.
+
+The revision changes no code pin, frozen contract, conformance ID, coverage list, passing count, staffing limit, or stage acceptance condition.
+The fetched plan head matches the assigned head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `339b130fdc232f09265848fa6a723971fc74db484e421ecb29de70c38898782c`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at c014064c3d375595b0510de3a411a0097394ae9a
