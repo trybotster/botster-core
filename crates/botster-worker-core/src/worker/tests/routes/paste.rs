@@ -301,7 +301,7 @@ fn a_partly_written_paste_is_refused_with_its_pty_bytes() {
         &[begin(1), chunk(1, b"hi"), commit(1, Some(true))],
     );
     pty_took(&mut w, &mut client, part);
-    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let actions = w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR)));
     client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
         refusals_written(&client),
