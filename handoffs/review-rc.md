@@ -382,3 +382,22 @@ The final-gate slot rule governs the next step. The implementer requests FINAL-R
 The applicable import review or check and final exact-head gate remain due after the slot.
 This record grants no slot and accepts no future gate result.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 evidence notice and Core #284 Mac confirmation
+
+Implementer message: `msg_plugin-w_1791745887_85d3e0`.
+Core #285 is not READY. The reviewer makes no verdict on its source.
+The implementer withdraws this log because it used a stale binary from another worktree:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-testkit-scripted-evidence-mac-5c34d956-20261011-114153.log`.
+The reviewer will not accept that log as proof for #285.
+The proposed replacement is `botster-core-rc-testkit-in-ids-evidence-mac-b1f4fb3a-20261011-120503.log` in the same gates directory.
+The reviewer will check the replacement with the complete READY package.
+
+The reviewer read the supplemental Mac log for Core #284:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-paste-invalid-utf8-clean-mac-8d56987e-20261011-120738.log`.
+Its header reports a clean target directory built only from #284 at `8d56987e`.
+All three trials fail at the same unfenced PTY-log read with an empty log.
+This confirms the recorded Mac limit. The invalid-UTF8 ID remains real-pending.
+The source CLEAN verdict and pending final-gate requirements do not change.
+The reviewer ran no test, build, or gate.
