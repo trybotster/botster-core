@@ -96,14 +96,15 @@ pub trait HostEdges: Send {
     /// can take it.
     fn set_read_interest(&mut self, link: LinkId, on: bool);
     /// Writes `bytes` (the start of a route's `AttachRoute` frame) with the route's stream riding on their first byte, as
-    /// `sendmsg` with `SCM_RIGHTS` does (DP-2). `Ok(n)`, `n >= 1`: the link took the endpoint and the first `n` bytes, and
-    /// the edge owns the endpoint. An error took nothing and gives the endpoint back.
+    /// `sendmsg` with `SCM_RIGHTS` does (DP-2). `Ok((n, held))`, `n >= 1`: the link took the endpoint and the first `n`
+    /// bytes. `held` is the host's own copy when the transport duplicates the descriptor (`SCM_RIGHTS`: the message holds
+    /// another), and `None` when the endpoint itself travels. An error took nothing and gives the endpoint back.
     fn link_send_descriptor(
         &mut self,
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)>;
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)>;
     /// Closes a route stream that the host still holds (OU-2, steward ruling R-50): writes `bytes` once, without waiting,
     /// then closes the stream. Best effort: a write that takes fewer bytes, or fails, still closes the stream. It never
     /// blocks the pump.
@@ -433,7 +434,10 @@ impl<E: HostEdges> HostDriver<E> {
                     .edges
                     .link_send_descriptor(link, &state.out[..mark.len], mark.endpoint)
                 {
-                    Ok(n) => n,
+                    Ok((n, held)) => {
+                        drop(held);
+                        n
+                    }
                     Err((endpoint, DescriptorSendError::Blocked)) => {
                         state.marks.push_front(Mark { endpoint, ..mark });
                         break;

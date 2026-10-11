@@ -277,7 +277,7 @@ impl HostEdges for Edges {
         link: LinkId,
         bytes: &[u8],
         endpoint: StreamEndpoint,
-    ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
+    ) -> Result<(usize, Option<StreamEndpoint>), (StreamEndpoint, DescriptorSendError)> {
         let failure = {
             let mut mock = self.0.lock().unwrap();
             match mock.links.get_mut(&link) {
@@ -293,8 +293,19 @@ impl HostEdges for Edges {
                 let mut mock = self.0.lock().unwrap();
                 let l = mock.links.get_mut(&link).expect("the send found it");
                 let at = l.from_host.len() - n;
-                l.descriptors.push((at, endpoint));
-                Ok(n)
+                // As `SCM_RIGHTS`: the message gets its own copy (a clone of a test token), and the host keeps the endpoint.
+                // An endpoint of another type travels whole.
+                match endpoint.downcast::<Arc<u32>>() {
+                    Ok(token) => {
+                        l.descriptors
+                            .push((at, StreamEndpoint::new(Arc::clone(&token))));
+                        Ok((n, Some(StreamEndpoint::new(token))))
+                    }
+                    Err(endpoint) => {
+                        l.descriptors.push((at, endpoint));
+                        Ok((n, None))
+                    }
+                }
             }
             Err(e)
                 if matches!(
