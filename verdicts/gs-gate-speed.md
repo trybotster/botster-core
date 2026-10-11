@@ -1665,3 +1665,64 @@ The body states local Mac results without a named Mac pool log on this exact hea
 Required change: supply an exact-head focused Mac pool log for the proof and four changed sites. Add the log and results to the body.
 
 Do not repeat the green Linux gate. The source needs no change for this finding. I ran no gate, build, or test.
+
+
+### Core PR #270: shared-helper revision and final package verdict
+
+- Head: `7e568e20bbac33a99f01fbf3b2cdd3acb6d5b804`.
+- Base: `c942593697e856017572977af0405b17de0124e2`.
+- Risk tier: HIGH, under the lead's revised ruling.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+The lead replaced the previous allow-entry design with the shared helper. I reviewed the complete delta from the earlier reviewed head and the final own diff.
+
+`reap_within` becomes public and receives a crate-root re-export. Its parameter signature and function body remain byte-identical.
+
+The new documentation states the caller's ownership after a deadline. Existing testkit callers and platform adapters remain unchanged.
+
+`status_within` calls the shared helper and adds the step, pid, and error report. A deadline or error still fails the ordinary test call sites.
+
+The observer-parent test now uses `OwnedChild::spawn`. It takes stderr, sends SIGKILL, and drops the owner for its existing bounded reap.
+
+The ownership mode remains child-only. It does not kill the observer's process group, which the parent-death proof must observe separately.
+
+The custom `ObserverParent` drop is removed. The allow file removes five entries, including one of the duplicate drop entries, and adds none.
+
+The previous accepted helper entry is absent. That earlier ruling does not apply to the final source. The revised risk tier requires Sol's integration review.
+
+The cleanup bounds, worker exit assertions, proof deadline, test selection, binary builds, and mutation verdict remain unchanged from the reviewed bounded-wait design.
+
+I found no source path that converts a failed wait into a pass. The existing candidate-binary limitation remains outside this change.
+
+### GS-BW-1 MEDIUM: CLOSED
+
+The exact-head Mac pool log is now in the live body. It identifies the head and base above and runs on Darwin.
+
+The testkit suite passes 53 tests. Both worker fixtures pass 137 tests, including the proof and every changed site.
+
+The proof passes in 0.152 and 0.154 seconds. Replacing the shared reap call with plain `Child::wait` makes both proofs time out in 2.028 and 2.035 seconds.
+
+Mac evidence: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-7e568e20-pool-20261011-075344-20569.log`.
+
+The equivalent Linux evidence passes 53 testkit tests and 140 worker tests. Both reverted proofs time out in 2.002 seconds.
+
+Linux evidence: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-7e568e20-pool-20261011-075447-24981.log`.
+
+I decoded and read the evidence script without executing it. It checks the real test command statuses and reports one reverted call and zero changed files after restoration.
+
+The reversal changes only the wait call. Its timeout evidence supports the bounded-wait proof on both platforms.
+
+I read plan pin `stage1-plan.0af4db8d.md`, section 8's platform-evidence rule. The new Mac evidence satisfies revision 23ai.
+
+The final Linux gate identifies the exact head and base. All ten steps pass in 112.6 seconds. Process-check reports 110 allowed sites.
+
+The default suite passes 1690 tests. The slow suite passes 548 tests. The coverage check covers 1051 slow-only tests.
+
+The mutation step lists no mutant for the final diff. The earlier failed taint gate remains identified in the body.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-7e568e20-pool-20261011-075038-10685.log`.
+
+The live body describes the revised source and HIGH scope. Sol owns integration review. The lead owns the merge decision and current-base check.
+
+I ran no gate, build, or test.

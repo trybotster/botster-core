@@ -3,18 +3,27 @@
 ## Current review result
 
 - Repository and PR: `trybotster/botster-core#270`.
-- Head: `9298549099b9636b7297fb341b21f0b98e3a0433`.
+- Head: `7e568e20bbac33a99f01fbf3b2cdd3acb6d5b804`.
 - Base: `c942593697e856017572977af0405b17de0124e2`.
-- Risk tier: STANDARD, assigned by the lead.
-- Verdict: NOT CLEAN (1 MEDIUM open).
+- Risk tier: HIGH, under the lead's revised ruling.
+- Verdict: CLEAN (package review).
+- Open findings: 0.
 
-I accept the process-check entry for the nonblocking reap after bounded status observation. The source has no finding.
+The source uses the shared reap helper. Its parameter signature and body remain identical. The observer parent uses OwnedChild.
 
-The Linux gate passes all ten steps in 261.4 seconds. The corrected proof passes; the plain wait times out on reversal.
+The allow file removes five entries and adds none. The earlier accepted helper entry is absent.
 
-GS-BW-1 MEDIUM requires the exact-head focused Mac pool log under section 8, revision 23ai. The current body has only local Mac claims.
+GS-BW-1 MEDIUM is CLOSED. The exact-head Mac pool evidence covers both fixtures and every changed site.
 
-Wait for that log and the updated body. Do not repeat the green Linux gate. I ran no gate, build, or test.
+Mac: 53 testkit tests and 137 worker tests pass; reverted proofs time out in 2.028 and 2.035 seconds.
+
+Linux: 53 testkit tests and 140 worker tests pass; both reverted proofs time out in 2.002 seconds.
+
+The final exact-head Linux gate passes all ten steps in 112.6 seconds. Process-check reports 110 allowed sites.
+
+Sol owns the HIGH integration review. The lead owns the merge decision and current-base check. Wait for integration completion, a merge receipt, or a new head.
+
+I ran no gate, build, or test.
 
 ## Previous Core PR #262
 
