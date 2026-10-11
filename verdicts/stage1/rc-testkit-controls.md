@@ -131,3 +131,78 @@ All four findings must close before CLEAN.
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable probe. Never poll.
 
 VERDICT: NOT CLEAN (4 open) at b5ca83e2825dc9404a3c6634fd97d755cf8f5d37
+
+## Round 2 — correction and completed gate, 2026-10-11
+
+Head: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Tree: `e51e0f514763051e806e2ea274b55dd0402284fc`.
+Source ancestor remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Comparison base remains `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Sol reads the complete three-file correction, affected helpers, full current body, and complete package Round 2.
+Package `2de19afa5930a0763684070734c6020c471ce5a4` gives CLEAN with zero package findings.
+Sol independently finds two remaining body defects. No new product-source defect is established.
+
+TC-SI-1 closes. The new test uses Core's ReadScreen result after each control and a bounded settle.
+The refused request has no visible x. The accepted request has visible x. The public terminal-mode check remains.
+The new test reads no private unread counter. The unchanged older test lies outside this delta.
+
+TC-SI-2 closes. The real socket test fails on premature EOF and on a second consecutive WouldBlock read.
+A successful read resets the progress check. Each such read adds at least one byte toward the finite volume.
+The test drives both local ends and adds no sleep or external wait.
+The exact byte-order, final readiness, and closed-end error checks remain.
+
+TC-SI-4 closes. The historical b1f4 gate paragraph now lists eight PASS steps, mutants FAIL, and fuzz NOT RUN.
+The later green gates remain distinct. The body also separates step totals from wrapper times.
+
+### TC-SI-3 — LOW, still open: unsupported reproduction claim
+
+The replacement's clean-build provenance is now stated. The trial-count issue closes.
+Sol reads all three new Mac trials; each is INCONCLUSIVE at seed 0, step 9.
+The body and pending comment cite three logged trials. The body separately names the earlier valid trial.
+That supplemental log names b5ca83e2 with local test edits, not the committed correction head.
+Its clean and exclusive-writer statements are owner provenance reports.
+
+The body now claims that the cited 120659 log reproduced the B13 cause of the withdrawn scratch PASS.
+Sol reads that complete log. It shows #285 failing at step 16 before and after the #284 build command.
+It shows the same artifact path for both worktrees. It shows no changed result, dep-info analysis, or scratch PASS.
+It therefore does not prove the claimed stale-binary result or the specific freshness cause.
+Label the cause as the owner's reported diagnosis and state this log's actual evidence limit.
+Do not claim that this log reproduces the withdrawn result. Keep the withdrawn log invalid.
+No new execution is required to close this record defect.
+
+### TC-SI-5 — LOW, open: incorrect prior-art absence claim
+
+The body says the Contracts botster-fake-route has no input_blocked control.
+Both contracts-v0.1.36 and contracts-v0.1.40 list that control in controls.rs:31 and dispatch it.
+At .40, input.rs:42 implements it as unread input plus refusal to read more input.
+The fake's can_read_input uses its route queue allowance, reserved exceptions, PTY block, and input queue allowance.
+That behavior differs from Core's client stream-room and socket-readiness observation.
+Correct the absence claim and explain why this fake behavior is not suitable for the new Core control.
+Sol also reads the named old-Core scripted plugin worker and its test-support exports.
+Those scripted plugin load and panic cases do not supply a comparable Core stream control.
+
+### Corrected-head execution records
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-6363d559-pool-20261011-123453-16073.log`.
+SHA-256: `666c16da530ecd29c592ca7f9d0b6655f2cdd23915e5fc6e109ec3d9bf17d0aa`.
+Sol reads the exact head/base header, tier and stage results, all catches, summary, and exits.
+All ten steps PASS in 243.3 seconds. The job and wrapper exit zero after 252 seconds.
+The job queues for one second and runs for 251 seconds.
+Default: 1755 PASS, 468 skipped, 12.743 seconds. Slow: 565 PASS, 2027 skipped, 41.819 seconds.
+Minimum: testkit 61/69, real-passing 49/68, real-accepted 50/69.
+Stage 1 has six mutants: two caught, four missed, zero timeout or unviable, in 20.2 seconds.
+The stage-2 baseline passes in 49.9 seconds. Stage 2 catches all four remaining mutants in 50.9 seconds.
+Final result: six caught, zero missed, zero timeout, zero unviable.
+Sol independently compares all six raw and cited catches; they match without duplicates.
+Both input_blocked arm deletions have named behavior-test catches.
+The mutation configuration remains unchanged. Fuzz selects no changed decoder crate. The full log has no FLAKY token.
+
+Three-trial Mac log: `~/botster-sessions/gates/botster-core-rc-testkit-in8-norecheck-real-mac-b5ca83e2-20261011-123346.log`.
+SHA-256: `dab71ff0b4731de7b63ec025aaf2e5ccf8868577acaad96510b3823a5ebcdc29`.
+Shared-target log: `~/botster-sessions/gates/botster-core-rc-shared-target-repro-mac-20261011-120659.log`.
+SHA-256: `0e3a06a20f8128615a2eba791451a1cde3ba4bc19092812fef8e742df9102f6c`.
+The real-pending entry remains justified by its valid timeout. No later pending removal or pin is accepted.
+The final import must retain the two xtask base fixes and receive the applicable review/check and final gate after SLOT.
+Sol sends both remaining body findings to RC and the package reviewer. Sol runs no execution job. Never poll.
+
+VERDICT: NOT CLEAN (2 open: TC-SI-3 and TC-SI-5) at 6363d55936ff193c2c1164943b80a3f1adc90ada
