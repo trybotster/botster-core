@@ -1,5 +1,9 @@
 # Integration review: #233 program controls
 
+Current verdict: CLEAN source at `a596c945111ae5df7db757e53ef945d238873c75`.
+Round 4 closes SI-5 and accepts the two pending-ID removals.
+The required final gate on this head remains pending.
+
 ## Source inspection before Round 1 — 2026-10-10
 
 Inspected head: `e75ba5f71c6187697383fd9b7f298548c5ac8008`.
@@ -452,4 +456,58 @@ Sol has no completed result from that gate and has not read or polled its runnin
 SI-5 stays open until that exact-head gate supplies the corrected mutation result.
 Any EV-2 or IN-5 removal still needs its real PASS record, commit review, and required exact-head gate.
 This import check supplies no full-gate result and grants no merge approval.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 4 — completed evidence and two pending-ID removals
+
+VERDICT: CLEAN (source; final exact-head gate remains required).
+
+- Head: `a596c945111ae5df7db757e53ef945d238873c75`.
+- Parent: `6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb`.
+- Base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723`.
+- Head tree: `69934162b1f0facb0c0dccffe9f7413d945c9ae8`.
+- Request: `msg_plugin-w_1791710640_cd7d8d`.
+
+SI-5 is CLOSED. SI-1 through SI-4 remain closed. No open integration finding remains.
+The source assessments and import checks above retain their stated scope.
+
+Sol read the completed exact-head gate:
+`~/botster-sessions/gates/botster-core-stage1-pc-program-controls-6dd3caef-pool-20261011-020628-1436.log`.
+The header names the full parent head and base above.
+All ten steps pass. The CI total is 1005.8 seconds.
+The default tier passes 1614 tests in 11.659 seconds.
+The slow tier passes 461 tests in 28.813 seconds.
+The wrapper exits 0 after 1015 seconds. The job runs for 1014 seconds after one queued second.
+Fuzz reports no changed crate with a decoder harness and performs no new fuzz trial.
+
+Stage 1 tests 79 mutants and misses all 79. It reports no timeout or unviable mutant.
+The unmutated stage-2 baseline passes all 461 tests in 28.733 seconds.
+Stage 2 reports 59 caught, 20 unviable, zero missed, and zero timeouts among 79 mutants.
+Sol read every stage-2 outcome and independently compared full identities and multiplicities with all stage-1 misses.
+Both sets contain exactly 79 identities. Neither set contains an extra or missing identity.
+The unviable outcomes are not counted as caught mutants.
+
+The exact `send_line` guard mutation that caused SI-5 is caught in stage 2.
+Its record changes the WouldBlock-or-Interrupted guard to `true` at `real/program.rs:269:20`.
+The opposite guard mutation is also caught.
+This completed result supplies the missing Linux mutation proof for the unchanged corrected source.
+The retained focused Mac normal and reversal records from the preceding review remain applicable.
+The PR adds no mutation exclusion for this guard.
+
+The real pending report states that two of 61 pending IDs passed.
+It names `conf::ev_2_one_marker_per_session` and `conf::in_5_lane_bounds_refuse_at_begin` for removal.
+Sol read the complete delta from the gated parent to `a596c945`.
+It deletes exactly those two lines from `conformance/core-real-pending.txt`.
+It changes no other file, comment, test, pin, exclusion, or runtime behavior.
+The two real PASS records therefore support these removals.
+The six steward-controlled IDs remain pending.
+R-59's limit on the unfenced AD-7 result remains in force; the gate's raw minimum counts do not remove that limit.
+
+The fetched package record at `dfead09daa9a2393549cf0ebfe79223a8caaa140` still keeps SI-5 open.
+Sol requested the package reviewer's completed evidence verdict.
+This integration verdict does not close the package reviewer's record on that reviewer's behalf.
+
+The green gate runs on `6dd3caef`, not the removal head `a596c945`.
+The full final gate must pass on the final head before merge.
+Any later v1 import requires its own base-merge record and exact-head gate.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
