@@ -138,6 +138,131 @@ This source change closes the reported cross-identity cache lookup. Exact-head e
 I sent the remaining SI-1 points to both PC agents before READY.
 I changed no product code and ran no build, test, gate, mutation, measurement, or reversal job.
 
+## Round 1 — 2026-10-11: real program controls and base imports
+
+Exact head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Parents: `fce17f78b96009cb560fb3896a6f957840ec2c43` and the base.
+Tree: `3f185d2babb3ba4f811ad3b13b5cc135a84c7bc3`.
+READY: `msg_plugin-w_1791698170_384245`; latest base import: `msg_plugin-w_1791699106_e2ff02`.
+Package CLEAN: `3ebf5746ef1876ce00e86e2bee5bd7a86a318621`, `verdicts/pc-program-controls.md`.
+I read the complete current package round on this exact head.
+It supersedes the package's first CLEAN at `deec5b5b` and its SI-4 NOT CLEAN supplement at `b5ca3ab9`.
+Authority: plan 23ai at `c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d`, contracts .27, and BUILD.md at `56bd0a5`.
+The PR correctly states HIGH for shared testkit changes and pending-ID removals.
+
+### Finding closure
+
+**SI-1 HIGH — CLOSED.**
+The request writer clones its socket under the state lock and releases that lock before it writes.
+It uses a nonblocking socket. Every write checks the same deadline that bounds the acknowledgement wait.
+The reader can therefore record input while a request waits for socket room.
+The proof waits for public socket readiness before it sends the report. The report cannot precede the request write.
+A separate proof requires Bad when the peer never reads the request.
+I read the selected lock-held reversal at `686300e2` in `botster-core-pc-si1-lock-held-reversal-686300e2-20261010-184710.log`.
+That reversal fails the report-progress proof; the unmodified proof passes in 0.37 seconds.
+These are selected records, not a complete final-head gate.
+
+**SI-2 MEDIUM — CLOSED.**
+Detached exit watchers are removed. The accept thread owns and joins every report reader.
+Drop marks closing, shuts down every retained connection, wakes the accept, and joins the accept thread before removing the socket.
+Connections enter the retained set before the reader starts, including connections that have not sent HELLO.
+No reader needs a repeated private closing check: socket shutdown ends its bounded read.
+
+**SI-3 MEDIUM — CLOSED.**
+The probe map uses the complete worker ProcessIdentity: PID and start time.
+A connected probe for one start time cannot satisfy a control for a later start time at the same PID.
+The public control proof covers that already-connected state and requires Bad.
+
+**SI-4 LOW — CLOSED: the description lacked required Prior art comparisons and custom-infrastructure reasons.**
+I sent this finding to PC and its reviewer in `msg_plugin-w_1791698546_b33209` and `msg_plugin-w_1791698546_ff52a2`.
+I read the final published correction and checked the cited old Core at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+The note rejects the worker's test-only routing channel, shell-cat payload tests, and the old bounded-wait helper.
+It names the reused production probe protocol, process helpers, serde_json, rustix poll, and testkit control semantics.
+It explains the synchronous listener, shared state, request writer, silent report reader, and temporary accept loop.
+It correctly permits composition through exported HostEdges under plan 23l.
+It compares per-call socket timeouts with the single deadline needed for the whole request and acknowledgement.
+It removes the unsupported claim that no library can bound a socket write. The change copies no old code or tests.
+
+### Package interfaces and conformance
+
+The own delta changes five paths: 1012 insertions and 26 deletions.
+The production worker owns the real PTY. The harness controls the production probe through its separate control socket.
+The harness writes no expected terminal bytes and changes no terminal mode.
+The probe acknowledges after applying a request; an output acknowledgement does not promise a completed terminal write.
+The input result is the probe's cumulative read log. Both harnesses name their socket; only the tapped harness serves the five controls.
+The injected clock changes only when the transcript advances it.
+
+P3 permits the input observer to signal host wakes under its recorded rule 3 exception.
+The body states that a transcript checking no_spurious_wakes during probe input cannot pass with this exception.
+The current pin has no such transcript. The structural observer-wake change remains a contracts obligation.
+The temporary accept exception names its nonblocking listener, bounded poll, and P6's bounded-accept replacement obligation.
+The added rustix event feature enables that existing library API; the contracts pin and lockfile remain unchanged.
+
+The mutation correction preserves partial report lines across cleanup deadlines and tests a probe that remains silent across a deadline.
+Socket shutdown still ends those readers. The pure accept-error decision returns Wait, Next, or Stop, with tests for each result.
+The default blocked state and all five control dispatches have proofs.
+I read these corrections and the affected dispatch, cleanup, request, and reader paths.
+
+Only sixteen IDs leave the real-pending list. The final group has 22 IDs: seventeen earlier IDs and five from #227.
+The final real-pending list has 64 IDs. The Core pending list and other status lists equal the base.
+I read the three minimum transcripts at the contracts pin: `ad_3_adopted_equals_started` and both `tm_3` IDs.
+The AD-3 output and input fences remain intact. The TM-3 clock steps and exact deadline assertions remain intact.
+I checked an actual slow_conformance PASS record for each of the sixteen removals in the completed Linux gate run.
+The six IDs requiring steward approval remain pending. The four minimum route IDs and EV-5 full-queue ID remain pending.
+`ev_2_one_marker_per_session` and `in_5_lane_bounds_refuse_at_begin` remain pending under lead ruling A, `msg_plugin-w_1791698173_6bb0a3`.
+Their two Linux pending-real passes do not prove the missing Mac behavior or input-report fence.
+
+### Source imports
+
+I read the failed `7a4ab70b` to `fce17f78` base-check record and the actual conflict resolutions.
+The resolutions retain P5's stand-in, registry, hold, release, and refusal controls beside the five program controls.
+The resolved list retains #227's five new IDs and this PR's sixteen removals.
+The program module equals the gated source: blob `2a83304cc10f4e2463bc41d90abeced1d62fb434`.
+I do not treat the failed check as automatic acceptance.
+
+I read `~/botster-sessions/gates/botster-core-pc-base-merge-check-fce17f78-ec317eae-20261010.log` completely.
+Both ancestry checks and all four conditions pass. The #241 paths are disjoint from the five own paths.
+My full-index own diffs match before and after that import: 50444 bytes, SHA256 `d96c1406b582875cac7ecd22ce9d105d18b64a74fa31ce72a4fe602f283cab0d`.
+The automatic source merge tree equals the actual tree above and has no conflict.
+The final diff check passes. GitHub names this exact head and base at the final check.
+No imported accepted behavior is removed. The own delta changes no mutation exclusion or transcript assertion.
+
+### Retained Linux evidence
+
+Gate head: `7a4ab70bf08ff28344e9e47cad09d923ff3ae1d4`; base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-7a4ab70b-pool-20261010-201116-66449.log`.
+The first allocation stops during migration. I use the complete second run on Linux.
+All ten stages pass in 6140.8 seconds.
+Default: 1536 passed, 497 skipped, in 14.647 seconds. Slow: 440 passed, 1955 skipped, in 279.068 seconds.
+Testkit: 193 passed; minimum 50 / 69. Strict pending runs 386 / 407 transcripts, with 21 real-only IDs and two held IDs.
+Real minimum: 38 / 68 passed and 38 / 69 accepted. Pending-real: 55 IDs, with the two passes retained under lead ruling A.
+These counts belong to the old gate base, before the reviewed imports.
+
+I read all 79 mutation outcomes in both stages. The identity multisets match, with no duplicate identity.
+Stage 1 misses all 79 because this source requires the slow feature, in 214.6 seconds.
+The unmutated slow baseline passes in 294.1 seconds.
+Stage 2 catches 59 and finds 20 unviable, with zero missed or timeout, in 5201.4 seconds.
+The mutation step takes 5713.3 seconds. The job and wrapper exit zero after 9740 seconds: 3586 queued and 6154 running.
+
+### Focused Mac evidence and limits
+
+I read `~/botster-sessions/gates/botster-core-pc-program-controls-mac-fce17f78-20261010-230102.log` completely.
+It names `fce17f78` and macOS 27.0.1 arm64. All fifteen program tests and the both-harness probe-env proof pass.
+The broader real:: run has 30 passes and one unchanged P5 zombie-identity test failure, with exit 101.
+That test expects Matches where Mac reports Absent. I compare its body with the base; it is unchanged.
+The lead assigns that separate failure to P5. This log clears the focused PC requirement, not the broader Mac suite.
+The real conformance run passes 141 tests with zero failures in 345.14 seconds, with exit zero.
+Its minimum is 39 / 68 passed and 40 / 69 accepted. Pending-real reports zero passes among 64 IDs.
+The disjoint #241 import changes none of this PR's operating-system behavior.
+
+All four findings close, including LOW. No integration finding remains at the exact reviewed head.
+The lead's pool rule still requires the final gate on the CLEAN head before merge. The older gate does not prove that final head.
+This verdict clears no additional pending ID and does not complete the PC group.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
+
 ## SI-1 follow-up source inspection before Round 1 — 2026-10-10
 
 Inspected head: `686300e2b1e6cbaded29761dc8963483b4ac03bc`.
