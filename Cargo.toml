@@ -14,7 +14,10 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj and 23ak; contracts-v0.1.29 = 65f76ab: contracts-v0.1.27 + contracts #31, the R-52
+# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak and 23am; contracts-v0.1.32 = 91394e7: contracts-v0.1.29 + contracts
+# #35, program_ready and its fences, the no-0a rule (R-60), + #36, the real oracle_resume form, ControlError::UnsupportedFor and the st_6b
+# fences (R-62), + #38, start_held and the fences of the start-hold transcripts (R-59), + rulings R-60 to R-64;
+# contracts-v0.1.30 and contracts-v0.1.31 were not pinned; contracts-v0.1.29 = 65f76ab: contracts-v0.1.27 + contracts #31, the R-52
 # row text, + #32, the R-56 await_pty fences, + #33, await_title and the ev_2 sentinel (R-57), + #34, expect_closed ended (R-58), + rulings
 # R-54 to R-59 (R-59: start_held and its fences land in a later tag);
 # contracts-v0.1.28 = 94b63b8 was not pinned; contracts-v0.1.27 = b161db8: contracts-v0.1.26 + contracts #30, the
@@ -26,13 +29,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.29" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.32" }
 
 anyhow = "1"
 data-encoding = "2"
