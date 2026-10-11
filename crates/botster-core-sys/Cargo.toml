@@ -27,6 +27,8 @@ name = "no_sigpipe"
 harness = false
 
 [dev-dependencies]
+# The owned children of tests/slow_data_dir_lock.rs (BUILD.md testing rule 10).
+botster-test-process.workspace = true
 libtest-mimic.workspace = true
 signal-hook.workspace = true
 tempfile.workspace = true
