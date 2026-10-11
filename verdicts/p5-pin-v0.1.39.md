@@ -352,3 +352,75 @@ I changed no product code. I ran no build, test, gate, mutation job, or executab
 I used read-only Git, source inspection, and artifact parsing.
 
 VERDICT: CLEAN
+
+
+## Round 3 — completed final gate, 2026-10-11
+
+- Exact head: `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+- Tree: `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+- Base: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+- Package source CLEAN: `214eabf2b7a40cbd496ee11ac2d6508dc58e05f6`, Round 2.
+- Sol source CLEAN: `d13c1e13d93652e52a671a3679ead989fea28094`, Round 4.
+- Final evidence receipt: `msg_plugin-w_1791753135_94c6df`.
+- Tier: HIGH. Open review findings: zero.
+
+### Final evidence
+
+The completed log names the exact head and base in its header and job command.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.39-d893833e-pool-20261011-135858-40112.log`.
+SHA256: `d17929b646821a20475a0b4380165e98140bb515b66c1ca62864c1ee64927386`.
+The Linux pool runs the exact commit in a snapshot. Allocation: `61b2382c`; host: `structvr-MS-7C77`.
+The wrapper exits 0 after 759 seconds. The job runs for 758 seconds after one second queued.
+
+All ten steps pass: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+The default run has 1756 passes and 474 skips in 16.805 seconds.
+The slow run has 573 passes and 2027 skips in 58.975 seconds.
+The coverage check examines 1060 slow-only tests. The worker manifest names three binaries.
+The total step time is 744.9 seconds. The mutants step takes 378.5 seconds.
+Fuzz reports that the diff changes no crate with a decoder harness. No fuzz execution is claimed.
+
+I parsed every removed ID against the final pending set and the slow-step results.
+All twelve own removals have one real-tier PASS. No retained EV-5 trial runs as a must-pass test.
+The pending report counts 24 IDs and five passes under the ignored run.
+Those five include EV-5. This pass does not diagnose its prior failure or authorize another removal.
+The lead's retention ruling still applies. The twelve-removal scope remains exact.
+
+### Completed mutation result
+
+I read the complete stage summaries, all twelve stage-1 outcomes, all eight stage-2 outcomes, and every named catching test.
+Stage 1 reports twelve mutants: two caught, eight missed, zero timeout, and two unviable, in 101.5 seconds.
+The two catches are `pinned_job_common -> Ok(String::new())` and `pinned_job_common -> Ok("xyzzy".into())`.
+Both catches name `lists::tests::the_pinned_job_common_is_the_checked_in_copy`.
+
+The unmutated stage-2 baseline passes all 573 tests, with 2717 skips, in 59.049 seconds.
+The complete baseline step takes 80.7 seconds. The log records no baseline retry.
+Stage 2 excludes the four prior caught or unviable mutants. It examines the remaining eight.
+It reports five caught, zero missed, zero timeout, and three unviable, in 192.5 seconds.
+
+Four catches name `real::slow_tests::the_wake_descriptor_is_readable_after_a_call_that_leaves_work_and_not_after_a_pump_that_leaves_none`:
+
+- `CrashHandle::is_live -> true`.
+- `CrashHandle::is_live -> false`.
+- `RealCoreHarness::wake_fd -> None`.
+- The deleted `!` in `RealCoreHarness::wake_fd`.
+
+The `RealRoute::readiness -> None` catch names
+`real::route::slow_tests::the_readiness_is_the_clients_end_and_a_read_with_a_passed_deadline_does_not_wait`.
+The complete result is twelve mutants: seven caught, zero missed, zero timeout, and five unviable.
+This result completes the mutation requirement left open in Round 2.
+
+### Final body and scope
+
+GitHub still names the exact head and base branch `v1`.
+I read the complete published body. Its final-gate paragraph matches the completed log and mutation result.
+The body retains both red gates, the incomplete first mutation result, and the historical A5-4 limit.
+The body retains all twelve removals and the EV-5 cause record.
+The separate EV-5 diagnosis, ST-6 diagnosis, and IN-9 fence work remain open under their existing ownership.
+The final gate does not close those separate tasks.
+
+The completed exact-head gate and final body now satisfy the package's remaining review conditions.
+Sol's completed-gate review remains separate. The lead controls the merge.
+I changed no product code. I ran no build, test, gate, mutation job, or executable merge check.
+I inspected the supplied log and body and used read-only artifact parsing.
+
+VERDICT: CLEAN
