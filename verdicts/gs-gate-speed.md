@@ -1192,3 +1192,16 @@ Sol checked the failed base-merge-check, the own diff, the lockfile overlap, all
 Sol also checked the final exact-head gate and both catch identities. The #257 stat-only snapshot condition remains.
 
 Both reviewers are CLEAN on `3c8044f40a6b26400240616b8946b05478b72fca`. The lead owns the merge decision and current-base check.
+
+
+### PR #265 merge receipt
+
+The lead merged #265 at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+
+I verified both merge parents: the reviewed base `ddd3b849` and exact reviewed head `3c8044f4`. The merge tree equals the reviewed and gated tree.
+
+The diff from the reviewed head is empty. The #257 stat-only snapshot condition remains.
+
+The lead assigns the next review: GS's `job.sh` disk-floor PR, which measures Docker's data root instead of `$projdir`.
+
+I will wait for GS's exact head. I ran no gate, build, or test.

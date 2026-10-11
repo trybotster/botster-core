@@ -1,6 +1,16 @@
 # GS reviewer handoff
 
-## Current review result
+## Current review task
+
+The lead assigns GS's `job.sh` disk-floor PR. It measures Docker's data root instead of `$projdir`.
+
+Wait for GS's exact head and READY. I run no gate, build, or test.
+
+PR #265 is merged at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`. I verified its parents and the empty diff from reviewed head `3c8044f4`.
+
+The #257 stat-only snapshot condition remains.
+
+## Previous PR #265
 
 - PR: #265, data-directory lock.
 - Head: `3c8044f40a6b26400240616b8946b05478b72fca`.
@@ -191,7 +201,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #265's merge receipt or a new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
+Wait for GS's disk-floor PR head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
