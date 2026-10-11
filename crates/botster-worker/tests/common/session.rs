@@ -111,38 +111,26 @@ fn end_child_worker(pid: rustix::process::Pid) {
     let _ = waitpid(Some(pid), WaitOptions::empty());
 }
 
-/// The exit status of `child`, an unreaped child of this test, once it is available by `deadline`; then the child is reaped
-/// by its exact pid. The wait blocks on the child's exit event (a pidfd on Linux, kqueue on macOS), never on a sleep. When
-/// the deadline comes first, the report names `step` and the pid, and the child stays unreaped, so its owner's drop still
-/// ends it (and the payload guard still ends the payload group).
+/// The exit status of `child`, an unreaped worker of this test, once it is available by `deadline`; then the child is
+/// reaped by its exact pid. The wait is the testkit's `reap_within`: it blocks on the child's exit event (a pidfd on Linux,
+/// kqueue on macOS), never on a sleep. A worker is a std `Child`, not an `OwnedChild`, because `OwnedWorker` ends it with
+/// SIGTERM first. When the deadline comes first, the report names `step` and the pid, and the child stays unreaped, so its
+/// owner's drop still ends it (and the payload guard still ends the payload group).
 fn status_within(
     child: &mut Child,
     step: &str,
     deadline: Deadline,
 ) -> Result<std::process::ExitStatus, String> {
-    use botster_test_process::platform::{await_status, pid};
     let id = child.id();
-    let observed = pid(id).and_then(|pid| await_status(pid, deadline));
-    match observed {
-        Ok(Some(_)) => {}
-        Ok(None) => {
-            return Err(format!(
-                "{step}: the child {id} did not end within {:?}",
-                deadline.limit()
-            ))
-        }
-        Err(error) => {
-            return Err(format!(
-                "{step}: the child {id} cannot be observed: {error}"
-            ))
-        }
-    }
-    match child.try_wait() {
+    match botster_test_process::reap_within(child, deadline) {
         Ok(Some(status)) => Ok(status),
         Ok(None) => Err(format!(
-            "{step}: the child {id} has no status after its exit"
+            "{step}: the child {id} did not end within {:?}",
+            deadline.limit()
         )),
-        Err(error) => Err(format!("{step}: the child {id} cannot be reaped: {error}")),
+        Err(error) => Err(format!(
+            "{step}: the child {id} cannot be observed or reaped: {error}"
+        )),
     }
 }
 
@@ -1078,25 +1066,24 @@ fn parent_death_ends_the_driver_observer() {
         "{}::observer_parent",
         module_path!().split_once("::").unwrap().1
     );
-    let mut parent = ObserverParent(Some(
+    // The drop of an OwnedChild kills the parent and reaps it within the cleanup bound.
+    let mut parent = OwnedChild::spawn(
         Command::new(std::env::current_exe().unwrap())
             .args(["--exact", &name, "--nocapture"])
             .env("BOTSTER_DRIVER_PARENT_ROOT", root.path())
             .stdin(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap(),
-    ));
-    let child = parent.0.as_mut().unwrap();
-    let mut reader = BufReader::new(child.stderr.take().unwrap());
+            .stdout(std::process::Stdio::null()),
+    )
+    .unwrap();
+    let mut reader = BufReader::new(parent.take_stderr().unwrap());
     let mut ready = String::new();
     reader.read_line(&mut ready).unwrap();
     assert!(
         ready.trim().parse::<u32>().is_ok(),
         "observer ready: {ready}"
     );
-    child.kill().unwrap();
+    parent.kill().unwrap();
     drop(parent);
     let (done, result) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -1108,28 +1095,6 @@ fn parent_death_ends_the_driver_observer() {
         .recv_timeout(Duration::from_secs(10))
         .expect("the observer ended after its test parent died")
         .unwrap();
-}
-
-struct ObserverParent(Option<Child>);
-
-impl Drop for ObserverParent {
-    fn drop(&mut self) {
-        if let Some(mut child) = self.0.take() {
-            let _ = child.kill();
-            // A drop during a panic only reports: a second panic would abort the test process.
-            if let Err(report) = status_within(
-                &mut child,
-                "the observer parent ends after SIGKILL",
-                Deadline::cleanup(),
-            ) {
-                if std::thread::panicking() {
-                    eprintln!("{report}");
-                } else {
-                    panic!("{report}");
-                }
-            }
-        }
-    }
 }
 
 #[test]
