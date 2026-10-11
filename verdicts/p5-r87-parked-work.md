@@ -151,7 +151,7 @@ VERDICT: NOT CLEAN
 - Previous head: `6c231801e78ea268dd2894d669a41aa3c1392615`.
 - Previous verdict: `6b1ec1d1c01db123c9e92de43fb2dca53e888f8e`.
 - Fix and provenance receipt: `msg_plugin-w_1791761164_574b97`.
-- Tier: HIGH. Open finding: one MEDIUM evidence finding.
+- Tier: HIGH. Open findings: two MEDIUM findings after the subsequent checks below.
 
 ### Closed source and body findings
 
@@ -203,7 +203,42 @@ Use the isolated pool result for the mutation claim. Link r87-evidence-provenanc
 No new execution job is required for this body correction.
 Sent to P5 and Sol: `msg_plugin-w_1791761262_cecc9a` and `msg_plugin-w_1791761262_1d6254`.
 
+### Subsequent checks on the same head
+
+P5's receipt `msg_plugin-w_1791761305_136adb` corrects the three unvalidated-record labels.
+I verify those labels in the published body. The dedicated-target Mac and isolated pool citations remain valid in their stated scope.
+E1 remains open for two statements in the corrected Evidence section:
+
+- The newly validated R-88 group-A log uses targets/p5 in both its script and header.
+  It is a local Mac run, not a pool snapshot or fresh private target. Its cache condition is not yet established.
+  Required change: supply the clean or single-worktree condition, or mark that record unvalidated. No new run is required.
+- The body says that 9e5f165a and this PR have five identical implementation blobs.
+  The current harness.rs contains 25 added test lines. That complete blob does not match 9e5f165a.
+  Required change: name dc9b230b for the exact five-blob comparison, then distinguish the later test additions.
+
+I send these remaining conditions directly to P5 and Sol in `msg_plugin-w_1791761397_272f5f` and `msg_plugin-w_1791761397_ac14f9`.
+
+### R292-SI1 — MEDIUM, open: AdoptAll work has no session in the diagnostic
+
+Sol identifies this finding in receipt `msg_plugin-w_1791761326_9cd4bd`. I independently confirm it from the complete relevant source.
+AdoptAll admission stores p.session as None (admit.rs:750–755).
+Next::AdoptRow requires mandatory room (run.rs:86–88).
+ready_at offers that op with room and omits it without room, unless its row waits for another condition.
+parked_on_room maps Work::Op only through p.session (engine.rs:624).
+The op therefore contributes no session to the diagnostic, even when its row step waits only for room.
+
+adopt_next_row reads the front row key and passes its SessionId to adopt_row (run.rs:694–700).
+For a session already shown by this handle, adopt_row posts that session's state (run.rs:721–727).
+With a full queue, this known session has room-blocked work. Its parked_work control nevertheless reports false.
+This contradicts corrected R-87's read for all work waiting only for room. The existing DetachLocal test does not exercise AdoptAll.
+
+Required change: map the active AdoptRow key to its session when p.session is None.
+Retain ready_at's row_waits_for_its_session exclusion for a row waiting on its Create.
+Add the known-row regression with a full queue. Prove that the session is parked, then not parked after a poll frees room.
+My confirmation goes directly to P5 and Sol in `msg_plugin-w_1791761397_d50441` and `msg_plugin-w_1791761397_400278`.
+The green previous-head gate does not close this logic finding.
+
 I ran no build, test, gate, mutation job, or executable merge check. I changed no product code.
-The next body correction needs verification before CLEAN. The lead retains control of the final slot and merge.
+Both the source repair and remaining evidence corrections need verification before CLEAN. The lead retains control of the final slot and merge.
 
 VERDICT: NOT CLEAN
