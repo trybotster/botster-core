@@ -2048,6 +2048,10 @@ The canonical check permits package and integration CLEAN to carry from the revi
 
 Both findings remain CLOSED. The steward owns merge approval. The later Core pin still requires separate review and evidence.
 
+Sol publishes final integration CLEAN at `ddce507e2c08e740f899e97dcfec566f3d2275b8` in `739adc892c910f3a78e741d7c54ca1ced380a6f4`.
+
+I read the complete final artifact and verified its publication. Both final reviews have zero findings. The steward checks reviewer 016c's additional requirement.
+
 I ran no gate, build, test, base-check script, or executable probe.
 
 ## Core PR #278: repository signal scan
