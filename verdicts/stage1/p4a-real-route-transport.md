@@ -539,3 +539,35 @@ This CLEAN covers source only. It accepts no final gate, merge, new minimum resu
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 7e577f68a167fb1f21e248fcd3300ee87118b9bf
+
+### Replacement head after the Linux socket proof failure
+
+Owner receipts msg_plugin-w_1791720731_0c904c and msg_plugin-w_1791720780_9dfc97 name `bebc95821b4a35a7d5f17663a61569fb1006d739`.
+Its parent is 7e577f68. Its base remains 0c5ac80e. Its tree is cb84d3eef65ac4c71ae101696ce910ee991df27d.
+The preceding source CLEAN covers only 7e577f68. This replacement needs its own applicable delta review.
+
+Sol reads the complete corrected proof and its one-file delta in slow_facade_worker.rs.
+The Linux read now requires ConnectionReset. The Mac read retains its exact EOF requirement.
+Both branches retain the successful pre-acknowledgement client write and post-acknowledgement BrokenPipe assertion.
+Capture completion on the same link still fences acknowledgement handling. No timeout or permissive error alternative is added.
+The runtime, ownership table, cleanup, DP-2 byte proof, and other source files remain unchanged.
+
+Sol reads the failed 7e577f68 gate's exact header, complete named failure, relevant proof result, tier summary, and final exit.
+The first seven steps pass. Slow reports 493 passes and one failure among 494 tests.
+The R-65 proof expected EOF and receives Linux error 104, ConnectionReset. The DP-2 byte proof reports PASS.
+Mutants and fuzz report NOT RUN. The wrapper exits one after 204 seconds.
+This failed gate is preserved. The preceding source CLEAN supplied no execution approval for it.
+
+Sol reads the complete retained Linux proof record:
+`~/botster-sessions/gates/botster-core-stage1-p4a-real-route-transport-bebc9582-pool-20261011-051153-7715.log`.
+Its header names this exact head and base. The runtime header names Linux 6.12.111+deb13-amd64.
+Twenty unfiltered slow_facade_worker summaries each report twenty passes and zero skipped.
+They establish selected-suite results, but print no individual green proof identity.
+The record then removes one ownership-table insertion and drops the held copy instead.
+The named R-65 proof fails on its first client write with BrokenPipe, before acknowledgement handling.
+The script restores that driver path. The wrapper exits zero because this selected reversal is expected to fail.
+This selected record supplies no full-gate approval. Sol requests and runs no repetition or reversal.
+
+The exact-head package delta, full gate, named public proof outcomes, mutation identities, A5-4 table, and body update remain pending.
+No formal integration CLEAN is issued for bebc9582 in this inspection.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
