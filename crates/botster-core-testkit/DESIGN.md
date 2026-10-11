@@ -66,11 +66,15 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
 - **Named real-process proofs** (lead, 2026-10-11). `conformance/core-real-proofs.txt`, written by hand, names the slow-tier
   tests that prove each real-only id: `conf::<id><TAB><nextest binary id><TAB><test name>`. A non-pending real-only id is an
   ignored `[real-only]` trial on both tiers, whose reason names its proofs; its transcript never runs. A non-pending
-  real-only id with no proof line is a failing trial. The checks fail closed:
-  - `cargo xtask lists`: each non-pending real-only id has a proof line, each line names a real-only id, and the file is in
-    byte order with no duplicate (`pending::real_proof_problems`);
+  real-only id with no proof line is a failing trial. A line may instead name the id's own real-tier trial
+  (`conf::<id><TAB>botster-core::slow_conformance<TAB>conf::<id>`): then the real tier runs the transcript must-pass and
+  only the testkit tier ignores it (lead, 2026-10-11, after R-55 gave `conf::ad_6_reused_pid_is_never_killed` a real-tier
+  form). The checks fail closed:
+  - `cargo xtask lists`: each non-pending real-only id has a proof line, each line names a real-only id, a line of the
+    real tier's suite names the id's own trial, and the file is in byte order with no duplicate
+    (`pending::real_proof_problems`);
   - `cargo xtask slow-coverage`: each named test is in the slow list, is not ignored and is selected by the slow filter, and
-    an ignored `[real-only]` trial of the real tier is accepted only for an id with a proof line;
+    an ignored `[real-only]` trial of the real tier is accepted only for an id with a proof line and no own-trial line;
   - the slow step (`real_proofs::check_slow_run`): each named test has a passing test case in the slow tier's own JUnit
     file, which `test_budget` deletes before the run (a report that cannot be deleted fails the run).
 
