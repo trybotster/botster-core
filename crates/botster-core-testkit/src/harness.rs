@@ -539,6 +539,57 @@ mod tests {
         );
     }
 
+    /// Core OU-1, DP-4 (lead, plans 23aw and 23bd): `pty_input` on a route answers the input that reached the PTY of the
+    /// route's session (here a host write), the bytes that the session control gives, in one segment with the unattributed op.
+    #[test]
+    fn pty_input_on_a_route_is_the_input_log_of_its_session() {
+        let (mut harness, mut core, mut route, _) = attached_route_and_result(json!({}));
+        let session = SessionId("s".into());
+        let log = |harness: &mut TestkitHarness| {
+            harness
+                .control("h", "pty_input", &json!({"session": "s"}))
+                .unwrap()
+        };
+        assert_eq!(
+            route.control("pty_input", &Value::Null).unwrap(),
+            json!({"bytes": {"$bytes_hex": ""}, "segments": []}),
+            "nothing reached the PTY yet"
+        );
+        let write = core
+            .begin(Op::WriteInput {
+                session: session.clone(),
+                payload: InputPayload::Bytes {
+                    bytes: botster_route_codec::prelude::HexBytes(b"xy".to_vec()),
+                },
+                guard: None,
+            })
+            .unwrap();
+        let now = Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        };
+        let mut done = false;
+        for _ in 0..64 {
+            core.pump(now);
+            done |= core
+                .poll_events(64)
+                .iter()
+                .any(|e| matches!(e, Event::Completed { op, .. } if *op == write));
+            if done {
+                break;
+            }
+        }
+        assert!(done, "the write completed");
+        assert_eq!(log(&mut harness), json!({"bytes": {"$bytes_hex": "7879"}}));
+        assert_eq!(
+            route.control("pty_input", &Value::Null).unwrap(),
+            json!({"bytes": {"$bytes_hex": "7879"}, "segments": [
+                {"op": crate::route_client::UNATTRIBUTED_OP, "bytes": {"$bytes_hex": "7879"}}
+            ]})
+        );
+        assert!(route.has_control("pty_input"));
+    }
+
     /// R-47 item 3: `route_fill` writes N = C + F bytes of the pattern at the session's program edge. C is the bytes that the
     /// stream takes from the worker now (0 while gated, the `route_accept` limit, or the free room of the queue); F is the
     /// route's applied `max_frame_bytes`. The client reads the pattern, k from 0 for each fill, as output.
