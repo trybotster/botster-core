@@ -211,6 +211,15 @@ exclude_re = [
     # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran
     # (the_pending_real_run_passes_only_with_a_success_and_its_report), and every gate's slow step runs it.
     'xtask/src/test_budget\.rs:\d+:\d+: replace pending_real -> ',
+    # xtask test_budget.rs command -> Ok(()): process glue. The body builds and runs a nextest tier with run_nextest,
+    # removes the tier's earlier JUnit file, kills the leftovers and prints the budget report; a test cannot run a nextest
+    # tier inside the test run. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no
+    # "test-budget:" summary, which every gate log of the test-budget and slow steps shows. Its decisions are tested:
+    # remove_stale (an_earlier_report_is_removed_or_the_run_fails), parse_options (deadline_needs_slow), exit_failures
+    # (the_way_nextest_ended_is_judged) and budget_failures
+    # (a_test_over_two_seconds_fails_the_default_tier_and_exactly_two_does_not,
+    # a_default_tier_over_sixty_seconds_fails_and_sixty_does_not, the_slow_tier_has_no_per_test_or_tier_limit).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # P7 GuardianConfig::fmt: the debug text has no contract format. An empty successful
     # debug result still omits the service token, which is the only required property.
     # only_a_valid_host_hello_authenticates checks token omission.

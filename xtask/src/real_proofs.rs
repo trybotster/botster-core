@@ -29,13 +29,11 @@ type Key = (String, String);
 fn without_cdata(xml: &str) -> Result<String, String> {
     let mut out = String::with_capacity(xml.len());
     let mut rest = xml;
-    while let Some(start) = rest.find("<![CDATA[") {
-        out.push_str(&rest[..start]);
-        let after = &rest[start + "<![CDATA[".len()..];
-        let end = after
-            .find("]]>")
+    while let Some((before, section)) = rest.split_once("<![CDATA[") {
+        out.push_str(before);
+        (_, rest) = section
+            .split_once("]]>")
             .ok_or("the JUnit file has an unclosed CDATA section")?;
-        rest = &after[end + "]]>".len()..];
     }
     out.push_str(rest);
     Ok(out)
@@ -52,8 +50,8 @@ fn results(xml: &str) -> Result<BTreeMap<Key, Vec<Vec<String>>>, String> {
     let attr = Regex::new(r#"(\w+)="([^"]*)""#).expect("regex");
     let child = Regex::new(r"<([A-Za-z][\w.:-]*)").expect("regex");
     let mut cases: BTreeMap<Key, Vec<Vec<String>>> = BTreeMap::new();
-    let mut at = 0;
-    while let Some(tag) = start.find_at(&xml, at) {
+    let mut rest = xml.as_str();
+    while let Some(tag) = start.find(rest) {
         let attrs: BTreeMap<&str, String> = attr
             .captures_iter(tag.as_str())
             .map(|c| {
@@ -69,16 +67,13 @@ fn results(xml: &str) -> Result<BTreeMap<Key, Vec<Vec<String>>>, String> {
                 tag.as_str()
             ));
         };
-        let (body, next) = if tag.as_str().ends_with("/>") {
-            ("", tag.end())
+        let after = &rest[tag.end()..];
+        let (body, tail) = if tag.as_str().ends_with("/>") {
+            ("", after)
         } else {
-            let end = xml[tag.end()..]
-                .find("</testcase>")
-                .ok_or_else(|| format!("the test case {class} {name} has no end"))?;
-            (
-                &xml[tag.end()..tag.end() + end],
-                tag.end() + end + "</testcase>".len(),
-            )
+            after
+                .split_once("</testcase>")
+                .ok_or_else(|| format!("the test case {class} {name} has no end"))?
         };
         let not_pass: Vec<String> = child
             .captures_iter(body)
@@ -89,7 +84,7 @@ fn results(xml: &str) -> Result<BTreeMap<Key, Vec<Vec<String>>>, String> {
             .entry((class.clone(), name.clone()))
             .or_default()
             .push(not_pass);
-        at = next;
+        rest = tail;
     }
     Ok(cases)
 }
