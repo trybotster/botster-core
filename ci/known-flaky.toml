@@ -8,10 +8,3 @@
 # diagnosis   the diagnosed cause
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry
-
-[[flaky]]
-binary = "botster-core::slow_conformance"
-test = "conf::ev_5_repeated_attach_detach_without_polling_stays_bounded"
-diagnosis = "R-63/R-64: the worker's pending-operation recovery is not fenced, so a repeated attach and detach without polling can leave pending_ops at the limit (PendingLimit, seed 0 step 21; plan section 8 line 509)"
-owner = "P3"
-removed_by = "#243"
