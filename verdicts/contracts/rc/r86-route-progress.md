@@ -119,3 +119,5 @@ The head `21f9406f` merges main `3c68880b011fdb60f7bca8124eef350e2d4d4708` into 
 - 016c's delta review on the same head has no finding.
 
 **The gate is not green.** `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-21f9406f-pool-20261011-164521-79451.log` ends with `exit 141 after 25 s on msa1`, during the nextest build. The log has no failed step. Exit 141 is SIGPIPE. This run is not evidence. The final CLEAN needs one green gate on `21f9406f`.
+
+Correction (cause of exit 141): RC stopped that gate on purpose after 25 s (`jobq stop jobq-botster-contracts-21f9406f-20261011164521-4e28`, then the client), because the lead put the #288 `st_6` reproduction first in the pool order. The log is not a gate result, and it is not a red gate. The ONE gate on `21f9406f` runs after that job.
