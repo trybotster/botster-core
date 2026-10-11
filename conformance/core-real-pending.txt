@@ -96,3 +96,8 @@ conf::in_3_route_reports_only_exceptions_on_the_route
 # have one, and pass). The contracts' core-fence-exceptions.txt lists the id (step 9, no program_ready, R-60), and the read of
 # step 13 has no fence: the transcript fences come in the R-56 burn-down. Owner: P3.
 conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
+
+# #284's paste refusal and this PR's testkit controls make it pass on the testkit (BOTSTER_SEEDS=0-31) and once on the real tier
+# (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
+# that fence lands (the GS lists rule). Owner: P3 (R-60 fences).
+conf::dp_5_bytes_and_text_reach_the_pty_exactly
