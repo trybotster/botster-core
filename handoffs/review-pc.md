@@ -1387,3 +1387,20 @@ The combined proof must cover ProcessExited, failed send, budget-delayed Exited/
 R78-D4 remains until the note replaces its obsolete optional/no-needed macOS guard text with the lead's mandatory guard.
 Sol counts one drain finding and treats the guard as a required source condition. The package keeps the contradictory design text open.
 PC has both corrections. No source or executable result is accepted. Never poll.
+
+Added-section audit pushed: f0f491cce365bcac825772a2de065d83493badc5.
+The worktree is clean. Two design findings remain. Wait for the correction and doorbell. Never poll.
+
+## R-78 revision 3: design CLEAN
+
+PC receipt msg_plugin-w_1791751957_aa5f71 is read. The complete design hash is verified:
+52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885.
+Base remains 670e5fc799a25794910a1847fc41b3e089bf03f4. No open design finding remains.
+R78-D1 closes: confirmed death retains readable input before classification or inflight failure, in both report/failure orders.
+The live Matches branch keeps the existing grace completion. Descriptor ownership and combined budget/grace tests are specified.
+R78-D4 closes: the macOS SZOMB guard is mandatory, separate from current refusal-path evidence.
+Socket ordering remains unverified. Its named both-OS proof must establish the premise before the dependent driver repair.
+Source review must verify priority before Kill effects, bounded sends, descriptor cleanup, complete messages, EOF ownership, and AD-6 callers.
+PC's local build and 43 tests are reports only. No source or executable result is accepted.
+Source READY, two reviews, reversals, A5-4 table, both-OS proofs, and final gate remain due.
+Sol's revision-3 design receipt remains unread. No execution job runs here. Never poll.

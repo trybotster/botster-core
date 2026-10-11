@@ -167,3 +167,45 @@ Sol counts one remaining MEDIUM drain finding and keeps the mandatory guard as a
 This package record retains the guard as a design finding until the contradictory design text changes.
 
 The reviewer sends both corrections to PC. No source or execution result is accepted. Never poll.
+
+## Revision 3: design CLEAN
+
+VERDICT: CLEAN. No open design finding.
+
+PC receipt: `msg_plugin-w_1791751957_aa5f71`.
+The reviewer reads the complete revision 3 and verifies its SHA-256:
+`52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885`.
+The base remains `670e5fc799a25794910a1847fc41b3e089bf03f4`. The review accepts this design only.
+
+R78-D1 closes at design level.
+The new priority rule retains readable input when `worker.gone` is true or the probe reports Absent or Reused.
+Neither StopGrace nor LinkWriteFailed classifies that session or fails its in-flight requests before the drain.
+EOF selects the end after complete frames are handled. Without a readable link, confirmed death selects WorkerGone immediately.
+The live Matches branch completes Stop as WorkerUnreachable at the existing grace, without waiting for EOF.
+LinkWriteFailed itself fails no request already in flight. A new request that cannot be sent can fail immediately.
+The revised driver tests include both exit-report/write-failure orders, delayed Exited and Done, and grace before EOF.
+Unsent descriptors leave through HandoffLost. Sent descriptors remain link-owned until their drained acknowledgment or final close.
+The design requires one loss per descriptor and no retained ownership after final close.
+
+R78-D4 closes at design level.
+The note makes the explicit SZOMB guard mandatory after successful macOS process information.
+The note separately states the current Darwin refusal path and its real zombie proof.
+The Linux Z/X check and macOS guard do not reap. The reaper retains exclusive ownership of child.wait.
+The proposed libc dependency already exists in the lockfile; its macOS dependency role changes.
+No dependency source or lockfile change is accepted without the later source review.
+
+All four design findings are closed. Adopted-worker scope, Start behavior, Remove behavior, and pump bounds remain acceptance conditions.
+The source review must verify that the priority runs before conflicting Kill effects, end classification, or request failure.
+It must verify descriptor cleanup, bounded future sends, complete-message handling, and all affected AD-6 callers.
+
+The note still marks socket ordering unverified. Design CLEAN does not establish that OS premise.
+PC must use the named both-OS socket proof before relying on the premise for the driver repair.
+This follows orchestrate-delivery's requirement to prove an uncertain premise before adding the dependent recovery path.
+The worker's close-on-exec ownership and EOF condition also remain source and real-process proof obligations.
+
+PC reports local source edits, a successful build, and 43 passing core-sys tests. No raw evidence accompanies this design receipt.
+This record accepts none of those source or execution claims.
+The committed source, first READY gate, two source reviews, reversal logs, A5-4 table, both-OS proofs, and final gate remain due.
+No broad mutation exclusion is accepted. Any new guard exclusion requires its exact scope and B9 reason in source review.
+Sol's applicable revision-3 design receipt is not yet read here. No PR or source head is approved by this verdict.
+The reviewer runs no build, test, gate, mutant, or executable check. Never poll.
