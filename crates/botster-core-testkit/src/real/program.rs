@@ -217,6 +217,11 @@ impl Programs {
         Ok(state.probes[&worker].input.clone())
     }
 
+    /// A handle on the probes' input logs, for a route of the session (`pty_input` on a route).
+    pub(super) fn inputs(&self) -> Inputs {
+        Inputs(Arc::clone(&self.requests.hub))
+    }
+
     /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
     pub(super) fn marks(&self) -> Marks {
         Marks(Arc::clone(&self.requests.hub))
@@ -241,11 +246,6 @@ impl Requests {
     /// with its payload, so a probe that exited (69 included: it could not connect) never connects.
     fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
         self.hub.connected(worker)
-    }
-
-    /// A handle on the probes' input logs, for a route of the session (`pty_input` on a route).
-    pub(super) fn inputs(&self) -> Inputs {
-        Inputs(Arc::clone(&self.hub))
     }
 
     /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it. The
