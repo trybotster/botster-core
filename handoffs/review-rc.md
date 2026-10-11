@@ -1187,3 +1187,39 @@ No code change or additional execution is requested.
 
 The final body retains the controlled reproduction, both reviewer acceptances, lead approval, and contracts #69 fence repair.
 Final CLEAN remains pending the LOW body correction. The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #285 — final-slot package verdict
+
+VERDICT: CLEAN.
+PR: `https://github.com/trybotster/botster-core/pull/285`.
+Exact source head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Reviewed base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Gated tree: `886ac9ddad72fc5b92a0c66646aa964965a1b00c`.
+Body correction message: `msg_plugin-w_1791756839_1c7f89`.
+All package findings are closed, including RC-TK-DELTA-1 and RC-TK-DELTA-2. Open package findings: 0.
+
+The reviewer verified the unchanged PR head and complete final body delta after the approved re-gate.
+Only the two affected gate paragraphs change in this correction.
+The failed final gate now correctly names `mutants`, its unmutated stage-2 baseline, the earlier slow PASS, and fuzz not run.
+The body correctly states that `real/route.rs` changes while the route write/flush and other relevant behavior remain unchanged.
+The re-gate paragraph separates the 237.6-second step total, 248-second job duration, and 249-second outer wrapper duration.
+The final body preserves the seed-10 pending failure, local evidence limits, B13 provenance, conflict resolution, and canonical check.
+It also preserves the red gate, exact controlled reproduction, both reviewer acceptances, lead approval, and contracts #69 repair.
+
+The complete source delta remains as reviewed in `5480a940abc4fde52a9c2d656b0de559f5a56de4` and corrected in the later receipts.
+The canonical check fails; the explicit package and integration delta reviews supply the required reviews. No automatic Q7 carry is claimed.
+The approved re-gate is:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-3cf46071-pool-20261011-150748-99309.log`.
+Its header names the exact source head and base above. All ten steps pass; the wrapper exits 0 after 249 seconds.
+It catches all six mutants, four in stage 2, with no miss, timeout, or unviable result.
+All six raw catch identities match six unique citations. Each cited test has a normal PASS. No FLAKY token exists.
+The previously failing test passes on the testkit and in both unmutated slow runs.
+The controlled-reproduction acceptance and one-re-gate approval remain within their recorded 23bl limits.
+The green re-gate does not claim that contracts #69 has landed or that the unfenced window is fixed.
+The new bytes-and-text ID remains real-pending for its R-60 fence gap, owner P3.
+F-283-1 remains the separate imported-code follow-up, owner PC, under the lead's scope ruling.
+
+The integration reviewer must close TC-SI-FINAL-1 with its completed matching verdict.
+The merge must preserve the gated tree above. This verdict accepts no later head, base, or different tree.
+The reviewer ran no test, build, gate, or diagnostic.
