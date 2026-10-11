@@ -159,4 +159,30 @@ The final gate on the reviewed head remains required after both CLEANs under the
 This verdict closes no separate finding or gate for #233, #240, #243, or P6's short data root.
 The package reviewer changed no product code and ran no execution job.
 
+### Final-gate failure path — 2026-10-11
+
+P5 requests the lead's condition-2 source check in `msg_plugin-w_1791707678_ad6708`.
+The final gate on this exact head fails only real `conf::ev_5_repeated_attach_detach_without_polling_stays_bounded`, seed 0, step 21.
+The result is PendingLimit, "pending_ops is 4". Mutants and fuzz do not run. The gate exits one.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-alive-after-hello-03094697-pool-20261011-013016-71458.log`.
+The supplied base trace at `5c480db457797fa7ebecb33835a52e26a5a8490d` also reports this ID failing at step 21, seed 1.
+That trace uses the old contracts pin plus trace-only patches. Its retained excerpt does not print the received error.
+Log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-old-pin-v1-5c480db4-20261011-011611.log`.
+
+The reviewer read the complete pinned EV-5 transcript and the PendingLimit admission branch.
+EV-5 starts its worker through Running before repeated attach and Detach operations.
+It uses `edges_quiet`, but it uses neither `payload_alive` nor a start hold.
+The shared tap executes the new Heard writes during startup. EV-5 does not read that record.
+These writes change no returned bytes, descriptor operation, wake decision, or pending operation.
+The transcript's later `edges_quiet` path retains the same read and wake decisions.
+The new `launch_held` query runs only in tests. The changed real test does not run inside the EV-5 transcript.
+All host, worker, worker-core, and real-route source bytes equal the base.
+
+Condition-2 conclusion: #249's diff does not change EV-5's step-21 Detach admission or worker descriptor receipt path.
+The reviewer does not claim that EV-5 executes none of the changed tap code.
+The lead handoff approves one re-gate, subject to this written source check, and identifies #240 as the cause-removal PR.
+The reviewer read proposed plan 23al at `2cb5eba4b93273a142a36adf91c04b883602be84` and the lead's written approval.
+This source check does not certify an unread trace, make the red gate green, or remove the final-gate requirement.
+The reviewer runs no re-gate. The implementer and lead retain that responsibility.
+
 VERDICT: CLEAN
