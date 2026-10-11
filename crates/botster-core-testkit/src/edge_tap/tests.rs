@@ -225,14 +225,18 @@ fn exit_status() -> ExitStatus {
     ExitStatus::Code(0)
 }
 
-fn hello_frame(instance: &str) -> Vec<u8> {
+fn hello_of(instance: &str) -> Hello {
     let instance = InstanceId(instance.into());
-    let hello = Hello {
+    Hello {
         protocol: 1,
         proof: token_proof(&[3u8; TOKEN_LEN], &instance, 1),
         instance,
         host_epoch: 1,
-    };
+    }
+}
+
+fn hello_frame(instance: &str) -> Vec<u8> {
+    let hello = hello_of(instance);
     let mut payload = Vec::new();
     hello.encode(&mut payload).unwrap();
     let mut frame = Vec::new();
@@ -818,4 +822,156 @@ fn a_connected_link_is_not_read_for_a_launch() {
     assert_eq!(rig.edges.connect_worker(&instance), Some(B));
     rig.recv(B, 4096).unwrap();
     assert_eq!(rig.with(|t| t.launch_of(&instance)), None);
+}
+
+#[test]
+fn every_signal_of_core_passes_to_the_inner_edge_in_order() {
+    let mut rig = rig(Fake::default());
+    rig.edges.signal_group(identity(5), GroupSignal::Term);
+    rig.edges.signal_group(identity(6), GroupSignal::EndPayload);
+    rig.edges.signal_group(identity(5), GroupSignal::Kill);
+    rig.with(|t| {
+        assert_eq!(
+            t.inner.calls,
+            ["signal 5 Term", "signal 6 EndPayload", "signal 5 Kill"]
+        );
+    });
+}
+
+mod stand_ins {
+    use super::*;
+    use crate::stand_in::Role;
+    use crate::worker::{impostor_answer, ImpostorField, ImpostorPlan};
+    use std::io::{Read as _, Write as _};
+    use std::os::unix::fs::MetadataExt as _;
+    use std::os::unix::net::{UnixListener, UnixStream};
+    use std::path::{Path, PathBuf};
+
+    fn sid(name: &str) -> SessionId {
+        SessionId(name.into())
+    }
+
+    fn plan() -> ImpostorPlan {
+        ImpostorPlan {
+            session: sid("s1"),
+            field: ImpostorField::Instance,
+            script: Vec::new(),
+            token: [3; TOKEN_LEN],
+            worker: identity(41),
+        }
+    }
+
+    /// A rig whose inner edge connects the instance `i` as the link `A`, with a stand-in of `s1` at a real endpoint path:
+    /// the path, the real worker's listener and the rig.
+    fn rig_with_stand_in(dir: &Path) -> (PathBuf, UnixListener, Rig) {
+        let path = dir.join("w");
+        let worker = UnixListener::bind(&path).unwrap();
+        let stand_in =
+            StandIn::install(sid("s1"), Role::Answer(plan()), &path, &dir.join("aside")).unwrap();
+        let mut fake = Fake::default();
+        fake.connects.insert(InstanceId("i".into()), A);
+        let rig = rig(fake);
+        rig.with(|t| t.add_stand_in(stand_in));
+        (path, worker, rig)
+    }
+
+    fn host_hello() -> Hello {
+        hello_of("i")
+    }
+
+    /// What the host end can read now. The stand-in wrote its answer within the tap's call, in one write.
+    fn answer(host: &mut UnixStream) -> Vec<u8> {
+        host.set_nonblocking(true).unwrap();
+        let mut got = vec![0u8; 4096];
+        let n = host.read(&mut got).unwrap();
+        got.truncate(n);
+        got
+    }
+
+    fn inode(path: &Path) -> u64 {
+        std::fs::symlink_metadata(path).unwrap().ino()
+    }
+
+    #[test]
+    fn a_send_of_core_steps_the_stand_in_and_its_signals_start_at_its_answer() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _worker, mut rig) = rig_with_stand_in(dir.path());
+        // The real endpoint waits aside while the tap holds the stand-in.
+        let real = inode(&dir.path().join("aside"));
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![])
+        );
+        assert_eq!(rig.with(|t| t.signals_since_answer(&sid("s2"))), None);
+        rig.edges.signal_group(identity(1), GroupSignal::Kill);
+        // Core's connect: the real edge's own connect reaches the stand-in at the path.
+        let mut host = UnixStream::connect(&path).unwrap();
+        assert_eq!(rig.edges.connect_worker(&InstanceId("i".into())), Some(A));
+        host.write_all(&hello_frame("i")).unwrap();
+        rig.edges.signal_group(identity(2), GroupSignal::Term);
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![]),
+            "no answer before Core's send"
+        );
+        assert_eq!(rig.edges.link_send(A, b"hello").unwrap(), 5);
+        assert_eq!(answer(&mut host), impostor_answer(&plan(), &host_hello()));
+        rig.edges
+            .signal_group(identity(41), GroupSignal::EndPayload);
+        rig.edges.signal_group(identity(3), GroupSignal::Kill);
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![
+                (identity(41), GroupSignal::EndPayload),
+                (identity(3), GroupSignal::Kill)
+            ])
+        );
+        assert_eq!(rig.with(|t| t.signals_since_answer(&sid("s2"))), None);
+        drop(rig);
+        assert_eq!(inode(&path), real, "the tap's end gives the path back");
+    }
+
+    /// The harness's own kill (`lose_worker`) goes to the inner edge and is no signal of Core: the record from the
+    /// stand-in's answer on keeps only Core's signals.
+    #[test]
+    fn the_harnesss_kill_is_no_signal_of_core() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _worker, mut rig) = rig_with_stand_in(dir.path());
+        rig.with(|t| t.inner.states.insert(41, IdentityState::Matches));
+        let mut host = UnixStream::connect(&path).unwrap();
+        assert_eq!(rig.edges.connect_worker(&InstanceId("i".into())), Some(A));
+        host.write_all(&hello_frame("i")).unwrap();
+        assert_eq!(rig.edges.link_send(A, b"hello").unwrap(), 5);
+        assert_eq!(answer(&mut host), impostor_answer(&plan(), &host_hello()));
+        assert_eq!(
+            rig.with(|t| t.kill_group(identity(41))),
+            IdentityState::Matches
+        );
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![]),
+            "the harness's kill is no signal of Core"
+        );
+        rig.edges.signal_group(identity(41), GroupSignal::Kill);
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![(identity(41), GroupSignal::Kill)]),
+            "Core's own signal is"
+        );
+    }
+
+    #[test]
+    fn a_connect_of_core_steps_the_stand_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let (path, _worker, mut rig) = rig_with_stand_in(dir.path());
+        let mut host = UnixStream::connect(&path).unwrap();
+        host.write_all(&hello_frame("i")).unwrap();
+        assert_eq!(rig.edges.connect_worker(&InstanceId("i".into())), Some(A));
+        rig.edges.signal_group(identity(41), GroupSignal::Kill);
+        assert_eq!(answer(&mut host), impostor_answer(&plan(), &host_hello()));
+        assert_eq!(
+            rig.with(|t| t.signals_since_answer(&sid("s1"))),
+            Some(vec![(identity(41), GroupSignal::Kill)])
+        );
+    }
 }

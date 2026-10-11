@@ -10,9 +10,9 @@ use crate::harness::TestkitHarness;
 use crate::worker::{ImpostorField, ImpostorFrame, ImpostorPlan, InstanceKey};
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::SessionId;
-use botster_core_edges::edges::{GroupSignal, ProcessIdentity};
+use botster_core_edges::edges::GroupSignal;
 use botster_core_host::session::{row_key, Row, RowWorker};
-use botster_core_link::proof::{token_from_hex, TOKEN_LEN};
+use botster_core_link::proof::token_from_hex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -91,13 +91,14 @@ struct Impostor {
     script: Vec<Script>,
 }
 
-/// The endpoint, the recorded token and the recorded worker identity of the session: what a stand-in at its endpoint needs.
-fn stand_in(
-    harness: &TestkitHarness,
-    handle: &str,
-    session: &SessionId,
-) -> Result<(InstanceKey, [u8; TOKEN_LEN], ProcessIdentity), ControlError> {
-    let row = session_row(harness, handle, session)?;
+/// The plan of a stand-in at the endpoint of the session of `row`: the recorded token and the recorded worker identity, from
+/// the stored row. Both tiers build it the same way (steward ruling R-49).
+pub(crate) fn plan_of(
+    row: &Row,
+    field: ImpostorField,
+    script: Vec<ImpostorFrame>,
+) -> Result<ImpostorPlan, ControlError> {
+    let session = &row.id;
     let worker = row.worker.map(RowWorker::identity).ok_or_else(|| {
         ControlError::Bad(format!(
             "the row of the session {} names no worker",
@@ -111,7 +112,55 @@ fn stand_in(
         .ok_or_else(|| {
             ControlError::Bad(format!("the row of the session {} has no token", session.0))
         })?;
-    Ok((endpoint_key(harness, handle, &row)?, token, worker))
+    Ok(ImpostorPlan {
+        session: session.clone(),
+        field,
+        script,
+        token,
+        worker,
+    })
+}
+
+/// The arguments of `impostor_worker`: the session, the field that the impostor gets wrong, and its script.
+pub(crate) fn impostor_args(
+    args: &Value,
+) -> Result<(SessionId, ImpostorField, Vec<ImpostorFrame>), ControlError> {
+    let Impostor {
+        session,
+        field,
+        script,
+    } = parse(args)?;
+    let field = match field {
+        Field::Token => ImpostorField::Token,
+        Field::Instance => ImpostorField::Instance,
+    };
+    let script = script
+        .into_iter()
+        .map(|s| match s {
+            Script::CleanupDeleted => ImpostorFrame::CleanupDeleted,
+            Script::StateExited => ImpostorFrame::StateExited,
+            Script::Notification => ImpostorFrame::Notification,
+        })
+        .collect();
+    Ok((session, field, script))
+}
+
+/// Installs the plan of a stand-in for `session` at the testkit's endpoint of its worker.
+fn set_impostor(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    session: &SessionId,
+    field: ImpostorField,
+    script: Vec<ImpostorFrame>,
+) -> Result<Value, ControlError> {
+    let row = session_row(harness, handle, session)?;
+    let plan = plan_of(&row, field, script)?;
+    let key = endpoint_key(harness, handle, &row)?;
+    harness
+        .workers()
+        .impostor(key, plan)
+        .map_err(ControlError::Bad)?;
+    Ok(Value::Null)
 }
 
 /// At the next adoption, the session's endpoint is answered by a process that is not its worker, with a wrong token or a
@@ -123,34 +172,8 @@ fn impostor_worker(
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
-    let Impostor {
-        session,
-        field,
-        script,
-    } = parse(args)?;
-    let (key, token, worker) = stand_in(harness, handle, &session)?;
-    let plan = ImpostorPlan {
-        session: session.clone(),
-        field: match field {
-            Field::Token => ImpostorField::Token,
-            Field::Instance => ImpostorField::Instance,
-        },
-        script: script
-            .into_iter()
-            .map(|s| match s {
-                Script::CleanupDeleted => ImpostorFrame::CleanupDeleted,
-                Script::StateExited => ImpostorFrame::StateExited,
-                Script::Notification => ImpostorFrame::Notification,
-            })
-            .collect(),
-        token,
-        worker,
-    };
-    harness
-        .workers()
-        .impostor(key, plan)
-        .map_err(ControlError::Bad)?;
-    Ok(Value::Null)
+    let (session, field, script) = impostor_args(args)?;
+    set_impostor(harness, handle, &session, field, script)
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,26 +192,29 @@ fn announce_protocol(
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
+    let (session, protocol) = announced_args(args)?;
+    set_impostor(
+        harness,
+        handle,
+        &session,
+        ImpostorField::Protocol(protocol),
+        Vec::new(),
+    )
+}
+
+/// The arguments of `announce_protocol`: the session and a protocol that Core must not adopt.
+///
+/// # Errors
+/// `Unsupported` for a protocol in `{T, T-1}`: an adoptable worker of another protocol is a real worker of that protocol,
+/// which no build has.
+pub(crate) fn announced_args(args: &Value) -> Result<(SessionId, u8), ControlError> {
     let AnnounceProtocol { session, protocol } = parse(args)?;
     let current = botster_worker_core::WORKER_PROTOCOL;
-    // `{T, T-1}`, with no `T-1` below 1 (A6-2). An adoptable worker of another protocol is a real worker of that protocol,
-    // which no build of the testkit has.
+    // `{T, T-1}`, with no `T-1` below 1 (A6-2).
     if (current.saturating_sub(1).max(1)..=current).contains(&protocol) {
         return Err(ControlError::Unsupported);
     }
-    let (key, token, worker) = stand_in(harness, handle, &session)?;
-    let plan = ImpostorPlan {
-        session,
-        field: ImpostorField::Protocol(protocol),
-        script: Vec::new(),
-        token,
-        worker,
-    };
-    harness
-        .workers()
-        .impostor(key, plan)
-        .map_err(ControlError::Bad)?;
-    Ok(Value::Null)
+    Ok((session, protocol))
 }
 
 /// `{signals}`: the signals that Core sent, in order, to the process that its AD-6 check refused, the impostor of
@@ -209,15 +235,17 @@ fn signals_received(
         .ok_or_else(|| {
             ControlError::Bad(format!("no impostor answers for the session {}", session.0))
         })?;
-    let names: Vec<&str> = signals
-        .iter()
-        .map(|s| match s {
-            GroupSignal::EndPayload => "end_payload",
-            GroupSignal::Term => "term",
-            GroupSignal::Kill => "kill",
-        })
-        .collect();
+    let names: Vec<&str> = signals.iter().copied().map(signal_name).collect();
     Ok(json!({ "signals": names }))
+}
+
+/// The name of a group signal in the result of `signals_received`.
+pub(crate) fn signal_name(signal: GroupSignal) -> &'static str {
+    match signal {
+        GroupSignal::EndPayload => "end_payload",
+        GroupSignal::Term => "term",
+        GroupSignal::Kill => "kill",
+    }
 }
 
 /// The storage edge damages the stored bytes of the session's row (Core A10-2). The bytes are the ones that Core's encoder
