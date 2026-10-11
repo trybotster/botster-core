@@ -1,7 +1,9 @@
 //! The named real-process proofs of the real-only Core ids passed in the slow step (plan sections 1 (23s), 5 and 8; lead,
 //! 2026-10-11). `conformance/core-real-proofs.txt` names, for each real-only id that left `core-pending.txt`, the slow-tier
-//! tests that prove it; the suite counts the id by them and never runs its transcript. So the slow step must have run each
-//! named test to PASS: after the slow tier, this check reads the tier's own JUnit file (`test_budget` deletes it before the
+//! tests that prove it, and the suite counts the id by them. A named test is a separate slow-tier test, and then the suite
+//! never runs the id's transcript; or it is the id's own real-tier trial (`botster-core::slow_conformance conf::<id>`),
+//! and then the real tier runs the transcript must-pass (lead, 2026-10-11, after R-55). Either way, the slow step must
+//! have run each named test to PASS: after the slow tier, this check reads the tier's own JUnit file (`test_budget` deletes it before the
 //! run, so it is never a stale one) and fails on a line whose test has no test case there, or a test case that did not pass.
 //!
 //! The JUnit file is nextest's, read as an XML tree: a well-formed document whose root is `<testsuites>`, with a

@@ -16,14 +16,16 @@
 //!   ignored with its outcome, never as passed and never as failed; the report names each one that passed, for removal;
 //! - on the real tier only, an id of `TESTKIT_PROVEN` (Core A20-1: its proof observes the worker's own allocator) is an
 //!   ignored trial of kind `testkit-proven`. It is not run and it is not a failure; the report lists it with its reason;
-//! - on both tiers, a non-pending id of `conformance/core-real-only.txt` is an ignored trial of kind `real-only`, whose reason
-//!   names its real-process proofs (`conformance/core-real-proofs.txt`). Its transcript never runs: it has no
-//!   `TestkitHarness` form (plan 4.2b), and the real tier is exempt from the duplicate trial once the proof passes in the
-//!   gate (plan section 5). The gate's slow step runs each named test must-pass, and the minimum count includes the id
-//!   by those tests (plan 23s). A non-pending real-only id with no proof line is a failing trial (fail closed). When a
-//!   proof line names the id's own real-tier trial (`botster-core::slow_conformance conf::<id>`), the real tier runs the
-//!   transcript must-pass instead, and only the testkit tier has the ignored `real-only` trial (lead, 2026-10-11, after
-//!   R-55);
+//! - a non-pending id of `conformance/core-real-only.txt` counts by its named real-process proofs
+//!   (`conformance/core-real-proofs.txt`): the gate's slow step runs each named test must-pass, and the minimum count
+//!   includes the id by those tests (plan 23s). It has no `TestkitHarness` form (plan 4.2b), so on the testkit tier it is an
+//!   ignored trial of kind `real-only` whose reason names its proofs. On the real tier:
+//!   - with separate named tests, it is the same ignored trial, and its transcript never runs: the real tier is exempt from
+//!     the duplicate trial once the proof passes in the gate (plan section 5);
+//!   - when a proof line names its own real-tier trial (`botster-core::slow_conformance conf::<id>`), its transcript runs
+//!     must-pass, and that trial is the proof (lead, 2026-10-11, after R-55).
+//!
+//!   A non-pending real-only id with no proof line is a failing trial on both tiers (fail closed);
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).

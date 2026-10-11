@@ -4,8 +4,10 @@
 //! - **real-only**: the pinned replacement map gives the id a `slow:*` proof. The testkit cannot prove it, so the strict
 //!   run does not run it. `cargo xtask ledger-ids --write` derives `conformance/core-real-only.txt` from the map; it is never
 //!   written by hand. A real-only id leaves `core-pending.txt` only with its named real-process proof (plan section 5):
-//!   `conformance/core-real-proofs.txt`, written by hand, names the slow-tier tests that prove it. Neither tier runs its
-//!   transcript; the gate's slow step runs each named test must-pass (plan 23s; lead, 2026-10-11).
+//!   `conformance/core-real-proofs.txt`, written by hand, names the slow-tier tests that prove it, and the gate's slow step
+//!   runs each named test must-pass (plan 23s; lead, 2026-10-11). With separate named tests, neither tier runs its
+//!   transcript. When a line names the id's own real-tier trial (`RealProof::is_own_real_trial`), the real tier runs the
+//!   transcript must-pass and only the testkit tier does not (lead, 2026-10-11, after R-55).
 //! - **held**: `conformance/core-held.txt` lists a pending id that passes but stays pending, with its reason class, owner and
 //!   authority. A held id must pass: a held id that fails is an error, so the list cannot go stale. A `budget` id is over the
 //!   time budget, so the strict run runs it at the first seed of the set only (lead, 2026-10-09): its full-seed proof is
