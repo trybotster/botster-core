@@ -74,6 +74,10 @@ crates/botster-core/tests/slow_real_core.rs | a_worker_is_not_left_when_the_clea
 # wait ends either way: the main thread's deadlines bound it (owner P3, who checked both paths).
 crates/botster-core-testkit/src/worker/tests.rs | a_program_edge_control_concurrent_with_the_process_end_does_not_deadlock | blocking-read
 
+# The R-49 stand-in at a worker endpoint path: `StandIn::install` makes its listener non-blocking before it returns, so
+# this `accept` gives `WouldBlock` and never waits. A host step runs it inside Core's own edge call (owner P5).
+crates/botster-core-testkit/src/stand_in.rs | step | blocking-read
+
 # OwnedGroup and its slow tests. PR C replaces them with OwnedChild::spawn_group (owner P6).
 crates/botster-core-testkit/src/process_group.rs | kill | child-wait
 crates/botster-core-testkit/src/process_group.rs | spawn | spawn
