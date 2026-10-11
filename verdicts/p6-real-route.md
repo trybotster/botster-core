@@ -150,3 +150,103 @@ These corrections close those earlier mutation defects, but they do not prove te
 Open findings: 4. Integration independently confirms RR-R1-1 and the private-field finding.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — Corrections and the #239 base merge
+
+Exact head: `fd627c55cb888fde6225d9a8a964ce65183ee8a8`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Pre-merge gate head: `89eeb2db28793674ef4c2739d17b790ffddf5151`.
+Pre-merge gate base: `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+Risk tier: HIGH.
+
+### Finding closure
+
+RR-R1-1 HIGH is closed.
+`after_write` stops the flush on `Ok(0)`, `WouldBlock`, and `Interrupted`, and keeps the pending bytes.
+Other errors clear the bytes and stop the flush.
+Each positive write removes at least one byte from a finite buffer.
+Each loop pass therefore makes progress or returns before another write.
+The read can reach its deadline check and marked poll.
+
+The complete flush proof covers an interruption, partial writes, a full stream, later ordered delivery, and a zero-byte write.
+The controlled writer rejects a call beyond the allowed count.
+The interruption and zero-byte cases each permit one call.
+A regression therefore fails promptly instead of leaving the proof in an unbounded retry.
+The reviewer read both correction deltas, at `96116a19251b3b86912fe6a88748fd5260c79fd6` and `eec41d21bd7752363ff264dd26ead4905ea0ae64`.
+The corrected proof passes in the retained gate.
+The gate catches the `after_write` whole-body replacements, its no-progress guards, and both flush-condition replacements without a timeout.
+
+RR-R1-2 LOW is closed.
+The private `route.unsent` assertion is removed.
+The proof retains peer EOF, the late write, and subsequent route EOF.
+The decision proofs observe their outputs and the controlled writer's I/O effects.
+
+RR-R1-3 LOW is closed.
+The published body compares old Core at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+It records the retained stream-pair and poll forms, the rejected blocking-timeout and interrupted-retry forms, and the scripted pressure adapter.
+It explains reuse of rustix, the current flag parser, and the shared Bounded reader.
+The reviewer verified the old worker_process.rs references through Git objects.
+These are comparisons of concepts. The correction copies no old code or tests.
+
+RR-R1-4 LOW is closed.
+The body describes #234's implemented descriptor send and the remaining worker-side work.
+It labels the earlier Failed and HandoffFailed evidence as historical.
+The body also assigns the 80-ID report to gated head `89eeb2db` and the 77-ID list to final head `fd627c55`.
+
+### Base merge review
+
+The reviewer read the lead's pool-saving rule in `handoffs/core-lead.md`, at the ~22:50 entry.
+The rule requires one pre-review gate, review of base merges, and one final gate after both CLEAN verdicts.
+The reviewer applies that rule to this merge. The earlier gate is evidence for the corrected source, not a gate on the final head.
+
+The reviewer read the supplied merge-check log:
+`~/botster-sessions/gates/botster-core-stage1-p6-real-route-fd627c55-pool-20261010-225925-73587.log`.
+
+The log records the exact final head and base above.
+It exits 1 after 9 seconds because the merge requires delta reviews.
+Both ancestry checks pass. Condition 1 reports no merge conflict.
+Condition 2 fails on two shared paths: `conformance/core-real-pending.txt` and `crates/botster-core-testkit/src/real.rs`.
+Condition 3 fails on changed diff index lines. Condition 4 passes because this PR leaves `core-pending.txt` unchanged.
+This record does not grant automatic acceptance. The following delta review covers its shared paths.
+
+The reviewer read the final six-path own delta, both shared-path changes, merge parents, and imported path summary through Git objects.
+The final own delta has 539 insertions and 19 deletions.
+The route file equals the gated source exactly: blob `b2629607c8b79460c4c8dac729daded557efe795`.
+The attach_stream implementation still creates one pair and passes the worker end to the supplied CoreApi.
+The merge adds #239's start controls and RefusalLayer to the tapped harness.
+The reviewer read that layer's attach method: it returns a scripted refusal with the original transport, or forwards the transport to its inner CoreApi.
+The harness keeps no duplicate endpoint. A refusal drops the returned transport and the local client route.
+The plain harness remains plain. Both harnesses retain the same route implementation.
+
+The merged real-pending list retains both disjoint sets of removals.
+#239 removes `a5_3_only_sync_column_codes_scripted`, `a5_3_sync_refusal_has_no_op_event_slot_or_state`, and `ad_7_payload_launches_after_durable_identity`.
+P6 removes only the three IDs named in Round 1.
+The final list has 77 IDs; the new base has 80.
+No transcript or contract assertion changes in this PR's own delta.
+The final own delta changes no pin, mutation exclusion, native configuration, process owner, or production reaper.
+The four corrections remain intact. The delta review finds no new package defect.
+
+### Retained correction gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-89eeb2db-pool-20261010-221028-80389.log`.
+The header records the pre-merge head and base above.
+All ten jobs pass. The job exits 0 after 2842 seconds, with 171 seconds queued and 2671 seconds running.
+The wrapper exits 0 after 2843 seconds.
+Default tier: 1596 passed in 18.599 seconds.
+Slow tier: 423 passed in 137.861 seconds, including all twelve route proofs and all three P6 list removals.
+Conformance: 206 passed. Strict tier ran 373/394 pending IDs, with 21 real-only IDs not run and 2 held.
+Minimum counts: testkit-passing 55/69, real-passing 35/68, real-accepted 36/69.
+Pending-real: 80, with zero newly passing IDs on that gated head.
+These counts belong to the gated head, before the #239 merge.
+
+Stage 1: 30 mutants, all missed, zero timeout or unviable, in 130.1 seconds.
+The unmutated slow baseline passes in 134.5 seconds.
+Stage 2: 30 mutants, 25 caught, 0 missed, 0 timeout, and 5 unviable, in 2138.0 seconds.
+The reviewer read all thirty stage-2 outcomes. The five unviable replacements require unavailable default values.
+No new exclusion accounts for the smaller mutant count; the corrected match structure changes the generated mutants.
+
+All four Round 1 findings are closed. Open findings: 0.
+This is a CLEAN review of the exact final head. Its final gate remains the implementer's next step after both CLEAN verdicts.
+The reviewer changed no product code and ran no gate, build, test, mutation job, merge check, or reversal.
+
+VERDICT: CLEAN
