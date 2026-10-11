@@ -57,6 +57,11 @@
 //!   the first answer of the session's stand-in on, each as `{signal, target: {pid, start_time}}`
 //!   ([`Tap::signals_since_answer`]). A handle with no stand-in of the session is `Bad`.
 //!
+//! - `fail_handoff` (no arguments, Core DP-2): the next `link_send_descriptor` of the handle's host fails, once
+//!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
+//!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
+//!   `HandoffFailed`. Core sees exactly the result of a real failed send: the endpoint back, with `Failed`.
+//!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
 mod program;
@@ -118,6 +123,10 @@ pub struct SessionProcesses {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct EdgesQuiet {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FailHandoff {}
 
 fn on() -> bool {
     true
@@ -554,6 +563,14 @@ impl RealCoreHarness {
         }
     }
 
+    /// Core DP-2: the next hand-over of a route's stream endpoint fails, once, at the tap ([`Tap::fail_next_handoff`]).
+    fn fail_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let FailHandoff {} = parse(args)?;
+        let tap = self.tap(handle)?;
+        lock(&tap).fail_next_handoff();
+        Ok(Value::Null)
+    }
+
     /// Core A5-3, R-49 Q3: arms a synchronous refusal of the handle's next named call, which the refusal layer returns
     /// without calling Core.
     fn fail_next(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -783,6 +800,7 @@ impl CoreHarness for RealCoreHarness {
                     | "hold_start_at"
                     | "release_start_at"
                     | "fail_next"
+                    | "fail_handoff"
             ) || program::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
@@ -808,6 +826,7 @@ impl CoreHarness for RealCoreHarness {
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
+            "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             op if self.tapped && program::CONTROLS.contains(&op) => {
                 self.program_control(handle, op, args)
             }
@@ -988,6 +1007,7 @@ mod slow_controls {
             "hold_start_at",
             "release_start_at",
             "fail_next",
+            "fail_handoff",
         ] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
@@ -1655,6 +1675,7 @@ mod slow_tests {
             "hold_start_at",
             "release_start_at",
             "fail_next",
+            "fail_handoff",
         ]
         .into_iter()
         .chain(program::CONTROLS.iter().copied())
