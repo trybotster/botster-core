@@ -898,3 +898,17 @@ No mutation exclusion changes.
 Open package findings: 0 under the lead's transfer ruling.
 The new exact-head gate and final PR body remain pending. No CLEAN is issued before those receipts.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — integration delta receipt
+
+Integration message: `msg_plugin-w_1791753970_5a12b2`.
+Integration receipt: `d845c016eb45d373025f341cf09e7f3477692b7f` in `verdicts/stage1/rc-paste.md`.
+The reviewer read the complete final-slot section of that receipt.
+It covers `006b61cc454e0dce4e0063852e6f0701fef081bc` against `23550811fb84c3c2cb066019716987575d7aecb2`.
+The integration reviewer reports no new source finding.
+Its comparison preserves the previous seven own testkit removals and two own real-pending additions.
+It accepts the lead's F-283-1 transfer for #284 and preserves that follow-up obligation.
+Integration condition RC-PASTE-FINAL-1 remains open for the completed exact-head gate, corrected canonical check, final body, and matching package verdict.
+No source or body result from a future gate is accepted by this receipt.
+The reviewer ran no test, build, or gate.
