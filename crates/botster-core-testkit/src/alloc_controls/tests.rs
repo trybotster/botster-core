@@ -112,9 +112,14 @@ fn the_first_allocation_of_a_new_thread_is_measured_without_recursion() {
 }
 
 /// Steward ruling R-52, condition 1 (the guard of the per-thread scope): an allocation of the subject is in the calling
-/// thread's peak. A route's client sends one `bytes` frame of `LARGE` payload bytes; the in-process worker's route reader
-/// takes the frame on this thread, so the peak is at least the frame. If the testkit ever runs worker code on another
-/// thread, this test fails.
+/// thread's peak. A route's client sends one `bytes` frame of `FRAME` payload bytes. Core's `pump` steps the in-process
+/// worker on this thread, and the worker's route reader buffers the frame, so the peak reaches `FRAME`. If the testkit
+/// ever runs worker code on another thread, this test fails.
+///
+/// Only the subject can reach `FRAME` in the measured windows (PR #230 F115, Sol SI-2): the client reads at most
+/// `READ_MAX` bytes, and each read allocates a buffer of that size (`TestkitRoute::try_read`); the client's end moves its
+/// waiting bytes into a stream of `ROUTE_STREAM_BYTES`. A control window with the same reads and pumps and no frame stays
+/// below `FRAME`.
 #[test]
 fn a_frame_that_the_in_process_route_reader_takes_is_in_the_calling_threads_peak() {
     use botster_conformance::Deadline;
@@ -181,26 +186,42 @@ fn a_frame_that_the_in_process_route_reader_takes_is_in_the_calling_threads_peak
         route.read(1 << 20, &Deadline::none()),
         botster_hub_conformance::route::RouteRead::Empty
     ) {}
+    // The frame of the subject, and the client's reads in the measured windows.
+    const FRAME: usize = LARGE;
+    const READ_MAX: usize = 64;
+    const { assert!(READ_MAX < FRAME && crate::route_client::ROUTE_STREAM_BYTES < FRAME) };
+    // One step of the client and the worker: a bounded client read, then Core's pump, which steps the worker.
+    let step = |core: &mut Box<dyn CoreApi>,
+                route: &mut Box<dyn botster_core_conformance::RouteClient>| {
+        route.read(READ_MAX, &Deadline::none());
+        core.pump(now);
+        core.poll_events(64);
+    };
+    // The control: the same steps with no frame on the route stay below `FRAME`.
+    window(&mut harness);
+    for _ in 0..32 {
+        step(&mut core, &mut route);
+    }
+    let control = peak_bytes(&mut harness);
+    assert!(control < FRAME, "the steps with no frame: {control}");
     window(&mut harness);
     route.write(&stream_wrap(
         &ToWorker::Bytes {
             op: WireOp(1),
-            bytes: vec![b'x'; LARGE].into(),
+            bytes: vec![b'x'; FRAME].into(),
         }
         .encode(),
     ));
     let window_peak = peak_bytes(&mut harness);
     assert!(
-        window_peak >= LARGE,
+        window_peak >= FRAME,
         "the client's own frame: {window_peak}"
     );
-    // A new window after the client's write. The client's end now only moves its buffered bytes into a stream of
-    // ROUTE_STREAM_BYTES, which allocates less than LARGE, so an allocation of LARGE is the worker's.
-    const { assert!(crate::route_client::ROUTE_STREAM_BYTES < LARGE) };
+    // A new window after the client's write: from here on, an allocation of `FRAME` is the worker's.
     window(&mut harness);
-    for _ in 0..8 {
-        route.read(1 << 20, &Deadline::none());
+    for _ in 0..32 {
+        step(&mut core, &mut route);
     }
     let peak = peak_bytes(&mut harness);
-    assert!(peak >= LARGE, "the route reader's frame: {peak}");
+    assert!(peak >= FRAME, "the route reader's frame: {peak}");
 }
