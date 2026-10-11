@@ -40,7 +40,7 @@ Risk: HIGH. The change modifies the shared testkit.
 
 ### RC-FH-1 — LOW — The new method has the hold lookup's comment
 
-Status: OPEN.
+Status: CLOSED at `b168c192ff58459b4671834bf01b87cc823c6fb7`. See round 2 below.
 Evidence: `crates/botster-core-testkit/src/edge_tap.rs:424` at the reviewed head.
 The comment says, "The hold whose `Launch` met it on `link`."
 The insertion attaches that comment to `fail_next_handoff`, which takes no `link` and returns no hold.
@@ -86,3 +86,24 @@ The gate reports successful citation, decision, and stale-exclusion checks. Its 
 The new functions and changed control dispatch remain subject to mutation testing.
 
 The reviewer ran no test or gate. RC-FH-1 must close before CLEAN.
+
+## #246: round 2
+
+Date: 2026-10-11.
+Head: `b168c192ff58459b4671834bf01b87cc823c6fb7`.
+Previous reviewed head: `a8d9a156401288226d0ad8922fff65db64ddb4da`.
+Risk: HIGH.
+
+**VERDICT: CLEAN**
+
+Open findings: 0. RC-FH-1 is closed.
+The reviewer checked the complete delta and confirmed the PR's head through GitHub.
+One commit moves one documentation line. No executable code, test, pin, pending list, or exclusion changes.
+At `edge_tap.rs:431`, the hold lookup's comment now directly precedes `hold_on`.
+The comment for `fail_next_handoff` remains directly above that method.
+The round-1 logic review and evidence retain their stated scope.
+
+The green gate cited in round 1 ran on `a8d9a156`, not this head.
+The final gate must pass on the final head before merge. The required integration review remains separate.
+Any further implementation change requires a delta review. A qualifying base merge follows the plan's base-merge rule.
+The reviewer ran no test or gate.
