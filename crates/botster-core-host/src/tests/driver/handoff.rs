@@ -824,6 +824,11 @@ fn a_send_error_closes_the_queued_streams_and_keeps_the_ones_in_flight() {
     rig.driver
         .begin(Op::ReadModeFlags { session: sid("s1") })
         .unwrap();
+    rig.pump();
+    assert!(
+        with_link(&rig, |l| l.write_interest),
+        "the read's frame waits in the outbound bytes"
+    );
     let queued = Arc::new(11);
     let waiting = attach(&mut rig, Arc::clone(&queued));
     rig.pump();
