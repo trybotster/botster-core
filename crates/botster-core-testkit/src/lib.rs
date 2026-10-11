@@ -6,6 +6,9 @@
 pub mod adopt_controls;
 pub mod alloc_controls;
 pub mod candidate;
+// Only the real harness (the `slow` feature) composes the capture layer; its tests run in the default tier too.
+#[cfg_attr(not(feature = "slow"), allow(dead_code))]
+mod capture_layer;
 pub mod controls;
 pub mod core;
 pub mod crash;
@@ -15,6 +18,7 @@ pub mod every_cut;
 pub mod harness;
 pub mod net;
 pub mod oracle;
+pub mod oracle_compare;
 pub mod pending;
 pub mod process_controls;
 pub mod process_group;

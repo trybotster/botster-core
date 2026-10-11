@@ -62,10 +62,12 @@ pub mod data {
     pub const ROWS: i32 = 2;
     pub const CURSOR_X: i32 = 3;
     pub const CURSOR_Y: i32 = 4;
+    pub const CURSOR_PENDING_WRAP: i32 = 5;
     pub const TOTAL_ROWS: i32 = 14;
     pub const ACTIVE_SCREEN: i32 = 6;
     pub const CURSOR_VISIBLE: i32 = 7;
     pub const KITTY_KEYBOARD_FLAGS: i32 = 8;
+    pub const CURSOR_STYLE: i32 = 10;
     pub const TITLE: i32 = 12;
     pub const PWD: i32 = 13;
     pub const MODE: i32 = 37;
@@ -389,6 +391,7 @@ pub struct FormatterTerminalOptions {
 
 /// `GhosttyFormatterFormat`.
 pub const FORMATTER_FORMAT_PLAIN: i32 = 0;
+pub const FORMATTER_FORMAT_VT: i32 = 1;
 
 /// `GhosttyFormatter`: an opaque handle.
 pub type Formatter = *mut c_void;
