@@ -49,3 +49,16 @@ On the testkit, the fenced transcript is INCONCLUSIVE at index 9 (`link_held`, `
 My round 1 checked that the PR matches R-87's text. It did not check that `link_held` covers every form of the parked work that the TM-6 claim needs. The fence as ruled is too narrow for the testkit's scheduling. This is a contract question for the steward: the fence must cover parked work on the link AND parked work in the engine, or use another form.
 
 The PR must not merge on this head. I re-review the head that follows the steward's ruling.
+
+## Superseded: R-87 corrected to `parked_work` (contracts main `7c4004a0ba6c9734fbe8d2072f68addde2d58596`)
+
+The steward withdrew the `link_held` form. My round 1 CLEAN on `006ccf22` is superseded. P5 revises #68, and a new round follows. The corrected control is `parked_work {session}` → `{parked}`: a link frame read but not accepted, OR an engine transition parked on mandatory-queue room. The fence, the pump-and-never-poll rule and the strict 0 ms `Woken` are unchanged. Evidence for the new form: per-seed testkit runs over the same 32 seeds with no INCONCLUSIVE, and a real-tier run.
+
+016c corrected the rule reference of its body LOW: `fence_lint.rs`'s module documentation numbers the steps from 0, as the runner does (not `pair-common.md`). The indices 9, 14 and 8 are unchanged.
+
+### Correction of my sibling analysis (round 1)
+
+On main `7c4004a0`, these transcripts assert a strict `Woken` directly after a poll that frees room: `ev_5_poll_wakes_pending_work` (index 13), `tm_6_poll_room_unparks_and_wakes` (13), `e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room` (32), `e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room` (31) and `e3_1_eventless_effect_overtakes_a_carried_or_parked_step` (40). The other strict `Woken` waits follow a `begin`, an `attach_route`, a `call` or a `control`, which is another TM-6 clause.
+
+- **`tm_6_poll_room_unparks_and_wakes`: my round 1 claim was WRONG.** I wrote that AD-7 makes `payload_alive {s2}` `alive: true` prove that Core has read s2's frame. Core `crates/botster-core-host/DESIGN.md` line 198 says that the worker's `Launched` gives `Running`. The worker sends `Launched` after the payload starts, so a live payload does not prove that `Launched` is written or held. The work that the poll at index 12 frees is s2's `Running` transition (index 15 waits for `SessionState {s2, Running}`). No step before the poll proves that this work is parked. This is the same gap as `ev_5`, and it needs the `parked_work` fence after index 8.
+- **The three `e3_1` ids: the work that the poll frees is a `RouteStalled` of `r1`.** Each id waits for it after the poll. Core makes that transition from the route gate and its clock, not from a frame of the link. A `pump` with `more: false` and `events_posted: 0` at a clock where it is due shows that it waits for room. So parked work exists at the poll without a worker report, and those ids need no fence. A late `Launched` of s2 only adds more parked work.
