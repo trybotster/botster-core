@@ -611,3 +611,16 @@ All ten steps pass. It ends with exit 0 and reports 120 mutants: 86 caught, 28 i
 That gate does not cover the new source head.
 The final exact-head gate and integration delta CLEAN remain required before merge.
 The reviewer ran no test, build, or gate.
+
+
+### Integration delta CLEAN received
+
+The integration reviewer reports source CLEAN at `c2dd1fbfe801f3b9e43256071b01081eb75a0592`.
+Base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Integration verdict: `a255205594efa0c6bc0473736de623b713eb926d`, `verdicts/stage1/rc-oracle-resume.md`.
+Message: `msg_plugin-w_1791732967_8d1d20`.
+The integration reviewer read package verdict `324ed659`, the failed base check, and both overlapping file deltas.
+The integration reviewer confirms the imported changed lines, eight unchanged own blobs, and matching static merge tree.
+Both source CLEAN verdicts cover this head and base. All three findings remain closed.
+The final exact-head gate and final PR body remain pending. Historical proof limits remain explicit.
+The reviewer ran no test, build, or gate.
