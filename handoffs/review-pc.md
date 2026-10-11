@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.a730792d.md`, revision 23bt.
-- Verified plan SHA-256: `a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.133ea0b2.md`, revision 23bu.
+- Verified plan SHA-256: `f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -1101,3 +1101,43 @@ PC receipt: msg_plugin-w_1791741278_38410f.
 Head: 79277df141aa6c5b18f150ed47015bd733b5efc1. Imported v1: 84b1e9be2c58044b27958ed39fe1fffa2a0eb907.
 PC reports one conflict-free import and a failed pending-file check. The final gate is running.
 No merged-head package verdict exists yet. Next: publish #276 final evidence, then read the brief first and review #277. Never poll.
+
+
+Final evidence pushed: 994a79ead842dbe904d06cf9d616e7b202049c4e on origin/stage1/review-pc.
+#276 is MERGED at 20c4e98df6b47a45f3e2284a976e1c8a1341457e with the same tree as final gated head 300eccec.
+Both source delta CLEANs, final gate, and body conditions are closed. The original program-controls group remains incomplete.
+The reviewer worktree is clean.
+PC receipt msg_plugin-w_1791741344_7d121d supersedes #277 head 79277df1 with 2c78bb6c8424d37089062437731980ec0d34eab0.
+PC reports that the lead directed the second import of v1 20c4e98d and stopped the 79277df1 gate. The new final gate is running.
+Next: read the brief first and review #277 on the new head. Never poll.
+
+
+## PR #277: Round 2 package CLEAN on final head
+
+Head: 2c78bb6c8424d37089062437731980ec0d34eab0.
+Own/PR/final-gate base: 20c4e98df6b47a45f3e2284a976e1c8a1341457e.
+Plan: 23bu, stage1-plan.133ea0b2.md; SHA-256 f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815.
+The reviewer read the brief first. The original source CLEANs cover 7d7d429f only.
+Actual history: import 84b1e9be -> 79277df1, then lead-directed import 20c4e98d -> 2c78bb6c.
+The lead stopped the stale-base 79277df1 gate. It supplies no completed evidence.
+The lead assigns #277 the final-gate slot under plan 23bu.
+Base check FAIL (4) on core-real-pending; all other checks pass. Both explicit delta reviews are required.
+The independent own diff comparison is byte-identical outside the two line-set files: 15231 bytes.
+SHA-256 f330332690061aad54448cce4aabee47a9d401e0830ee34efc6b80a7b17f1819.
+All seven source/test blobs are unchanged. All changed base paths outside the own diff preserve the base blobs.
+core-pending equals the base. core-real-pending equals the base minus only a2_3.
+The head preserves the three added base IDs and their comments. R-72 behavior and Round 1 evidence limits remain unchanged.
+Final gate: gates/botster-core-stage1-pc-a2-3-lost-before-running-2c78bb6c-pool-20261011-105545-34013.log.
+SHA-256 00ac6621cdd278fa7836f913156836da5423592010e4693ae257231a2c44c904.
+All ten steps PASS in 136.3 seconds; Linux job and wrapper exit 0 after 144 seconds on msa1.
+Default: 1740 PASS, 478 skipped, 11.580 seconds. Slow: 558 PASS, 2027 skipped, 41.432 seconds.
+a2_3 testkit PASS 0.209 seconds; real PASS 0.161 seconds. All four relevant engine tests pass.
+Counts: testkit 60/69; real-passing 49/68; real-accepted 50/69.
+Stage 1 catches all six mutants; stage 2 does not run. Zero missed, timeout, unviable, or FLAKY outcomes.
+Six raw identities match six named catcher records. Two catcher names differ from the original gate.
+PC corrects the LOW same-tests body claim; receipt msg_plugin-w_1791741692_a9715e. GitHub API confirms the correction.
+The body records both imports, stopped job, failed check, and final gate. LOW PC-277-BODY-1 is closed.
+The lead assigns the three other pending-PASS IDs to P5's pin PR. This verdict closes none of that separate work.
+Package CLEAN: zero open findings. Sol's same-head delta CLEAN and both delta verdict references in the body remain due.
+The gate base must remain the v1 tip at merge. No execution job ran here.
+The original program-controls group remains incomplete. Wait for the doorbell. Never poll.

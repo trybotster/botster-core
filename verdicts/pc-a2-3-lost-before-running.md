@@ -2,6 +2,9 @@
 
 VERDICT: CLEAN (0 open).
 
+Latest review head: `2c78bb6c8424d37089062437731980ec0d34eab0`.
+Round 1 below covers the original source head. Round 2 covers the imported base.
+
 - READY: `msg_plugin-w_1791737722_0fd975`.
 - Head: `7d7d429f06335c18e8a21e6c63085be4c5465eb0`.
 - Own-diff base, PR base, and gate header base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
@@ -115,3 +118,99 @@ Sol retains the evidence limits: the compact logs do not independently prove the
 The separate engine reversals are PC's body reports. Neither reviewer executed or independently reproduced those reversals.
 The same-head integration-review condition is closed. The current-v1 import, applicable base check, and final exact-head gate remain due.
 Neither verdict approves a later source delta or gate. No execution job ran here. Wait for the doorbell. Never poll.
+
+
+## Round 2: imported-base source and final gate
+
+- Superseding READY receipt: `msg_plugin-w_1791741344_7d121d`.
+- Final gate receipt: `msg_plugin-w_1791741557_e14e9d`.
+- Reviewed head: `2c78bb6c8424d37089062437731980ec0d34eab0`.
+- Own-diff base, PR base, and gate header base: `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+- Parents: `79277df141aa6c5b18f150ed47015bd733b5efc1` and `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+- Tree: `fed65ce895b71a25f22d1c9ac82d3344e9952580`.
+- Binding plan: 23bu, `~/botster-sessions/pins/stage1-plan.133ea0b2.md`.
+- Plan SHA-256: `f8f6e1fe17a4e7e2bda32b9b98f9326c8ea912ee009770684df2a66e6aace815`.
+
+The reviewer read the PC brief first for this delta. The earlier BUILD.md and contract reads remain applicable.
+The reviewer read pair-common, the 23bt-to-23bu plan changes, the base-check report, and the lead's handoff.
+Plan 23bu records the final-gate slot and the lead's second-import decision for this PR.
+Its contracts `.40` work does not change this PR's contracts pin or R-72 scope.
+
+### Actual import history
+
+The first import joined original head `7d7d429f06335c18e8a21e6c63085be4c5465eb0` with v1 `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+It produced `79277df141aa6c5b18f150ed47015bd733b5efc1`.
+PR #276 then moved v1 to `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+The lead ordered PC to stop the stale-base gate and import that tip.
+The second import produced the reviewed head above. The history contains two imports.
+The stopped `79277df1` job supplies no completed gate evidence.
+The lead's 03:57 and 04:05 handoff entries record the exception and assign #277 the final-gate slot.
+
+### Failed base check and independent source comparison
+
+Report: `~/botster-sessions/shared/core-stage1/evidence/pc-a2-3/base-merge-check-2c78bb6c.out`.
+SHA-256: `fcf69ab5cd1353ea0fde08595497f07ef002dc3e3fa598812e74e85031ec086a`.
+The report passes ancestry and checks (1), (2), and (3). It passes (4) for `core-pending.txt`.
+It fails (4) for `core-real-pending.txt`: the base does not only remove ID lines.
+This FAIL requires both source delta reviews. It does not permit automatic carry-over of the original CLEANs.
+
+The reviewer independently compares the two own diffs with the check's canonical `git diff-tree` options.
+Outside the two line-set files, the diffs are byte-identical: 15231 bytes.
+SHA-256: `f330332690061aad54448cce4aabee47a9d401e0830ee34efc6b80a7b17f1819`.
+The eight own paths are unchanged. All seven source and test blobs equal the original reviewed blobs.
+None of the 19 changed base paths overlaps an own path outside the two line-set files.
+Every changed base path outside the own diff equals its imported-base blob in the reviewed head.
+`core-pending.txt` equals the imported base exactly.
+`core-real-pending.txt` equals the imported base minus only `conf::a2_3_lost_session_closes_routes_session_lost`.
+
+The base adds `tm_6_begin_and_attach_signal_wake`, `ou_9_attach_is_sync_baseline_in_pump`, and `st_5_reads_after_exit`.
+It also adds their comments and a blank line. The imported head preserves those additions.
+These additions explain why the base is not a pure removal under check (4).
+The reviewer reads the current start, link-end, and worker-exit paths again.
+The unchanged R-72 logic preserves the original worker-exit classification, startup deadline, adoption guard, and route-close order.
+No own change alters a contract, transcript, timeout value, pin, worker, mutation profile, or unsafe code.
+Source conclusion: CLEAN on the exact imported head. This is an explicit delta review after the check's FAIL.
+The Round 1 A5-4 provenance and engine-reversal evidence limits remain in force.
+
+### Final gate evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-a2-3-lost-before-running-2c78bb6c-pool-20261011-105545-34013.log`.
+SHA-256: `00ac6621cdd278fa7836f913156836da5423592010e4693ae257231a2c44c904`.
+The header names the reviewed head and imported base above. All ten steps PASS in 136.3 seconds.
+The Linux job and wrapper exit 0 after 144 seconds on msa1.
+Default: 1740 PASS, 478 skipped, 11.580 seconds. Slow: 558 PASS, 2027 skipped, 41.432 seconds.
+Testkit a2_3 passes at line 281 in 0.209 seconds. Real a2_3 passes at line 3783 in 0.161 seconds.
+All four relevant engine tests pass. Counts: testkit 60/69; real-passing 49/68; real-accepted 50/69.
+The imported #276 named E1-1 proof and both LC-2 proofs also pass in this same gate.
+
+Stage 1 catches all six mutants in 10.8 seconds. Stage 2 does not run because stage 1 misses none.
+The reviewer matches all six raw mutant identities with the six named catcher records.
+There are zero missed, timeout, unviable, or FLAKY outcomes.
+The mutant identities equal those from the original gate. Two named catcher records differ between gates.
+The fuzz step is PASS. It reports no changed crate with a decoder harness.
+The reviewer runs no build, test, gate, mutation, reproduction, or executable base-check job.
+
+The log reports three passing IDs that remain real-pending: `dp_7_revoked_reason_reaches_client_and_host`,
+`ou_2b_handoff_failure_is_reported_as_handoff_failed`, and `ou_7_exit_after_tail_queued_then_close`.
+The lead's 04:15 and 04:17 handoff entries assign their removal and repeated evidence to P5's pin PR.
+This PR removes none of those IDs. This verdict does not close that separate pending-list work.
+
+### LOW body finding and final conditions
+
+LOW PC-277-BODY-1 is closed. The final-gate body says the same mutants were caught by the same tests.
+The final gate names different catchers for `on_link_closed` and `flow_waiting -> true`.
+The former is caught by `tests::adoption::a_lost_row_with_no_valid_token_is_registry_corrupt` in the final gate.
+The latter is caught by `tests::admission::a_policy_that_needs_a_missing_feature_is_unsupported` in the final gate.
+Required change: remove the same-tests claim or state that two named catchers differ.
+Correction request: `msg_plugin-w_1791741667_241f45`.
+Correction receipt: `msg_plugin-w_1791741692_a9715e`.
+The reviewer verified the corrected body through the GitHub API on the unchanged reviewed head.
+The body now names the two different catchers and retains the other four unchanged catchers.
+No source change or new gate is required.
+
+The reviewer checked the current PR body through the GitHub API.
+The corrected body records the original CLEANs, both imports, stopped job, failed check, and final gate.
+Package verdict: CLEAN (0 open) on `2c78bb6c8424d37089062437731980ec0d34eab0`.
+Sol's same-head delta CLEAN remains required. PC must add both delta verdict receipts to the body before merge.
+The final gate base must still equal the v1 tip at merge, under Q7 and plan 23bu.
+The original program-controls group remains incomplete. Wait for the doorbell. Never poll.
