@@ -12971,3 +12971,116 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: NOT CLEAN
+
+
+## Round 182 — #279 instance fix, base import, and final gate, 2026-10-11
+
+Exact head: `6161c5c2122e43b4721497ad787814b108f22169`.
+Exact PR and supplied gate base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Parent: `8b0f53aab9edcc5cb9c3558d967d22afacc3f08e`.
+Corrected READY receipt: `msg_plugin-w_1791739944_ac8b4d`.
+Risk: HIGH under BUILD rule 3, unchanged.
+Previous package verdict: pushed `68bb12befdea5c467420ad3520bad461aae879c3`, Round 181 NOT CLEAN at cbe4ef51.
+Complete verified PR record: /private/tmp/review-p3-pr279-6161c5c2.json.
+READY plan pin: 23bq, stage1-plan.c42fdc70.md.
+Verified plan SHA256: 5dc773bf8dd6d574bb4ce809c51fc47a0471e1ea474aa4514de75853f42c6403.
+
+### Findings and source review
+
+**F135 MEDIUM — the real route can read a replacement instance's log. CLOSED.**
+The fix at 9dba4520b10ddadaab9768eb54c670b83a900a8f stores the original instance when the route attaches.
+SessionInput::log reads the actual stored row at the tap. It rejects an absent row or a different instance.
+The old process record outlives Remove and no longer decides this lookup.
+The named real test stops and removes s1. It verifies an error through the old route's pty_input control.
+The test creates and starts s1 again. It verifies the same instance rejection through that control.
+The test asserts public route behavior. It reads no helper state or private queue.
+Supplied real-route-instance-revert-macos.log names historical head 9dba4520 on Darwin 27.
+Without the instance filter, the replacement check fails with the new instance's empty log. Restoration passes.
+The final Linux gate passes the test and catches the instance-comparison mutant with that test.
+
+The initial fix keeps a strong tap reference and introduces a data-directory claim regression.
+The supplied 8b0f53aa gate fails lc_12_drop_leaves_workers_running at seed 0, step 10, with DataDirInUse.
+The reviewer reads that failure record. The final fix stores Weak<Mutex<Tap<RealEdges>>> and upgrades it only for log lookup.
+The route returns an error when its host has gone. It does not retain the host's edges between control calls.
+The existing harness Handle uses the same weak ownership rule under LC-2.
+Supplied lc12-strong-tap-revert-macos.log names this exact final head on Darwin 27.
+Restoring the strong-reference files causes the same step-10 DataDirInUse failure. Restoring the final files passes.
+The final Linux slow suite and its unmutated stage-2 baseline both pass lc_12_drop_leaves_workers_running.
+No new subprocess test family is added for this regression. The existing named clause test proves it.
+
+**F136 LOW — the PR retains the superseded operation-attribution design. CLOSED.**
+The body now states R-73 in What changes, the pending relation-id explanation, and Prior art.
+It replaces worker attribution with relations from the transcript's own frames and the literal byte log.
+The .36 label form remains valid until the .40 pin. No future pin or future relation implementation is accepted here.
+
+**F137 LOW — the pending reason omits the known current dp_3 diagnosis. CLOSED.**
+The comment and body keep the historical Mac outcome and state P6's later diagnosis.
+The lead's 00:00 handoff supersedes the earlier diagnosis used in Round 181.
+Under #47, the real tier lacks readiness and wake_fd; the first read consumes the deadline. Core's R-65 close is correct.
+The record assigns adoption to P5's .39 pin PR, then the remaining real route work to P6.
+No transcript change or additional pending removal is accepted. Historical classification keeps the limits recorded in Round 181.
+
+The reviewer reads every source correction since cbe4ef51 and verifies the whole resulting nine-path source delta.
+The shared label, codec non-collision, pinned matcher boundary proofs, and existing log reuse retain Round 181's conclusions.
+The real test still uses the existing wake event and deadline. Process ownership and cleanup remain in the existing harness.
+No new sleep, timer polling loop, helper-internal assertion, production test hook, or global test lock appears.
+No production code, committed transcript, timeout, or contracts pin changes.
+
+### Base import and pending lists
+
+The imported head 8b0f53aa has parents 5c7f1b1729121d71704bc83efa31d9256a8cb386 and the exact base above.
+The reviewer reads the complete supplied base-merge-check-5c7f1b17-8b0f53aa.log. It is now populated.
+Ancestry and conditions (1), (2), and (3) PASS. The core-pending line-set condition PASSes.
+The core-real-pending condition FAILs because the own change adds lines. The final check requires delta rounds from both reviewers.
+This verdict performs the package delta review. It does not claim a fully passing Q7 transfer.
+Read-only comparisons confirm the seven own non-list blobs stay identical across that import.
+The complete own non-list diff is byte-identical across the import.
+All four imported non-list blobs equal the new base.
+The two pending-file import deltas contain only #273's tm_6_begin move and its no_spurious_wakes comment.
+The final weak-reference commit changes only real.rs and real/route.rs.
+The final merge base equals the exact PR base. No executable merge-check job runs.
+
+Against the new base, core pending changes from 459 to 455 and real pending changes from 31 to 35.
+The same four ids move: dp_3_unknown_type_closes_route, ou_10_no_authorization_in_core,
+ou_11_transport_ownership_is_defined, and ou_1_attach_hands_transport_to_worker.
+No other own id is added or removed. minimum-core.txt retains the same 69 ids.
+All four moved ids pass on the testkit in the final gate. Their real-tier pending entries remain.
+All eighteen relation ids, am_2, and a2_1 retain their pending scope.
+The historical ou_10 echo race still prevents real-tier acceptance here, despite its passing pending trial in this gate.
+
+### Supplied exact-head gate and separate flake
+
+Log: gates/botster-core-stage1-p3-testkit-route-input-6161c5c2-pool-20261011-102345-10948.log.
+Verified SHA256: 5c663b2ef7c400f687419165365be1a8b008879f6a51c9131b9f65f9f6004387.
+The header names this exact head and base. All ten Linux gate steps PASS.
+Default: 1736 passed, 476 skipped, in 11.960 seconds. Slow: 554 passed, 2025 skipped, in 41.141 seconds.
+The gate reports testkit minimum 58/69 and real minimum 46/68 passing, 47/69 accepted.
+The named real route test, harness log test, both matcher boundary tests, and four moved testkit ids pass.
+The reviewer reads all 34 stage-1 outcomes, all 24 stage-2 outcomes, and all 22 catcher records.
+Stage 1: nine caught, 24 missed, one unviable, zero timeout, in 67.7 seconds.
+The unmutated stage-2 baseline passes all 554 tests.
+Stage 2: thirteen caught, eleven unviable, zero missed or timeout, in 195.4 seconds.
+Final: 22 caught, including thirteen by stage 2; twelve unviable; zero missed or timeout.
+The named real route test catches the new instance comparison and the input lookup mutants.
+Existing route tests catch the remaining route-control mutants. Unviable outcomes remain unviable, not catches.
+No changed decoder harness is selected. Total step time is 435.1 seconds.
+Jobq exits zero after 442 seconds, with zero queued; the wrapper exits zero after 443 seconds.
+
+One FLAKY record appears for conf::st_6_capture_is_frozen_at_model_rev under the Inputs::input Ok(vec![1]) mutant.
+That test fails and passes on its permitted mutation-profile retry. It contributes no catch.
+The named real route test independently catches the same mutant. The final gate has no surviving mutant.
+The reviewer reads the supplied flaky-st_6-capture-is-frozen-at-model-rev-6161c5c2.md record and the pinned ST-6 transcript.
+That transcript uses session pty_output and snapshot operations. It has no route input-log call to Inputs::input.
+The raw failure text and failing step were not retained. The failure cause is unknown; the retry does not diagnose it.
+The lead's 02:28 handoff assigns the structural diagnosis to P5 after the pin PR, with one isolated evidence job.
+This is a separate rule-9 fix. No reproduction campaign or reviewer execution is authorized here.
+This verdict accepts no ST-6 flake diagnosis, structural fix, or suppression. It does not count the flaky result as a catch.
+
+F135, F136, and F137 are CLOSED. No package finding remains for #279 at this exact head.
+The supplied pre-review gate counts at this unchanged CLEAN head under BUILD.
+Formal integration acceptance and the lead's merge decision remain separate. No future base import or gate is accepted.
+F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
