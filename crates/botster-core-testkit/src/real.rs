@@ -740,8 +740,10 @@ impl CoreHarness for RealCoreHarness {
     }
 
     fn has_control(&self, op: &str) -> bool {
+        // The route's own controls count too: the runner checks `requires.controls` against the harness before step 0,
+        // and the driver then hands each one to the route (`RealRoute::control`).
         self.tapped
-            && matches!(
+            && (matches!(
                 op,
                 "edges_quiet"
                     | "break_control"
@@ -757,7 +759,7 @@ impl CoreHarness for RealCoreHarness {
                     | "hold_start_at"
                     | "release_start_at"
                     | "fail_next"
-            )
+            ) || route::CONTROLS.contains(&op))
     }
 
     /// Core TH-1: the runner's compile-time answer for the facade's `Core` (`with_core_type`); `None` without one.
@@ -1482,6 +1484,10 @@ mod slow_tests {
             "release_start_at",
             "fail_next",
         ] {
+            assert!(tapped.has_control(op), "{op}");
+            assert!(!plain.has_control(op), "{op}");
+        }
+        for op in route::CONTROLS {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
         }
