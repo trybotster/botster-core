@@ -102,3 +102,32 @@ Current v1 is 4ab8a985 after #259. A new import needs its applicable review or b
 Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at f41e42e016d1dfa3a7015f2c8473b743baf04e9a
+
+## Base import: source CLEAN carries to f291a5e6
+
+- Head: `f291a5e6d3f31e3ad769f52e125647a292076d52`.
+- Base: `cfd6ee364e2eafd329ce4e665100168918d383cb`.
+- Parents: reviewed head f41e42e016d1dfa3a7015f2c8473b743baf04e9a and the new base.
+- Tree: `2388ba831a7d807aa32cae2488c8547a802d9b01`.
+- Receipt: `msg_plugin-w_1791716302_464c7c`.
+
+Sol read the complete shared check log:
+`~/botster-sessions/gates/botster-core-gs-slow-coverage-base-merge-check-f41e42e0-f291a5e6.log`.
+Ancestry and all four conditions pass. The new head descends from the reviewed head.
+The new merge base descends from the reviewed merge base d86bfcc7.
+All five changed base paths are outside the ten-file own diff. The two pending files retain the base's exact contents.
+The check reports an unchanged own diff of 30764 bytes, SHA-256:
+`c0d79f9e593f81d39dcf809da9bbe392aa97ae766a747a488a4677ff82bb02c3`.
+
+Sol independently runs git merge-tree --write-tree. Its tree equals the submitted tree, without a conflict.
+Sol also compares both raw git diff --binary outputs. They are byte-identical, 30124 bytes each, SHA-256:
+`22c330e994387f35fcbede87526f3e468c6029c0ac45ed9d7d0adabeba726dd6`.
+The script's normalized diff and Sol's raw diff are different representations; each comparison is independently equal.
+Sol independently confirms the disjoint path sets and exact pending-file contents.
+
+The plan's mechanical carry-over rule applies. No reviewer delta round is required.
+The package and integration source CLEANs on f41e42e0 carry to this import through the passing shared check.
+The earlier f41e42e0 gate does not cover the new head. The implementer reports the final gate is running.
+This verdict accepts no unfinished gate or merge. Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open, source carry-over; final gate pending) at f291a5e6d3f31e3ad769f52e125647a292076d52
