@@ -66,10 +66,11 @@ struct Guard {
 
 /// A FIFO at `path`.
 fn fifo(path: &std::path::Path) {
-    let made = std::process::Command::new("/usr/bin/mkfifo")
-        .arg(path)
-        .status()
-        .expect("mkfifo runs");
+    let made = botster_test_process::OwnedChild::spawn(
+        std::process::Command::new("/usr/bin/mkfifo").arg(path),
+    )
+    .expect("mkfifo runs")
+    .status();
     assert!(made.success());
 }
 
