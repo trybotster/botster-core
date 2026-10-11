@@ -42,6 +42,11 @@ Integration CLEAN remains required on this exact head and base.
 Under plan section 8 Q8, the supplied green full gate is the merge gate when both CLEAN verdicts cover this unchanged head.
 A later head needs its own exact-head gate.
 The Mac real log's second header line has a stale v0.1.29 label. Its first header names v0.1.32 and the exact head.
+The integration reviewer reports CLEAN at the same head and base, with 0 open findings.
+Integration verdict: `aa76bc183ac652775b15aa2f17d4a4aba5dc2513`, `verdicts/stage1/rc-pin-v0132.md`.
+Message: `msg_plugin-w_1791715910_b5cd6f`.
+Both CLEAN verdicts cover the supplied green gate. Q8 requires no repeat for this unchanged head.
+No merge receipt has arrived for #259.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

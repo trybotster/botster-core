@@ -332,3 +332,11 @@ Plan section 8 Q8 accepts the supplied green full gate as the merge gate when bo
 A second gate is not required for this unchanged head. A later head needs its own exact-head gate.
 Any later implementation change requires a delta review, subject to the plan's base-merge rule.
 The reviewer ran no test or gate.
+
+### Integration CLEAN received
+
+The integration reviewer reports CLEAN on head `6b20f6f2116f34526cf6ebf09e263776fff35123` and base `d86bfcc747718452efe57b2aa207492acde96573`.
+Integration verdict: `aa76bc183ac652775b15aa2f17d4a4aba5dc2513`, `verdicts/stage1/rc-pin-v0132.md`.
+The report arrived in `msg_plugin-w_1791715910_b5cd6f`. It has 0 open findings.
+Both CLEAN verdicts now cover the supplied green gate's exact head and base. Q8 requires no repeat for this unchanged head.
+No merge receipt has arrived. The reviewer ran no test or gate.
