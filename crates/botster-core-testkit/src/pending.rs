@@ -126,17 +126,15 @@ pub fn real_proof_problems(
     let mut problems = Vec::new();
     // One tab sorts before every other byte of a field, so the order of the fields is the byte order of the lines.
     for pair in proofs.windows(2) {
-        if pair[0] == pair[1] {
-            problems.push(format!(
-                "core-real-proofs.txt: {} {} {} is listed twice",
-                pair[1].id, pair[1].binary, pair[1].test
-            ));
-        } else if pair[0] > pair[1] {
-            problems.push(format!(
-                "core-real-proofs.txt: {} {} {} is out of byte order",
-                pair[1].id, pair[1].binary, pair[1].test
-            ));
-        }
+        let fault = match pair[0].cmp(&pair[1]) {
+            std::cmp::Ordering::Less => continue,
+            std::cmp::Ordering::Equal => "is listed twice",
+            std::cmp::Ordering::Greater => "is out of byte order",
+        };
+        problems.push(format!(
+            "core-real-proofs.txt: {} {} {} {fault}",
+            pair[1].id, pair[1].binary, pair[1].test
+        ));
     }
     for proof in proofs {
         if !real_only.iter().any(|r| r.id == proof.id) {

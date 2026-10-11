@@ -71,8 +71,8 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
     byte order with no duplicate (`pending::real_proof_problems`);
   - `cargo xtask slow-coverage`: each named test is in the slow list, is not ignored and is selected by the slow filter, and
     an ignored `[real-only]` trial of the real tier is accepted only for an id with a proof line;
-  - the slow step (`real_proofs::check_slow_run`): each named test has a passing test case in the slow tier's own JUnit file, which
-    `test_budget` deletes before the run (a report that cannot be deleted fails the run).
+  - the slow step (`real_proofs::check_slow_run`): each named test has a passing test case in the slow tier's own JUnit
+    file, which `test_budget` deletes before the run (a report that cannot be deleted fails the run).
 
   The doc comment of each named test cites its `conf::<id>` and its clause; the reviewers check it by reading.
 
