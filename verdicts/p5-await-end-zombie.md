@@ -102,3 +102,88 @@ Sol's inspections at `b747c2f672c6cc8e1d82c6710b946671abcfd536` and `6bbcd93a472
 The reviewer changed no product code and ran no tests, builds, gates, mutations, reversal, measurement, or executable merge-check jobs.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-11 — base import delta
+
+- Exact reviewed head: `2c8f6ea45f3815fda9728cf4d2900971fd0d3bc7`.
+- Parents: `312b48a16cb37163ebb1c897cf9d8a4f8b2374d6` and `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+- Tree: `63b3c6fbe0733cac4ba07feee1bb045b9c0f8088`.
+- Reviewed base: `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+- Previous CLEAN head: `a540687728a7be9718e9bb11de62aa042ed905b6`.
+- Previous package verdict: `216e9b18e45f740b875787402c496ea1bb438c3d`.
+- READY: `msg_plugin-w_1791726036_21a713`.
+- Risk: HIGH. The approved plan remains 23ar with the pin and hash recorded in round 1.
+
+### Source and body
+
+The reviewer reads both shared-path import deltas from #257. `platform.rs` imports the accepted thread-count exports, descriptor-count helper, and count proof. `platform/macos.rs` imports the accepted libproc thread-count helper before the process observer. These additions change no own wait decision.
+
+All three own added and deleted line sequences remain identical to the prior CLEAN head. The `Waited` documentation, ESRCH branch, signal-zero probe, and PID reuse limit remain intact. `slow_process.rs` retains the exact prior CLEAN blob. The prior source, proof, and prior-art conclusions remain applicable within their recorded limits.
+
+The second import changes only `ci/remote/job.sh`. The reviewer reads its complete delta. It measures free space at Docker's data root, checks each deciding result, and stops with exit 75 if the result is invalid. Its blob equals the new base. This inspection supplies no separate formal #266 verdict or independent acceptance of its execution claims.
+
+All three own blobs equal the inspected `312b48a1` blobs. All fourteen combined imported-only blobs equal the new base. The base is an ancestor of the reviewed head. The diff check passes. The published PR names the exact head and correctly states both overlaps and the Mac evidence limits. No source or body finding remains open.
+
+Sol's inspection records `1d5368b0685999f0589771cad183566cf6368fcd` and `62fefba97708c7300c8d909664dd068ec64d75e9` agree with these checks. They do not issue formal imported-head CLEAN verdicts.
+
+### Canonical base checks
+
+The first log is `~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-312b48a1-pool-20261011-062601-85073.log`.
+Its SHA256 is `7bbb2346033494b2fb25b0dc37190efd3f31fac6905def9a6b060d956f5649b1`.
+It checks the prior CLEAN head against `312b48a1` and base `ee7c6fca8c0781db09203ac478a8e824cdd3e4ab`. The job and wrapper exit one after nine seconds.
+
+The final log is `~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-2c8f6ea4-pool-20261011-063131-22650.log`.
+Its SHA256 is `8645a78d47ae430019b94fbd3a87ec4c8718f13a10b5f7da12c52288ff996e36`.
+It names the exact prior CLEAN head, new head, and base. The job and wrapper exit one after 107 seconds.
+
+The reviewer reads both complete logs. Conditions (1) and (4) pass. Conditions (2) and (3) fail on `platform.rs` and `platform/macos.rs`. Both pending files equal the respective base. These failures require both reviewer delta rounds. They supply no automatic CLEAN transfer.
+
+### Supplied Mac evidence
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-312b48a1-pool-20261011-062836-92523.log`.
+
+SHA256: `0e1a52f1a079e94172a0561eb66add5c105a77c86b90e3821b73aa61eb5acc8f`.
+
+The header names `312b48a16cb37163ebb1c897cf9d8a4f8b2374d6` and base `ee7c6fca8c0781db09203ac478a8e824cdd3e4ab`. The pool job uses two CPUs. Worker prebuild passes. Locked clippy passes for all targets and features of the test-process crate.
+
+- Crate suite: 85 passed, zero skipped, 11.002 seconds.
+- The imported counts proof and both affected wait proofs pass by exact name.
+- All twenty paired selections pass both wait proofs, with 83 skipped each.
+- The in-diff mutation selection retains both wait proofs. It excludes only the same prebuilt-anchor proof because its binary is absent from the mutation copy.
+- The unmutated baseline passes in fifteen seconds of build and twelve seconds of tests.
+- The ESRCH guard replacement with `false` is caught at macos.rs:60:23.
+- The `Ok(Default::default())` replacements of `await_end` and its helper are unviable at lines 53:5 and 83:5.
+- Result: one caught, two unviable, zero missed or timeout, in 53 seconds.
+- The log prints no individual named mutation catcher. The proof results and mutation outcomes retain that evidence limit.
+- `MAC_EXIT=0`. The job and wrapper exit zero after 164 seconds.
+
+This record covers the unchanged executable source in the final head. It is not an exact-head Mac run on `2c8f6ea4`. The later import changes only the Linux gate script. The reviewer requests no repeat Mac job.
+
+### Exact-head Linux evidence
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-2c8f6ea4-pool-20261011-063327-26304.log`.
+
+SHA256: `369fdd1a08b1ab3f027d7df5738e2ed982ca89a263912548fcb19b1a0d33b32d`.
+
+The header names the exact reviewed head and base. All ten CI steps pass in 391.5 seconds. The job exits zero after 398 seconds. The wrapper exits zero after 399 seconds on the Linux pool node.
+
+- Default tier: 1688 passed, 481 skipped, 17.297 seconds.
+- Slow tier: 515 distinct PASS identities, 2016 skipped, 53.923 seconds.
+- Slow coverage: 1046 slow-only tests checked.
+- The counts proof passes in the default tier. The affected running-child proof passes in 0.004 seconds. The zombie-versus-reaped proof passes in 0.003 seconds.
+- EV-5 repeated attach/detach passes in both tiers, at 0.323 and 0.448 seconds.
+- Real conformance: 151 distinct PASS identities.
+- Minimum: testkit-passing 56/69; real-passing 41/68; real-accepted 42/69. The increase comes from imported #257, not a new own pending removal.
+- The real-pending report retains 58 IDs, with 34 passing under the ignored selection. This PR removes none.
+- The own diff has no Linux-compiled mutant. The mutation step starts no Linux run. The Mac-only runtime change has the supplied mutation evidence above.
+- Fuzz passes. The own diff changes no crate with a decoder harness.
+
+The earlier green `312b48a1` Linux gate is not the final head's gate. The exact-head record above supplies final Linux acceptance. The failed initial Linux and Mac logs from round 1 remain failed.
+
+### Verdict scope
+
+Zero findings remain open. This CLEAN covers the exact head, base, import composition, published body, and supplied evidence. The prior PID reuse, exit-status, local-claim, and kernel-source limits remain explicit. A later import remains outside this verdict.
+
+The reviewer changed no product code and ran no tests, builds, gates, mutations, reversal, measurement, or executable merge-check jobs.
+
+VERDICT: CLEAN
