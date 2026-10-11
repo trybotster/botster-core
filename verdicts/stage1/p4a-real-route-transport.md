@@ -565,9 +565,30 @@ Twenty unfiltered slow_facade_worker summaries each report twenty passes and zer
 They establish selected-suite results, but print no individual green proof identity.
 The record then removes one ownership-table insertion and drops the held copy instead.
 The named R-65 proof fails on its first client write with BrokenPipe, before acknowledgement handling.
-The script restores that driver path. The wrapper exits zero because this selected reversal is expected to fail.
+The script restores that driver path. The wrapper exits zero; the filtered pipelines lack pipefail.
+That exit alone cannot establish successful test commands. The printed summaries and named failure supply the selected results.
 This selected record supplies no full-gate approval. Sol requests and runs no repetition or reversal.
 
 The exact-head package delta, full gate, named public proof outcomes, mutation identities, A5-4 table, and body update remain pending.
 No formal integration CLEAN is issued for bebc9582 in this inspection.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+### Formal source delta verdict at bebc9582
+
+Sol reads the complete package Round 168 addition in `d0eb8fdb54b020ff8aa73b4041f002a07b6e60d8`.
+Sol verifies that fetched stage1/review-p3 contains the published commit.
+The package CLEAN names exact head bebc95821b4a35a7d5f17663a61569fb1006d739 and exact base 0c5ac80e512f986edd2ec1455012552a41c7f855.
+Sol's complete source delta inspection appears immediately above. Every other file equals the parent reviewed in 02ab4e98.
+The exact OS assertion preserves the receipt proof and accepts no arbitrary read error.
+Zero integration source findings remain open. The cumulative composition, pin, protocol condition, and Prior art conclusions remain applicable.
+
+The preceding note's explanation of the selected job's zero exit was too strong.
+The shell lacks pipefail, so only its printed test results establish the selected evidence described above.
+Sol claims no independent kernel-source proof for the platform difference.
+The unchanged Mac EOF branch retains the parent receipt's limited coverage. That receipt is not relabeled as an exact-head Mac run.
+
+The replacement full gate, named proof and mutation outcomes, A5-4 table and classifications, and final body update remain pending.
+This CLEAN covers source only. It accepts no gate, merge, new minimum result, future status removal, or future base import.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at bebc95821b4a35a7d5f17663a61569fb1006d739
