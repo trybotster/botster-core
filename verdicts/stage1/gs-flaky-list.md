@@ -170,3 +170,68 @@ The older 80af70d2 gate does not cover this correction. This round accepts no ga
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (2 open) at b6b32f739bee9e5a5002b376452ee39a8245f55f
+
+## Round 3: verdict guard and selected slow fixture
+
+- Head: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
+- Parent and previous reviewed head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
+- Base remains `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Tree: `b3d26b0c24c1303e082e28ae94e95112ae97e069`.
+- Package verdict: `ce47e5bd8b4f3ea730b750c610f03e45938a4ce1`, NOT CLEAN (1 open).
+- Package settlement record: `d14118927f592648d4c43ebb798734a1bf11135c`.
+- Package receipt: `msg_plugin-w_1791718612_5101ff`.
+- Lead settlement: `msg_plugin-w_1791718538_9b16aa`.
+- Implementer receipt: `msg_plugin-w_1791718480_dda01f`.
+
+Sol read the complete eight-file delta: 268 added lines and 23 deleted lines.
+Sol read both complete new package additions as local Git objects. The package reviewer reports that DNS prevented both pushes.
+Those local objects supply review evidence. Sol does not claim their remote publication.
+
+### GS-KF-R1-1 HIGH: a cancelled test can replace the listed first failure
+
+Status: OPEN. The correction adds a report guard for identities absent from the preliminary list.
+The new multi-member fixture represents the workspace/package feature difference from Round 2.
+Its workspace list lacks a tests::guarded. Its package list includes that test.
+The fixture checks the same mutation output with and without the listed identity.
+The listed case expects a report error when the only failed test is known-flaky.
+
+However, mutant_logs::report searches every final failed test for an unlisted identity.
+The existing CATCH fixture records the first FAIL, cancellation, and a later SIGTERM from another test.
+The read_run parser retains both failures in that order. The first-final-failure unit test establishes that order explicitly.
+If twostage::slow_triple conf::b is listed, the new search skips it and credits twostage tests::c.
+That later failure comes from cancellation caused by the listed failure. It supplies no independent mutant catch.
+The new two-FAIL unit case explicitly expects credit for the second failure. It does not close the cancellation case.
+This conclusion follows from static source inspection. Sol ran no reproduction.
+
+The lead settles the third-round finding under the round limit.
+Only the first final failure under --max-fail 1:immediate can count as a catch.
+A listed first failure makes the mutant MISSED. No later failure in that cancelled run receives credit.
+A cancellation-caused failure, including SIGTERM or another cancelled-run failure, is never an independent catch.
+The correction must classify the mutant as MISSED; a report error alone does not implement this settled classification.
+
+Round four covers this rule and two fixtures:
+- A listed first failure followed by cancellation gives MISSED.
+- An unlisted first failure gives a catch.
+
+Other new findings require a follow-up unless they are HIGH. Sol will apply this scope to the next exact-head review.
+
+### GS-KF-R2-2 MEDIUM: CLOSED in source
+
+The copied known-flaky fixture renames mod tests to mod slow_tests before listing or execution.
+The original slow filter now selects its slow-only shared-binary test before subtraction.
+The fixture checks pre-exclusion execution, post-exclusion absence, and retention of an unrelated selected test.
+These source assertions close the selection defect. Their execution evidence remains unaccepted until the exact-head gate is supplied.
+
+### Evidence and unchanged limits
+
+The implementer reports that the PR body now describes the verdict guard and removed tier field.
+Sol has not independently read that updated body. The earlier body correction remains a closure check.
+The default normal tier, slow step, and standalone stage-2 baseline remain unchanged.
+The delta changes no timeout, retry policy, mutant selection, pending ID, contracts pin, or minimum list.
+The original Prior art check remains applicable.
+
+The implementer reports a running exact-head gate. No completed eb7f5c12 gate log has been supplied to Sol.
+The older 80af70d2 gate does not cover this correction. This round accepts no new gate or merge.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (1 open) at eb7f5c1264efe3346890d831af27c0cf3ba584ac
