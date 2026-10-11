@@ -1324,6 +1324,9 @@ fn the_driver_consumes_a_route_report_at_its_next_call_in_every_branch() {
     );
     assert_eq!(reports_of(&rig, r2), (true, true));
     assert!(!rig.with(|t| t.reports.waits()));
+    let signals = rig.signals();
+    assert_eq!(reports_of(&rig, r2), (true, true));
+    assert_eq!(rig.signals(), signals, "nothing waits, so no wake");
     // A link that the driver closed consumes nothing more.
     let mut rig = rig_with_inner_read(bytes.clone());
     assert_eq!(rig.recv(A, bytes.len()).unwrap(), bytes);

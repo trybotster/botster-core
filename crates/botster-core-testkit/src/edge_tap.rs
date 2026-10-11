@@ -314,11 +314,9 @@ impl<E: HostEdges> Tap<E> {
 
     /// What the driver consumed of the reports of `route` from the worker of `instance` (`route_reports`, R-66). While a report
     /// that the driver received waits for its next call, the wake edge signals, so that the host pumps and consumes it.
-    pub fn route_reports(&mut self, instance: &InstanceId, route: RouteId) -> Seen {
-        if self.reports.waits() {
-            self.inner.wake().signal();
-        }
-        self.reports.seen(instance, route)
+    pub fn route_reports(&self, instance: &InstanceId, route: RouteId) -> Seen {
+        let wake = self.inner.wake();
+        self.reports.answer(instance, route, || wake.signal())
     }
 
     /// Whether a tap of this data directory met the worker of `instance` ([`Heard`]).

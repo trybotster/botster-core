@@ -148,6 +148,15 @@ impl RouteReports {
         self.links.remove(&link);
     }
 
+    /// The control's answer for `route` of the worker of `instance`. While a received report waits for the driver's next call,
+    /// it calls `wake` (the host's wake edge), so that the waiting step pumps at once and the pump consumes the report.
+    pub fn answer(&self, instance: &InstanceId, route: RouteId, wake: impl FnOnce()) -> Seen {
+        if self.waits() {
+            wake();
+        }
+        self.seen(instance, route)
+    }
+
     /// The answer for `route` of the worker of `instance`.
     pub fn seen(&self, instance: &InstanceId, route: RouteId) -> Seen {
         self.seen
