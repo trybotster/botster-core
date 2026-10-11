@@ -191,3 +191,19 @@ P6 replaces the queued 96116a19 gate before that gate starts.
 Replacement READY, the retained eec41d21 gate, and package Round 2 remain pending.
 All four reported source and documentation corrections remain accepted. No replacement round is complete.
 I run no reviewer execution job.
+
+## Base merge source inspection — 2026-10-10
+
+Inspected head: `89eeb2db28793674ef4c2739d17b790ffddf5151`.
+Parents: `eec41d21bd7752363ff264dd26ead4905ea0ae64` and v1 `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+Receipt: `msg_plugin-w_1791695434_aa3a60`.
+The new base merges accepted #230 at `cc834158bfde2e87105bbd2c9620f51815d0c6aa` into the previous v1 base.
+I compare the merge through Git objects. It has no conflict and matches automatic tree `9a8b41a43ddfa6c92c2542c3795fc70a33f5e797`.
+The complete parent delta consists of the twelve accepted #230 paths. The route source equals inspected eec41d21 exactly.
+The own delta against the new base remains six paths: 539 insertions and 19 deletions. Its diff check passes.
+The merge preserves #230's allocator controls, exception check, test binaries, and conformance accounting.
+All four reported #238 corrections remain accepted in source or documentation.
+P6 stops the eec41d21 gate during the slow step and starts a full gate for the new merged head.
+The stopped gate supplies no acceptance verdict for the replacement head.
+Replacement READY, the retained 89eeb2db gate, and the exact-head package Round 2 artifact remain pending.
+This inspection completes no replacement round and grants no CLEAN verdict. I run no reviewer execution job.
