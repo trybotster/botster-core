@@ -998,8 +998,11 @@ fn two_stage_decision(
 /// In place, cargo-mutants mutates the gate's own tree and builds in its `target/`, which the default tier has built: a
 /// copy of the tree has no `target/` (it is ignored), so each gate built the workspace cold for stage 1 (median 75 s of
 /// 146 pool gates). The mutants, the tests, the profile and the timeout (`--timeout-multiplier` of cargo-mutants' own
-/// baseline, which still runs) are the same. The tree in place has `.git`, a copy has not: the baseline fails the step
-/// when a test depends on that. The gate runs on a snapshot of the commit that it removes when it ends.
+/// baseline, which still runs) are the same. The tree in place has `.git`, a copy has not. The unmutated baseline fails
+/// the step only when a test fails unmutated with `.git` present; it does not show that each mutant has the same outcome
+/// in both places (a test can differ only under a mutant). The equal outcomes rest on the review of the tests that read
+/// the repository and on a comparison of each mutant, copied and in place (PR #252). The gate runs on a snapshot of the
+/// commit that it removes when it ends.
 fn stage1_run_args(output: &Path) -> Vec<String> {
     let mut args = vec!["--in-place".to_string()];
     args.extend(MUTANTS_PROGRESS.iter().map(|s| s.to_string()));
