@@ -100,9 +100,23 @@ mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "linux")]
-pub use linux::{await_end, await_status, live_children, live_members, start_time};
+pub use linux::{await_end, await_status, live_children, live_members, start_time, threads};
 #[cfg(target_os = "macos")]
-pub use macos::{await_end, await_status, live_children, live_members, start_time};
+pub use macos::{await_end, await_status, live_children, live_members, start_time, threads};
+
+/// The number of open descriptors of this process: the entries of `/dev/fd`, the one that the listing opens included.
+/// Only differences of two counts have a meaning.
+///
+/// # Errors
+/// The listing failed.
+pub fn open_descriptors() -> std::io::Result<usize> {
+    let mut count = 0;
+    for entry in std::fs::read_dir("/dev/fd")? {
+        entry?;
+        count += 1;
+    }
+    Ok(count)
+}
 
 /// The state, the parent and the group of a `/proc/<pid>/stat` line: the first three fields after the command name, which
 /// is in parentheses and may hold spaces.
@@ -128,6 +142,29 @@ mod tests {
         assert_eq!(state_parent_and_group("41 (cat) Z 7 x 40"), None);
         assert_eq!(state_parent_and_group("41 (cat) Z x 40 40"), None);
         assert_eq!(state_parent_and_group("41 cat S 7 40"), None);
+    }
+
+    /// A new thread is counted while it runs, and no longer after its join; a new descriptor is counted while it is open.
+    #[test]
+    fn the_counts_follow_a_thread_and_a_descriptor() {
+        let threads_before = threads().unwrap();
+        let started = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let thread = std::thread::spawn({
+            let started = std::sync::Arc::clone(&started);
+            move || {
+                started.wait();
+            }
+        });
+        assert_eq!(threads().unwrap(), threads_before + 1);
+        started.wait();
+        thread.join().unwrap();
+        assert_eq!(threads().unwrap(), threads_before);
+
+        let descriptors_before = open_descriptors().unwrap();
+        let file = std::fs::File::open("/dev/null").unwrap();
+        assert_eq!(open_descriptors().unwrap(), descriptors_before + 1);
+        drop(file);
+        assert_eq!(open_descriptors().unwrap(), descriptors_before);
     }
 
     #[test]

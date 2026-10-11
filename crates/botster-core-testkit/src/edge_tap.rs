@@ -391,6 +391,12 @@ impl<E: HostEdges> Tap<E> {
         Some(answered_at.map_or_else(Vec::new, |from| self.signals[from..].to_vec()))
     }
 
+    /// Every signalling edge call of Core through this tap, in order, with its target: `signal_group` is the only one of
+    /// `HostEdges` (R-49 Q1, widened by R-55 for `reuse_pid`).
+    pub fn signals(&self) -> &[(ProcessIdentity, GroupSignal)] {
+        &self.signals
+    }
+
     /// Holds the start of `instance` at its `Launch` (`hold_start_at`, R-49 Q2): the worker gets no byte of the host's
     /// `Launch` until [`Tap::release_launch`], so it launches no payload. False when a hold of `instance` is already set.
     pub fn hold_launch(&mut self, instance: InstanceId) -> bool {

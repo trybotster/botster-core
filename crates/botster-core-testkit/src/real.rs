@@ -55,7 +55,12 @@
 //!   `{T, T-1}` gives `unsupported_control`, as on the testkit.
 //! - `signals_received` (`{session}` → `{signals}`, Core AD-6, R-49 Q1): every `signal_group` call of Core, in order, from
 //!   the first answer of the session's stand-in on, each as `{signal, target: {pid, start_time}}`
-//!   ([`Tap::signals_since_answer`]). A handle with no stand-in of the session is `Bad`.
+//!   ([`Tap::signals_since_answer`]). For a session of `reuse_pid` it is every signalling edge call of the handle
+//!   ([`Tap::signals`]; R-55 widens R-49 Q1). A handle with neither is `Bad`.
+//! - `host_crash` (step key `handle`, Core AD-7, LC-12), `reuse_pid` (`{session}`, Core AD-6) and `bystander_alive`
+//!   (`{session}` → `{alive}`): the real-tier models of steward ruling R-55 (contracts `main` `70dff23`, amended in
+//!   `af17b97`). Each is a fiction about history; at the moment Core looks, the OS facts that it reads are real. Each
+//!   control's documentation states its fiction and its conditions.
 //!
 //! - `fail_handoff` (no arguments, Core DP-2): the next `link_send_descriptor` of the handle's host fails, once
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
@@ -69,6 +74,7 @@ mod program;
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
 use crate::controls::{damaged, parse};
+use crate::crash::{CrashHandle, Crashable};
 use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
 use crate::harness::limits_of;
 use crate::process_controls::LoseReason;
@@ -83,8 +89,11 @@ use botster_core_conformance::{
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{IdentityState, ProcessIdentity};
 use botster_core_host::driver::{HostDriver, HostEdges};
-use botster_core_host::session::{row_key, Row};
-use botster_test_process::{platform, Guard};
+use botster_core_host::session::{row_key, Row, RowWorker};
+use botster_core_sys::process::{identity_state, start_time};
+use botster_core_sys::signal::{signal_group, Signal};
+use botster_test_process::platform::Waited;
+use botster_test_process::{platform, Blocker, Deadline, Guard, OwnedChild};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -95,6 +104,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
 mod route;
+mod row_file;
+mod snapshot;
 
 /// The binary that a wrapper execs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +119,15 @@ enum Role {
 struct Handle {
     data_dir: PathBuf,
     tap: Weak<Mutex<Tap<RealEdges>>>,
+    /// The crash slot of the handle's Core (`host_crash`, R-55 (1)).
+    crash: CrashHandle,
+}
+
+/// The unrelated process of a `reuse_pid` (R-55 (2), (3)): the harness's own child, the leader of its own group, unreaped
+/// until the harness's teardown.
+struct Bystander {
+    child: OwnedChild,
+    identity: ProcessIdentity,
 }
 
 /// The processes of a session, as Core's own registry rows name them (AD-6, LC-5).
@@ -148,6 +168,10 @@ type SharedTap = Arc<Mutex<Tap<RealEdges>>>;
 struct OfSession {
     session: SessionId,
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HostCrash {}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -196,6 +220,11 @@ pub struct RealCoreHarness {
     refusals: BTreeMap<String, RefusalHandle>,
     /// The probes' control sockets (the program controls). Declared before `root`: its socket is in the root.
     programs: program::Programs,
+    /// The bystanders of `reuse_pid`, by data directory and session. Their drop ends and reaps them (R-55 (3)), before the
+    /// FIFO that holds them and before the root.
+    bystanders: BTreeMap<(PathBuf, SessionId), Bystander>,
+    /// The FIFO that every bystander reads, so that it waits with no CPU and ends with the harness.
+    hold: Option<Blocker>,
     /// The guards' sockets, the wrappers and the data directories.
     root: tempfile::TempDir,
 }
@@ -248,6 +277,8 @@ impl RealCoreHarness {
             heard: BTreeMap::new(),
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
+            bystanders: BTreeMap::new(),
+            hold: None,
             stand_ins: 0,
             programs,
             root,
@@ -649,13 +680,21 @@ impl RealCoreHarness {
         })
     }
 
-    /// Core AD-6, R-49 Q1: `{signals}`, every signal of Core from the first answer of the session's stand-in on.
+    /// Core AD-6, R-49 Q1: `{signals}`, every signal of Core from the first answer of the session's stand-in on. For a
+    /// session of `reuse_pid`, every signalling edge call of the handle (R-55 widens R-49 Q1): the bystander did not exist
+    /// while an earlier handle of the directory was alive, so this handle's tap holds the complete set.
     fn signals_received(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let tap = self.tap(handle)?;
-        let signals = lock(&tap).signals_since_answer(&session).ok_or_else(|| {
-            ControlError::Bad(format!("no stand-in answers for the session {}", session.0))
-        })?;
+        let data_dir = self.handles[handle].data_dir.clone();
+        let tap = lock(&tap);
+        let signals = if self.bystanders.contains_key(&(data_dir, session.clone())) {
+            tap.signals().to_vec()
+        } else {
+            tap.signals_since_answer(&session).ok_or_else(|| {
+                ControlError::Bad(format!("no stand-in answers for the session {}", session.0))
+            })?
+        };
         let signals: Vec<Value> = signals
             .into_iter()
             .map(|(target, signal)| {
@@ -666,6 +705,189 @@ impl RealCoreHarness {
             })
             .collect();
         Ok(json!({ "signals": signals }))
+    }
+
+    /// Core AD-7, LC-12: the host of `handle` dies with no shutdown. Steward ruling R-55 (1) (contracts `main` `70dff23`,
+    /// amended in `af17b97`) accepts this model of a crash. The fiction: the harness drops the handle's Core
+    /// ([`CrashHandle::crash`]) instead of killing a host process. The drop releases the descriptors and the directory lock
+    /// that the kernel releases at a process death. The workers lead their own groups with no parent-death signal, so they
+    /// keep running either way. Then the harness puts back the stale control socket that a dead host leaves. The
+    /// conditions:
+    /// 1. Only at a quiet point. A control cannot pump Core, so it checks the tap's quiet state ([`Tap::quiet`], as the
+    ///    `edges_quiet` control does) and is `Bad` when the edges are not quiet.
+    /// 2. The drop leaves only one reaper thread for each live worker that the handle spawned, and the wake descriptors
+    ///    that they hold. The tap goes with the Core, so no edge call follows. A test proves it.
+    /// 3. The drop changes only the socket file: the snapshot of the data directory before the drop equals the one after
+    ///    the restore ([`snapshot::lost_socket`]).
+    /// 4. The restored node is a socket at the same path, with the same mode and no listener ([`snapshot::restore_socket`]).
+    fn host_crash(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let HostCrash {} = parse(args)?;
+        let quiet = lock(&self.tap(handle)?).quiet();
+        if !quiet {
+            return Err(ControlError::Bad(format!(
+                "the host of '{handle}' is not at a quiet point (R-55 (1) condition 1): await_quiet first"
+            )));
+        }
+        let Handle {
+            data_dir, crash, ..
+        } = self
+            .handles
+            .remove(handle)
+            .expect("the tap of an open handle");
+        let unreadable = |error: io::Error| {
+            ControlError::Bad(format!(
+                "the data directory of '{handle}' cannot be read: {error}"
+            ))
+        };
+        let before = snapshot::snapshot(&data_dir).map_err(unreadable)?;
+        crash.crash();
+        let after = snapshot::snapshot(&data_dir).map_err(unreadable)?;
+        let (socket, mode) = snapshot::lost_socket(&before, &after).map_err(ControlError::Bad)?;
+        snapshot::restore_socket(&data_dir.join(socket), mode).map_err(unreadable)?;
+        if snapshot::snapshot(&data_dir).map_err(unreadable)? != before {
+            return Err(ControlError::Bad(format!(
+                "the data directory of '{handle}' after the crash is not the one before it"
+            )));
+        }
+        Ok(Value::Null)
+    }
+
+    /// The data directory whose rows name `session`, and which no Core holds now (R-55 (2) condition 2).
+    fn unheld_dir_of(&self, session: &SessionId) -> Result<PathBuf, ControlError> {
+        let mut dirs = self
+            .rows
+            .iter()
+            .filter(|(_, rows)| lock(rows).contains_key(session))
+            .map(|(dir, _)| dir.clone());
+        let dir = match (dirs.next(), dirs.next()) {
+            (Some(dir), None) => dir,
+            _ => {
+                return Err(ControlError::Bad(format!(
+                    "no one data directory has a row of the session {}",
+                    session.0
+                )))
+            }
+        };
+        let held = self
+            .handles
+            .values()
+            .any(|h| h.data_dir == dir && h.tap.strong_count() > 0);
+        if held {
+            return Err(ControlError::Bad(format!(
+                "a Core holds the data directory of the session {} (R-55 (2) condition 2)",
+                session.0
+            )));
+        }
+        Ok(dir)
+    }
+
+    /// Core AD-6: the worker of `session` ends, and an unrelated process of the same user takes its pid with another start
+    /// time. Steward ruling R-55 (2) (contracts `main` `70dff23`) accepts this model. The fiction: a test cannot make the
+    /// kernel reuse a pid, and Core's whole view of a recorded identity is {pid, start time} (AD-6). So the harness moves
+    /// the row's pid to a live, unrelated process (the bystander) and keeps the recorded start time. Core then meets a live
+    /// process at the recorded pid with another start time, through its real check. The conditions:
+    /// 1. The worker really ends first: a group kill only while its identity matches, then a wait for its end.
+    /// 2. No Core holds the directory during the rewrite ([`RealCoreHarness::unheld_dir_of`]).
+    /// 3. Only the pid changes: the row is encoded with Core's encoder (the `serde_json` form of `Row` that Core writes) and
+    ///    decoded before and after, and every other field is equal.
+    /// 4. The bystander is unrelated: the harness's own child, the leader of its own group, whose pid is in no recorded
+    ///    identity and whose start time differs from the recorded one (otherwise the harness makes a new one).
+    fn reuse_pid(&mut self, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let data_dir = self.unheld_dir_of(&session)?;
+        let failed = |what: &str, error: io::Error| {
+            ControlError::Bad(format!("reuse_pid of {}: {what}: {error}", session.0))
+        };
+        let (path, before) = row_file::find(&data_dir.join("rows"), &session)
+            .map_err(|e| failed("the registry", e))?
+            .ok_or_else(|| {
+                ControlError::Bad(format!("no stored row of the session {}", session.0))
+            })?;
+        let worker = before
+            .worker
+            .ok_or_else(|| ControlError::Bad(format!("the row of {} names no worker", session.0)))?
+            .identity();
+        end_worker(worker).map_err(|e| failed("the worker's end", e))?;
+        let recorded: Vec<u32> = lock(&self.rows[&data_dir])
+            .values()
+            .flat_map(|row| [row.worker, row.payload])
+            .flatten()
+            .map(|w| w.pid)
+            .collect();
+        let bystander = self
+            .bystander(worker, &recorded)
+            .map_err(|e| failed("the bystander", e))?;
+        let mut after = before.clone();
+        after.worker = Some(RowWorker {
+            pid: bystander.identity.pid,
+            start_time: worker.start_time,
+        });
+        let bytes = serde_json::to_vec(&after).map_err(|e| failed("the encoder", e.into()))?;
+        let mut decoded = Row::decode(&session, &bytes).ok_or_else(|| {
+            ControlError::Bad(format!("the new row of {} does not decode", session.0))
+        })?;
+        if decoded.worker.map(|w| w.pid) != Some(bystander.identity.pid) {
+            return Err(ControlError::Bad(format!(
+                "the new row of {} names another pid",
+                session.0
+            )));
+        }
+        decoded.worker = before.worker;
+        if decoded != before {
+            return Err(ControlError::Bad(format!(
+                "the new row of {} changes more than the pid (R-55 (2) condition 3)",
+                session.0
+            )));
+        }
+        row_file::replace(&path, &bytes).map_err(|e| failed("the row's file", e))?;
+        self.bystanders.insert((data_dir, session), bystander);
+        Ok(Value::Null)
+    }
+
+    /// A bystander for `worker` (R-55 (2) condition 4): a `cat` of the harness's FIFO in its own group, whose pid is not in
+    /// `recorded` and whose start time is not the worker's. At most three tries.
+    fn bystander(&mut self, worker: ProcessIdentity, recorded: &[u32]) -> io::Result<Bystander> {
+        if self.hold.is_none() {
+            self.hold = Some(Blocker::new(self.root.path(), "bystander")?);
+        }
+        let hold = self.hold.as_ref().expect("made above");
+        for _ in 0..3 {
+            let child = OwnedChild::spawn_group(&mut hold.command())?;
+            let pid = child.id();
+            let started = start_time(pid).filter(|t| *t != worker.start_time);
+            if let (Some(started), false) = (started, recorded.contains(&pid)) {
+                let identity = ProcessIdentity {
+                    pid,
+                    start_time: started,
+                };
+                return Ok(Bystander { child, identity });
+            }
+        }
+        Err(io::Error::other(
+            "no new process differs from the worker in start time and from every recorded pid",
+        ))
+    }
+
+    /// Core AD-6, R-55 (3): `{alive}`, whether the bystander of the session's `reuse_pid` still runs: it is a live member
+    /// of its group, not a zombie. The harness reaps it only at teardown, so a dead bystander reads as a zombie, never as a
+    /// reused pid.
+    fn bystander_alive(&self, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let bystander = self
+            .bystanders
+            .iter()
+            .find(|((_, s), _)| *s == session)
+            .map(|(_, b)| b)
+            .ok_or_else(|| {
+                ControlError::Bad(format!("no reuse_pid of the session {}", session.0))
+            })?;
+        let alive = runs(bystander.identity).map_err(|error| {
+            ControlError::Bad(format!(
+                "the bystander of the session {} cannot be read: {error}",
+                session.0
+            ))
+        })?;
+        Ok(json!({ "alive": alive }))
     }
 
     /// Installs the stand-ins armed for `data_dir` (R-49 Q4 condition 1). A directory that the tap of a live handle holds
@@ -737,10 +959,17 @@ impl CoreHarness for RealCoreHarness {
                 }
             }
             let driver = HostDriver::open(cfg, edges)?;
-            self.handles
-                .insert(spec.handle.clone(), Handle { data_dir, tap });
+            let (slot, crash) = Crashable::new(Box::new(driver));
+            self.handles.insert(
+                spec.handle.clone(),
+                Handle {
+                    data_dir,
+                    tap,
+                    crash,
+                },
+            );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            Box::new(RefusalLayer::new(Box::new(driver), script.clone()))
+            Box::new(RefusalLayer::new(Box::new(slot), script.clone()))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -812,6 +1041,9 @@ impl CoreHarness for RealCoreHarness {
                     | "start_held"
                     | "fail_next"
                     | "fail_handoff"
+                    | "host_crash"
+                    | "reuse_pid"
+                    | "bystander_alive"
             ) || program::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
@@ -839,6 +1071,9 @@ impl CoreHarness for RealCoreHarness {
             "start_held" if self.tapped => self.start_held(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            "host_crash" if self.tapped => self.host_crash(handle, args),
+            "reuse_pid" if self.tapped => self.reuse_pid(args),
+            "bystander_alive" if self.tapped => self.bystander_alive(args),
             op if self.tapped && program::CONTROLS.contains(&op) => {
                 self.program_control(handle, op, args)
             }
@@ -910,13 +1145,27 @@ fn runs(identity: ProcessIdentity) -> io::Result<bool> {
     Ok(platform::live_members(pid)?.iter().any(|m| m.pid == pid))
 }
 
+/// Ends the recorded worker `worker` from outside Core, and waits for its end (R-55 (2) condition 1): its group gets
+/// `KILL` only while its pid and start time match (AD-6), as Core's own signal does. A worker that does not match is an
+/// error: its pid may be another process's now.
+fn end_worker(worker: ProcessIdentity) -> io::Result<()> {
+    if identity_state(worker) != IdentityState::Matches {
+        return Err(io::Error::other("the recorded worker does not run"));
+    }
+    signal_group(worker.pid, Signal::KILL)?;
+    match platform::await_end(platform::pid(worker.pid)?, Deadline::cleanup())? {
+        Waited::Deadline => Err(io::Error::other("the worker did not end")),
+        Waited::Exited | Waited::Gone => Ok(()),
+    }
+}
+
 /// The process and storage controls on real sessions of the prebuilt candidate.
 #[cfg(test)]
 mod slow_controls {
     use super::*;
     use botster_core_host::session::{unknown_request, RowWorker, ROW_VERSION};
     use botster_test_process::{Blocker, Deadline, OwnedChild};
-    use std::os::unix::fs::MetadataExt as _;
+    use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
     use std::process::Command;
     use std::time::Instant;
 
@@ -1021,6 +1270,9 @@ mod slow_controls {
             "start_held",
             "fail_next",
             "fail_handoff",
+            "host_crash",
+            "reuse_pid",
+            "bystander_alive",
         ] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
@@ -1525,6 +1777,223 @@ mod slow_controls {
         drop(core);
     }
 
+    fn spec_of(handle: &str, data_dir: &DataDirRef, harness: &RealCoreHarness) -> OpenSpec {
+        OpenSpec {
+            handle: handle.into(),
+            data_dir: data_dir.clone(),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        }
+    }
+
+    /// The threads and the open descriptors of this process.
+    fn counts() -> (usize, usize) {
+        (
+            platform::threads().unwrap(),
+            platform::open_descriptors().unwrap(),
+        )
+    }
+
+    /// Ends `worker` and waits until this process has `threads` threads. A reaper thread ends just after its reap, and its
+    /// end has no event that the test can wait on, so the loop yields until the count is reached or the cleanup deadline
+    /// expires.
+    fn end_with_reaper(worker: ProcessIdentity, threads: usize) {
+        end_worker(worker).expect("the worker ends");
+        let deadline = Deadline::cleanup();
+        while platform::threads().unwrap() != threads {
+            assert!(!deadline.expired(), "the reaper of {worker:?} never ended");
+            std::thread::yield_now();
+        }
+    }
+
+    /// Steward ruling R-55 (1), `host_crash` on real sessions:
+    /// - Condition 1: when an exit is unread, the edges are not quiet and the control is `Bad`; it acts after a pump.
+    /// - Condition 2: the tap goes with the Core, so no edge call follows. The drop leaves one reaper thread for each live
+    ///   worker and a fixed count of wake descriptors, the same for two reapers as for one. Each reaper ends when its worker
+    ///   ends, and then the counts are the ones before the open.
+    /// - Conditions 3 and 4: the control socket is back as a stale socket with no listener; the workers keep running.
+    #[test]
+    fn a_host_crash_leaves_the_workers_their_reapers_and_a_stale_socket() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        // A first open makes the guard of the stop grace, which the harness keeps (one for each grace), so the counts
+        // before the open below exclude it.
+        let warm = harness.data_dir("w");
+        drop(harness.open(&spec_of("w", &warm, &harness)).expect("open"));
+        harness.drop_handle("w");
+        let before = counts();
+
+        let data_dir = harness.data_dir("a");
+        let mut core = harness
+            .open(&spec_of("a", &data_dir, &harness))
+            .expect("open");
+        for session in ["s0", "s1", "s2"] {
+            running(&harness, core.as_mut(), session);
+        }
+        let worker = |s: &str| {
+            harness
+                .session_processes(&data_dir, &sid(s))
+                .and_then(|p| p.worker)
+                .expect("the worker is recorded")
+        };
+        let (w1, w2) = (worker("s1"), worker("s2"));
+        let of = |s: &str| json!({ "session": s });
+        let tap = harness.tap("a").unwrap();
+
+        assert_eq!(
+            harness.control("a", "lose_worker", &of("s0")),
+            Ok(Value::Null)
+        );
+        let wake = core.wake_handle();
+        let deadline = Deadline::cleanup();
+        while lock(&tap).quiet() {
+            assert!(!deadline.expired(), "the exit of s0 never arrived");
+            // timer: deadline — the cleanup bound ends a wait for an exit that never arrives.
+            wake.wait(deadline.remaining());
+        }
+        assert!(matches!(
+            harness.control("a", "host_crash", &json!({})),
+            Err(ControlError::Bad(_))
+        ));
+        pump_until(core.as_mut(), |c| {
+            state(c, "s0") == SessionState::Lost(LostReason::WorkerGone) && lock(&tap).quiet()
+        });
+
+        let socket = Path::new(&data_dir.0).join("c");
+        assert!(std::fs::symlink_metadata(&socket)
+            .unwrap()
+            .file_type()
+            .is_socket());
+        let held = Arc::downgrade(&tap);
+        drop(tap);
+        assert_eq!(
+            harness.control("a", "host_crash", &json!({})),
+            Ok(Value::Null)
+        );
+        assert!(held.upgrade().is_none(), "the tap went with the Core");
+        assert!(matches!(
+            harness.control("a", "edges_quiet", &json!({})),
+            Err(ControlError::Bad(_))
+        ));
+        assert!(std::fs::symlink_metadata(&socket)
+            .unwrap()
+            .file_type()
+            .is_socket());
+        let refused = std::os::unix::net::UnixStream::connect(&socket).unwrap_err();
+        assert_eq!(
+            refused.kind(),
+            io::ErrorKind::ConnectionRefused,
+            "no listener"
+        );
+        for w in [w1, w2] {
+            assert!(runs(w).unwrap(), "the worker keeps running");
+        }
+
+        let (threads, descriptors) = counts();
+        assert_eq!(threads, before.0 + 2, "one reaper for each live worker");
+        let wake_descriptors = descriptors - before.1;
+        end_with_reaper(w1, before.0 + 1);
+        assert_eq!(
+            counts().1,
+            before.1 + wake_descriptors,
+            "the wake descriptors are a fixed count"
+        );
+        end_with_reaper(w2, before.0);
+        assert_eq!(counts(), before, "the counts before the open");
+        drop(core);
+    }
+
+    /// Steward ruling R-55 (2) and (3), `reuse_pid` and `bystander_alive` on real sessions:
+    /// - While a Core holds the directory, the control is `Bad`; so is a session with no row.
+    /// - The worker really ends; the row's file then names a live bystander's pid with the recorded start time, and every
+    ///   other field is the same. Core's own identity check reads it as reused.
+    /// - At the next open, Core loses the session (`WorkerGone`) and sends no signal (`signals_received` is empty for the
+    ///   whole handle); the bystander still runs.
+    #[test]
+    fn a_reused_pid_moves_only_the_rows_pid_to_a_live_bystander() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let mut core = harness
+            .open(&spec_of("a", &data_dir, &harness))
+            .expect("open");
+        running(&harness, core.as_mut(), "s1");
+        running(&harness, core.as_mut(), "s2");
+        let of = |s: &str| json!({ "session": s });
+        assert!(matches!(
+            harness.control("a", "reuse_pid", &of("s1")),
+            Err(ControlError::Bad(_))
+        ));
+        assert!(matches!(
+            harness.control("a", "bystander_alive", &of("s1")),
+            Err(ControlError::Bad(_))
+        ));
+        let rows = Path::new(&data_dir.0).join("rows");
+        let (path, before) = row_file::find(&rows, &sid("s1"))
+            .unwrap()
+            .expect("the row of s1");
+        let worker = before.worker.expect("the worker is recorded").identity();
+        drop(core);
+
+        assert!(matches!(
+            harness.control("a", "reuse_pid", &of("s9")),
+            Err(ControlError::Bad(_))
+        ));
+        assert_eq!(
+            harness.control("a", "reuse_pid", &of("s1")),
+            Ok(Value::Null)
+        );
+        assert!(!runs(worker).unwrap(), "the worker really ended");
+        let (same, after) = row_file::find(&rows, &sid("s1"))
+            .unwrap()
+            .expect("the row of s1");
+        assert_eq!(same, path);
+        let moved = after.worker.expect("the row names a worker");
+        assert_ne!(moved.pid, worker.pid);
+        assert_eq!(moved.start_time, worker.start_time);
+        assert_eq!(
+            Row {
+                worker: before.worker,
+                ..after
+            },
+            before,
+            "only the pid changes"
+        );
+        assert_eq!(identity_state(moved.identity()), IdentityState::Reused);
+        assert_eq!(
+            harness.control("a", "bystander_alive", &of("s1")),
+            Ok(json!({ "alive": true }))
+        );
+
+        let mut core = harness
+            .open(&spec_of("b", &data_dir, &harness))
+            .expect("reopen");
+        core.begin(Op::AdoptAll).expect("adopt");
+        pump_until(core.as_mut(), |c| {
+            state(c, "s1") == SessionState::Lost(LostReason::WorkerGone)
+                && state(c, "s2") == SessionState::Running
+        });
+        assert_eq!(
+            harness.control("b", "signals_received", &of("s1")),
+            Ok(json!({ "signals": [] }))
+        );
+        assert!(matches!(
+            harness.control("b", "signals_received", &of("s2")),
+            Err(ControlError::Bad(_))
+        ));
+        assert_eq!(
+            harness.control("b", "bystander_alive", &of("s1")),
+            Ok(json!({ "alive": true }))
+        );
+        drop(core);
+        assert!(matches!(
+            harness.control("b", "reuse_pid", &of("s1")),
+            Err(ControlError::Bad(_))
+        ));
+    }
+
     /// R-49 Q4 and Q1, on real sessions: the stand-in controls arm at the open handle and install at the next open of the
     /// directory, never while a live Core holds it.
     /// - An impostor's wrong token is `Lost(WorkerGone)` (A10-1), a withheld link is `Lost(WorkerUnreachable)` at Core's own
@@ -1705,6 +2174,9 @@ mod slow_tests {
             "start_held",
             "fail_next",
             "fail_handoff",
+            "host_crash",
+            "reuse_pid",
+            "bystander_alive",
         ]
         .into_iter()
         .chain(program::CONTROLS.iter().copied())

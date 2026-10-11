@@ -756,7 +756,7 @@ pub(crate) fn arm_refusal(script: &RefusalHandle, args: &Value) -> Result<Value,
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use serde_json::json;
 
@@ -982,9 +982,9 @@ mod tests {
         );
     }
 
-    /// The `CoreApi` behind the layer, for these tests only: it counts the calls that reach it. It stands in for no Core in a
-    /// conformance run.
-    struct Behind {
+    /// The `CoreApi` behind the layer, for these tests and the crash slot's only: it counts the calls that reach it. It
+    /// stands in for no Core in a conformance run.
+    pub(crate) struct Behind {
         reached: Arc<Mutex<Vec<String>>>,
         deadline: Instant,
     }
@@ -1140,15 +1140,25 @@ mod tests {
         static DEADLINE: Instant = Instant::now();
     }
 
-    fn layer() -> (RefusalLayer, RefusalHandle, Arc<Mutex<Vec<String>>>) {
+    /// A [`Behind`] and the record of the calls that reach it.
+    pub(crate) fn behind() -> (Behind, Arc<Mutex<Vec<String>>>) {
         let reached = Arc::new(Mutex::new(Vec::new()));
-        let handle = RefusalHandle::new();
         let behind = Behind {
             reached: Arc::clone(&reached),
             deadline: DEADLINE.with(|d| *d),
         };
+        (behind, reached)
+    }
+
+    /// The layer over a [`Behind`], as the real harness composes it: in the crash slot of `host_crash`
+    /// ([`crate::crash::Crashable`]). So every pass-through test of the layer also proves that the slot passes each call and
+    /// its result through unchanged.
+    fn layer() -> (RefusalLayer, RefusalHandle, Arc<Mutex<Vec<String>>>) {
+        let (behind, reached) = behind();
+        let handle = RefusalHandle::new();
+        let (slot, _crash) = crate::crash::Crashable::new(Box::new(behind));
         (
-            RefusalLayer::new(Box::new(behind), handle.clone()),
+            RefusalLayer::new(Box::new(slot), handle.clone()),
             handle,
             reached,
         )
