@@ -16,9 +16,16 @@
 //!   ignored with its outcome, never as passed and never as failed; the report names each one that passed, for removal;
 //! - on the real tier only, an id of `TESTKIT_PROVEN` (Core A20-1: its proof observes the worker's own allocator) is an
 //!   ignored trial of kind `testkit-proven`. It is not run and it is not a failure; the report lists it with its reason;
-//! - on the testkit tier only, a non-pending id of `conformance/core-real-only.txt` is an ignored trial of kind
-//!   `real-only`: it has no `TestkitHarness` form (plan 4.2b). It left `core-pending.txt` only with its named real-process
-//!   proof; the real tier runs it must-pass, and the minimum count counts it by that proof (plan 23s);
+//! - a non-pending id of `conformance/core-real-only.txt` counts by its named real-process proofs
+//!   (`conformance/core-real-proofs.txt`): the gate's slow step runs each named test must-pass, and the minimum count
+//!   includes the id by those tests (plan 23s). It has no `TestkitHarness` form (plan 4.2b), so on the testkit tier it is an
+//!   ignored trial of kind `real-only` whose reason names its proofs. On the real tier:
+//!   - with separate named tests, it is the same ignored trial, and its transcript never runs: the real tier is exempt from
+//!     the duplicate trial once the proof passes in the gate (plan section 5);
+//!   - when a proof line names its own real-tier trial (`botster-core::slow_conformance conf::<id>`), its transcript runs
+//!     must-pass, and that trial is the proof (lead, 2026-10-11, after R-55).
+//!
+//!   A non-pending real-only id with no proof line is a failing trial on both tiers (fail closed);
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
@@ -55,8 +62,12 @@ const CONTRACTS_DEFERRED: &str = include_str!("../../conformance/contracts-defer
 const CONTRACTS_WITHDRAWN: &str = include_str!("../../conformance/contracts-withdrawn.txt");
 /// The minimum Core (plan section 1, revision 23q): the canonical list; its first column is the id.
 const MINIMUM: &str = include_str!("../../conformance/minimum-core.txt");
-/// The real-only Core ids with their named real-process proofs (`id<TAB>proof`; `cargo xtask ledger-ids` checks it).
+/// The real-only Core ids with their `slow:*` proof class in the replacement map (`id<TAB>proof`; `cargo xtask ledger-ids`
+/// checks it).
 const REAL_ONLY: &str = include_str!("../../conformance/core-real-only.txt");
+/// The named real-process proofs of the real-only ids (`id<TAB>binary<TAB>test`; `cargo xtask lists` and `slow-coverage`
+/// check it, and the slow step checks that each named test passed).
+const REAL_PROOFS: &str = include_str!("../../conformance/core-real-proofs.txt");
 /// The held ids of the strict pending run (`cargo xtask lists` checks it).
 const HELD: &str = include_str!("../../conformance/core-held.txt");
 
@@ -87,15 +98,35 @@ fn minimum_ids(text: &str) -> BTreeSet<String> {
         .collect()
 }
 
-/// The minimum ids that count by their named real-process proof (plan 23s): a real-only id (`core-real-only.txt`) that is
-/// not in `core-pending.txt` left it only with that proof (plan section 5), and the gate's slow step runs it. With the proof.
-fn named_proofs(minimum: &BTreeSet<String>, pending: &BTreeSet<String>) -> Vec<(String, String)> {
-    REAL_ONLY
-        .lines()
-        .filter_map(|line| line.split_once('\t'))
-        .filter(|(id, _)| minimum.contains(*id) && !pending.contains(*id))
-        .map(|(id, proof)| (id.to_string(), proof.trim().to_string()))
+/// The ids that count by their named real-process proofs (plan 23s), with those proofs as `<binary> <test>`, comma-separated:
+/// a real-only id that is not in `core-pending.txt` left it only with them (plan section 5), and the gate's slow step runs
+/// each to PASS. A real-only id with no proof line is not here: its trial fails.
+fn named_proofs(
+    real_only: &[pending::RealOnly],
+    proofs: &[pending::RealProof],
+    pending: &BTreeSet<String>,
+) -> Vec<(String, String)> {
+    real_only
+        .iter()
+        .filter(|entry| !pending.contains(&entry.id))
+        .filter_map(
+            |entry| match pending::non_pending(&entry.id, real_only, proofs) {
+                NonPending::ByNamedProof(_, named) | NonPending::ByOwnRealTrial(_, named) => {
+                    Some((entry.id.clone(), proof_names(&named)))
+                }
+                _ => None,
+            },
+        )
         .collect()
+}
+
+/// The named proofs of an id, as the report prints them: `<binary> <test>`, comma-separated.
+fn proof_names(named: &[pending::RealProof]) -> String {
+    named
+        .iter()
+        .map(|p| format!("{} {}", p.binary, p.test))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The progress counts of the minimum Core (plan section 1, revision 23q). `passed` holds the ids whose trial ran and passed
@@ -280,6 +311,7 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     // The strict pending run is a run of the testkit tier only.
     let strict = plain.is_none() && std::env::var(pending::STRICT_ENV).is_ok_and(|v| v == "1");
     let real_only = pending::parse_real_only(REAL_ONLY).expect("core-real-only.txt parses");
+    let proofs = pending::parse_real_proofs(REAL_PROOFS).expect("core-real-proofs.txt parses");
     let held = pending::parse_held(HELD).expect("core-held.txt parses");
     // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
     let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
@@ -289,6 +321,11 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         (0usize, 0usize, 0usize);
     for id in &ledger {
         let transcript = transcripts.iter().find(|t| &t.id == id);
+        let treatment = if pending.contains(id) {
+            NonPending::MustPass
+        } else {
+            pending::non_pending(id, &real_only, &proofs)
+        };
         if let Some(w) = withdrawn.iter().find(|w| &w.id == id) {
             let replacement = w.replaced_by.as_deref().unwrap_or("nothing");
             let reason = format!("withdrawn by {}; replaced by {replacement}", w.authority);
@@ -297,6 +334,34 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         } else if let Some((_, authority, start)) = deferred.iter().find(|(d, _, _)| d == id) {
             let reason = format!("deferred by {authority}; starts when {start}");
             trials.push(never_passes(id, "deferred", reason));
+        } else if let (NonPending::ByOwnRealTrial(entry, named), None) = (&treatment, plain) {
+            trials.push(never_passes(
+                id,
+                "real-only",
+                format!(
+                    "real-only ({}): passes by its own real-tier trial {} in the gate's slow step (plan 23s); no TestkitHarness form (plan 4.2b)",
+                    entry.proof,
+                    proof_names(named)
+                ),
+            ));
+        } else if let NonPending::ByNamedProof(entry, named) = &treatment {
+            trials.push(never_passes(
+                id,
+                "real-only",
+                format!(
+                    "real-only ({}): passes by its named real-process proof {} in the gate's slow step (plan 23s); its transcript does not run",
+                    entry.proof,
+                    proof_names(named)
+                ),
+            ));
+        } else if let NonPending::NoNamedProof(entry) = &treatment {
+            let why = format!(
+                "{id} is real-only ({}) and not in core-pending.txt, but conformance/core-real-proofs.txt names no real-process proof of it",
+                entry.proof
+            );
+            trials.push(
+                Trial::test(id.clone(), move || Err(Failed::from(why))).with_kind("real-only"),
+            );
         } else if pending.contains(id) || transcript.is_none() {
             let (kind, reason) = match transcript {
                 Some(transcript) if strict && selection.selects(transcript) => {
@@ -330,17 +395,6 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                     "testkit-proven",
                     "testkit-proven (Core A20-1): its proof observes the worker's own allocator; not run on the real tier"
                         .to_string(),
-                ));
-            } else if let NonPending::NoTestkitForm(entry) =
-                pending::non_pending(id, &real_only, plain.is_some())
-            {
-                trials.push(never_passes(
-                    id,
-                    "real-only",
-                    format!(
-                        "real-only ({}): no TestkitHarness form (plan 4.2b); the real tier runs it must-pass",
-                        entry.proof
-                    ),
                 ));
             } else if selection.selects(transcript) && real_pending.contains(id) {
                 real_pending_count += 1;
@@ -415,14 +469,19 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
             ""
         };
         let minimum = minimum_ids(MINIMUM);
-        let by_proof = named_proofs(&minimum, &pending);
+        let by_proof = named_proofs(&real_only, &proofs, &pending);
         println!(
             "{name}: {}{source}",
             minimum_report(&minimum, &passed, &by_proof, &pending, plain.is_some())
         );
         for (id, proof) in &by_proof {
+            let scope = if minimum.contains(id) {
+                "minimum: "
+            } else {
+                ""
+            };
             println!(
-                "{name}: minimum: {id} counts by its named real-process proof {proof} (plan 23s)"
+                "{name}: {scope}{id} counts by its named real-process proof {proof} (plan 23s)"
             );
         }
         if plain.is_some() {

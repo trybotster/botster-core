@@ -488,6 +488,7 @@ mod slow_tests {
             &packages,
             &BTreeSet::from(["conf::pending_id".to_string()]),
             &[entry("botster-core", "nosuch")],
+            &[],
         )
         .unwrap();
         assert!(

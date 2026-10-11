@@ -159,10 +159,10 @@ impl TestkitRoute {
         self
     }
 
-    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the bytes that
-    /// the stream takes from the worker now (0 while gated) and F is the route's frame bound. The worker's queue to the route
-    /// then holds a frame that the stream does not take. The control returns when the program edge has the bytes, and the
-    /// host is woken. A payload that has exited is refused.
+    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the
+    /// bytes that the stream takes from the worker now (0 while gated with no accept limit) and F is the route's frame
+    /// bound. The worker's queue to the route then holds a frame that the stream does not take. The control returns
+    /// when the program edge has the bytes, and the host is woken. A payload that has exited is refused.
     fn route_fill(&mut self) -> Result<Value, String> {
         let max_frame_bytes = self
             .fill
@@ -369,7 +369,7 @@ mod tests {
         assert_eq!(fill_pattern(28), b"abcdefghijklmnopqrstuvwxyzab");
         assert_eq!(fill_pattern(26), b"abcdefghijklmnopqrstuvwxyz");
         assert!(fill_pattern(0).is_empty());
-        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated.
+        // C: the free room of the worker's queue, limited by route_accept, and 0 while gated with no accept limit.
         let (mut client, mut worker) = route(16);
         assert_eq!(worker.write(b"abcde").unwrap(), 5);
         assert_eq!(client.worker_end().room(), 11, "16 less the 5 queued");
@@ -377,8 +377,11 @@ mod tests {
         assert_eq!(client.worker_end().room(), 3);
         client.worker_end().accept_at_most(20);
         assert_eq!(client.worker_end().room(), 11);
+        client.worker_end().gate(false);
         client.worker_end().gate(true);
         assert_eq!(client.worker_end().room(), 0);
+        client.worker_end().accept_at_most(4);
+        assert_eq!(client.worker_end().room(), 4, "a limit under the gate");
         let (client, _worker) = route(16);
         let mut bare = client;
         assert!(bare
