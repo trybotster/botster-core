@@ -161,8 +161,22 @@ fn list(root: &Path, target: &Path, selection: &[String]) -> Result<BTreeMap<Key
     Ok(tests)
 }
 
+/// The tests (binary id and name) that `cargo nextest list <selection>` lists in `root`, built in `target`: a mutation
+/// stage removes the known-flaky tests of its own list (`known_flaky::stage_filter`).
+///
+/// # Errors
+/// The list fails or lists no test.
+pub fn tests(
+    root: &Path,
+    target: &Path,
+    selection: &[String],
+) -> Result<crate::known_flaky::Tests> {
+    Ok(list(root, target, selection)?.into_keys().collect())
+}
+
 /// The violations of the workspace at `root`, built in `target`, whose members with a `slow` feature are `slow_packages`;
-/// `pending` holds the pending-real ids.
+/// `pending` holds the pending-real ids. A known-flaky entry of `flaky` that neither tier's list has is a violation too
+/// (`known_flaky::absent`).
 ///
 /// # Errors
 /// A list fails, or no test is slow-only.
@@ -171,6 +185,7 @@ pub fn check(
     target: &Path,
     slow_packages: &[String],
     pending: &BTreeSet<String>,
+    flaky: &[crate::known_flaky::Entry],
 ) -> Result<Vec<String>> {
     let default = list(
         root,
@@ -187,7 +202,16 @@ pub fn check(
         bail!("no test is slow-only: the slow features build no test that the default features do not");
     }
     println!("slow-coverage: {count} slow-only tests checked");
-    Ok(violations(&default, &slow, pending))
+    let mut found = violations(&default, &slow, pending);
+    let keys = |tests: &BTreeMap<Key, Listed>| -> crate::known_flaky::Tests {
+        tests.keys().cloned().collect()
+    };
+    found.extend(crate::known_flaky::absent(
+        flaky,
+        &keys(&default),
+        &keys(&slow),
+    ));
+    Ok(found)
 }
 
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
@@ -198,11 +222,17 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let text = std::fs::read_to_string(root.join(crate::lists::REAL_PENDING_FILE))
         .with_context(|| format!("read {}", crate::lists::REAL_PENDING_FILE))?;
     let pending = crate::lists::parse_ids(&text).map_err(anyhow::Error::msg)?;
+    let flaky = crate::known_flaky::parse(
+        &std::fs::read_to_string(root.join(crate::known_flaky::FILE))
+            .with_context(|| format!("read {}", crate::known_flaky::FILE))?,
+    )
+    .map_err(anyhow::Error::msg)?;
     crate::tools::verdict(&check(
         root,
         &meta.target_dir,
         &meta.slow_packages,
         &pending,
+        &flaky,
     )?)
 }
 
@@ -431,7 +461,7 @@ mod slow_tests {
         let unrun = "botster-core tests::runs_only_under_slow: only the slow features build it, and the slow filter \
                      does not select it, so no tier runs it";
         assert_eq!(
-            check(dir.path(), &target, &packages, &pending).unwrap(),
+            check(dir.path(), &target, &packages, &pending, &[]).unwrap(),
             [unrun]
         );
 
@@ -440,12 +470,12 @@ mod slow_tests {
         assert_eq!(source.matches("mod tests").count(), 1);
         std::fs::write(&lib, source.replace("mod tests", "mod slow_tests")).unwrap();
         assert_eq!(
-            check(dir.path(), &target, &packages, &pending).unwrap(),
+            check(dir.path(), &target, &packages, &pending, &[]).unwrap(),
             Vec::<String>::new()
         );
 
         assert_eq!(
-            check(dir.path(), &target, &packages, &ids(&[])).unwrap(),
+            check(dir.path(), &target, &packages, &ids(&[]), &[]).unwrap(),
             [
                 "botster-core::slow_conformance [pending-real] conf::pending_id: only the slow features build it, and it \
                  is ignored; only a listed trial of botster-core::slow_conformance may be ignored there"
