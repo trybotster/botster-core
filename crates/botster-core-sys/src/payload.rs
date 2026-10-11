@@ -8,6 +8,10 @@
 //! - **Exit watch.** One thread blocks in `waitid(P_PID, WEXITED | WNOWAIT)`: it returns when the leader can be reaped, and it
 //!   leaves the leader unreaped. The thread reports the status through a callback and ends. No polling and no `unsafe`
 //!   (lead decision: a waiter thread replaces the kqueue `EVFILT_PROC` watch of the old `process_exit.rs`).
+//! - **Loop thread.** Only the thread that owns the worker's loop forks or execs (`fd_pass`, "Close-on-exec"): on macOS a
+//!   received descriptor is open without `FD_CLOEXEC` for a moment on that thread, and a fork on another thread could
+//!   copy it into the child. [`Payload::spawn`] takes the [`LoopThread`] that the loop recorded where it was made, and a
+//!   call on another thread is [`SpawnFailure::NotLoopThread`] before anything forks. The exit watch thread only waits.
 //! - **Unreaped leader.** The leader is reaped only by [`Payload::reap`]. Until then its pid, which is its group id, cannot be
 //!   reused, so [`Payload::signal_group`] never reaches an unrelated group (lead ruling on P1 F7).
 //!
@@ -28,6 +32,26 @@ pub enum SpawnFailure {
     CwdMissing,
     /// The PTY could not be opened, or the program could not be run (LC-4: `ExecFailed{errno}`).
     Exec { errno: i32 },
+    /// The call was not on the loop's thread (see the module's text). Nothing was forked. A caller that runs on its loop
+    /// never gets it.
+    NotLoopThread,
+}
+
+/// The thread that owns the worker's loop: the one thread that may fork or exec (see the module's text). The loop records
+/// it where the loop is made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LoopThread(std::thread::ThreadId);
+
+impl LoopThread {
+    /// The calling thread, as the loop's thread.
+    #[must_use]
+    pub fn current() -> Self {
+        Self(std::thread::current().id())
+    }
+
+    fn is_current(self) -> bool {
+        self.0 == std::thread::current().id()
+    }
 }
 
 /// What to start.
@@ -77,11 +101,15 @@ impl std::fmt::Debug for Payload {
 }
 
 impl Payload {
-    /// Starts `command` on a new PTY of its size.
+    /// Starts `command` on a new PTY of its size, from the loop's thread.
     ///
     /// # Errors
-    /// `CwdMissing` when the directory is not there; `Exec{errno}` when the PTY or the program fails.
-    pub fn spawn(command: &PayloadCommand<'_>) -> Result<Payload, SpawnFailure> {
+    /// `NotLoopThread` when the calling thread is not `on`, before anything else; `CwdMissing` when the directory is not
+    /// there; `Exec{errno}` when the PTY or the program fails.
+    pub fn spawn(on: LoopThread, command: &PayloadCommand<'_>) -> Result<Payload, SpawnFailure> {
+        if !on.is_current() {
+            return Err(SpawnFailure::NotLoopThread);
+        }
         if !Path::new(command.cwd).is_dir() {
             return Err(SpawnFailure::CwdMissing);
         }
@@ -166,7 +194,8 @@ impl Payload {
     }
 
     /// Starts the exit watch: a thread that calls `on_exit` once with the leader's status, when the leader can be reaped. The
-    /// leader stays unreaped.
+    /// leader stays unreaped. The thread only waits and calls `on_exit`: it never forks or execs, and `on_exit` must not
+    /// either (only the loop's thread does; see the module's text).
     ///
     /// # Errors
     /// The thread could not be started.
@@ -285,6 +314,32 @@ fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lead condition (DP-2 PR A): a spawn on a thread other than the loop's is `NotLoopThread`, and the check comes first,
+    /// before anything that could fork: with a directory that is not there it is still `NotLoopThread`, not `CwdMissing`.
+    /// On the loop's thread the same call goes on to the next check.
+    #[test]
+    fn a_spawn_on_another_thread_than_the_loops_is_refused_before_anything_else() {
+        let argv = vec!["/bin/true".to_string()];
+        let env = BTreeMap::new();
+        let command = PayloadCommand {
+            argv: &argv,
+            env: &env,
+            cwd: "/nonexistent/botster-loop-thread",
+            rows: 24,
+            cols: 80,
+        };
+        let on = LoopThread::current();
+        let elsewhere =
+            std::thread::scope(|s| s.spawn(|| Payload::spawn(on, &command)).join().unwrap());
+        assert_eq!(elsewhere.unwrap_err(), SpawnFailure::NotLoopThread);
+        assert_eq!(
+            Payload::spawn(on, &command).unwrap_err(),
+            SpawnFailure::CwdMissing
+        );
+        let other = std::thread::spawn(LoopThread::current).join().unwrap();
+        assert_ne!(other, on);
+    }
 
     /// LC-4: an OS error keeps its errno; an error without one uses ENOEXEC.
     #[test]

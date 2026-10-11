@@ -25,6 +25,10 @@ crates/botster-worker/src/main.rs  # PTY and process control: the real worker dr
 crates/botster-worker/src/io_decisions.rs  # PTY: the driver's PTY read, write and readiness decisions (IN-6 cancel, A31)
 crates/botster-worker-core/src/drain.rs  # PTY: the drain at the payload's exit; both drivers run it (EV-4, ST-5, A31)
 
+# Descriptor handoff.
+crates/botster-core-sys/src/fd_pass.rs  # fd handoff and signals: SCM_RIGHTS sendmsg and recvmsg, close-on-exec, CTRUNC, no SIGPIPE (DP-2, A49)
+crates/botster-core-sys/src/fd_pass/**  # fd handoff: the proofs of the framing rule per OS, CTRUNC and the send buffer (DP-2)
+
 # Adoption and restart.
 crates/botster-core-host/src/adopt.rs  # adoption: identity probe, endpoint connect, proof and epoch (AD-1, AD-2, AD-6)
 crates/botster-core-host/src/admit.rs  # adoption: the admission of AdoptAll and the start of the adoption step
