@@ -2017,6 +2017,10 @@ This source verdict does not accept a future gate or declare merge readiness. So
 
 I ran no gate, build, test, base-check script, or executable probe.
 
+Sol publishes integration source CLEAN for `efbb30636b29d506ab04acdb9f7f90031601c674` in `0dc15650f53db09b9278f32e3d36f79b39d49a9d`.
+
+I read the complete delta artifact and verified its published branch. Both source reviews have zero findings. The final import and gate remain due.
+
 ## Core PR #278: repository signal scan
 
 - Head: `214ade281c890b05e72054f66b2b34e853204d3c`.
