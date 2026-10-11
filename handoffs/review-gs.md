@@ -3,21 +3,23 @@
 ## Current review result
 
 - PR: #261, known-flaky list.
-- Head: `80af70d2ea876b062c55002e64f2e1eb107ad247`.
+- Head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
 - Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
-- Verdict: NOT CLEAN (1 open).
-- Finding: GS-KF-R1-1 HIGH, one declared tier does not cover a shared test.
+- Verdict: NOT CLEAN (2 open).
+- Findings: GS-KF-R1-1 HIGH and GS-KF-R2-2 MEDIUM.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-A binary/test identity can run in both mutation stages. The current list excludes it in only one declared tier and rejects duplicate identities.
+The delta removes the declared tier. The original shared-test case is corrected, but the stage-1 workspace list can differ from cargo-mutants' package-only build.
 
-Binary matching cannot validate exact test membership in a shared binary. The wrong-tier fixture covers only an absent binary.
+Feature unification can suppress a workspace-listed test that a package-only build runs. Its exclusion can remain absent, while the slow list validates the entry.
 
-Required correction: exclude each listed identity from every applicable stage and fail closed on a declaration that leaves it runnable.
+Required correction: cover the actual stage-1 feature selections, or prevent a known-flaky identity from adding a catch despite missing preliminary-list membership.
+
+GS-KF-R2-2: the fixture's slow-only shared-binary test does not match the slow filter before subtraction. Make it selected and prove exclusion in a real run.
 
 The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
 
-The retained gate passes all ten steps, but stage 2 does not run. I ran no gate, build, or test.
+The earlier gate passes all ten steps, but stage 2 does not run. The new head's full gate has not been supplied. I ran no gate, build, or test.
 
 ## Previous PR #260
 

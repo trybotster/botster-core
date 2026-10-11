@@ -729,3 +729,68 @@ The real-tool fixture proves exact exclusion in stage 1 and failure when the dec
 The Prior art note matches the previously checked pinned old source. I ran no gate, build, or test.
 
 I will wait for a fix and the exact new head.
+
+## PR #261: round 2 delta review
+
+- Head: `b6b32f739bee9e5a5002b376452ee39a8245f55f`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Previous reviewed head: `80af70d2ea876b062c55002e64f2e1eb107ad247`.
+- VERDICT: NOT CLEAN (2 open).
+
+### GS-KF-R1-1 HIGH: stage-1 list does not cover its package builds
+
+Status: OPEN, with the original single-tier case corrected.
+
+The delta removes the tier field and intersects entries with each preliminary test list. Shared identities now receive exclusions in both lists that contain them.
+
+However, stage 1 lists `--workspace`. Cargo-mutants 27.1.0 tests only the mutated package by default. The gate does not set `--test-workspace true` in stage 1.
+
+I verified that default in cargo-mutants `options.rs` and its per-mutant package selection in `lab.rs`.
+
+Cargo can unify different features for a workspace build and a package-only build. The workspace list is not necessarily a superset of package-only tests.
+
+Concrete case: library A has features `x` and `slow`. Another workspace member enables A's `x` feature.
+
+A known-flaky test named `slow_flaky` has this guard:
+
+```rust
+#[cfg(any(feature = "slow", not(feature = "x")))]
+```
+
+The default workspace list enables `x`, so it lacks the test. The stage-1 package-only run of A can omit `x` and build the test.
+
+The slow list enables `slow` and contains the identity. Thus `absent` accepts the entry, while the stage-1 filter omits its exclusion.
+
+Stage 1 can still count that known-flaky test as a catch. This is an honest feature-selection case; it requires no malformed entry.
+
+Required change: cover stage 1's actual package-specific feature selections, or use a filter/report rule that prevents this missing-list case from adding a catch.
+
+Add a real multi-member fixture that exercises this feature-unification case. Do not silently broaden stage 1's test execution as a substitute.
+
+The PR body still describes the removed tier field. Correct that safety argument before closure.
+
+### GS-KF-R2-2 MEDIUM: the slow-only fixture test is not selected before exclusion
+
+Status: OPEN. The integration reviewer identified this limit, and I confirmed it in the delta.
+
+`known_flaky::slow_tests::each_stage_leaves_out_every_listed_test_that_it_builds` uses `tests::runs_only_under_slow` inside the shared library binary.
+
+That test name does not match `SLOW_FILTER`, `binary(/^slow/) | test(/(^|::)slow_/)`. Its library binary id does not match the binary term either.
+
+The real stage-2 run therefore omits this test before the known-flaky subtraction. Its absence cannot prove that the new filter excluded it.
+
+The filter text assertion proves listed membership. It does not prove the required real-run exclusion of a selected slow-only test in a shared binary.
+
+Required change: make that copied fixture test selected before exclusion, for example through a `slow_tests` module name.
+
+Assert its pre-exclusion selection or execution. Then prove its absence under the exclusion, while an unrelated selected test still runs.
+
+### Delta limits
+
+The new code rejects the removed `tier` field. It checks stale identities during the slow step through `known_flaky::absent`.
+
+Stage 2 lists the workspace with the same slow features as its build. The standalone baseline remains unchanged and still runs known-flaky tests.
+
+The delta adds no timeout change or mutation exclusion. Its full gate has not yet been supplied.
+
+I ran no gate, build, or test. I will wait for the next exact head and the required evidence.
