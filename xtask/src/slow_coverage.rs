@@ -42,7 +42,7 @@ const IGNORED_KINDS: [&str; 7] = [
 
 /// An ignored test that the real tier's conformance harness ignored by its lists: in the conformance binary, named
 /// `[<kind>] conf::<id>` with a kind of `IGNORED_KINDS`; a `pending-real` trial has its `conf::<id>` in `pending`, and a
-/// `real-only` trial in `proven` (the ids of `core-real-proofs.txt`).
+/// `real-only` trial in `proven` (`ignorable_real_only`).
 fn listed_trial(
     binary: &str,
     name: &str,
@@ -66,6 +66,21 @@ fn listed_trial(
         && IGNORED_KINDS.contains(&kind)
         && (kind != "pending-real" || pending.contains(id))
         && (kind != "real-only" || proven.contains(id))
+}
+
+/// The real-only ids whose real-tier trial may be ignored: the ids of `core-real-proofs.txt` with no line that names the id's
+/// own real-tier trial. The real tier runs that trial must-pass, so it must not be an ignored `[real-only]` trial (lead,
+/// 2026-10-11, after R-55).
+fn ignorable_real_only(proofs: &[RealProof]) -> BTreeSet<String> {
+    proofs
+        .iter()
+        .filter(|proof| {
+            !proofs
+                .iter()
+                .any(|own| own.id == proof.id && own.is_own_real_trial())
+        })
+        .map(|proof| proof.id.clone())
+        .collect()
 }
 
 /// A test of a nextest list, by binary id and test name.
@@ -239,8 +254,7 @@ pub fn check(
         bail!("no test is slow-only: the slow features build no test that the default features do not");
     }
     println!("slow-coverage: {count} slow-only tests checked");
-    let proven: BTreeSet<String> = proofs.iter().map(|p| p.id.clone()).collect();
-    let mut found = violations(&default, &slow, pending, &proven);
+    let mut found = violations(&default, &slow, pending, &ignorable_real_only(proofs));
     found.extend(proof_violations(&slow, proofs));
     let keys = |tests: &BTreeMap<Key, Listed>| -> crate::known_flaky::Tests {
         tests.keys().cloned().collect()
@@ -433,6 +447,43 @@ mod tests {
                 "{proven:?}"
             );
         }
+    }
+
+    /// An id whose proof line names its own real-tier trial is not ignorable: the real tier runs that trial. An id with only
+    /// separate proofs is.
+    #[test]
+    fn an_id_proved_by_its_own_real_tier_trial_is_not_ignorable() {
+        let line = |id: &str, binary: &str, test: &str| RealProof {
+            id: id.into(),
+            binary: binary.into(),
+            test: test.into(),
+        };
+        let own = "botster-core::slow_conformance";
+        let proofs = [
+            line("conf::a1_1_x", "a::slow_x", "t"),
+            line("conf::a1_1_y", "a::slow_x", "t"),
+            line("conf::a1_1_y", own, "conf::a1_1_y"),
+            line("conf::a1_1_z", own, "conf::a1_1_z"),
+        ];
+        assert_eq!(ignorable_real_only(&proofs), ids(&["conf::a1_1_x"]));
+        // So the real tier's ignored real-only trial of an own-trial id is a violation, and its trial must run.
+        let slow = tests(&[(PENDING_BINARY, "[real-only] conf::a1_1_y", true, false)]);
+        assert_eq!(
+            violations(
+                &BTreeMap::new(),
+                &slow,
+                &BTreeSet::new(),
+                &ignorable_real_only(&proofs)
+            ),
+            [ignored(PENDING_BINARY, "[real-only] conf::a1_1_y")]
+        );
+        let slow = tests(&[(own, "conf::a1_1_y", true, true)]);
+        assert_eq!(
+            proof_violations(&slow, &proofs[2..3]),
+            ["conformance/core-real-proofs.txt: conf::a1_1_y botster-core::slow_conformance conf::a1_1_y: the test is ignored, so the slow tier does not run it"]
+        );
+        let slow = tests(&[(own, "conf::a1_1_y", false, true)]);
+        assert_eq!(proof_violations(&slow, &proofs[2..3]), Vec::<String>::new());
     }
 
     /// A proof line passes only when it names a test of the slow list that is not ignored and that the filter selects.
