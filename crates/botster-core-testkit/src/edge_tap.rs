@@ -248,6 +248,8 @@ pub struct Tap<E> {
     stand_ins: Vec<(StandIn, Option<usize>)>,
     /// The held starts, by instance (`hold_start_at`, R-49 Q2).
     holds: BTreeMap<InstanceId, Hold>,
+    /// The next hand-over of a route's stream endpoint fails, once (`fail_handoff`, Core DP-2).
+    fail_handoff: bool,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -419,6 +421,13 @@ impl<E: HostEdges> Tap<E> {
         true
     }
 
+    /// Arms `fail_handoff` (Core DP-2): the next `link_send_descriptor` gives the endpoint back with `Failed` and the inner
+    /// edge takes nothing, as a `sendmsg` that fails takes nothing. Core then closes the endpoint, so the client reads the
+    /// end of its stream, and the route closes `HandoffFailed`.
+    pub fn fail_next_handoff(&mut self) {
+        self.fail_handoff = true;
+    }
+
     /// The hold whose `Launch` met it on `link`.
     fn hold_on(&mut self, link: LinkId) -> Option<&mut Hold> {
         self.holds.values_mut().find(|hold| hold.link == Some(link))
@@ -519,6 +528,7 @@ impl<E: HostEdges> EdgeTap<E> {
             signals: Vec::new(),
             stand_ins: Vec::new(),
             holds: BTreeMap::new(),
+            fail_handoff: false,
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {
@@ -678,6 +688,9 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
         let mut tap = self.tap();
         if tap.hold_on(link).is_some() {
             return Err((endpoint, DescriptorSendError::Blocked));
+        }
+        if std::mem::take(&mut tap.fail_handoff) {
+            return Err((endpoint, DescriptorSendError::Failed));
         }
         let sent = tap.inner.link_send_descriptor(link, bytes, endpoint);
         if let Ok(n) = sent {
