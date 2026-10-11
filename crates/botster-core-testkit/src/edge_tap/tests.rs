@@ -1481,6 +1481,41 @@ fn an_armed_start_hold_reads_each_new_link_only_to_its_hello() {
     assert_eq!(rig.edges.accept_link(), Some(A));
 }
 
+/// #287 RC-R1-1: an interrupted read ahead makes no progress, so the tap does not retry it in the same call. The link waits,
+/// keeps the edges busy, and each later call reads once more, until the hello comes.
+#[test]
+fn an_interrupted_read_ahead_is_read_again_only_at_the_next_call() {
+    let mut fake = Fake::default();
+    fake.accepts.push_back(A);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Interrupted,
+            Read::Interrupted,
+            Read::Data(hello_frame("1-1")),
+        ]
+        .into(),
+    );
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    rig.with(|t| t.hold_link(one.clone()));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        2,
+        "one read in the call"
+    );
+    assert!(!rig.with(|t| t.quiet()), "a link in transit");
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        1,
+        "one read in the call"
+    );
+    assert!(!rig.with(|t| t.link_held(&one)));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.link_held(&one)));
+}
+
 /// `route_stream_holders` (plan 23bf): the tap counts the bytes that Core gives `close_route_stream` for a stream, by the
 /// stream's socket, and gives the inner edge the same stream. Another endpoint type is passed on and not counted.
 #[test]
@@ -1505,7 +1540,9 @@ fn the_bytes_that_core_writes_to_a_route_stream_are_counted_by_socket() {
             ]
         );
     });
-    // The fake edge drops the stream without a write: the client reads its end, so the tap kept no copy.
+    // The fake edge drops the stream without a write: the client reads its end at once (nonblocking: a kept copy would
+    // give `WouldBlock`, not a wait), so the tap kept no copy.
+    client.set_nonblocking(true).unwrap();
     let mut buf = [0u8; 4];
     assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap(), 0);
 }
