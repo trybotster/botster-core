@@ -67,3 +67,15 @@ This verdict completes source review with zero open findings. The lead owns the 
 I ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+### Exact-head gate receipt — 2026-10-11
+
+The owner supplies the completed gate at unchanged head `9d19b997fd044ca76c0844f8a32fa79d930e5ec4`.
+The base remains `5a54f7af6c8f309717a39b11c7c175c1335c289b`.
+Log: `~/botster-sessions/gates/botster-contracts-p3-ev5-route-closed-fence-9d19b997-pool-20261011-080851-83269.log`.
+SHA256: `7ec1a6ace2dfdbf8f6cc6b9462fcb654e434d3a077d33a4f8367deb86c433bd1`.
+I read its exact head/base header and final step summaries. All ten steps pass in 183.0 seconds.
+The mutation step selects no mutant. Jobq exits zero after 192 seconds; botster-gate exits zero after 193 seconds.
+This completes the exact-head gate receipt. The source verdict remains CLEAN with zero open findings.
+The package's local ACCEPT is read and hash-verified. Its external publication remains unconfirmed.
+The lead owns the publication disposition, steward relay, and merge decision. I ran no execution job.

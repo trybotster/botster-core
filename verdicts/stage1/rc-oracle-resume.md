@@ -172,3 +172,21 @@ The earlier gate remains earlier-head evidence. No pending identifier leaves thr
 I ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+### Q7 source transfer — 2026-10-11
+
+New head: `1efe84734e6297e1b5c79f123e2161f923dc233d`.
+New base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parents: `c3713dba91e38785eeadeb36444a86f51963a622` and the new base.
+Tree: `cbdc7b1ba16c7b81c2af964fabb5b23b2026477f`.
+I read the complete supplied base check at `gates/botster-core-rc-r69-base-merge-check-1efe8473-20261011-081147.log`.
+Every condition passes. The own diff is 92994 bytes, SHA256 `cc969502a0619ec0345f955a75ca4c60d2d476b292255bea9f6bc79920ac1981`.
+Independent reads confirm the exact parents, ten disjoint base paths, identical complete own diffs, and unchanged transferred blobs.
+I read the published package transfer at `79f6f8c108c2c2f478559e92e505c5f8411db3cf`.
+Under Q7, source CLEAN transfers without a new delta round. Every source finding remains closed.
+The final exact-head gate remains due. This transfer accepts no future gate or pending removal.
+The new base is the #270 merge. Its exact parents and tree preserve the reviewed #270 source.
+I have not received or read #270's final new-head gate. This merge check makes no independent gate-acceptance claim for #270.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open)
