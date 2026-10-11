@@ -62,6 +62,11 @@ crates/botster-core-sys/tests/slow_payload.rs | wait | child-wait
 crates/botster-core-sys/tests/slow_process.rs | the_worker_control_signal_reaches_the_worker_handler | command-wait
 crates/botster-core-sys/tests/slow_process.rs | WAITING_CHILD | shell-loop
 
+# The reaper body's own test (R-55 (1) condition 2, item 4; #257): `reap` takes a std `Child` and reaps it itself, so the
+# test hands it a plain child (`sh -c "exit 3"`, which ends at once) and joins the reaper; an OwnedChild of
+# botster-test-process would own the reap instead. Permanent (owner P5, core-sys process).
+crates/botster-core-sys/src/process.rs | a_reaper_returns_right_after_its_notify | spawn
+
 # Real Core slow tests and their worker script fixture. PR C migrates them to botster-test-process (owner P5).
 crates/botster-core/tests/common/mod.rs | WAIT_WHILE_THE_PARENT_LIVES | shell-loop
 crates/botster-core/tests/common/mod.rs | mkfifo | command-wait
@@ -152,11 +157,11 @@ xtask/src/process_check/tests.rs | shell_sleeps_and_loops_that_never_end_by_them
 # PR C moves it to botster_test_process::Bounded (owner P3, core-sys signal).
 crates/botster-core-sys/src/signal.rs | a_signal_to_our_own_group_reaches_this_process | blocking-read
 
-# The real-PTY regression of #198 (P3): GuardedSession::launch accepts the worker's control link in a loop on a
+# The real-PTY regression of #198 (P3): GuardedSession::launch_with_route accepts the worker's control link in a loop on a
 # non-blocking listener, which polls to a Deadline (WouldBlock polls again), so the accept is bounded; the check cannot
 # see that. Temporary: the next botster-test-process PR (owner P6) adds a bounded accept to the crate, moves this loop
 # onto it and removes this entry. The legacy Session::launch accept keeps its own entry above.
-crates/botster-worker/tests/common/session.rs | launch | blocking-read
+crates/botster-worker/tests/common/session.rs | launch_with_route | blocking-read
 
 # The real adoption at the worker endpoint (P5 #176b): the test makes the host connect in one pump, then takes the queued
 # connection with ONE accept on a non-blocking listener. The accept never waits (a host that did not connect fails it at

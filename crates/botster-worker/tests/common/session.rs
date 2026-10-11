@@ -221,6 +221,8 @@ impl Session {
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
+            None,
+            CoreLimits::default(),
         );
         assert!(payload.pid > 0);
         Session { worker, link }
@@ -247,13 +249,17 @@ impl Session {
     }
 }
 
-/// On the worker's accepted link: proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). Returns the link and
-/// the payload's identity from `Launched`.
+/// On the worker's accepted link: proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). With `route`, an
+/// `AttachRoute` frame of route 1 follows the `Launch` frame in the same send, with the route's stream: the descriptor's
+/// read holds the first byte of that one `AttachRoute` frame (DP-2, plan 23ae). Returns the link and the payload's
+/// identity from `Launched`.
 fn hello_and_launch(
     stream: UnixStream,
     launch: &WorkerLaunch,
     argv: Vec<String>,
     stop_grace_ms: u64,
+    route: Option<std::os::fd::BorrowedFd<'_>>,
+    limits: CoreLimits,
 ) -> (Link, PayloadId) {
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
@@ -283,7 +289,7 @@ fn hello_and_launch(
     .encode(&mut reply)
     .unwrap();
     link.send(FrameType::HELLO, &reply);
-    link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
+    let launch_msg = HostMsg::Launch(Box::new(LaunchSpec {
         argv,
         env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
         cwd: "/".into(),
@@ -297,12 +303,93 @@ fn hello_and_launch(
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
         stop_grace_ms,
-        limits: CoreLimits::default(),
-    })));
+        limits: limits.clone(),
+    }));
+    match route {
+        None => link.msg(&launch_msg),
+        Some(route) => {
+            // A worker that reads the hello and a descriptor in one read refuses the descriptor (plan 23ae). The answer
+            // to a request comes only after the hello passed, so the descriptor's read comes after it (F118). Before the
+            // launch, a signal request changes nothing: no process group is live.
+            link.msg(&HostMsg::Op {
+                req: u64::MAX,
+                op: Op::Signal {
+                    id: SessionId("s".into()),
+                    sig: Signal::Term,
+                },
+            });
+            let answer = link.report();
+            assert!(
+                matches!(
+                    answer,
+                    WorkerMsg::Done {
+                        req: u64::MAX,
+                        result: OpResult::Err(_)
+                    }
+                ),
+                "{answer:?}"
+            );
+            let mut bytes = Vec::new();
+            for msg in [launch_msg, attach_route(&limits)] {
+                let mut payload = Vec::new();
+                msg.encode(&mut payload);
+                encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
+            }
+            let sent =
+                botster_core_sys::fd_pass::send_with_fd(&link.stream, &bytes, route).unwrap();
+            link.stream.write_all(&bytes[sent..]).unwrap();
+            // The worker reports the bound descriptor (R-65) and the launch, in the order of its turns: both, once each.
+            let (mut launched, mut received) = (None, false);
+            while launched.is_none() || !received {
+                match link.report() {
+                    WorkerMsg::Launched { payload, .. } if launched.is_none() => {
+                        launched = Some(payload);
+                    }
+                    WorkerMsg::RouteReceived { route: RouteId(1) } if !received => received = true,
+                    other => panic!("not launched with route 1 received: {other:?}"),
+                }
+            }
+            return (link, launched.unwrap());
+        }
+    }
     let WorkerMsg::Launched { payload, .. } = link.report() else {
         panic!("not launched");
     };
     (link, payload)
+}
+
+/// The `AttachRoute` of route 1, with the limits that the host applies for default options under `core` (`admit.rs`).
+fn attach_route(core: &CoreLimits) -> HostMsg {
+    HostMsg::AttachRoute {
+        route: RouteId(1),
+        options: AttachOptions {
+            file_directory: "/tmp".into(),
+            file_permissions: None,
+            route_features: Vec::new(),
+            terminal_formats: Vec::new(),
+            owner: None,
+            query_deadline: None,
+            route_tag: None,
+            route_limits: None,
+            history: None,
+            stall_deadline: None,
+            answers_queries: false,
+            input: true,
+        },
+        limits: AppliedRouteLimits {
+            max_frame_bytes: core.effective_max_route_frame_bytes(),
+            max_screen_frame_bytes: core.max_snapshot_bytes + 1,
+            max_history_page_bytes: core.max_history_page_bytes,
+            max_paste_bytes: core.max_paste_bytes,
+            max_query_bytes: core.max_query_bytes,
+            max_query_reply_bytes: core.max_query_reply_bytes,
+            max_file_bytes: core.max_file_bytes,
+            query_deadline: Duration::ZERO,
+            stall_deadline: core.reader_progress_deadline,
+            stall_close_after: core.stall_close_after,
+            route_input_queue_bytes: core.route_input_queue_bytes,
+        },
+    }
 }
 
 /// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
@@ -433,8 +520,34 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
     // The payload waits on its PTY's input without a timer; the stop below ends it.
     let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
     let endpoint = root.path().join("e");
-    let (instance, token, epoch) = (InstanceId("1-1".into()), [5; 32], 2);
     let stream = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    let mut adopter = adopt(stream, 2);
+    // The fence: the old host's link ends.
+    let mut rest = [0u8; 64];
+    loop {
+        match s.link.stream.read(&mut rest) {
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Ok(_) => {}
+            Err(error) => panic!("the old link did not end: {error}"),
+        }
+    }
+    // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
+    adopter.msg(&HostMsg::Stop);
+    let report = adopter.report();
+    assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
+    s.link = adopter;
+    s.remove();
+    assert!(
+        !endpoint.exists(),
+        "the worker removes its endpoint at its end"
+    );
+}
+
+/// AD-6: a new host's link at the worker's endpoint proves the host role at `epoch`. The worker answers on it with its own
+/// proof at that epoch and an `Adopted` report of its running payload.
+fn adopt(stream: UnixStream, epoch: u64) -> Link {
+    let (instance, token) = (InstanceId("1-1".into()), [5; 32]);
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
@@ -466,26 +579,33 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
         ),
         other => panic!("{other:?}"),
     }
-    // The fence: the old host's link ends.
-    let mut rest = [0u8; 64];
-    loop {
-        match s.link.stream.read(&mut rest) {
-            Ok(0) => break,
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
-            Ok(_) => {}
-            Err(error) => panic!("the old link did not end: {error}"),
-        }
-    }
+    adopter
+}
+
+/// DESIGN.md "Adoption (P5)" part 3: a new host's hello can come after the worker's first read of the connection found
+/// nothing. Then only the poll's readiness of that candidate brings the hello to the worker. The worker holds one candidate
+/// at a time and closes a later one; it accepts one connection per turn and reads it in the same turn. So when the second
+/// connection ends, the worker has read the first one and found nothing, and the test sends the first hello only then.
+#[test]
+fn a_new_host_whose_hello_comes_after_the_first_read_adopts_the_worker() {
+    let root = temp_root();
+    // The payload waits on its PTY's input without a timer; the stop below ends it.
+    let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
+    let endpoint = root.path().join("e");
+    let first = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    let second = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    assert_eq!(
+        Bounded::new(second).to_eof(Deadline::cleanup()).unwrap(),
+        b"",
+        "the worker holds one candidate and closes the second"
+    );
+    let mut adopter = adopt(first, 2);
     // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
     adopter.msg(&HostMsg::Stop);
     let report = adopter.report();
     assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
     s.link = adopter;
     s.remove();
-    assert!(
-        !endpoint.exists(),
-        "the worker removes its endpoint at its end"
-    );
 }
 
 /// Plan R12 (teardown is TERM, then KILL, then reap): `SIGTERM` on the worker kills the payload group that it holds at
@@ -595,6 +715,293 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         .unwrap();
 }
 
+/// DP-2, plan 23ae condition 2: a route descriptor that the worker receives is close-on-exec, so the payload holds no copy.
+/// The worker holds the route's stream when it spawns the payload. The worker then dies by `SIGKILL`, and the client end of
+/// the route reads the end of file: no process holds the worker's end. The payload ignores the hang-up and is still alive
+/// after the end of file: it answers the release with its marker. The proof is by identity (the end of file), not by a
+/// list of the payload's descriptors.
+#[test]
+fn a_received_route_descriptor_does_not_reach_the_payload() {
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let mut ready = marker_fifo(root.path(), "ready");
+    let mut alive = marker_fifo(root.path(), "alive");
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "trap '' HUP TERM; /bin/echo ready > {}; /usr/bin/head -c 1 {} > /dev/null; /bin/echo alive > {}; exec {}",
+        quoted(&root.path().join("ready")),
+        quoted(release.path()),
+        quoted(&root.path().join("alive")),
+        hold.shell(),
+    );
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let mut s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
+    drop(worker_end);
+    assert_eq!(
+        ready.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("ready\n")
+    );
+    // SIGKILL: the worker runs no cleanup, and the kernel closes its descriptors.
+    s.worker.kill().unwrap();
+    s.worker.status_by(Deadline::cleanup());
+    Bounded::new(client)
+        .to_eof(Deadline::cleanup())
+        .expect("the end of file: no process holds the worker's end of the route");
+    // The test holds both ends of the FIFO, so the byte waits in it even when `head` has not opened it yet.
+    release.send(b"x").unwrap();
+    assert_eq!(
+        alive.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("alive\n"),
+        "the payload lived through the end of file"
+    );
+    release.release();
+}
+
+/// The client end of a real route: it reads the worker's frames by a deadline and decodes them with the bounds of
+/// `attach_route` (DP-3).
+struct RouteClient {
+    stream: UnixStream,
+    reader: botster_route_codec::prelude::StreamReader,
+    bounds: botster_route_codec::prelude::FrameBounds,
+}
+
+impl RouteClient {
+    fn new(stream: UnixStream, core: &CoreLimits) -> RouteClient {
+        let HostMsg::AttachRoute { limits, .. } = attach_route(core) else {
+            unreachable!("attach_route is an AttachRoute")
+        };
+        // timer: deadline — the limit of a wait for a real worker's route frame; not a contract value.
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        RouteClient {
+            stream,
+            reader: botster_route_codec::prelude::StreamReader::new(),
+            bounds: botster_core_link::route::frame_bounds(&limits),
+        }
+    }
+
+    /// The worker's next frame on the route.
+    fn frame(&mut self) -> botster_route_codec::prelude::ToClient {
+        use botster_route_codec::prelude::{Decoded, ToClient};
+        loop {
+            if let Some(frame) = self.reader.next_frame(&self.bounds).unwrap() {
+                match ToClient::decode(&frame, &self.bounds).unwrap() {
+                    Decoded::Frame(frame) => return frame,
+                    other => panic!("not a frame of this protocol: {other:?}"),
+                }
+            }
+            let mut buf = [0u8; 4096];
+            let n = self
+                .stream
+                .read(&mut buf)
+                .expect("a route frame before the deadline");
+            assert_ne!(n, 0, "the worker closed the route");
+            self.reader.push(&buf[..n]);
+        }
+    }
+
+    /// Reads frames up to `live`, the end of the attach (OU-9). The first one is `attached`.
+    fn read_to_live(&mut self) {
+        use botster_route_codec::prelude::{TYPE_ATTACHED, TYPE_LIVE};
+        assert_eq!(self.frame().type_byte(), TYPE_ATTACHED);
+        while self.frame().type_byte() != TYPE_LIVE {}
+    }
+
+    fn send(&mut self, frame: &botster_route_codec::prelude::ToWorker) {
+        self.stream
+            .write_all(&botster_route_codec::prelude::stream_wrap(&frame.encode()))
+            .unwrap();
+    }
+}
+
+/// DP-2, DP-5, OU-9 on the real driver (plan section 6.3 item 1): the route's stream carries `attached`, the baseline and
+/// `live`; then the client's input reaches the payload, and the payload's output reaches the client.
+#[test]
+fn a_real_route_carries_the_attach_the_input_and_the_output() {
+    use botster_route_codec::prelude::{Op, ToClient, ToWorker};
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "IFS= read -r line; /bin/echo \"got:$line\"; exec {}",
+        hold.shell()
+    );
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
+    drop(worker_end);
+    let mut client = RouteClient::new(client, &CoreLimits::default());
+    client.read_to_live();
+    client.send(&ToWorker::Text {
+        op: Op(0),
+        text: "hi\n".into(),
+    });
+    let mut output = Vec::new();
+    while !output.windows(6).any(|w| w == b"got:hi") {
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+    }
+}
+
+/// OU-3 on the real driver: output far larger than the socket's buffer, and within the route's queue, reaches a client
+/// that reads only after the payload wrote it all: whole and in order. The client reads nothing until then, so the route's
+/// last write waits on a full socket with no more output to come, and only `RouteWritable` sends the rest.
+#[test]
+fn a_real_route_delivers_large_output_whole_and_in_order() {
+    use botster_route_codec::prelude::ToClient;
+    use std::os::fd::AsFd;
+    const BYTES: usize = 3_000_000;
+    let root = temp_root();
+    let mut done = marker_fifo(root.path(), "done");
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "/usr/bin/head -c {BYTES} /dev/zero | /usr/bin/tr '\\0' a; /bin/echo end; /bin/echo done > {}; exec {}",
+        quoted(&root.path().join("done")),
+        hold.shell()
+    );
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
+    drop(worker_end);
+    assert_eq!(
+        done.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("done\n")
+    );
+    let mut client = RouteClient::new(client, &CoreLimits::default());
+    client.read_to_live();
+    let mut output = Vec::new();
+    // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
+    let end = loop {
+        let from = output.len().saturating_sub(2);
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+        if let Some(at) = output[from..].windows(3).position(|w| w == b"end") {
+            break from + at;
+        }
+    };
+    let body: Vec<u8> = output[..end]
+        .iter()
+        .copied()
+        .filter(|b| !b"\r\n".contains(b))
+        .collect();
+    assert_eq!(body.len(), BYTES, "every byte, once");
+    assert!(body.iter().all(|&b| b == b'a'), "only the payload's bytes");
+}
+
+/// OU-3d on the real driver (F121): a route queue that fills stops the PTY reads until the client reads, and the reads then
+/// go on. The route queue is 64 KiB (`route_queue_bytes`; R-45 exempts the baseline from it). The payload writes 3,000,000
+/// bytes and then its `done` marker. The client reads nothing first: the queue, the socket's buffers and the PTY's buffer
+/// hold far less than the output, so the payload cannot write it all, and no `done` comes by the cleanup bound. A driver
+/// that ignores the budget reads the whole output into the queue, and `done` comes. Then the client reads: `done` comes,
+/// and every byte reaches the client, once and in order.
+#[test]
+fn a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads() {
+    use botster_route_codec::prelude::ToClient;
+    use botster_test_process::ReadError;
+    use std::os::fd::AsFd;
+    const BYTES: usize = 3_000_000;
+    let root = temp_root();
+    let mut done = marker_fifo(root.path(), "done");
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "/usr/bin/head -c {BYTES} /dev/zero | /usr/bin/tr '\\0' a; /bin/echo end; /bin/echo done > {}; exec {}",
+        quoted(&root.path().join("done")),
+        hold.shell()
+    );
+    // 9B: the route queue is at least the snapshot bound, so both are 64 KiB (a 24x80 screen is far smaller).
+    let limits = CoreLimits {
+        route_queue_bytes: 64 * 1024,
+        max_snapshot_bytes: 64 * 1024,
+        ..CoreLimits::default()
+    };
+    limits.validate().expect("legal limits");
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s = GuardedSession::launch_with_route(
+        root.path(),
+        &script,
+        5000,
+        Some(worker_end.as_fd()),
+        limits.clone(),
+    );
+    drop(worker_end);
+    match done.line(Deadline::cleanup()) {
+        Err(ReadError::Deadline { .. }) => {}
+        other => {
+            panic!("the payload wrote all its output to a client that read nothing: {other:?}")
+        }
+    }
+    let mut client = RouteClient::new(client, &limits);
+    client.read_to_live();
+    let mut output = Vec::new();
+    // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
+    let end = loop {
+        let from = output.len().saturating_sub(2);
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+        if let Some(at) = output[from..].windows(3).position(|w| w == b"end") {
+            break from + at;
+        }
+    };
+    assert_eq!(
+        done.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("done\n")
+    );
+    let body: Vec<u8> = output[..end]
+        .iter()
+        .copied()
+        .filter(|b| !b"\r\n".contains(b))
+        .collect();
+    assert_eq!(body.len(), BYTES, "every byte, once");
+    assert!(body.iter().all(|&b| b == b'a'), "only the payload's bytes");
+}
+
+/// OU-5 on the real driver: the client's close of its end ends the route, and the host hears `RouteClosed{PeerClosed}`.
+#[test]
+fn a_client_close_ends_its_real_route() {
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let mut s = GuardedSession::launch_with_route(
+        root.path(),
+        &hold.shell(),
+        5000,
+        Some(worker_end.as_fd()),
+        CoreLimits::default(),
+    );
+    drop(worker_end);
+    let mut client = RouteClient::new(client, &CoreLimits::default());
+    client.read_to_live();
+    drop(client);
+    loop {
+        if let WorkerMsg::RouteClosed { route, reason, .. } = s.link.report() {
+            assert_eq!((route, reason), (RouteId(1), RouteCloseReason::PeerClosed));
+            break;
+        }
+    }
+}
+
 /// The driver observer ends when its test parent dies without running Drop.
 #[test]
 fn parent_death_ends_the_driver_observer() {
@@ -678,6 +1085,19 @@ impl GuardedSession {
     /// Starts a worker and launches `sh -c script`, each through the guard's wrapper. Before this returns, one anchor
     /// reports the worker as its group's leader, and one the payload.
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> GuardedSession {
+        GuardedSession::launch_with_route(root, script, stop_grace_ms, None, CoreLimits::default())
+    }
+
+    /// As [`GuardedSession::launch`]; with `route`, the `Launch` frame and an `AttachRoute` frame go in one send with the
+    /// route's stream (DP-2), so the worker holds the descriptor when it spawns the payload. `limits` are the `Launch`
+    /// frame's.
+    fn launch_with_route(
+        root: &Path,
+        script: &str,
+        stop_grace_ms: u64,
+        route: Option<std::os::fd::BorrowedFd<'_>>,
+        limits: CoreLimits,
+    ) -> GuardedSession {
         let mut guard = Guard::new(root)
             .unwrap()
             .grace(Duration::from_millis(stop_grace_ms));
@@ -754,6 +1174,8 @@ impl GuardedSession {
             &launch,
             vec![wrapper.display().to_string()],
             stop_grace_ms,
+            route,
+            limits,
         );
         let reports = guard.anchors(2, Deadline::cleanup()).unwrap();
         assert_eq!(

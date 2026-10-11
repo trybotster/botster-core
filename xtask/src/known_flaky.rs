@@ -340,9 +340,10 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds only the diagnosed ev_5 flake (lead, 2026-10-11).
+    /// The repository's list parses, and it is empty: #243 removed the cause of the ev_5 flake and its entry (the Stage 1
+    /// exit needs the list empty).
     #[test]
-    fn the_repository_list_holds_only_the_ev_5_flake() {
+    fn the_repository_list_parses_and_is_empty() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("the repository");
@@ -351,13 +352,7 @@ removed_by = "#243"
             .iter()
             .map(|e| (e.binary.as_str(), e.test.as_str()))
             .collect();
-        assert_eq!(
-            names,
-            [(
-                "botster-core::slow_conformance",
-                "conf::ev_5_repeated_attach_detach_without_polling_stays_bounded"
-            )]
-        );
+        assert_eq!(names, Vec::<(&str, &str)>::new());
     }
 }
 
