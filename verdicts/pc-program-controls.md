@@ -2,16 +2,51 @@
 
 VERDICT: NOT CLEAN (1 open)
 
-- Reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
-- Reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
-- Previous reviewed head: `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+- Reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
+- Reviewed base: `554d43e890b391cefc9da205c71db6856accb21d` (`v1`).
+- Previous reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Risk tier: HIGH. This delta belongs to the shared testkit PR.
 - Open findings: 1.
-- Binding plan: revision 23ai, `stage1-plan.c7cbc474.md`. The contracts pin remains contracts-v0.1.27.
+- Binding plan: revision 23al, `stage1-plan.1555a98b.md`.
+- Plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
+- Contracts pin: contracts-v0.1.29, `65f76ab9829d7a0fda2835c10abc7ffae2c35215`, inherited from #245.
 
 The final gate failed after package and integration CLEAN on the previous head.
 This verdict supersedes package CLEAN commit `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` for the current PR.
 SI-1 through SI-4 remain closed. The previous review below remains the source record for unchanged code.
+
+## Base-merge delta
+
+Delta message: `msg_plugin-w_1791708757_0cc48c`.
+The reviewer confirmed the PR head and base. The reviewer read the complete source delta and the combined conflict diff.
+The first merge is `3a71241d53c2613a978490d2df4cabea55b27487`, with base `b7c97b42b8e559053153f8a8202ee32dbde0a93a`.
+The second merge is the reviewed head, with base `554d43e890b391cefc9da205c71db6856accb21d`.
+
+The base-merge check fails, so neither review carries automatically.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-8cfdd671-4d05d270-20261011.log`.
+The reviewer read the whole completed check log.
+Conditions 1, 2, and 3 fail on the shared paths. The real-pending line-set check also rejects the changed group comment.
+The reviewer checked both resolutions directly:
+
+- `core-real-pending.txt` equals the current base file, with exactly the previous 16 PC IDs removed.
+  Both sides add no ID. The base removes three other IDs. The merge preserves those removals and all base comments.
+- `real.rs` keeps both `program::CONTROLS` and `route::CONTROLS` in the tapped control set.
+  Its tests check both sets. The removed negative assertion for `pty_output` conflicts with the new program control.
+  The negative assertion for `pty_fail_after` stays. The plain harness still serves no controls.
+- The merged `open` keeps the base's shared `heard` record and the program observer's wake registration.
+  The PR preserves the base's route attachment implementation and payload identity checks.
+
+The program module, testkit manifest, and process-check exception are byte-identical to the previous reviewed head.
+The current `Cargo.toml` and `Cargo.lock` equal the new base. This PR adds no pin change of its own.
+The core-pending, held, deferred, ledger, and real-only files equal the new base.
+The own diff still has five files. The reviewer found no additional source issue.
+The six steward-held PC IDs remain pending. EV-2 and IN-5 also remain pending at this head.
+Their new fences come from #245. Each removal still needs its real PASS result and a review of the resulting commit.
+R-59's unfenced AD-7 pass does not count toward the real minimum.
+
+The implementer reports 351 passing testkit library tests on 3a71241d. No retained log was supplied for that focused run.
+The implementer reports a final gate running on 4d05d270. The reviewer did not read or poll that running job.
+SI-5 remains the only open finding. The reviewer waits for the completed gate evidence.
 
 ## SI-5 MEDIUM — The socket error guard lacks a reliable mutation proof
 
@@ -32,7 +67,7 @@ Required change: supply a behavior test that rejects retries of a permanent sock
 Supply a passing normal run and evidence that the missed mutant fails that test.
 The final Linux gate must pass on the corrected head. Plan 23ai also requires focused Mac evidence for this socket test.
 
-Status: OPEN, pending normal-run and gate evidence. The source correction is present on the reviewed head.
+Status: OPEN, pending a green final Linux gate and its corrected mutation result. The source correction is present.
 The delta adds one 17-line test, `a_request_write_to_a_closed_probe_fails_with_its_error_not_at_the_bound`.
 It creates a socket pair, makes the harness end non-blocking, and drops the peer.
 It requires BrokenPipe or ConnectionReset from `send_line`. TimedOut fails that assertion.
@@ -42,12 +77,21 @@ The reviewer found no additional source issue in this delta.
 The reviewer read the selected reversal record.
 Log: `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-20261011-001126.log`.
 With the missed mutant, the test fails with TimedOut after 10 seconds.
-The record contains no passing normal run. The implementer reports that the corrected Linux gate is running.
-The reviewer requested a retained normal-run Mac log for the added test.
+The first reversal record contains no passing normal run. Later retained evidence supplies both Mac results on 8cfdd671:
+
+- Normal run: `~/botster-sessions/gates/botster-core-pc-send-line-test-mac-8cfdd671-20261011-001400.log`.
+  All 16 program tests pass; exit 0.
+- Reversal: `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-8cfdd671-20261011-001419.log`.
+  The guard replaced with true gives TimedOut. The added test fails after 10 seconds; exit 101.
+
+The reviewer read both completed records. The unchanged program module preserves that focused Mac proof.
+The corrected Linux gate on 8cfdd671 stopped at an AD-7 failure, before mutation and fuzz.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-8cfdd671-pool-20261011-001231-18048.log`.
+It does not close SI-5. The new base contains #249's payload identity correction.
 
 The reviewer ran no build, test, gate, mutation, reversal, or executable merge-check job.
 The verdict grants no merge approval. The 22 pending PC IDs remain pending.
-Next: wait for the corrected gate and focused Mac evidence. Never poll.
+Next: wait for the completed final Linux gate. Never poll.
 
 ---
 

@@ -5,15 +5,15 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.4eceef06.md`, revision 23ak.
-- Verified plan SHA-256: `db7ba8e5c0748aa53257fb53a5e6f8923a9549c6c9871127a7d2ef2c97000813`.
-- Current code pin: `contracts-v0.1.27`, commit `b161db8`. Plan 23ak requires the PC pair to move it to `contracts-v0.1.29`, commit `65f76ab`, in separate HIGH PR #245.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.1555a98b.md`, revision 23al.
+- Verified plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
+- Current code pin: `contracts-v0.1.29`, commit `65f76ab9829d7a0fda2835c10abc7ffae2c35215`. The base contains merged #245.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
-- Current reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` on `v1`.
+- Current reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
+- Current reviewed base: `554d43e890b391cefc9da205c71db6856accb21d` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package NOT CLEAN (1 open) for PR #233 at `8cfdd6715c6a69c419d9819636e185bfff74bb24`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
+- Status: package NOT CLEAN (1 open) for PR #233 at `4d05d270d6c6cebcdae247050cd702b6a157c639`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -524,3 +524,32 @@ P3 says Core closes the routes as HandoffFailed during step 20's `await_quiet`.
 P3 keeps the missing d1 completion separate and owns its Core fix. The steward's R-63 requires the fence.
 The reviewer checked the PR body at the same head and base. It records P3's diagnosis.
 The package verdict attributes that conclusion to P3. The reviewer does not independently prove it here.
+
+Push record: #245 package CLEAN is on origin/stage1/review-pc at 57d6511c49685d914b3afbfb6a7f776f24fc2a31.
+Reviewed head: c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4. Base: 5c480db457797fa7ebecb33835a52e26a5a8490d.
+The pin review has zero open findings under the lead's scope rule. EV-5 remains a separate open item.
+Integration CLEAN and the final Linux gate remain required before merge. The reviewer worktree is clean.
+The #233 mutation finding remains open. Wait for the doorbell. Never poll.
+
+#233 base-merge delta: `msg_plugin-w_1791708757_0cc48c`.
+Head: `4d05d270d6c6cebcdae247050cd702b6a157c639`. Base: `554d43e890b391cefc9da205c71db6856accb21d`.
+The reviewer read the failed base-merge check and both conflict resolutions.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-8cfdd671-4d05d270-20261011.log`.
+The pending file equals the new base minus exactly the prior 16 PC IDs. No ID is added.
+The merge keeps the base's three other removals and all base comments.
+The real harness serves the union of program and route controls. Its tests check both sets.
+The merge keeps the program observer wake and the base's shared heard record, route attachment, and payload identity checks.
+The program module, testkit manifest, and process-check exception are unchanged from 8cfdd671.
+The pin, lock, core-pending, held, deferred, ledger, and real-only files equal the new base.
+No additional source finding exists. The package verdict remains NOT CLEAN (1 open): SI-5.
+The reviewer read the retained Mac normal run and guard reversal again. They satisfy the focused Mac requirement.
+The final Linux gate and corrected mutation result remain required. The reviewer did not read or poll the running gate.
+EV-2 and IN-5 remain pending until the completed gate supplies PASS evidence and their removal commit is reviewed.
+The six steward-held PC IDs remain pending. The four remaining minimum PC IDs remain pending.
+
+The binding brief now names plan 23al. Its only change from 23ak adds the lead's one-re-gate exception.
+The reviewer verified the new plan hash and read that rule. No re-gate is approved by this verdict.
+The reviewer read R-64. The steward settles r5's UnknownRoute as the reported HandoffFailed close, not a defect.
+The missing d1 completion needs candidate A21 before Core can choose a completion or close reason.
+The R-63 fence remains required. The reviewer makes no transcript or contract change.
+The PC group is not complete. Wait for the completed gate doorbell. Never poll.
