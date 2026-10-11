@@ -490,3 +490,22 @@ Required change: replace the claim with those actual results. Keep the later gre
 The final `b5ca83e2` gate has ten PASS results; this finding concerns only the earlier gate record.
 
 All four findings must close before CLEAN. The reviewer ran no test, build, or gate.
+
+
+### Integration NOT CLEAN received for Core #285
+
+Exact source: `b5ca83e2825dc9404a3c6634fd97d755cf8f5d37`.
+Integration verdict: `c2d84511f63b1c8602a0f5b2b31149c292a457a4`, `verdicts/stage1/rc-testkit-controls.md`.
+Message: `msg_plugin-w_1791747207_926a1c`.
+The reviewer read the complete integration verdict. It confirms all four package findings.
+Integration findings TC-SI-1 through TC-SI-4 map to RC-TK-1 through RC-TK-4.
+
+RC-TK-3 also requires correction of the trial count.
+The body and real-pending comment report two Mac timeout trials for `in_8_no_recheck_after_start`.
+The valid replacement log shows one trial at seed 0, step 9.
+The reviewer checked that log. The withdrawn log cannot supply a second valid trial.
+Required change: cite a second valid trial from the clean build, or correct the count to match the valid evidence.
+The real-pending entry remains justified by the valid timeout; this finding does not require its removal.
+
+VERDICT: NOT CLEAN (4 open). All four findings remain open.
+The reviewer ran no test, build, or gate.
