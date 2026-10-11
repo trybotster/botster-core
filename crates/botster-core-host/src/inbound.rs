@@ -661,8 +661,9 @@ impl HostEngine {
             }
             // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
             Flow::Adopt(_) => self.adopt_link_closed(&id),
-            // R-78 item 4: the link of a gone worker was read to its end of file. A frame read before it (`Exited`) began
-            // the end already; otherwise the worker is gone with no word.
+            // R-78 item 4: the link of a gone worker was drained (`LinkPeerEnded`: the first would-block or the end of file
+            // closed it). A frame read in the drain (`Exited`) began the end already; otherwise the worker is gone with no
+            // word.
             Flow::Idle | Flow::Stop(StopFlow { end: None, .. })
                 if self.sessions[&id].worker.gone =>
             {
@@ -721,14 +722,17 @@ impl HostEngine {
             self.fail_inflight(&id);
             return;
         }
-        // R-78 item 4: a running or stopping worker may have written its `Exited` or a `Done` before it ended, and the edges
-        // report the exit and the link's bytes independently. The link stays open and is read to its end of file, which
-        // classifies the session (`on_link_closed`). The in-flight requests wait for that end too.
-        if matches!(&flow, Flow::Idle | Flow::Stop(_))
-            && self.sessions[&id].worker.link.is_some()
-            && self.drain_classifies(&id)
-        {
-            return;
+        // R-78 item 4 and the steward's follow-up: a running or stopping worker may have written its `Exited`, a `Done` or a
+        // `RouteClosed` before it ended, and the edges report the exit and the link's bytes independently. The driver drains
+        // the link without waiting (`LinkPeerEnded`): every complete frame is handled, also when the end is already chosen
+        // (an `Exited` read before the exit report), and the first would-block or the end of file closes the link. No end of
+        // file is awaited and no timer is added. The drain's close classifies the session only if no end is chosen yet
+        // (`on_link_closed`); the in-flight requests wait for that close too.
+        if matches!(&flow, Flow::Idle | Flow::Stop(_)) {
+            if let Some(link) = self.sessions[&id].worker.link {
+                self.act(Action::LinkPeerEnded { link });
+                return;
+            }
         }
         // The worker is gone: its link is gone with it.
         if self.sessions[&id].worker.link.is_some() {

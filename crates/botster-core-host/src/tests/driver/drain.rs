@@ -1,5 +1,6 @@
 //! Steward ruling R-78 item 4 in the production driver: a send error closes only the link's write side. The link is read on,
-//! so the frames that the worker wrote before it ended are handled; its end of file closes it.
+//! so the frames that the worker wrote before it ended are handled; its end of file closes it. After the worker's process
+//! ended (the steward's follow-up), the driver reads the link without waiting and closes it at the first would-block.
 
 use super::deadlines::run_session;
 use super::*;
@@ -148,9 +149,10 @@ fn a_live_peer_with_a_failed_send_is_unreachable_at_the_stop_grace() {
     assert!(!link(&rig).links[&LinkId(1)].closed_by_host);
 }
 
-/// R-78 tests 16 and 17: the exit report and a failed send, in both orders, then an `Exited` and a `Done` that the pump
-/// bound delays, and the stop's grace before the end of file. Nothing is classified at the grace and no request fails
-/// early; the drained frames decide the results.
+/// R-78 tests 16 and 17: the worker wrote a `Done` and an `Exited` behind three observations, then ended. The exit report and
+/// a failed send come in both orders, and the stop's grace comes while the pump bound still delays the frames. No end of
+/// file comes. Nothing is classified at the grace and no request fails early; the drained frames decide the results, and
+/// the host closes the drained link.
 #[test]
 fn an_exit_and_a_failed_send_keep_the_drain_past_the_grace_in_either_order() {
     for exit_first in [true, false] {
@@ -188,6 +190,17 @@ fn an_exit_and_a_failed_send_keep_the_drain_past_the_grace_in_either_order() {
             rig.pump();
             seen.extend(rig.drain_events());
         };
+        // The worker wrote its last frames before it ended: a process writes nothing after its exit. No end of file comes.
+        for _ in 0..3 {
+            rig.worker_says(
+                LinkId(1),
+                WorkerMsg::Observed {
+                    observation: Observation::Bell,
+                },
+            );
+        }
+        rig.worker_says(LinkId(1), modes_done(req));
+        rig.worker_says(LinkId(1), exited(8));
         if exit_first {
             link(&rig).exits.push(exit);
             rig.pump();
@@ -199,17 +212,6 @@ fn an_exit_and_a_failed_send_keep_the_drain_past_the_grace_in_either_order() {
             rig.pump();
             seen.extend(rig.drain_events());
         }
-        for _ in 0..3 {
-            rig.worker_says(
-                LinkId(1),
-                WorkerMsg::Observed {
-                    observation: Observation::Bell,
-                },
-            );
-        }
-        rig.worker_says(LinkId(1), modes_done(req));
-        rig.worker_says(LinkId(1), exited(8));
-        peer_closes(&rig);
         rig.now += GRACE;
         rig.pump();
         seen.extend(rig.drain_events());
@@ -237,4 +239,225 @@ fn an_exit_and_a_failed_send_keep_the_drain_past_the_grace_in_either_order() {
         );
         assert!(link(&rig).links[&LinkId(1)].closed_by_host);
     }
+}
+
+/// R-78 item 4 (0179): the end is chosen before the exit report, and frames still wait behind it. The worker wrote `Exited`,
+/// then the `Done` of a read that it served from its final model (LC-5), then the route's `RouteClosed` (`report_exit` queues
+/// `Exited` before `routes_session_ended` queues the closes). With a pump bound of one event, `Exited` is handled first and
+/// the exit report comes next. No end of file comes. The host still reads what the link holds without waiting: the read
+/// completes, the route closes `SessionEnded`, the end stays `Exited`, and the host closes the drained link.
+#[test]
+fn frames_after_a_chosen_end_are_read_without_an_end_of_file() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    let attached = super::handoff::attach(&mut rig, Arc::new(1));
+    let read = rig
+        .driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    for _ in 0..6 {
+        rig.pump();
+    }
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteReceived {
+            route: attached.route,
+        },
+    );
+    let req = first_request(&rig);
+    let mut seen = rig.drain_events();
+    rig.worker_says(LinkId(1), exited(7));
+    rig.worker_says(LinkId(1), modes_done(req));
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteClosed {
+            route: attached.route,
+            reason: RouteCloseReason::SessionEnded {
+                exit: Exit {
+                    code: Some(7),
+                    signal: None,
+                    cause: ExitCause::Normal,
+                },
+            },
+            route_tag: None,
+        },
+    );
+    rig.pump();
+    seen.extend(rig.drain_events());
+    link(&rig).exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(7),
+    ));
+    rig.pump();
+    seen.extend(rig.drain_events());
+    let done = results(&mut rig, &[read], &mut seen);
+    assert!(
+        matches!(done[&read], OpResult::Ok(OpOutput::Modes(_))),
+        "the Done behind Exited is read: {:?}",
+        done[&read]
+    );
+    for _ in 0..10 {
+        rig.pump();
+        seen.extend(rig.drain_events());
+    }
+    let closes: Vec<_> = seen
+        .iter()
+        .filter_map(|e| match e {
+            Event::RouteClosed { route, reason, .. } if *route == attached.route => Some(*reason),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        matches!(closes[..], [RouteCloseReason::SessionEnded { .. }]),
+        "the RouteClosed behind Exited is read, once: {closes:?}"
+    );
+    assert!(
+        matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(7)),
+        "{:?}",
+        rig.driver.get(&sid("s1")).unwrap().state
+    );
+    assert!(
+        link(&rig).links[&LinkId(1)].closed_by_host,
+        "the drain ends at the would-block: the host closes the link"
+    );
+}
+
+fn worker_exits(rig: &Rig, code: i32) {
+    link(rig).exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(code),
+    ));
+}
+
+/// R-78 item 4, steward follow-up: a running worker wrote `Exited` and ended, and its link gives no end of file (a peer may
+/// hold a copy of it). The exit report drains the link without waiting: the session ends `Exited`, and the host closes the
+/// link.
+#[test]
+fn an_ended_worker_s_exited_frame_is_read_without_an_end_of_file() {
+    let mut rig = Rig::new(limits(|_| {}));
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    rig.worker_says(LinkId(1), exited(3));
+    worker_exits(&rig, 3);
+    let report = rig.pump();
+    assert!(
+        matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(3)),
+        "{:?}",
+        rig.driver.get(&sid("s1")).unwrap().state
+    );
+    assert!(link(&rig).links[&LinkId(1)].closed_by_host);
+    assert!(!report.more, "nothing is left to drain");
+}
+
+/// R-78 item 4, steward follow-up: a running worker ended with nothing written, and its link gives no end of file. The
+/// first read would block. The pump of the exit report reports more work (TM-6), the next pump closes the link, and the
+/// session is lost `WorkerGone`.
+#[test]
+fn an_ended_worker_with_nothing_written_is_gone_at_once() {
+    let mut rig = Rig::new(limits(|_| {}));
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    worker_exits(&rig, 0);
+    assert!(rig.pump().more, "the drain is runnable work");
+    rig.pump();
+    assert!(
+        link(&rig).links[&LinkId(1)].closed_by_host,
+        "the drain does not wait"
+    );
+    rig.settle();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+    assert!(link(&rig).links[&LinkId(1)].closed_by_host);
+}
+
+/// R-78 item 4, steward follow-up: a trailing partial frame is a truncated link. The complete `Done` before it is handled;
+/// the part of an `Exited` decides nothing, so the session is lost `WorkerGone`. No end of file comes.
+#[test]
+fn a_partial_frame_at_the_exit_is_a_truncated_link() {
+    let mut rig = Rig::new(limits(|_| {}));
+    run_session(&mut rig, "s1", LinkId(1));
+    let read = rig
+        .driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    for _ in 0..4 {
+        rig.pump();
+    }
+    let req = first_request(&rig);
+    let mut seen = rig.drain_events();
+    rig.worker_says(LinkId(1), modes_done(req));
+    let mut payload = Vec::new();
+    exited(5).encode(&mut payload);
+    let whole = frame(FrameType::WORKER_MSG, &payload);
+    link(&rig)
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .to_host
+        .extend(&whole[..whole.len() - 1]);
+    worker_exits(&rig, 5);
+    let done = results(&mut rig, &[read], &mut seen);
+    assert!(
+        matches!(done[&read], OpResult::Ok(OpOutput::Modes(_))),
+        "{:?}",
+        done[&read]
+    );
+    rig.settle();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone)
+    );
+    assert!(link(&rig).links[&LinkId(1)].closed_by_host);
+}
+
+/// R-78 item 4 and Core EV-5b (Sol, 0179): a frame of the exit drain that needs mandatory room waits while the queue is
+/// full. The drain does not spin: with only that frame blocked, the pump reports no more work. The poll that frees room
+/// restores the link, and the next pumps deliver the held frame and the `Exited` behind it, then close the drained link.
+#[test]
+fn a_drain_blocked_on_mandatory_room_waits_for_the_poll() {
+    let mut rig = Rig::new(limits(|l| {
+        l.mandatory_events = 3;
+        l.max_sessions = 4;
+    }));
+    // `Created`, `Starting`, `Running` fill the queue of three; the route event behind them needs room.
+    super::start_session(&mut rig, "s1", LinkId(1));
+    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    rig.worker_says(LinkId(1), exited(3));
+    worker_exits(&rig, 3);
+    let report = rig.pump();
+    assert!(
+        !report.more,
+        "a drain blocked on mandatory room is not runnable work (TM-6)"
+    );
+    assert!(
+        !link(&rig).links[&LinkId(1)].closed_by_host,
+        "the drain waits for room"
+    );
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Running
+    );
+    rig.drain_events();
+    assert!(
+        rig.wake_set(),
+        "the poll that freed room signalled the wake"
+    );
+    rig.settle();
+    assert!(
+        matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(3)),
+        "{:?}",
+        rig.driver.get(&sid("s1")).unwrap().state
+    );
+    assert!(link(&rig).links[&LinkId(1)].closed_by_host);
 }

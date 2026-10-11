@@ -102,6 +102,12 @@ pub enum Action {
     CloseLink {
         link: LinkId,
     },
+    /// The worker process of `link` ended (steward ruling R-78 item 4 and its follow-up): the driver reads what the link holds
+    /// without waiting, handles every complete frame, and closes the link at the first would-block, the end of file or a read
+    /// error ([`Input::LinkClosed`]). A trailing partial frame is a truncated link. No end of file is awaited.
+    LinkPeerEnded {
+        link: LinkId,
+    },
     /// Asks what the identity of a worker matches now (AD-6); the answer is [`Input::IdentityState`]. A worker that this handle
     /// did not spawn has no exit watch, so this is how the engine learns that it is gone (LC-7 step 3, AD-2 `WorkerGone`).
     ProbeIdentity {

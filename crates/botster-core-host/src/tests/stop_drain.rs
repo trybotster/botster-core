@@ -1,5 +1,7 @@
 //! Steward ruling R-78 items 3 and 4: a stop whose link is broken asks the worker's identity at its grace, and a gone
-//! worker's link is read to its end of file before the session is classified.
+//! worker's link is drained before the session is classified. The engine asks the driver for the drain
+//! (`Action::LinkPeerEnded`); the driver closes the link at the first would-block or the end of file, without waiting. In
+//! these engine tests "the end of file" is that close (`Input::LinkClosed`), which the tests feed as the driver would.
 
 use super::*;
 use botster_core_edges::edges::GroupSignal;
@@ -265,8 +267,8 @@ fn a_live_worker_with_a_failed_write_side_is_unreachable_at_the_stop_grace() {
     assert!(!w.closed.contains(&link), "no end of file came");
 }
 
-/// R-78 (Sol): the identity check at the grace finds the worker gone while its link can still be read. The drain goes on;
-/// the `Exited` read later decides the end.
+/// R-78 (Sol): the identity check at the grace finds the worker gone while its link can still be read. The engine asks the
+/// driver to drain the link without waiting (`LinkPeerEnded`); the `Exited` that the drain reads decides the end.
 #[test]
 fn a_probe_that_finds_the_worker_gone_keeps_the_drain() {
     let mut w = world();
@@ -280,6 +282,11 @@ fn a_probe_that_finds_the_worker_gone_keeps_the_drain() {
     w.advance(GRACE);
     w.pump();
     assert_eq!(state(&w), SessionState::Stopping, "the link is read first");
+    assert_eq!(
+        w.peer_ended,
+        vec![link],
+        "the probe's answer drains the link"
+    );
     w.worker_says("s1", exited_frame(5));
     w.feed(Input::LinkClosed { link });
     let result = w.complete(stop);

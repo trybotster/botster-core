@@ -121,6 +121,8 @@ pub(crate) struct World {
     pub closed: Vec<LinkId>,
     /// The identities that the engine asked about (`Action::ProbeIdentity`), in order.
     pub probes: Vec<ProcessIdentity>,
+    /// The links whose worker process ended (R-78 item 4): the driver drains each one without waiting, then closes it.
+    pub peer_ended: Vec<LinkId>,
     pub trace: Vec<String>,
     /// The routes whose stream Core closed itself (`Action::CloseRoute`), with the bytes written to the stream first.
     pub route_streams_closed: Vec<(RouteId, Option<Vec<u8>>)>,
@@ -205,6 +207,7 @@ impl World {
             signals: Vec::new(),
             closed: Vec::new(),
             probes: Vec::new(),
+            peer_ended: Vec::new(),
             trace: Vec::new(),
             route_streams_closed: Vec::new(),
             spawned: BTreeMap::new(),
@@ -392,6 +395,7 @@ impl World {
                 self.sent.push((link, msg));
             }
             Action::CloseLink { link } => self.closed.push(link),
+            Action::LinkPeerEnded { link } => self.peer_ended.push(link),
             Action::ProbeIdentity { identity } => {
                 self.probes.push(identity);
                 let state = if self.alive.contains(&identity) {
@@ -675,8 +679,8 @@ impl World {
         });
     }
 
-    /// The worker of `session` ends, with no word on its link: the exit watch reports it, then its link gives the end of
-    /// file. A link that is open when the exit comes is read to its end first (R-78 item 4).
+    /// The worker of `session` ends, with no word on its link: the exit watch reports it, and the driver's drain of an open
+    /// link finds nothing and closes it (R-78 item 4, `Action::LinkPeerEnded`).
     pub fn worker_ends(&mut self, session: &str) {
         let link = self.engine.sessions[&sid(session)].worker.link;
         self.exited(session);
