@@ -7,4 +7,10 @@ publish = false
 [features]
 slow = []
 
+# As in the real package: the real tier's conformance binary has its own harness and needs the slow feature.
+[[test]]
+name = "slow_conformance"
+harness = false
+required-features = ["slow"]
+
 [workspace]
