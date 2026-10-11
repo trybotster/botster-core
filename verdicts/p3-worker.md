@@ -10149,3 +10149,123 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts, findings, and closures remain preserved.
 
 VERDICT: NOT CLEAN
+
+## Round 154 — PR #234, DP-2 real handoff send, package round 2 — 2026-10-10
+
+Exact head: `eded8086c6cf1a7e94b9577029a0229abb854484`.
+Exact base: `e418bf5a8bcc7c18313e7d82775e8ae29368b366`.
+Previous reviewed head: `bd800194a0ce3da217409ce334183589c5f0763d`.
+Previous package verdict: `759b27f1061cdddb2aed20b31e59b9daaaee41fd`, round 153.
+Scope: DP-2 PR A, Core and sys descriptor send, signal suppression, loop-thread guard, and their proofs.
+Tier: HIGH under BUILD rules 1, 3, and 5: the HIGH-path list, shared packages, process control, and descriptor handoff.
+The reviewer reads the full replacement delta, current PR body, exact-head evidence, and the prior art sources.
+The unchanged product paths retain round 153's whole-change review.
+No new finding remains in this scope.
+
+### Findings closed
+
+F108 LOW is CLOSED.
+Received now describes the measured per-OS segment boundary and association with the one AttachRoute frame start.
+It no longer assigns the descriptors to the first byte of every read.
+The gone-reader comment, DESIGN.md A49 row, and PR condition 6 describe the recording handler and raw control write.
+The design cites plan 23ac at the current b895ad49 pin.
+The documentation agrees with the lead's signal and framing rulings.
+
+F109 LOW is CLOSED.
+The full-socket proof reads once after the successful descriptor send returns.
+The WouldBlock polling loop is removed.
+The local synchronous send puts the bytes in the peer's queue before that nonblocking read.
+The named proof passes on Linux and macOS at this exact head.
+
+F110 MED is CLOSED.
+The stand-in receiver records the descriptor count when the empty FrameDecoder accepts a frame start.
+It retains that count until the frame completes, across later reads.
+FrameDecoder::push takes no bytes after the current frame. next_frame resets the decoder after completion.
+The facade proof limits each socket read to three bytes, below the five-byte header size.
+It checks that AttachRoute spans multiple reads and reports the exact route with one descriptor.
+These observations come from the real socket boundary, not a private product-state accessor.
+The existing thirty-second receive deadline remains marked. No timeout value changes.
+The retained reversal assigns the completing read's descriptor count and fails the exact assertion with zero instead of one.
+The corrected named facade proof passes in the exact-head Linux gate and focused macOS run.
+This closes the test receiver finding. PR B still owns production receive and invalid-framing proofs.
+
+F111 MED is CLOSED.
+ci/high-tier-paths.txt now lists fd_pass.rs and fd_pass/** with descriptor-handoff and signal reasons.
+The list covers the new module and its per-OS proof paths under BUILD rule 5.
+The exact-head gate passes the list step.
+
+F112 LOW is CLOSED.
+The PR body now contains the feature's Prior art note under BUILD Starting fresh rule 0.
+It names both vault notes, pinned old code at 72b2e33, the rebuild plan, parity audits, and library decisions.
+Read-only git grep confirms that the pinned crates contain no SCM_RIGHTS, sendmsg, recvmsg, or cmsg use.
+The pinned protocol.rs send_all and launch.rs set_no_sigpipe confirm the historical per-OS signal split.
+Rebuild row 5.4 confirms the absence of old descriptor handoff code.
+The vault notes match the stated close-on-exec and cmsg_len lessons.
+The parity audits contain no descriptor-handoff row.
+The note adopts the existing rustix dependency's net feature and records why the alternatives are rejected.
+It also records the reasons for Core's glue and its accepted dependency-defect workaround.
+The note states that no old code is stolen. It claims no reuse that requires missing Stolen-From trailers.
+
+### Whole-change review and limits
+
+The replacement changes five paths after bd800194. It changes no descriptor-send or payload-spawn product logic.
+All other own paths retain round 153's review of endpoint ownership, partial sends, signal suppression, and loop-thread refusal.
+The host marks AttachRoute at its frame start, sends its descriptor once, and sends the remaining bytes without another descriptor.
+Blocked and failed sends preserve the endpoint ownership decisions reviewed in round 153.
+The current receiver documentation matches plan 23ae's measured Linux and macOS behavior.
+The signal proof retains the isolated main-thread recording handler and one hundred raw control writes.
+The macOS size decision retains the lead's accepted SO_SNDBUF cap and exact-buffer proof.
+
+The reviewer retains the lead's explicit rustix 1.1.5 CTRUNC exception.
+A truncated ancillary buffer is not parsed. Its wrapper is forgotten, and its descriptors remain open until process exit.
+This verdict does not claim no-leak behavior for that defence branch.
+Ordinary excessive-count and fcntl errors still drop collected OwnedFd values.
+PR B must prove ordinary framing mismatch closure without a descriptor leak.
+
+PR B owns the production Worker receive path, route socket edge, PTY read budget, and payload descriptor-exclusion proof.
+The lead explicitly assigns the end-to-end child descriptor proof to PR B on both operating systems.
+This verdict accepts no completed real route or minimum-id flip.
+No pending list, contract pin, public facade, C ABI, guard anchor, or mutation exclusion pattern changes in this replacement.
+The base remains e418bf5a. No new source merge occurs after the previously reviewed bd800194 merge.
+
+### Completed evidence
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-send-eded8086-pool-20261010-182012-72346.log.
+The header names the exact head and base. All ten CI steps PASS on gaming.
+Default: 1524 passed in 13.247 seconds. Slow: 396 passed in 139.516 seconds.
+Both testkit reports: 193 passed, zero failed, 497 ignored. Minimum testkit: 50/69.
+Strict pending: 386 of 407 ids run, 21 real-only ids not run, two held. Real-pending: 81.
+Real minimum: 31/68 passing and 31/69 accepted.
+Stage 1: seventeen mutants, nine caught, eight unviable, zero missed, zero timeouts, in 97.7 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 344.5 seconds. Queue: zero seconds. Job exits zero after 355 seconds; wrapper exits zero after 356 seconds.
+The named facade, real-edge handoff, full-socket, and signal proofs pass.
+The lower testkit count than stacked #227 follows the separate base without #227, not an own-list change.
+The retired probe compilation-line check remains retired after #235.
+
+Focused macOS evidence: shared/core-stage1/evidence/p3-handoff-send/mac-run-eded8086.log.
+The header names the exact head and macOS 27.0.1 arm64.
+Core-sys: forty pass, including the macOS-only size and flag-refusal proofs, plus the separate signal proof.
+The signal proof reports one hundred rounds: each control raises SIGPIPE; no descriptor send raises it.
+Core slow selections: twenty library, seventeen facade, and twenty-five real-core tests pass.
+Worker slow summaries report fifty-seven, seventeen, and thirty-four passing tests.
+The log also retains filtered Worker subprocess results. It does not label every Worker target.
+The reviewer does not claim a full macOS gate or unrelated pre-existing storage coverage.
+This focused run satisfies the lead's condition 8 within its stated scope.
+
+Correction evidence: shared/core-stage1/evidence/p3-handoff-send/facade-frame-start-revert-macos.log.
+The file records the completing-read reversal and the failed exact route/count assertion at slow_facade_worker.rs:321.
+It reports zero passed, one failed, sixteen filtered, in 0.17 seconds.
+Earlier signal, plain-send, macOS size, and redundant-setter correction records retain round 153's review and limits.
+The reviewer reads completed evidence only and runs no tests, builds, gates, measurements, mutants, or merge-check job.
+
+### Verdict
+
+PR #234, DP-2 PR A, is CLEAN at `eded8086c6cf1a7e94b9577029a0229abb854484`.
+F108 through F112 are CLOSED. No finding remains open in this PR's reviewed scope.
+Integration review remains separately required for this HIGH PR.
+#227 remains NOT CLEAN at d1d8742a with F103 and F107 open until its authorized replacement review.
+#230 still awaits direct READY. F39 and F61/F62 retain their prior scopes.
+The non-minimum P3 queue remains parked. All earlier exact-head records remain preserved.
+
+VERDICT: CLEAN
