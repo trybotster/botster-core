@@ -1,0 +1,5 @@
+# The fixture of `ci::slow_tests::slow_a_listed_test_that_the_workspace_list_lacks_is_still_no_catch` (GS-KF-R1-1): `b`
+# enables the feature `x` of `a`, so the workspace build of `a` has `x`, and `a`'s own build has not.
+[workspace]
+members = ["a", "b"]
+resolver = "2"

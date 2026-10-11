@@ -6,9 +6,9 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    caps, fsutil, gate_decisions, high_tier, lists, mutant_logs, mutants_cited, mutants_stale,
-    platform_code, prebuild, process_check, public_api, signals, slow_coverage, taint, test_budget,
-    timers, unsafe_exception,
+    caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs, mutants_cited,
+    mutants_stale, platform_code, prebuild, process_check, public_api, signals, slow_coverage,
+    taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -496,9 +496,20 @@ fn mutants_job(root: &Path) -> Result<()> {
         .chain(exclusions.iter().cloned())
         .collect();
     let listed = split_listed(listed, &every_exclusion)?;
+    // The known-flaky tests (flake guard PR 2): no mutation stage runs them; the slow step and the stage-2 baseline do.
+    let flaky = known_flaky::parse(
+        &std::fs::read_to_string(root.join(known_flaky::FILE))
+            .with_context(|| format!("read {}", known_flaky::FILE))?,
+    )
+    .map_err(anyhow::Error::msg)?;
+    // A listed test is never a catch, whatever a stage's filter leaves out (`mutant_logs::stage_report`).
+    let flaky_ids: Vec<String> = flaky
+        .iter()
+        .map(|entry| format!("{} {}", entry.binary, entry.test))
+        .collect();
     let outcomes_of = |out: &Path| -> Result<Option<Outcomes>> {
         match std::fs::read_to_string(out.join("outcomes.json")) {
-            Ok(text) => Ok(Some(parse_stage_outcomes(&text, |path| {
+            Ok(text) => Ok(Some(parse_stage_outcomes(&text, &flaky_ids, |path| {
                 std::fs::read_to_string(out.join(path))
                     .with_context(|| format!("read {}", out.join(path).display()))
             })?)),
@@ -516,15 +527,33 @@ fn mutants_job(root: &Path) -> Result<()> {
         .join("nextest")
         .join("slow")
         .join("stage2-baseline-pids");
+    // The filter of a stage and its lines: the stage lists its own tests (`selection`, its features) and removes each
+    // known-flaky test that its list has (GS-KF-R1-1). With an empty list, nothing is listed and `filter` is unchanged.
+    let flaky_filter =
+        |selection: &[String], filter: Option<&str>| -> Result<(Option<String>, Vec<String>)> {
+            if flaky.is_empty() {
+                return Ok((filter.map(str::to_string), Vec::new()));
+            }
+            let tests = slow_coverage::tests(root, &meta.target_dir, selection)?;
+            Ok((
+                known_flaky::stage_filter(&flaky, &tests, filter),
+                known_flaky::report(&flaky, &tests),
+            ))
+        };
     two_stage_decision(
         &listed,
         |skip| {
             // An outcomes file left by an earlier run must not stand for this one: `write_skip` replaces the directory.
             let out = stage1_dir.join("mutants.out");
             write_skip(&stage1_dir, skip)?;
+            let (stage1_filter, lines) =
+                flaky_filter(&test_budget::tier_selection(false, &slow_packages), None)?;
+            for line in lines {
+                println!("mutants: stage 1 (default): {line}");
+            }
             let mut cmd = cargo(root);
             mutants(&mut cmd);
-            cmd.args(stage1_run_args(&stage1_dir))
+            cmd.args(stage1_run_args(&stage1_dir, stage1_filter.as_deref()))
                 .envs(test_budget::tier_env(false));
             let started = Instant::now();
             let status = cmd.status().context("start cargo mutants (stage 1)")?;
@@ -553,6 +582,15 @@ fn mutants_job(root: &Path) -> Result<()> {
         |selection| {
             let out = stage2_dir.join("mutants.out");
             write_skip(&stage2_dir, &selection.skip)?;
+            let (stage2_filter, lines) = flaky_filter(
+                &stage2_packages(&slow_packages),
+                Some(test_budget::SLOW_FILTER),
+            )?;
+            let stage2_filter =
+                stage2_filter.unwrap_or_else(|| test_budget::SLOW_FILTER.to_string());
+            for line in lines {
+                println!("mutants: stage 2 (slow): {line}");
+            }
             let diff = ["--in-diff".to_string(), diff_path.display().to_string()];
             let mut cmd = cargo(root);
             cmd.args(stage2_args(
@@ -561,6 +599,7 @@ fn mutants_job(root: &Path) -> Result<()> {
                 &exclusions,
                 &selection.missed,
                 &stage2_dir,
+                &stage2_filter,
             ))
             .envs(test_budget::tier_env(true));
             let started = Instant::now();
@@ -667,12 +706,23 @@ struct Outcomes {
 }
 
 /// The outcomes of a stage (`Outcomes`) from its `outcomes.json`, with the report of the logs that `read` gives by their
-/// `log_path` (relative to the stage's `mutants.out`).
+/// `log_path` (relative to the stage's `mutants.out`). A mutant that cargo-mutants reports as caught, but whose first
+/// final failure is a known-flaky test (`flaky`, `mutant_logs::StageReport::missed`), is MISSED: the counts and the
+/// missed names include it (GS-KF-R1-1, lead settlement 2026-10-11).
 ///
 /// # Errors
 /// The file has no counts (`parse_outcomes`), no `outcomes` array, or a missed outcome without a mutant name.
-fn parse_stage_outcomes(json: &str, read: impl Fn(&str) -> Result<String>) -> Result<Outcomes> {
-    let summary = parse_outcomes(json)?;
+fn parse_stage_outcomes(
+    json: &str,
+    flaky: &[String],
+    read: impl Fn(&str) -> Result<String>,
+) -> Result<Outcomes> {
+    let mut summary = parse_outcomes(json)?;
+    let report = mutant_logs::stage_report(json, flaky, read);
+    let mut flaky_first = report
+        .as_ref()
+        .map(|report| report.missed.clone())
+        .unwrap_or_default();
     let v: serde_json::Value = serde_json::from_str(json)?;
     let mutants = v["outcomes"]
         .as_array()
@@ -682,10 +732,33 @@ fn parse_stage_outcomes(json: &str, read: impl Fn(&str) -> Result<String>) -> Re
         .map(|o| {
             o["scenario"]["Mutant"]["name"]
                 .as_str()
-                .map(|name| (name.to_string(), o["summary"] == "MissedMutant"))
+                .map(|name| {
+                    let caught_first_by_flaky = o["summary"] == "CaughtMutant"
+                        && flaky_first
+                            .iter()
+                            .position(|missed| missed == name)
+                            .map(|i| flaky_first.remove(i))
+                            .is_some();
+                    (
+                        name.to_string(),
+                        o["summary"] == "MissedMutant" || caught_first_by_flaky,
+                    )
+                })
                 .context("a mutant outcome in outcomes.json has no mutant name")
         })
         .collect::<Result<Vec<_>>>()?;
+    anyhow::ensure!(
+        flaky_first.is_empty(),
+        "outcomes.json has no caught mutant for each of {flaky_first:?}, which a known-flaky test caught first"
+    );
+    let moved = u64::try_from(report.as_ref().map_or(0, |report| report.missed.len()))?;
+    anyhow::ensure!(
+        moved <= summary.caught,
+        "outcomes.json counts {} caught mutants, fewer than the {moved} that a known-flaky test caught first",
+        summary.caught
+    );
+    summary.caught -= moved;
+    summary.missed += moved;
     let missed = mutants
         .iter()
         .filter(|(_, missed)| *missed)
@@ -696,7 +769,7 @@ fn parse_stage_outcomes(json: &str, read: impl Fn(&str) -> Result<String>) -> Re
         summary,
         missed,
         tested,
-        report: mutant_logs::stage_report(json, read),
+        report: report.map(|report| report.lines),
     })
 }
 
@@ -896,6 +969,13 @@ fn stage_outcomes(
         );
     };
     let s = &outcomes.summary;
+    // A mutant that a known-flaky test caught first is MISSED (`parse_stage_outcomes`), so cargo-mutants' success is a
+    // missed mutant (exit code 2) when the counts have one.
+    let code = if stage.code == Some(0) && s.missed > 0 {
+        Some(2)
+    } else {
+        stage.code
+    };
     let line = format!(
         "mutants: {name}: {} mutants: {} caught, {} missed, {} timeout, {} unviable, in {:.1} s",
         s.total,
@@ -908,7 +988,7 @@ fn stage_outcomes(
     if usize::try_from(s.total).ok() != Some(expected) {
         bail!("{line}; it had {expected} mutants to test: the run did not report every one");
     }
-    Ok((stage.code, outcomes, line))
+    Ok((code, outcomes, line))
 }
 
 /// The verdict of the mutation step in two stages (plan section 8, revisions 23n and 23r), from the number of mutants that
@@ -1036,26 +1116,35 @@ fn two_stage_decision(
 /// in both places (a test can differ only under a mutant). The equal outcomes rest on the review of the tests that read
 /// the repository and on a comparison of each mutant, copied and in place (PR #252). The gate runs on a snapshot of the
 /// commit that it removes when it ends.
-fn stage1_run_args(output: &Path) -> Vec<String> {
+///
+/// `filter` is the nextest filter of the run: `None` (every test) unless the known-flaky list names a test of stage 1's own
+/// list (`known_flaky::stage_filter`).
+fn stage1_run_args(output: &Path, filter: Option<&str>) -> Vec<String> {
     let mut args = vec!["--in-place".to_string()];
     args.extend(MUTANTS_PROGRESS.iter().map(|s| s.to_string()));
     args.push("--iterate".into());
     args.push("--output".into());
     args.push(output.display().to_string());
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
+    if let Some(filter) = filter {
+        args.push("-E".into());
+        args.push(filter.into());
+    }
     args
 }
 
 /// The arguments of stage 2 (plan 23r) after `cargo`: the mutants of `selection` (the diff), in place (so serial), with
 /// the slow features of `slow_packages`, the workspace's tests, and the slow tier's filter; exactly the stage-1 misses
 /// (`-F` with each whole name, and `--iterate`, which skips the names of `write_skip`: `Stage2Selection`); the same
-/// exclusions; and the slow tier's deadline as the timeout of each mutant.
+/// exclusions; and the slow tier's deadline as the timeout of each mutant. `filter` is the slow tier's filter without the
+/// known-flaky tests of stage 2's own list (`known_flaky::stage_filter`).
 fn stage2_args(
     selection: &[String],
     slow_packages: &[String],
     exclusions: &[String],
     missed: &[String],
     output: &Path,
+    filter: &str,
 ) -> Vec<String> {
     let mut args = vec!["mutants".to_string()];
     args.extend(selection.iter().cloned());
@@ -1100,8 +1189,22 @@ fn stage2_args(
     args.push(output.display().to_string());
     args.extend(MUTANTS_TEST_ARGS.iter().map(|s| s.to_string()));
     args.push("-E".into());
-    args.push(test_budget::SLOW_FILTER.into());
+    args.push(filter.into());
     args
+}
+
+/// The packages and features of stage 2, as nextest arguments: the workspace with the slow features of `slow_packages`. Its
+/// known-flaky tests come from the list of these (`known_flaky::stage_filter`).
+pub(crate) fn stage2_packages(slow_packages: &[String]) -> Vec<String> {
+    vec![
+        "--workspace".to_string(),
+        "--features".to_string(),
+        slow_packages
+            .iter()
+            .map(|p| format!("{p}/slow"))
+            .collect::<Vec<_>>()
+            .join(","),
+    ]
 }
 
 /// The arguments of stage 2's baseline after `cargo`: the slow tier unmutated, as stage 2 runs it for each mutant (the
@@ -2024,7 +2127,7 @@ mod tests {
             {"scenario":{"Mutant":{"name":"a.rs:1:2: replace f -> bool with true"}},"summary":"MissedMutant"},
             {"scenario":{"Mutant":{"name":"a.rs:3:4: replace g with ()"}},"summary":"CaughtMutant"},
             {"scenario":{"Mutant":{"name":"b.rs:5:6: replace + with - in h"}},"summary":"MissedMutant"}]}"#;
-        let outcomes = parse_stage_outcomes(json, no_logs).unwrap();
+        let outcomes = parse_stage_outcomes(json, &[], no_logs).unwrap();
         assert_eq!(outcomes.summary, counts(3, 1, 2, 0, 0));
         assert_eq!(
             outcomes.missed,
@@ -2042,13 +2145,104 @@ mod tests {
             ]
         );
         let no_list = r#"{"total_mutants":0,"caught":0,"missed":0,"timeout":0,"unviable":0}"#;
-        assert!(parse_stage_outcomes(no_list, no_logs).is_err());
+        assert!(parse_stage_outcomes(no_list, &[], no_logs).is_err());
         let unnamed = r#"{"total_mutants":1,"caught":0,"missed":1,"timeout":0,"unviable":0,"outcomes":[
             {"scenario":{"Mutant":{}},"summary":"MissedMutant"}]}"#;
-        assert!(parse_stage_outcomes(unnamed, no_logs).is_err());
+        assert!(parse_stage_outcomes(unnamed, &[], no_logs).is_err());
         let unnamed_caught = r#"{"total_mutants":1,"caught":1,"missed":0,"timeout":0,"unviable":0,"outcomes":[
             {"scenario":{"Mutant":{}},"summary":"CaughtMutant"}]}"#;
-        assert!(parse_stage_outcomes(unnamed_caught, no_logs).is_err());
+        assert!(parse_stage_outcomes(unnamed_caught, &[], no_logs).is_err());
+    }
+
+    /// GS-KF-R1-1 (lead settlement, 2026-10-11): only the first final failure of a mutant's run can be a catch. (a) A
+    /// listed test fails first, and an unlisted test then fails by the cancellation (`--max-fail 1:immediate`): the
+    /// mutant is MISSED, in the counts and the names, and a stage's exit code 0 becomes 2. Stage 1 then gives it to stage
+    /// 2; in stage 2, it fails the step. (b) An unlisted test fails first: it is the catch.
+    #[test]
+    fn a_mutant_that_a_listed_test_fails_first_is_missed() {
+        let listed = ["w t::flaky".to_string()];
+        let flaky_first =
+            "        FAIL [   0.100s] w t::flaky\n     SIGTERM [   0.200s] w t::real\n";
+        let real_first =
+            "        FAIL [   0.100s] w t::real\n     SIGTERM [   0.200s] w t::flaky\n";
+        let json = r#"{"total_mutants":2,"caught":2,"missed":0,"timeout":0,"unviable":0,"outcomes":[
+            {"log_path":"m0.log","scenario":{"Mutant":{"name":"m0"}},"summary":"CaughtMutant"},
+            {"log_path":"m1.log","scenario":{"Mutant":{"name":"m1"}},"summary":"CaughtMutant"}]}"#;
+        let read = |m0: &'static str| {
+            move |path: &str| -> Result<String> {
+                Ok(if path == "m0.log" { m0 } else { real_first }.to_string())
+            }
+        };
+        let outcomes = |m0| parse_stage_outcomes(json, &listed, read(m0)).unwrap();
+        let a = outcomes(flaky_first);
+        assert_eq!(a.summary, counts(2, 1, 1, 0, 0));
+        assert_eq!(a.missed, ["m0"]);
+        assert_eq!(a.tested, ["m0", "m1"]);
+        let report = a.report.as_ref().unwrap();
+        assert_eq!(
+            report,
+            &[
+                "`m0` is MISSED: its first failure is the known-flaky test w t::flaky (ci/known-flaky.toml; log m0.log), \
+                 which is no catch; the later failures [\"w t::real\"] come after the cancellation starts, so none is a \
+                 catch"
+                    .to_string(),
+                "caught `m1` by w t::real".to_string(),
+            ]
+        );
+        let b = outcomes(real_first);
+        assert_eq!(
+            (b.summary, b.missed),
+            (counts(2, 2, 0, 0, 0), Vec::<String>::new())
+        );
+        assert_eq!(
+            b.report.unwrap(),
+            ["caught `m0` by w t::real", "caught `m1` by w t::real"]
+        );
+
+        let as_stage = |outcomes| Stage {
+            code: Some(0),
+            outcomes: Some(outcomes),
+            took: Duration::ZERO,
+        };
+        let base = || -> Result<(bool, Duration)> { Ok((true, Duration::ZERO)) };
+        let selected = std::cell::RefCell::new(Vec::new());
+        let stage2_of = |m0: &'static str| {
+            let (selected, listed) = (&selected, &listed);
+            move |selection: &Stage2Selection| -> Result<Stage> {
+                selected.borrow_mut().push(selection.missed.clone());
+                let json = r#"{"total_mutants":1,"caught":1,"missed":0,"timeout":0,"unviable":0,"outcomes":[
+                    {"log_path":"m0.log","scenario":{"Mutant":{"name":"m0"}},"summary":"CaughtMutant"}]}"#;
+                Ok(as_stage(
+                    parse_stage_outcomes(json, listed, read(m0)).unwrap(),
+                ))
+            }
+        };
+        let error = decide(
+            2,
+            || Ok(as_stage(outcomes(flaky_first))),
+            base,
+            stage2_of(flaky_first),
+        )
+        .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("a mutant that both stages miss"),
+            "{error:#}"
+        );
+        let lines = decide(
+            2,
+            || Ok(as_stage(outcomes(flaky_first))),
+            base,
+            stage2_of(real_first),
+        )
+        .unwrap();
+        assert_eq!(selected.into_inner(), [["m0"], ["m0"]]);
+        assert_eq!(
+            lines.last().unwrap(),
+            "mutants: 2 mutants: 2 caught (1 by stage 2), 0 missed, 0 timeout, 0 unviable"
+        );
+        let (code, _, _) =
+            stage_outcomes("stage 1 (default)", 2, as_stage(outcomes(real_first))).unwrap();
+        assert_eq!(code, Some(0));
     }
 
     /// P5's gate on #222 (`deb34002`): cargo-mutants 27.1.0 tested a struct-field deletion that stage 1 had caught,
@@ -2398,9 +2592,16 @@ mod tests {
         let stage1: Vec<String> = MUTANTS_OPTIONS
             .iter()
             .map(|s| s.to_string())
-            .chain(stage1_run_args(Path::new("out")))
+            .chain(stage1_run_args(Path::new("out"), None))
             .collect();
-        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        let stage2 = stage2_args(
+            &[],
+            &[],
+            &[],
+            &[],
+            Path::new("out"),
+            test_budget::SLOW_FILTER,
+        );
         for (name, args) in [("stage 1", &stage1), ("stage 2", &stage2)] {
             assert!(args.iter().any(|a| a == "--in-place"), "{name}: {args:?}");
             assert!(
@@ -2433,8 +2634,26 @@ mod tests {
         .iter()
         .map(|s| s.to_string())
         .collect();
-        assert_eq!(stage1_run_args(Path::new("out")), expected);
-        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        assert_eq!(stage1_run_args(Path::new("out"), None), expected);
+        // An empty known-flaky list gives stage 1 no filter: the same arguments, byte for byte.
+        assert_eq!(
+            stage1_run_args(
+                Path::new("out"),
+                known_flaky::stage_filter(&[], &known_flaky::Tests::new(), None).as_deref()
+            ),
+            expected
+        );
+        let filtered = stage1_run_args(Path::new("out"), Some("all() - (x)"));
+        assert_eq!(filtered[..expected.len()], expected[..]);
+        assert_eq!(filtered[expected.len()..], ["-E", "all() - (x)"]);
+        let stage2 = stage2_args(
+            &[],
+            &[],
+            &[],
+            &[],
+            Path::new("out"),
+            test_budget::SLOW_FILTER,
+        );
         for flag in MUTANTS_PROGRESS {
             assert!(
                 stage2.iter().any(|a| a == flag),
@@ -2454,6 +2673,13 @@ mod tests {
             &["x\\.rs".into()],
             &["a.rs:1:2: replace f -> bool with true".into()],
             Path::new("out"),
+            // An empty known-flaky list leaves the slow filter, so the arguments are those of the slow tier.
+            &known_flaky::stage_filter(
+                &[],
+                &known_flaky::Tests::new(),
+                Some(test_budget::SLOW_FILTER),
+            )
+            .unwrap(),
         );
         let expected: Vec<String> = [
             "mutants",
@@ -2871,7 +3097,7 @@ mod slow_tests {
         command
             .arg("mutants")
             .args(MUTANTS_OPTIONS)
-            .args(stage1_run_args(&out))
+            .args(stage1_run_args(&out, None))
             .envs(test_budget::tier_env(false))
             .stdout(std::process::Stdio::null());
         let mut run = OwnedChild::spawn_group(&mut command).unwrap();
@@ -2879,6 +3105,7 @@ mod slow_tests {
         let mutants_out = out.join("mutants.out");
         let outcomes = parse_stage_outcomes(
             &std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap(),
+            &[],
             |path| Ok(std::fs::read_to_string(mutants_out.join(path))?),
         )
         .unwrap();
@@ -2924,6 +3151,153 @@ mod slow_tests {
                 "{line}"
             );
         }
+        // GS-KF-R1-1 on the same real run: with the catching test listed as known-flaky and no filter that leaves it out
+        // (a test that the stage's list did not have), its catches are no catches: each of its mutants is MISSED.
+        let listed = parse_stage_outcomes(
+            &std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap(),
+            &["flaky tests::two_tripled_is_six".to_string()],
+            |path| Ok(std::fs::read_to_string(mutants_out.join(path))?),
+        )
+        .unwrap();
+        assert_eq!(
+            (
+                listed.summary.caught,
+                listed.summary.missed,
+                listed.missed.len()
+            ),
+            (0, 8, 8),
+            "{listed:?}"
+        );
+        let report = listed.report.expect("the report");
+        assert_eq!(
+            report
+                .iter()
+                .filter(|l| l.contains(
+                    "` is MISSED: its first failure is the known-flaky test flaky tests::two_tripled_is_six"
+                ))
+                .count(),
+            4,
+            "{report:?}"
+        );
+    }
+
+    /// GS-KF-R1-1, on real tools: stage 1's list (`--workspace`, unified features) is not a superset of the builds that
+    /// cargo-mutants tests (the mutated package alone, with its own features). In the fixture `xtask/fixtures/
+    /// known-flaky-unify`, `b` enables the feature `x` of `a`, and `a tests::guarded` exists only without `x`: the
+    /// workspace list lacks it, `-p a` lists it, and no stage filter can leave it out. The step's stage-1 command then runs
+    /// it, and it catches each mutant of `triple`. Listed as known-flaky, it is no catch (`mutant_logs::stage_report`):
+    /// each of its mutants is MISSED, and the stage's exit code 0 becomes 2, a missed mutant (`stage_outcomes`).
+    #[test]
+    fn slow_a_listed_test_that_the_workspace_list_lacks_is_still_no_catch() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/known-flaky-unify");
+        let dir = tempfile::tempdir().unwrap();
+        for sub in ["a/src", "b/src", ".config"] {
+            std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+        }
+        for (from, to) in [
+            ("Cargo.toml.in", "Cargo.toml"),
+            ("a/Cargo.toml.in", "a/Cargo.toml"),
+            ("a/src/lib.rs", "a/src/lib.rs"),
+            ("b/Cargo.toml.in", "b/Cargo.toml"),
+            ("b/src/lib.rs", "b/src/lib.rs"),
+        ] {
+            std::fs::copy(fixture.join(from), dir.path().join(to)).unwrap();
+        }
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let guarded = ("a".to_string(), "tests::guarded".to_string());
+        let target = dir.path().join("target");
+        let workspace = slow_coverage::tests(
+            dir.path(),
+            &target,
+            &test_budget::tier_selection(false, &[]),
+        )
+        .unwrap();
+        let package =
+            slow_coverage::tests(dir.path(), &target, &["-p".to_string(), "a".to_string()])
+                .unwrap();
+        assert!(!workspace.contains(&guarded), "{workspace:?}");
+        assert!(package.contains(&guarded), "{package:?}");
+        let entry = known_flaky::Entry {
+            binary: guarded.0.clone(),
+            test: guarded.1.clone(),
+            diagnosis: "d".into(),
+            owner: "o".into(),
+            removed_by: "#1".into(),
+        };
+        assert_eq!(
+            known_flaky::stage_filter(std::slice::from_ref(&entry), &workspace, None),
+            None
+        );
+
+        let out = dir.path().join("stage1");
+        write_skip(&out, &[]).unwrap();
+        let mut command = crate::tools::cargo(dir.path());
+        command
+            .arg("mutants")
+            .args(MUTANTS_OPTIONS)
+            .args(stage1_run_args(&out, None))
+            .envs(test_budget::tier_env(false))
+            .stdout(std::process::Stdio::null());
+        let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+        let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+        let mutants_out = out.join("mutants.out");
+        let json = std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap();
+        let read = |path: &str| Ok(std::fs::read_to_string(mutants_out.join(path))?);
+        let unlisted = parse_stage_outcomes(&json, &[], read).unwrap();
+        assert_eq!(
+            (
+                status.code(),
+                unlisted.summary.missed,
+                unlisted.summary.caught > 0
+            ),
+            (Some(0), 0, true),
+            "{status}: {unlisted:?}"
+        );
+        let report = unlisted.report.expect("the report");
+        assert!(
+            report
+                .iter()
+                .all(|line| line.ends_with("` by a tests::guarded")),
+            "{report:?}"
+        );
+        let caught = unlisted.summary.caught;
+        let listed = parse_stage_outcomes(&json, &["a tests::guarded".to_string()], read).unwrap();
+        assert_eq!(
+            (
+                listed.summary.caught,
+                listed.summary.missed,
+                listed.missed.len() as u64
+            ),
+            (0, caught, caught),
+            "{listed:?}"
+        );
+        let report = listed.report.as_ref().expect("the report");
+        assert!(
+            report.iter().all(|line| line.contains(
+                "` is MISSED: its first failure is the known-flaky test a tests::guarded"
+            )),
+            "{report:?}"
+        );
+        let (code, _, line) = stage_outcomes(
+            "stage 1 (default)",
+            usize::try_from(listed.summary.total).unwrap(),
+            Stage {
+                code: status.code(),
+                outcomes: Some(listed),
+                took: Duration::ZERO,
+            },
+        )
+        .unwrap();
+        assert_eq!(code, Some(2), "{line}");
     }
 
     /// The red-on-revert proof of plan 23n, on real cargo-mutants runs of the fixture `xtask/fixtures/mutants-two-stage`:
@@ -2983,7 +3357,7 @@ mod slow_tests {
             let outcomes = std::fs::read_to_string(out.join("mutants.out/outcomes.json"))
                 .ok()
                 .map(|text| {
-                    parse_stage_outcomes(&text, |path| {
+                    parse_stage_outcomes(&text, &[], |path| {
                         Ok(std::fs::read_to_string(out.join("mutants.out").join(path))?)
                     })
                     .unwrap()
@@ -3036,7 +3410,7 @@ mod slow_tests {
                         command.arg("--exclude-re").arg(re);
                     }
                     command
-                        .args(stage1_run_args(&out))
+                        .args(stage1_run_args(&out, None))
                         .envs(test_budget::tier_env(false));
                     finish(command, &out)
                 },
@@ -3068,7 +3442,14 @@ mod slow_tests {
                     write_skip(&out, &skipped).unwrap();
                     let mut command = crate::tools::cargo(dir);
                     command
-                        .args(stage2_args(&[], &slow_packages, &exclusions, missed, &out))
+                        .args(stage2_args(
+                            &[],
+                            &slow_packages,
+                            &exclusions,
+                            missed,
+                            &out,
+                            test_budget::SLOW_FILTER,
+                        ))
                         .envs(test_budget::tier_env(true));
                     finish(command, &out)
                 },

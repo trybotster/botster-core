@@ -528,6 +528,10 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let real_only = pending::parse_real_only(&read(REAL_ONLY_FILE)?).map_err(anyhow::Error::msg)?;
     let held = pending::parse_held(&read(HELD_FILE)?).map_err(anyhow::Error::msg)?;
     let transcripts = pending::transcript_ids().map_err(anyhow::Error::msg)?;
+    // The known-flaky list (flake guard PR 2): a malformed entry is a problem of this step, before the mutation step reads it.
+    if let Err(problem) = crate::known_flaky::parse(&read(crate::known_flaky::FILE)?) {
+        problems.push(problem);
+    }
     problems.extend(pending::held_problems(
         &held,
         &pending,
