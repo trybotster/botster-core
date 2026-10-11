@@ -397,15 +397,17 @@ mod tests {
         SessionId(name.into())
     }
 
-    /// A count of marks that starts at `first`, and a view of the next one.
-    fn marks_from(first: u64) -> (Marks, Arc<AtomicU64>) {
-        let next = Arc::new(AtomicU64::new(first));
+    /// A count of marks, and a view of the next one.
+    fn marks() -> (Marks, Arc<AtomicU64>) {
+        let next = Arc::new(AtomicU64::new(0));
         let view = Arc::clone(&next);
         (Box::new(move || next.fetch_add(1, Ordering::SeqCst)), view)
     }
 
-    fn marks() -> (Marks, Arc<AtomicU64>) {
-        marks_from(0)
+    /// The pages of the transcript's capture and of the second capture that `resume` read. The real resume test proves the
+    /// cut's mark through the control's `equal`.
+    fn read(resumed: Result<Resumed, ControlError>) -> Result<(Vec<u8>, Vec<u8>), ControlError> {
+        resumed.map(|resumed| (resumed.pages, resumed.second))
     }
 
     impl Fake {
@@ -613,13 +615,13 @@ mod tests {
         }
     }
 
-    /// The control reads the transcript's capture with its mark and pages, and a second capture that Core then releases.
+    /// The control reads the transcript's capture and a second capture that Core then releases.
     /// Only a completed capture of the same session qualifies, and only a `Resize` or a `SetColorProfile` of that session
     /// makes it unsupported. The layer passes Core's events through as they are.
     #[test]
     fn the_control_reads_the_transcripts_capture_and_a_second_one() {
         let (fake, released) = Fake::new(true);
-        let (marks, _next) = marks_from(4);
+        let (marks, _next) = marks();
         let (mut layer, shared) = CaptureLayer::new(Box::new(fake), marks);
         let shared = shared.upgrade().unwrap();
         let bound = Duration::from_secs(10);
@@ -642,21 +644,13 @@ mod tests {
         assert_eq!(layer.poll_events(8), vec![other(start)]);
 
         assert_eq!(
-            lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound),
-            Ok(Resumed {
-                mark: 4,
-                pages: vec![1, 0, 1, 1],
-                second: vec![3, 0, 3, 1],
-            })
+            read(lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound)),
+            Ok((vec![1, 0, 1, 1], vec![3, 0, 3, 1]))
         );
         assert_eq!(*released.lock().unwrap(), vec![CaptureId(3)]);
         assert_eq!(
-            lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound),
-            Ok(Resumed {
-                mark: 4,
-                pages: vec![1, 0, 1, 1],
-                second: vec![4, 0, 4, 1],
-            }),
+            read(lock(&shared).resume(&sid("s1"), CaptureId(op.0), bound)),
+            Ok((vec![1, 0, 1, 1], vec![4, 0, 4, 1])),
             "the second capture is not the transcript's, and it is taken again"
         );
         for (session, capture) in [("s2", op.0), ("s1", start.0), ("s1", 99)] {
