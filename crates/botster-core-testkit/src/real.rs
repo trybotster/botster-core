@@ -1355,10 +1355,20 @@ mod slow_controls {
 
     /// Creates the session `session`, whose payload is the probe program that holds.
     fn created(harness: &RealCoreHarness, core: &mut dyn CoreApi, session: &str) {
+        created_with(harness, core, session, BTreeMap::new());
+    }
+
+    /// As [`created`], with the payload's environment `env`.
+    fn created_with(
+        harness: &RealCoreHarness,
+        core: &mut dyn CoreApi,
+        session: &str,
+        env: BTreeMap<String, String>,
+    ) {
         let hold = json!({ "program": [{ "hold": {} }] }).to_string();
         let request = SpawnRequest {
             argv: vec![harness.probe_binary(), hold],
-            env: BTreeMap::new(),
+            env,
             cwd: "/".into(),
             size: Size {
                 rows: 24,
@@ -1376,6 +1386,73 @@ mod slow_controls {
         })
         .expect("create");
         pump_until(core, |c| c.get(&sid(session)).is_ok());
+    }
+
+    /// R-60, on a real session, through the control:
+    /// - A created session has no worker yet: `{ready: false}`.
+    /// - A start held at its `Launch` (`hold_start_at` before `payload`) has a recorded worker and no payload, so no probe
+    ///   has connected: `{ready: false}`.
+    /// - After `release_start_at`, the probe connects and `{ready: true}`; the hello wakes the host, so the pump ends.
+    /// - A session with no stored row is `Bad`: an unknown session, and a session after a completed `Remove` (the record of
+    ///   its processes outlives the `Remove`, the stored row does not).
+    #[test]
+    fn program_ready_is_true_once_the_sessions_probe_has_connected() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        // The probe connects to the socket that the environment names.
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        created(&harness, core.as_mut(), "s2");
+        let ready = |h: &mut RealCoreHarness, session: &str| {
+            h.control("a", "program_ready", &json!({ "session": session }))
+        };
+        let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+        assert_eq!(ready(&mut harness, "s1"), Ok(json!({ "ready": false })));
+        assert!(bad(ready(&mut harness, "s9")));
+
+        let hold = json!({"session": "s1", "before": "payload"});
+        assert_eq!(
+            harness.control("a", "hold_start_at", &hold),
+            Ok(Value::Null)
+        );
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |_| {
+            harness
+                .control("a", "registry_row", &json!({"session": "s1"}))
+                .unwrap()["identity_recorded"]
+                == true
+        });
+        assert_eq!(
+            ready(&mut harness, "s1"),
+            Ok(json!({ "ready": false })),
+            "the worker is recorded, and its payload is held"
+        );
+        assert_eq!(
+            harness.control("a", "release_start_at", &json!({"session": "s1"})),
+            Ok(Value::Null)
+        );
+        pump_until(core.as_mut(), |_| {
+            ready(&mut harness, "s1") == Ok(json!({ "ready": true }))
+        });
+
+        assert_eq!(ready(&mut harness, "s2"), Ok(json!({ "ready": false })));
+        core.begin(Op::Remove { id: sid("s2") }).expect("remove");
+        pump_until(core.as_mut(), |c| c.get(&sid("s2")).is_err());
+        assert!(
+            harness
+                .session_processes(&spec.data_dir, &sid("s2"))
+                .is_some(),
+            "the record outlives the Remove"
+        );
+        assert!(bad(ready(&mut harness, "s2")), "removed");
+        drop(core);
     }
 
     /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
