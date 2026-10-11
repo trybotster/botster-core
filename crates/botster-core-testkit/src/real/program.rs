@@ -23,13 +23,13 @@ use botster_core_edges::edges::ProcessIdentity;
 use botster_core_host::driver::HostWake;
 use botster_probe_script::control::{Report, Request, CONNECT_FAILED_EXIT, CONTROL_ENV};
 use botster_route_codec::prelude::{hex_decode, HexBytes};
-use botster_test_process::platform::{self, Waited};
+use botster_test_process::platform;
 use botster_test_process::{Bounded, Deadline, ReadError};
 use rustix::event::{poll, PollFd, PollFlags, Timespec};
 use rustix::io::Errno;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::{self, Write};
 use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -48,8 +48,9 @@ pub(super) const CONTROLS: [&str; 5] = [
 
 /// One probe's connection.
 struct Probe {
-    /// The write end of the socket: the requests.
-    requests: UnixStream,
+    /// The write end of the socket: the requests. A control writes it outside the state lock (`send_line`), so the reader
+    /// of the reports never waits for a write.
+    requests: Arc<UnixStream>,
     /// Every byte that the probe reported reading, in order.
     input: Vec<u8>,
     /// The requests sent and the acknowledgements received.
@@ -61,12 +62,9 @@ struct Probe {
 
 #[derive(Default)]
 struct State {
-    /// The probes, by the pid of their parent: the session's worker.
-    probes: BTreeMap<u32, Probe>,
-    /// The worker pids whose exit a watcher saw.
-    exited: BTreeSet<u32>,
-    /// The worker pids that a control asked for: each is checked once and then watched.
-    watched: BTreeSet<u32>,
+    /// The probes, by the identity of their parent (pid and start time): the session's worker. A reused pid is another
+    /// identity, so it never finds the probe of an earlier worker.
+    probes: BTreeMap<ProcessIdentity, Probe>,
     /// The wake handles of the handles that `open` opened.
     wakes: Vec<Weak<dyn HostWake>>,
     /// Every accepted connection, so that the drop can end its reader.
@@ -151,67 +149,59 @@ impl Programs {
         self.hub.lock().wakes.push(Arc::downgrade(wake));
     }
 
-    /// Waits until the probe of the session whose worker is `worker` connected, or fails when the worker exited first: a
-    /// worker ends with its payload, so a probe that exited (69 included: it could not connect) ends the wait too.
+    /// Waits until the probe of the session whose worker is `worker` connected, by the cleanup bound. A worker that is no
+    /// longer the live process of its identity (it exited, or its pid was reused) fails at once, and at the bound: a worker ends
+    /// with its payload, so a probe that exited (69 included: it could not connect) never connects.
     fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
-        let pid = worker.pid;
-        let mut state = self.hub.lock();
-        if state.watched.insert(pid) {
-            // The recorded identity must still be the live process: a reused pid is never awaited (R-46).
-            let live = platform::pid(pid)
-                .and_then(platform::start_time)
-                .is_ok_and(|start| start == Some(worker.start_time));
-            if !live {
-                state.exited.insert(pid);
-            } else {
-                let hub = Arc::clone(&self.hub);
-                std::thread::Builder::new()
-                    .name("probe-exit-watch".into())
-                    .spawn(move || watch_exit(&hub, pid))
-                    .map_err(|e| {
-                        ControlError::Bad(format!("the exit watch could not start: {e}"))
-                    })?;
-            }
-        }
         let deadline = Deadline::cleanup();
+        let mut state = self.hub.lock();
         loop {
-            if state.probes.contains_key(&pid) {
+            if state.probes.contains_key(&worker) {
                 return Ok(state);
             }
-            if state.exited.contains(&pid) {
+            if !live(worker) {
                 return Err(ControlError::Bad(format!(
-                    "the worker {pid} exited before its probe connected to the control socket (a probe that cannot \
-                     connect exits {CONNECT_FAILED_EXIT}): a setup failure"
+                    "the worker {} exited before its probe connected to the control socket (a probe that cannot connect \
+                     exits {CONNECT_FAILED_EXIT}): a setup failure",
+                    worker.pid
                 )));
             }
             state = self.hub.wait(state, deadline).ok_or_else(|| {
                 ControlError::Bad(format!(
-                    "the probe of the worker {pid} did not connect to the control socket within {:?} (is {CONTROL_ENV} in \
+                    "the probe of the worker {} did not connect to the control socket within {:?} (is {CONTROL_ENV} in \
                      its environment?): a setup failure",
+                    worker.pid,
                     deadline.limit()
                 ))
             })?;
         }
     }
 
-    /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it.
+    /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it. The
+    /// write and the wait for the acknowledgement share one cleanup bound; the write holds no lock.
     fn request(&self, worker: ProcessIdentity, request: &Request) -> Result<(), ControlError> {
         let pid = worker.pid;
-        let mut state = self.connected(worker)?;
-        let probe = state.probes.get_mut(&pid).expect("connected");
-        if probe.closed {
-            return Err(exited(pid));
-        }
+        let deadline = Deadline::cleanup();
+        let (requests, target) = {
+            let mut state = self.connected(worker)?;
+            let probe = state.probes.get_mut(&worker).expect("connected");
+            if probe.closed {
+                return Err(exited(pid));
+            }
+            probe.sent += 1;
+            (Arc::clone(&probe.requests), probe.sent)
+        };
         let mut line = serde_json::to_vec(request).expect("a request serializes");
         line.push(b'\n');
-        if probe.requests.write_all(&line).is_err() {
-            return Err(exited(pid));
-        }
-        probe.sent += 1;
-        let target = probe.sent;
-        let deadline = Deadline::cleanup();
+        send_line(&requests, &line, deadline).map_err(|e| {
+            ControlError::Bad(format!(
+                "the request {request:?} to the probe of the worker {pid} was not written within {:?}: {e}",
+                deadline.limit()
+            ))
+        })?;
+        let mut state = self.hub.lock();
         loop {
-            let probe = &state.probes[&pid];
+            let probe = &state.probes[&worker];
             if probe.acked == target {
                 return Ok(());
             }
@@ -230,13 +220,13 @@ impl Programs {
     /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
     fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
         let state = self.connected(worker)?;
-        Ok(state.probes[&worker.pid].input.clone())
+        Ok(state.probes[&worker].input.clone())
     }
 }
 
 impl Drop for Programs {
     /// Stops the accept thread (one connection of its own wakes its poll) and ends every reader (the shutdown of its socket),
-    /// then joins them. An exit watcher ends with its probe's exit or its next bound.
+    /// then joins them. No other thread exists.
     fn drop(&mut self) {
         let connections = {
             let mut state = self.hub.lock();
@@ -252,6 +242,47 @@ impl Drop for Programs {
         }
         let _ = std::fs::remove_file(&self.path);
     }
+}
+
+/// Whether `worker` is still the live process of its identity: a reused pid is another process (R-46).
+fn live(worker: ProcessIdentity) -> bool {
+    identity(worker.pid) == Some(worker)
+}
+
+/// The identity of the live process `pid`, as the real edge records it.
+fn identity(pid: u32) -> Option<ProcessIdentity> {
+    let start_time = platform::pid(pid).and_then(platform::start_time).ok()??;
+    Some(ProcessIdentity { pid, start_time })
+}
+
+/// Writes `line` by `deadline` to a non-blocking socket: a write that finds no room waits in `poll` until the socket takes
+/// bytes, and never blocks.
+fn send_line(stream: &UnixStream, line: &[u8], deadline: Deadline) -> io::Result<()> {
+    let mut at = 0;
+    while at < line.len() {
+        match (&*stream).write(&line[at..]) {
+            Ok(n) => at += n,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) =>
+            {
+                if deadline.expired() {
+                    return Err(io::ErrorKind::TimedOut.into());
+                }
+                let mut ready = [PollFd::new(stream, PollFlags::OUT)];
+                let left = Timespec::try_from(deadline.remaining()).map_err(io::Error::other)?;
+                // timer: deadline — bounds the wait for room in the request socket
+                match poll(&mut ready, Some(&left)) {
+                    Ok(_) | Err(Errno::INTR) => {}
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 fn exited(worker: u32) -> ControlError {
@@ -291,8 +322,10 @@ fn accept(listener: &UnixListener, hub: &Arc<Hub>) {
             Err(error) if error.kind() == io::ErrorKind::ConnectionAborted => continue,
             Err(_) => break,
         };
-        // macOS: an accepted socket inherits the listener's non-blocking mode; the requests are blocking writes.
-        if stream.set_nonblocking(false).is_err() {
+        // The socket is non-blocking (macOS: inherited from the listener; Linux: set here), so a request write never blocks
+        // (`send_line`). macOS ignores `MSG_DONTWAIT` on a full Unix stream socket (bug catalog B10), so the flag on the
+        // descriptor is the only reliable form. The report reader polls before each read (`Bounded`).
+        if stream.set_nonblocking(true).is_err() {
             continue;
         }
         let Ok(copy) = stream.try_clone() else {
@@ -326,14 +359,18 @@ fn serve(hub: &Hub, stream: UnixStream) {
         reader: Bounded::new(stream),
         partial: vec![],
     };
-    let pid = match lines.next(hub).map(|line| serde_json::from_str(&line)) {
+    let parent = match lines.next(hub).map(|line| serde_json::from_str(&line)) {
         Some(Ok(Report::Hello { parent, .. })) => parent,
         _ => return,
     };
+    // The worker is the probe's parent, alive while its payload runs: its identity now is the one in Core's row.
+    let Some(worker) = identity(parent) else {
+        return;
+    };
     hub.lock().probes.insert(
-        pid,
+        worker,
         Probe {
-            requests,
+            requests: Arc::new(requests),
             input: vec![],
             sent: 0,
             acked: 0,
@@ -346,7 +383,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
             .next(hub)
             .and_then(|line| serde_json::from_str::<Report>(&line).ok());
         let mut state = hub.lock();
-        let probe = state.probes.get_mut(&pid).expect("registered");
+        let probe = state.probes.get_mut(&worker).expect("registered");
         let woke = match report {
             Some(Report::Input(hex)) => {
                 probe
@@ -398,24 +435,6 @@ impl Lines {
                     self.partial.extend_from_slice(&partial);
                 }
                 Err(_) => return None,
-            }
-        }
-    }
-}
-
-/// Waits for the exit of the worker `pid`. Each wait is the exit event itself (pidfd or kqueue); the guards' cleanup bound only
-/// re-arms it. The worker ends at the latest when its guard ends its group.
-fn watch_exit(hub: &Hub, pid: u32) {
-    let Ok(target) = platform::pid(pid) else {
-        return;
-    };
-    loop {
-        match platform::await_end(target, Deadline::cleanup()) {
-            Ok(Waited::Deadline) => {}
-            Ok(Waited::Exited | Waited::Gone) | Err(_) => {
-                hub.lock().exited.insert(pid);
-                hub.changed.notify_all();
-                return;
             }
         }
     }
@@ -534,7 +553,7 @@ mod slow_tests {
     use botster_core_conformance::CoreHarness;
     use botster_core_contract::prelude::{Wake, WakeHandle};
     use botster_core_edges::edges::Wake as WakeEdge;
-    use botster_test_process::OwnedChild;
+    use botster_test_process::{OwnedChild, CLEANUP};
     use std::os::fd::RawFd;
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -704,20 +723,88 @@ mod slow_tests {
         assert!(matches!(programs.input(me), Err(ControlError::Bad(_))));
     }
 
-    /// A worker that exits while its probe has not connected ends the wait with `Bad`, a setup failure (a probe that cannot
-    /// connect exits, and its worker ends with it).
+    /// A worker that exited before its probe connected gives `Bad` at once, a setup failure (a probe that cannot connect
+    /// exits, and its worker ends with it).
     #[test]
-    fn a_worker_that_exits_before_its_probe_connects_ends_the_wait() {
+    fn a_worker_that_exited_before_its_probe_connected_gives_bad_at_once() {
         let (_root, programs) = programs();
         let mut worker = OwnedChild::spawn(Command::new("/bin/cat").stdin(Stdio::piped())).unwrap();
         let recorded = identity(worker.id());
-        std::thread::scope(|s| {
-            let control = s.spawn(|| programs.request(recorded, &Request::Blocked(true)));
-            // The end of its stdin ends `cat`.
-            drop(worker.take_stdin());
-            assert!(matches!(control.join().unwrap(), Err(ControlError::Bad(_))));
-        });
+        // The end of its stdin ends `cat`.
+        drop(worker.take_stdin());
         assert!(worker.status().success());
+        let result = programs.request(recorded, &Request::Blocked(true));
+        assert!(
+            matches!(&result, Err(ControlError::Bad(why)) if why.contains("exited before its probe connected")),
+            "{result:?}"
+        );
+    }
+
+    /// A probe is found by its worker's whole identity: a pid whose start time differs is another process (a reused pid), so
+    /// it never finds the probe that connected under the first one (R-46).
+    #[test]
+    fn a_connected_probe_is_never_found_by_another_start_time() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let _probe = FakeProbe::connect(&programs, me.pid);
+        programs.connected(me).map(drop).unwrap();
+        let reused = ProcessIdentity {
+            start_time: me.start_time + 1,
+            ..me
+        };
+        let result = programs.input(reused);
+        assert!(
+            matches!(&result, Err(ControlError::Bad(why)) if why.contains("exited before its probe connected")),
+            "{result:?}"
+        );
+    }
+
+    /// A wake handle that reports each signal on a channel.
+    struct SignalWake(Mutex<std::sync::mpsc::Sender<()>>);
+
+    impl WakeHandle for SignalWake {
+        fn wait(&self, _timeout: Duration) -> Wake {
+            Wake::TimedOut
+        }
+        fn fd(&self) -> RawFd {
+            -1
+        }
+    }
+
+    impl WakeEdge for SignalWake {
+        fn signal(&self) {
+            let _ = self.0.lock().unwrap().send(());
+        }
+        fn drain(&self) {}
+    }
+
+    /// A control writes its request without the state lock: while the probe reads no request (its socket is full), the reader
+    /// still takes the probe's reports, and `pty_input` still answers.
+    #[test]
+    fn reports_are_taken_while_a_request_waits_for_room() {
+        let (_root, programs) = programs();
+        let (signalled, signals) = std::sync::mpsc::channel();
+        let wake = Arc::new(SignalWake(Mutex::new(signalled)));
+        // `watch` keeps a weak reference: the test holds the handle, as a Core handle does.
+        programs.watch(&(Arc::clone(&wake) as Arc<dyn HostWake>));
+        let me = identity(std::process::id());
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        programs.connected(me).map(drop).unwrap();
+        // More bytes than a socket holds on either OS, so the write waits until the probe reads.
+        let big = "61".repeat(1 << 19);
+        std::thread::scope(|s| {
+            let control = s.spawn(|| programs.request(me, &Request::Output(big.clone())));
+            probe.report(&Report::Input("78".into()));
+            // The reader took the report, and woke the hosts, although the request is not written yet.
+            signals
+                // timer: deadline — a reader that waits for the request's write fails the test instead of stalling it
+                .recv_timeout(CLEANUP)
+                .expect("the reader took the report");
+            assert_eq!(programs.input(me).unwrap(), b"x");
+            assert_eq!(probe.next_request(), Request::Output(big.clone()));
+            probe.report(&Report::Ack {});
+            control.join().unwrap().unwrap();
+        });
     }
 
     /// The drop ends the accept thread and every reader, and removes the socket.
