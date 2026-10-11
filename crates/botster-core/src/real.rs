@@ -12,13 +12,14 @@ use botster_core_host::driver::{DescriptorSendError, HostEdges, HostWake, Worker
 use botster_core_host::LinkId;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_sys::entropy::OsEntropy;
+use botster_core_sys::fd_pass;
 use botster_core_sys::process::Children;
 use botster_core_sys::storage::{DataDir, FileStorage};
 use mio::net::{UnixListener, UnixStream};
 use mio::{Events, Interest, Poll, Registry, Token, Waker};
 use std::collections::BTreeMap;
 use std::io::{self, Read, Write};
-use std::os::fd::{AsRawFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -359,6 +360,36 @@ impl LinkIo {
     }
 }
 
+/// A route's stream that can ride on the control link, kept as the type that the embedder gave, so that an endpoint given
+/// back is the one that came.
+enum Endpoint {
+    Stream(std::os::unix::net::UnixStream),
+    Fd(OwnedFd),
+}
+
+impl Endpoint {
+    fn of(endpoint: StreamEndpoint) -> Result<Self, StreamEndpoint> {
+        match endpoint.downcast::<std::os::unix::net::UnixStream>() {
+            Ok(stream) => Ok(Self::Stream(stream)),
+            Err(endpoint) => endpoint.downcast::<OwnedFd>().map(Self::Fd),
+        }
+    }
+
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        match self {
+            Self::Stream(stream) => stream.as_fd(),
+            Self::Fd(fd) => fd.as_fd(),
+        }
+    }
+
+    fn into_endpoint(self) -> StreamEndpoint {
+        match self {
+            Self::Stream(stream) => StreamEndpoint::new(stream),
+            Self::Fd(fd) => StreamEndpoint::new(fd),
+        }
+    }
+}
+
 /// The real edges of one host.
 pub struct RealEdges {
     // The data directory holds the lock for as long as the edges live (LC-2).
@@ -554,13 +585,35 @@ impl HostEdges for RealEdges {
 
     fn link_send_descriptor(
         &mut self,
-        _link: LinkId,
-        _bytes: &[u8],
+        link: LinkId,
+        bytes: &[u8],
         endpoint: StreamEndpoint,
     ) -> Result<usize, (StreamEndpoint, DescriptorSendError)> {
-        // `SCM_RIGHTS` over the control link (DP-2) is real-only work after the testkit PRs of P4a (worker-core DESIGN.md
-        // "Real-only"). Until it exists, a route closes with the typed `HandoffFailed` (OU-2), and Core closes the endpoint.
-        Err((endpoint, DescriptorSendError::Failed))
+        // `SCM_RIGHTS` over the control link (DP-2). The embedder's stream is a connected unix stream, as a `UnixStream` or
+        // as its `OwnedFd` (as for `close_route_stream`); another type cannot ride, and the route closes `HandoffFailed`.
+        let stream = match Endpoint::of(endpoint) {
+            Ok(stream) => stream,
+            Err(endpoint) => return Err((endpoint, DescriptorSendError::Failed)),
+        };
+        let sent = match self.streams.get_mut(&link) {
+            Some(io) => io
+                .check()
+                .and_then(|()| fd_pass::send_with_fd(&io.stream, bytes, stream.as_fd())),
+            None => Err(io::ErrorKind::BrokenPipe.into()),
+        };
+        match sent {
+            // The link holds its own copy of the descriptor now: this one closes as `stream` drops.
+            Ok(n) => Ok(n),
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                ) =>
+            {
+                Err((stream.into_endpoint(), DescriptorSendError::Blocked))
+            }
+            Err(_) => Err((stream.into_endpoint(), DescriptorSendError::Failed)),
+        }
     }
 
     fn close_route_stream(&mut self, endpoint: StreamEndpoint, bytes: &[u8]) {
@@ -933,9 +986,9 @@ mod slow_tests {
         assert_eq!(edges.read_rows("session/").unwrap().len(), 1);
     }
 
-    /// Plan 2.3: random bytes come from the system; the descriptor handoff is not built yet and says so.
+    /// Plan 2.3: random bytes come from the system. An endpoint of a type that cannot ride on the link fails its handoff.
     #[test]
-    fn the_edges_draw_random_bytes_and_refuse_the_handoff() {
+    fn the_edges_draw_random_bytes_and_fail_an_endpoint_that_cannot_ride() {
         let (mut edges, _tmp) = edges();
         let mut a = [0u8; 32];
         let mut b = [0u8; 32];
@@ -950,6 +1003,60 @@ mod slow_tests {
             edges.link_send_descriptor(LinkId(1), b"x", endpoint),
             Err((_, DescriptorSendError::Failed))
         ));
+    }
+
+    /// DP-2, Core A49: a link has `SO_NOSIGPIPE` on macOS: Mio sets it on the sockets that it makes, and an accepted socket
+    /// gets it from Mio's listener (`fd_pass::send_with_fd` refuses a socket without it). A route's stream rides on the first byte of
+    /// its frame, as a `UnixStream` or as its `OwnedFd`: the peer reads the bytes with the descriptor, and the descriptor is
+    /// the same stream. A send to a peer that is gone is `Failed` (`EPIPE`, no signal), and the endpoint comes back.
+    #[test]
+    fn a_route_stream_rides_on_its_frame_and_a_gone_peer_fails_the_handoff() {
+        use botster_core_sys::fd_pass::recv_with_fds;
+        use std::io::Write;
+        use std::os::unix::net::UnixStream as Std;
+        let (mut edges, tmp) = edges();
+        let peer = connect(&tmp);
+        peer.set_nonblocking(true).unwrap();
+        let link = accept(&mut edges);
+        #[cfg(target_os = "macos")]
+        assert!(rustix::net::sockopt::socket_nosigpipe(&edges.streams[&link].stream).unwrap());
+        for as_fd in [false, true] {
+            let (core, client) = Std::pair().unwrap();
+            let endpoint = if as_fd {
+                StreamEndpoint::new(std::os::fd::OwnedFd::from(core))
+            } else {
+                StreamEndpoint::new(core)
+            };
+            let sent = edges
+                .link_send_descriptor(link, b"attach", endpoint)
+                .ok()
+                .unwrap();
+            assert_eq!(sent, 6);
+            // Each read follows its write, so a nonblocking read takes the bytes at once: no read waits.
+            let mut buf = [0u8; 16];
+            let received = recv_with_fds(&peer, &mut buf).unwrap();
+            assert_eq!(
+                (&buf[..received.len], received.fds.len()),
+                (&b"attach"[..], 1)
+            );
+            let mut stream = Std::from(received.fds.into_iter().next().unwrap());
+            stream.write_all(b"same").unwrap();
+            client.set_nonblocking(true).unwrap();
+            let mut got = [0u8; 8];
+            let read = recv_with_fds(&client, &mut got).unwrap();
+            assert_eq!(&got[..read.len], b"same");
+        }
+        drop(peer);
+        let (core, _client) = Std::pair().unwrap();
+        let Err((endpoint, DescriptorSendError::Failed)) =
+            edges.link_send_descriptor(link, b"attach", StreamEndpoint::new(core))
+        else {
+            panic!("a gone peer fails the handoff");
+        };
+        assert!(
+            endpoint.downcast::<Std>().is_ok(),
+            "the endpoint comes back as it came"
+        );
     }
 
     /// R-50, OU-2: a route stream that Core still holds closes with its frame: the client reads the bytes, then the end of
