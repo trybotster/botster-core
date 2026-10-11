@@ -1525,3 +1525,21 @@ All eight raw identities match named test citations. No FLAKY line appears in th
 Local reversals R1–R4 each fail an observable test; restoration passes 25/25. Clean history remains owner-reported.
 Runtime ScriptedProgram::unread is unchanged. Only the unused output_unread counter and accessor are removed in production.
 No reviewer execution job runs. Wait for the fixed-head READY doorbell. Never poll.
+
+#290 Round 1 verdict pushed: 79bcb435c3e2d50179cca99ce1069cfc4802eee0.
+The worktree is clean. One finding remains open on 4fb31c10. Wait for the fixed-head READY. Never poll.
+Sol-B receipt msg_plugin-w_1791760749_dda3e2 and verdict ad157877c794cf886b30b6645a92bb1dabd4a2f6 are read.
+Both verdicts cover the same head and base. Sol-B records the package finding as B290-1, without a separate package-scope review.
+No separate integration defect is reported.
+
+## #291 revision 4 design delta: one open scheduling finding
+
+Sol receipt msg_plugin-w_1791761035_b6ec98 agrees with both original source findings and identifies the new scheduling concern.
+The reviewer reads pc-r78-design-rev4-delta.md, hash e8206746aebc91e579efbfdac247ba5979f94c7571436d43ab74dcb1de7d4352.
+The nonblocking drain ends at EOF or would-block. A held frame waits for mandatory room; a budget-delayed drain can continue next pump.
+R78-D5 MEDIUM: rule 3 makes every open peer_ended link set more, including an unaccepted held frame.
+The engine cannot accept that frame until the host polls events. Unconditional more can repeat pumps with no progress.
+Require a rule that separates budget delay from mandatory-room backpressure, plus a full-queue production-driver test and resume after poll/unpark.
+Design verdict NOT CLEAN (1 open), appended to verdicts/pc-r78-design.md.
+Both original source findings remain open on 79f31be3. No repaired source head or execution result is accepted.
+The reviewer awaits the revised design and fixed-head READY. No execution job runs. Never poll.

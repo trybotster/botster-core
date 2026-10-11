@@ -222,3 +222,40 @@ The same-design integration receipt condition is closed.
 The socket-order premise remains unverified. The named both-OS proof must establish it before the dependent driver repair relies on it.
 All source reviews, reversal evidence, A5-4 evidence, both-OS proofs, and gates remain due.
 This receipt accepts no source head, executable result, or merge readiness. No execution job runs here. Never poll.
+
+## Revision 4 delta: one open design finding
+
+VERDICT: NOT CLEAN (1 open design finding).
+
+Design path: `~/botster-sessions/shared/core-stage1/handoffs/pc-r78-design-rev4-delta.md`.
+SHA-256: `e8206746aebc91e579efbfdac247ba5979f94c7571436d43ab74dcb1de7d4352`.
+The reviewer reads the complete delta after Sol receipt `msg_plugin-w_1791761035_b6ec98`.
+The reviewer reads brief-program-controls.md first and uses the same binding records as the #291 source review.
+Lead FINAL `msg_plugin-w_1791760401_5c2be8` requires a nonblocking drain until EOF or would-block, with no wait for EOF.
+Revision 4 changes the lifecycle premise. The orchestrate-delivery review therefore checks the drain's state and scheduling rules.
+This is a design review. It approves no new source head or execution result.
+
+R78-D5 — MEDIUM, OPEN: driver rule 3 makes a blocked drain runnable.
+
+Rule 3 says every open `peer_ended` link makes the pump report `more`.
+Rule 2 allows a held mandatory frame to wait for the engine's room.
+When the mandatory queue is full, that frame cannot run until the host polls events.
+An unconditional `more` can keep the wake set and repeat pumps without progress.
+This conflicts with TM-6 and the existing delivery backpressure.
+
+In source head `79f31be3`, `deliver` removes read interest and holds a frame when `engine.can_accept` is false.
+`poll_events` calls `unpark_links` after it frees queue capacity.
+The repair must preserve that behavior for a link whose peer ended.
+A drain delayed only by the pump budget remains runnable in a later pump.
+
+Required change: distinguish a budget-delayed drain from a held frame that the engine cannot accept.
+The latter must not set `more` solely because `peer_ended` is true.
+After the host polls events, the drain must resume and preserve frame order.
+Add a production-driver test with a full mandatory queue during the process-exit drain.
+When only the held frame is blocked, verify that the pump reports no more runnable work.
+Then poll events and verify that the frame and the remaining drain are delivered in order.
+Retain the separate test that carries a runnable drain across a pump budget.
+
+The reviewer sends the matching design finding to PC and Sol in `msg_plugin-w_1791761111_ebd941` and `msg_plugin-w_1791761111_9ebe0c`.
+Both original #291 source findings remain open on `79f31be3`.
+The reviewer awaits the revised design and the repaired-head READY. No execution job runs here. Never poll.
