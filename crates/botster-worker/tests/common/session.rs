@@ -177,6 +177,17 @@ struct Session {
 impl Session {
     /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
+        Session::launch_with_route(root, script, stop_grace_ms, None)
+    }
+
+    /// As [`Session::launch`]; with `route`, the `Launch` frame and an `AttachRoute` frame go in one send with the route's
+    /// stream (DP-2), so the worker holds the descriptor when it spawns the payload.
+    fn launch_with_route(
+        root: &Path,
+        script: &str,
+        stop_grace_ms: u64,
+        route: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> Session {
         let payload_guard = PayloadGuard::new(root);
         let script = format!("{}{script}", payload_guard.prefix());
         let socket = root.join("c");
@@ -221,6 +232,7 @@ impl Session {
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
+            route,
         );
         assert!(payload.pid > 0);
         Session { worker, link }
@@ -247,13 +259,16 @@ impl Session {
     }
 }
 
-/// On the worker's accepted link: proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). Returns the link and
-/// the payload's identity from `Launched`.
+/// On the worker's accepted link: proves the hello both ways (AD-6), and launches `argv` (AD-7 step 4). With `route`, an
+/// `AttachRoute` frame of route 1 follows the `Launch` frame in the same send, with the route's stream: the descriptor's
+/// read holds the first byte of that one `AttachRoute` frame (DP-2, plan 23ae). Returns the link and the payload's
+/// identity from `Launched`.
 fn hello_and_launch(
     stream: UnixStream,
     launch: &WorkerLaunch,
     argv: Vec<String>,
     stop_grace_ms: u64,
+    route: Option<std::os::fd::BorrowedFd<'_>>,
 ) -> (Link, PayloadId) {
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
@@ -283,7 +298,7 @@ fn hello_and_launch(
     .encode(&mut reply)
     .unwrap();
     link.send(FrameType::HELLO, &reply);
-    link.msg(&HostMsg::Launch(Box::new(LaunchSpec {
+    let launch_msg = HostMsg::Launch(Box::new(LaunchSpec {
         argv,
         env: BTreeMap::from([("PATH".to_string(), "/usr/bin:/bin".to_string())]),
         cwd: "/".into(),
@@ -298,11 +313,60 @@ fn hello_and_launch(
         link_frame_bound: 1 << 20,
         stop_grace_ms,
         limits: CoreLimits::default(),
-    })));
+    }));
+    match route {
+        None => link.msg(&launch_msg),
+        Some(route) => {
+            let mut bytes = Vec::new();
+            for msg in [launch_msg, attach_route()] {
+                let mut payload = Vec::new();
+                msg.encode(&mut payload);
+                encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
+            }
+            let sent =
+                botster_core_sys::fd_pass::send_with_fd(&link.stream, &bytes, route).unwrap();
+            link.stream.write_all(&bytes[sent..]).unwrap();
+        }
+    }
     let WorkerMsg::Launched { payload, .. } = link.report() else {
         panic!("not launched");
     };
     (link, payload)
+}
+
+/// The `AttachRoute` of route 1, with the limits that the host applies for default options (`admit.rs`).
+fn attach_route() -> HostMsg {
+    let core = CoreLimits::default();
+    HostMsg::AttachRoute {
+        route: RouteId(1),
+        options: AttachOptions {
+            file_directory: "/tmp".into(),
+            file_permissions: None,
+            route_features: Vec::new(),
+            terminal_formats: Vec::new(),
+            owner: None,
+            query_deadline: None,
+            route_tag: None,
+            route_limits: None,
+            history: None,
+            stall_deadline: None,
+            answers_queries: false,
+            input: true,
+        },
+        limits: AppliedRouteLimits {
+            max_frame_bytes: core.effective_max_route_frame_bytes(),
+            max_screen_frame_bytes: core.max_snapshot_bytes + 1,
+            max_history_page_bytes: core.max_history_page_bytes,
+            max_paste_bytes: core.max_paste_bytes,
+            max_query_bytes: core.max_query_bytes,
+            max_query_reply_bytes: core.max_query_reply_bytes,
+            max_file_bytes: core.max_file_bytes,
+            query_deadline: Duration::ZERO,
+            stall_deadline: core.reader_progress_deadline,
+            stall_close_after: core.stall_close_after,
+            route_input_queue_bytes: core.route_input_queue_bytes,
+        },
+    }
 }
 
 /// Reads the first line that the payload writes to `fifo` (the open blocks until the payload opens it for writing).
@@ -595,6 +659,55 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
         .unwrap();
 }
 
+/// DP-2, plan 23ae condition 2: a route descriptor that the worker receives is close-on-exec, so the payload holds no copy.
+/// The worker holds the route's stream when it spawns the payload. The worker then dies by `SIGKILL` while the payload lives,
+/// and the client end of the route reads the end of file: no process holds the worker's end. The proof is by identity (the
+/// end of file), not by a list of the payload's descriptors.
+#[test]
+fn a_received_route_descriptor_does_not_reach_the_payload() {
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let held = fifo(root.path(), "f");
+    let script = format!(
+        "trap '' HUP TERM; exec 3> {}; /bin/echo up >&3; exec sleep 30",
+        held.display()
+    );
+    let (mut client, worker_end) = UnixStream::pair().unwrap();
+    // The deadline is set now: macOS refuses the option (`EINVAL`) on a socket whose peer has closed.
+    // timer: deadline — the limit of a wait for the end of file after the worker died; not a contract value.
+    client
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut session =
+        Session::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    drop(worker_end);
+    let (reader, line) = first_line(&held);
+    assert_eq!(line, "up\n");
+    session.signal_worker(rustix::process::Signal::KILL);
+    session.worker.worker.wait().unwrap();
+    let mut fds = [rustix::event::PollFd::new(
+        reader.get_ref(),
+        rustix::event::PollFlags::IN,
+    )];
+    assert_eq!(
+        rustix::event::poll(
+            &mut fds,
+            Some(&rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 0
+            })
+        )
+        .unwrap(),
+        0,
+        "the payload lives after the worker died"
+    );
+    let mut rest = Vec::new();
+    client
+        .read_to_end(&mut rest)
+        .expect("the end of file: no process holds the worker's end of the route");
+    drop(session);
+}
+
 /// The driver observer ends when its test parent dies without running Drop.
 #[test]
 fn parent_death_ends_the_driver_observer() {
@@ -754,6 +867,7 @@ impl GuardedSession {
             &launch,
             vec![wrapper.display().to_string()],
             stop_grace_ms,
+            None,
         );
         let reports = guard.anchors(2, Deadline::cleanup()).unwrap();
         assert_eq!(
