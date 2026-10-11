@@ -329,6 +329,10 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Core #278 source CLEAN carries to `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`, base `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+
+I read the complete canonical base-check PASS and verified both parents. The final exact-head gate remains pending.
+
 Core #281 is package CLEAN at `1f0ab3eb5e8f19b43fed1e34468e86bced9a244b`, with zero open findings.
 
 Its invalid `.git` fixture keeps the positive file-list assertion and the negative Git-error assertion. Sol's HIGH integration review remains pending.

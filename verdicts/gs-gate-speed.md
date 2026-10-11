@@ -2116,6 +2116,26 @@ Sol publishes integration source CLEAN for this head in `0d05b356210e31488885686
 
 I read the complete artifact and verified its publication. Both source reviews have zero findings. The current-base import and final gate remain required.
 
+### Core PR #278: final base import
+
+- Head: `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`.
+- Base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+- Reviewed parent: `214ade281c890b05e72054f66b2b34e853204d3c`.
+- VERDICT: CLEAN (package source review carried by the canonical base check).
+- Open findings: 0.
+
+I read the complete canonical base-check log. Every condition passes. None of the 32 imported paths overlaps the one own path.
+
+The own diff is byte-identical: 2929 bytes, SHA256 `f02ec8df7efbf9e7c40774eecd7fd87a770a1dc75c250c433c8e76641d7852a2`.
+
+I verified both merge parents and the live PR head and base. Both pending files retain the base's contents.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-4b277224-base-merge-check.log`.
+
+The canonical check carries package and integration source CLEAN. The implementer reports that the final gate is running; I accept no result before its completion.
+
+This record accepts the source carry-over only. The final exact-head gate remains required. I ran no gate, build, test, or base-check script.
+
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
