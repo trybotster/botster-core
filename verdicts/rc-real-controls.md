@@ -128,7 +128,7 @@ Authority: R-60 and plan 23am, section 0, item 1. This PR adds the control befor
 
 ### RC-PR-1 — MEDIUM — The real control accepts a removed session's historical row
 
-Status: OPEN.
+Status: CLOSED at `15633946e020a9d092ff2fcb8d0bf20560efd202`. See round 2 below.
 Evidence: `crates/botster-core-testkit/src/real/program.rs:539` at the reviewed head.
 The new `program_ready` arm uses `session_processes` to decide whether the session has a row.
 That method reads the tap's historical row table. Its documentation at `real.rs:323` states that a row outlives removal.
@@ -174,7 +174,7 @@ The existing test globs do not cover the changed implementation files.
 
 ### RC-PR-2 — LOW — The hello test duplicates readiness proof through a private helper
 
-Status: OPEN.
+Status: CLOSED at `15633946e020a9d092ff2fcb8d0bf20560efd202`. See round 2 below.
 Evidence: `crates/botster-core-testkit/src/real/program.rs:782`, `the_hello_records_the_probe_and_wakes_the_hosts`.
 The test directly asserts `Programs::has_connected` before and after the hello.
 Those assertions read the helper that checks the private probe table.
@@ -205,3 +205,46 @@ Integration verdict: `25a1ca56597ed6ee463e715ab2983b297de873c2`, `verdicts/stage
 The report arrived in `msg_plugin-w_1791713723_509708`.
 The integration reviewer also reports reading the retained plain-v1 Mac log.
 The prior Linux gate does not cover the imported head or a later correction.
+
+## #255: round 2
+
+Date: 2026-10-11.
+Head: `15633946e020a9d092ff2fcb8d0bf20560efd202`.
+Previous reviewed head: `b013fdeb77341a142321c256ad57d1ecc078aed2`.
+Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+Risk: HIGH.
+
+**VERDICT: CLEAN**
+
+Open findings: 0. RC-PR-1 and RC-PR-2 are closed.
+The reviewer read the complete correction and checked the PR's exact head through GitHub.
+The reviewer also read the inherited start-control implementation that the earlier base merge added.
+
+RC-PR-1: The real control now calls `stored` and uses the decoded current row's worker identity.
+The historical process record no longer determines whether the session has a row.
+Both tiers check `Bad` after removal through the harness control.
+The real regression uses a never-started session, so the earlier cached-row implementation would incorrectly return `{ready: false}`.
+
+RC-PR-2: The hello test removes both direct readiness-helper assertions.
+Its acknowledgement fences the hello's wake. The remaining assertion checks one observable `HostWake` signal.
+The test name, comment, and PR body describe that wake proof.
+Readiness remains tested through the harness control, including a recorded worker whose probe has not connected.
+The armed launch hold prevents payload launch until the test releases it.
+The test checks a negative readiness state; it does not claim a crash or adoption at a held lifecycle step.
+
+The correction adds no production hook, transcript edit, pin move, pending-list change, or mutation exclusion.
+The mutation configuration remains unchanged from the earlier full exclusion review.
+
+The reviewer read the exact-head Mac checks:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-program-ready-15633946-mac-checks-20261011-031421.log`.
+Formatting, clippy, taint, and lists passed. The corrected tests passed.
+The crate run reports 410 passes and the same one zombie-test failure.
+
+The reviewer also read the plain-v1 log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-plain-v1-517c2235-zombie-mac-20261011-031147.log`.
+It reproduces the identical `Absent` versus `Matches` assertion failure on clean base `517c2235`.
+That test and identity implementation remain unchanged by this PR. The failure remains explicit; neither Mac run is entirely green.
+
+The initial Linux gate does not cover this head. The final gate must pass on the exact final head before merge.
+Integration CLEAN remains separately required. Any further implementation change requires a delta review.
+The reviewer ran no test or gate.

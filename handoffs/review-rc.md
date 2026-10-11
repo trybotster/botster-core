@@ -16,14 +16,13 @@ The final gate remains required on this head or the later final head before merg
 A later base merge also requires the plan's base-merge record.
 The reviewer ran no test or gate.
 
-Core #255 is NOT CLEAN at `b013fdeb77341a142321c256ad57d1ecc078aed2`.
-RC-PR-1 and RC-PR-2 are open.
-The real `program_ready` control uses a historical row after Remove, while the testkit returns `Bad`.
-The implementer must use the current stored row and add a control-level regression on both tiers.
-The implementer must also remove the hello test's duplicate assertions of the private readiness helper.
-The integration reviewer reports the same two findings at the same head.
-Integration verdict: `25a1ca56597ed6ee463e715ab2983b297de873c2`, `verdicts/stage1/rc-program-ready.md`.
-Message: `msg_plugin-w_1791713723_509708`.
+Core #255 is CLEAN at `15633946e020a9d092ff2fcb8d0bf20560efd202`.
+RC-PR-1 and RC-PR-2 are closed. No finding remains open.
+The real control reads the current stored row. Both tiers have removal regressions through the control.
+The hello test checks only its observable wake signal.
+The final exact-head gate and integration CLEAN remain required.
+The earlier integration NOT CLEAN verdict was `25a1ca56597ed6ee463e715ab2983b297de873c2`.
+The retained Mac failure reproduces on plain v1 and remains explicit in the verdict.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.
