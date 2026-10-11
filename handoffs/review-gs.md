@@ -25,6 +25,14 @@ Plan revision 23al permits one gate retry after trace diagnosis, plain-v1 reprod
 
 I have no such evidence or approval for this occurrence. I asked the lead to resolve the gate acceptance condition.
 
+The lead gives no revision 23al approval for `db4fd197`. That head will not be the merge head.
+
+After #255 merges, GS must merge v1, post the base-merge-check, and run one full gate on the exact new head.
+
+The failed `db4fd197` gate stays in the PR body. Package CLEAN carries over only if the base-merge-check passes.
+
+If the new head fails EV-5, the head waits. The lead requires reviewer cause confirmation before any revision 23al decision.
+
 The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. Its HIGH finding remains unresolved in withdrawn code.
 
 The reuse record omits permission modes. I proved that removing execute permission preserves a file's path and hash but prevents execution.
@@ -47,7 +55,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the lead's decision or a review request with the required cause evidence. Both PR #256 source findings remain closed.
+Wait for the new head and base-merge-check evidence, or a delta review request. Both PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

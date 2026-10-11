@@ -428,3 +428,21 @@ I have no plain-v1 comparison, cause confirmation, or written lead approval for 
 The implementer started another gate on the same head. The implementer now states that this run is diagnostic and will not serve as merge evidence.
 
 I ran no gate or build. I will wait for the lead's decision or a review request with the required evidence.
+
+### Lead decision after the failed gate
+
+The lead confirms that no revision 23al approval exists for `db4fd197`. The lead gives no such approval.
+
+`db4fd197` will not be the merge head. The lead requires GS to merge v1 after PR #255 merges.
+
+GS must post the base-merge-check result and run one full gate on the exact new head. The failed log stays in the PR body.
+
+The package CLEAN carries over only if the base-merge-check passes. A failed check requires a delta review.
+
+If the new head fails EV-5 again, the head waits. The lead requires my written cause confirmation before any revision 23al decision.
+
+I will review the next head or the retained base-merge-check evidence when requested. I run no gates.
+
+The integration reviewer reports source CLEAN on `db4fd197` in verdict commit `81b130c9`, with zero open findings.
+
+The integration reviewer keeps gate acceptance separate from source CLEAN. The integration reviewer ran no execution job.
