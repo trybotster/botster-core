@@ -245,3 +245,27 @@ The lead explicitly requires no separate full gate now. The final SLOT gate must
 Both package findings close on f45794a4. Sol's matching new-head evidence verdict remains due here.
 The final slot, applicable import/check/review, exact-head final green gate, completed body, and Q7 remain required.
 No current merge approval is given. The reviewer runs no executable job or base check. Never poll.
+
+## Sol Round 2 CLEAN receipt and evidence scope
+
+Receipt: `msg_plugin-w_1791757363_d2ecc6`.
+Sol verdict: `3320652a81221ad3e01f936195ffcb03f2abffc1`, `verdicts/stage1/pc-pin-41.md`, Round 2.
+The reviewer reads the complete new round and verifies publication on `origin/stage1/integration-review-sol`.
+Both source/evidence CLEANs cover `f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc` and base `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Sol independently closes both evidence findings and retains the IN-7 failure, controlled-baseline limits, and final-slot conditions.
+The matching integration source/evidence receipt condition is closed.
+
+The jobs leave BOTSTER_SEEDS unset. The reviewed library selects its default local seeds 0–7.
+The current body explicitly states that scope. The comparison and N-run evidence claim no seeds 0–31 or Mac execution.
+The earlier gate retains its separate CI scope. The evidence jobs do not replace that gate or the required final gate.
+The reviewer verifies the live body on this unchanged head and base.
+Body SHA-256: `c70e93fae81bf832f3e26cb5ffa91f0319f5025b84b8c5961dd6403be2e76dfa`.
+
+The reviewer reads the complete IN-7 rule-9 record:
+`~/botster-sessions/shared/core-stage1/handoffs/flaky-in-7-lost-worker-ends-pending-4e26982b.md`.
+SHA-256: `0f92c5759c624a1a9a5bc85b947ffa42e9567a7e21920f8d897bc8b957d21f29`.
+The failed trial stops at the R-74 pty_queued fence, seed 3 step 7. Its diagnosis remains open, owner PC, after #289 and R-78.
+The record accepts no R-88 attribution, successful replacement run, or real acceptance for that id.
+
+Both source/evidence reviews are CLEAN. The final SLOT import/check/review, exact-head final green gate, body, and Q7 remain due.
+The parent gate remains a parent gate. No final merge approval is given. No execution job runs here. Never poll.

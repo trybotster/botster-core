@@ -1467,3 +1467,17 @@ PIN41-1 and PIN41-2 close. Package verdict CLEAN applies to f45794a4 with the pr
 The local arm reversal reaches Unsupported and then passes after restoration. Its clean history remains owner-reported.
 Static log is read; taint/lists report success. The lead requires no separate full gate now; the final SLOT gate covers the head.
 Sol's matching evidence verdict, final import/check/review, exact-head final gate, body, and Q7 remain due. No execution job runs here. Never poll.
+
+#289 Round 2 package CLEAN pushed: 110de71a0946a57d6494f749ced02e4cf13fcb8c.
+The worktree is clean. Final-slot conditions and Sol's matching receipt remain due. Wait for the doorbell. Never poll.
+
+## #289 both source/evidence CLEANs verified
+
+Sol receipt msg_plugin-w_1791757363_d2ecc6 and Round 2 verdict 3320652a81221ad3e01f936195ffcb03f2abffc1 are read.
+Publication is verified. Both source/evidence CLEANs cover f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc and base f68f26a7b12738f2b19ab39fe76a93f3d1a72f12.
+The matching integration receipt condition is closed. Both evidence findings remain closed.
+The jobs use default seeds 0–7, not 0–31, and run only on Linux. The live body states that scope.
+Body hash c70e93fae81bf832f3e26cb5ffa91f0319f5025b84b8c5961dd6403be2e76dfa is verified.
+The IN-7 rule-9 record is read; hash 0f92c5759c624a1a9a5bc85b947ffa42e9567a7e21920f8d897bc8b957d21f29.
+IN-7 remains pending with open diagnosis, owner PC after #289 and R-78. No replacement successful run or R-88 cause is claimed.
+Final SLOT import/check/review, exact-head final gate, completed body, and Q7 remain due. No executable job runs here. Never poll.
