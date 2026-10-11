@@ -123,3 +123,85 @@ This control-only PR establishes no newly counted minimum ID and removes no pend
 The later pin PR must supply its own reviewed fenced proof and exact-head gate.
 Any replacement head or later base import also requires its exact-head gate before merge.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+## Round 2: correction and v1 import
+
+VERDICT: CLEAN (0 open)
+
+- Head: `6ca56167c66facc5eb8ac3b2c9cafd6988cd5195`.
+- Tree: `1b5f378287a006670fbb9442c70369bb502d9f51`.
+- Parents: `4290034339365e4b925d43d9f5953326f5d5bd1a` and `517c22350de462256f2b5be0a9fa913a98d0e42f`.
+- Base: `517c22350de462256f2b5be0a9fa913a98d0e42f`.
+- Replacement READY: `msg_plugin-w_1791712881_bb9244`.
+- Package CLEAN: `7ed402639c52b9e4c361b00afe39c5532ff44901`, Round 2.
+- Package receipt: `msg_plugin-w_1791713082_2121db`.
+
+Sol read the complete package Round 2 artifact. No package finding remains, including LOW.
+SH-SI-1 and package SH-F1 are CLOSED on this replacement head.
+The corrected worker test removes both new private-value assertions and restores the other-directory presence assertion.
+The held-spawn, release, worker-end, and directory-isolation proofs remain.
+The public control proof still checks no hold, armed hold, stopped step, and release.
+The exact-head gate catches `keep_spawn` and both `Workers::start_held` constants after the assertion removal.
+
+Package SH-F2 LOW is CLOSED. Sol read the corrected published body on the exact head.
+The body describes the retained worker proof, names the current base, and links both supplied logs.
+It records the SH-F1 correction and the real.rs conflict. P5 confirms the body-only correction in `msg_plugin-w_1791713018_c6c23e`.
+
+### Source delta and conflict
+
+Sol read the complete five-file own delta, the correction, the combined merge diff, and the surrounding control dispatch.
+The own delta has 105 insertions and eighteen deletions.
+The complete added/deleted line sequence equals corrected 42900343 in every own file.
+The other four own files retain the correction's bytes exactly.
+The six nonoverlapping imported files retain the base's bytes exactly.
+The seven imported paths equal the complete intervening base delta. No other path changes.
+
+The retained base check fails conditions 1, 2, and 3 on real.rs. Its ancestry and both pending-file conditions pass.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-start-held-6ca56167-pool-20261011-025200-13460.log`.
+The check and wrapper exit 1 after 22 seconds. This source delta review resolves that required review boundary.
+The conflict retains `start_held` and the base's `fail_handoff` as separate, unchanged methods.
+Both control names remain in the tapped control list, guarded dispatch, and registration proofs.
+The five imported program controls have distinct names. Their dispatch cannot intercept either control.
+The real control retains the stored instance lookup and `launch_held` read.
+The hold proof retains the worker evidence before its child check. It retains the public false/true/false sequence.
+No own dependency, decoder, timeout, exclusion, pin, transcript, or pending-file edit exists.
+Both pending files, Cargo.toml, and Cargo.lock equal the current base.
+The inherited DP-2 and PC removals remain. This PR removes no additional ID.
+`git diff --check` reports no error.
+
+The current base 517c2235 merges #233. Its tree equals the reviewed #233 head a7be76d5.
+That identity check does not approve #233's completed final gate, whose receipt Sol has not yet read.
+
+### Retained exact-head gate
+
+Sol read the header, base, suite results, all 24 mutation outcome lines, summary, and completion of:
+`~/botster-sessions/gates/botster-core-stage1-p5-start-held-6ca56167-pool-20261011-025228-16571.log`.
+The log names the exact head and base above. All ten steps pass. The CI total is 506.6 seconds.
+The default tier passes 1615 tests in 14.493 seconds.
+The slow tier passes 464 tests in 35.933 seconds.
+The public held-start proof passes in 0.007 seconds. The real hold proof passes in 0.063 seconds.
+The stage-2 unmutated baseline passes 464 tests in 29.653 seconds; its complete step takes 41.4 seconds.
+
+Stage 1 catches twelve of eighteen mutants and misses six, with zero timeout or unviable mutants.
+Stage 2 catches exactly those six full identities, once each, with zero missed, timeout, or unviable mutants.
+Sol independently compared both full identity sets. They are equal.
+The six identities cover the real result, both `has_control` constants, the dispatch result, and both tapped-guard constants.
+The final result is eighteen caught, zero missed, zero timeouts, and zero unviable mutants.
+The complete mutation step takes 195.0 seconds.
+Fuzz reports no changed crate with a decoder harness. It performs no new fuzz trial.
+The job exits 0 after 514 seconds with no queue wait. The wrapper exits 0 after 515 seconds.
+
+The real pending report retains 58 IDs and reports zero newly passing IDs.
+The raw minimum counts still include unfenced AD-7. That pass does not meet R-59's hold-fence requirement.
+This control-only PR claims no additional minimum pass.
+The previously checked Mac source identity and before/after limits remain applicable to the unchanged control and public proof.
+The correction removes private assertions only. The import retains the own implementation and public proof.
+Unsupported hold forms remain unsupported. The later .32 pin PR needs its own fenced proof and exact-head gate.
+Prior art and reuse remain as recorded in Round 1; this delta adds no new mechanism.
+
+The supplied green gate precedes both completed delta CLEANs. The PR body retains a final gate on the exact head that merges.
+The lead must retain that required final receipt. A later head or base change requires the applicable review and exact-head gate.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 6ca56167c66facc5eb8ac3b2c9cafd6988cd5195
