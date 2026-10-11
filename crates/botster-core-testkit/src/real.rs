@@ -722,7 +722,10 @@ impl RealCoreHarness {
     /// 4. The restored node is a socket at the same path, with the same mode and no listener ([`snapshot::restore_socket`]).
     fn host_crash(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let HostCrash {} = parse(args)?;
-        let quiet = lock(&self.tap(handle)?).quiet();
+        let tap = self.tap(handle)?;
+        let quiet = lock(&tap).quiet();
+        // The crash must drop the last strong reference to the tap, with the Core.
+        drop(tap);
         if !quiet {
             return Err(ControlError::Bad(format!(
                 "the host of '{handle}' is not at a quiet point (R-55 (1) condition 1): await_quiet first"
@@ -2265,6 +2268,7 @@ mod slow_tests {
             Handle {
                 data_dir: PathBuf::from("/nonexistent/d/h"),
                 tap: Weak::new(),
+                crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
             },
         );
         assert_eq!(
