@@ -3,32 +3,33 @@
 ## Current review result
 
 - PR: #265, data-directory lock.
-- Head: `96238f6209a2cf9587f8c78243b67bdc3336d564`.
+- Head: `80f17bcf142823c5b8cebf16c704e2ee06b2a4cf`.
 - Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
 - Risk: HIGH.
-- Verdict: NOT CLEAN (2 open).
-- GS-DL-R1-1 MEDIUM: the regression test polls refused opens and has no overall work bound while it waits for spawner progress.
-- GS-DL-R1-2 LOW: the prior-art note incorrectly says all old `fcntl` calls only set `O_NONBLOCK`.
+- Verdict: CLEAN.
+- Open findings: 0. GS-DL-R1-1 MEDIUM and GS-DL-R1-2 LOW are CLOSED.
 
-The product lock follows the approved process-lock design. The test must fail on its first refused reopen and use bounded child work with event-based coordination.
+The corrected test makes one reopen per fixed cycle. A channel event starts the cycles, child work is bounded, and cleanup joins every spawner.
 
-The exact-head gate passes all ten steps. The Mac and Linux evidence each reports `id_2` passing 30 of 30 runs and a failed revert check.
+The prior-art note and test descriptions are corrected. The probability estimate states its independent-cycle assumption.
 
-These results do not close the test finding. Every finding, LOW included, must close before CLEAN.
+All three evidence logs identify this exact head and base. The full Linux gate passes all ten steps in 88.4 seconds.
 
-P5's #257 stat-only snapshot handling of `lock` remains a required integration condition. I ran no gate, build, or test.
+Mutants: two caught, zero missed, zero timeout, and seven unviable. Both catch identities match their reports.
 
-Preliminary delta `2bac0641` removes polling and bounds work. R1-1 remains open: an early failed join detaches the remaining spawners.
+The Mac evidence passes 123 core-sys tests; Linux passes 122. Each system reports `id_2` passing all 30 concurrent runs.
 
-The implementer must join all threads before reporting failure. R1-2 remains open because the live PR body still has the old sentence.
+Reverting the product lock makes the corrected regression fail on the first refused reopen: cycle 15 on Mac and cycle 115 on Linux.
 
-I asked for accurate test and probability descriptions. New evidence and formal READY remain pending.
+Full gate: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054802-97802.log`.
 
-Second preliminary delta `80f17bcf` joins all spawners before reporting failure. The source addresses R1-1; corrected evidence remains pending.
+Mac evidence: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054238-54403.log`.
 
-The live PR body now has the corrected prior-art and test descriptions. R1-2 LOW is CLOSED on `80f17bcf`.
+Linux evidence: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054725-96840.log`.
 
-No CLEAN is issued before formal READY and review of the corrected evidence.
+Integration review remains required. P5's #257 stat-only handling of `lock` remains an integration condition for the final base.
+
+The lead owns the merge decision and current-base check. I ran no gate, build, or test.
 
 ## Previous PR #262
 
@@ -172,7 +173,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #265's corrections. PR #262 still waits for its new head, base-merge-check, and exact-head gate after #243 merges.
+Wait for PR #265's integration review or a new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate after #243 merges.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 

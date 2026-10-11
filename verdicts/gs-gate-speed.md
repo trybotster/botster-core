@@ -1088,3 +1088,49 @@ The source now labels the probability as an estimate with an independent-cycle a
 The prior-art correction is published. GS-DL-R1-2 LOW is CLOSED on this head.
 
 The source addresses GS-DL-R1-1. Its corrected Linux and Mac evidence and formal READY remain pending. No CLEAN is issued in this preliminary inspection.
+
+## PR #265: round 2, corrected regression test
+
+- Head: `80f17bcf142823c5b8cebf16c704e2ee06b2a4cf`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Risk: HIGH.
+- VERDICT: CLEAN.
+- Open findings: 0.
+
+GS-DL-R1-1 MEDIUM is CLOSED. Each of 2000 cycles makes one reopen attempt and fails on the first refusal.
+
+The channel event replaces the progress polling. Each spawner has bounded work, and the destructor joins every thread before reporting failure.
+
+The destructor also completes those joins when the main test already panics. Children retain their owned process guards.
+
+The test requires concurrent child progress. Its probability statement is an estimate that explicitly assumes independent cycles, not a proved numerical bound.
+
+GS-DL-R1-2 LOW remains CLOSED. I read the corrected prior-art note and the final PR body, including all current and retained evidence.
+
+The production lock code is unchanged from the first reviewed head. No new source finding is open.
+
+### Exact-head evidence
+
+All three supplied logs identify this full head and base. I read the evidence commands and their results.
+
+- Full Linux gate: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054802-97802.log`.
+- Mac evidence: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054238-54403.log`.
+- Linux evidence: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-80f17bcf-pool-20261011-054725-96840.log`.
+
+The full gate passes all ten steps in 88.4 seconds. The default tier passes 1642 tests; the slow tier passes 484 tests.
+
+Mutation results: nine mutants, two caught, zero missed, zero timeout, and seven unviable. Both raw catches match their catching-test reports.
+
+The Mac evidence passes 123 core-sys tests. All 30 concurrent `id_` runs report `id_2=ok` and 13 passed tests.
+
+The Linux evidence passes 122 core-sys tests. All 30 concurrent `id_` runs report `id_2=ok` and 13 passed tests.
+
+Both evidence jobs then restore the base `lock.rs`. The corrected regression fails on the first refused reopen: cycle 15 on Mac, cycle 115 on Linux.
+
+These failures occur at the lock assertion, not at a missing tool, compile error, or spawner failure. The evidence jobs restore the head file afterward.
+
+The PR keeps the earlier failed gate and earlier evidence. Neither is substituted for the current exact-head results.
+
+Integration review remains required. P5's #257 stat-only snapshot handling of `lock` remains an integration condition for the final base.
+
+The lead owns the merge decision and current-base check. I ran no gate, build, or test.
