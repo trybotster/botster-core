@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.f561dd4e.md`, revision 23bj.
-- Verified plan SHA-256: `bd43104c8b237618e3249f570899fb19c5b6d3e8c71d684fbd114d62f7691007`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.ddc8da81.md`, revision 23bl.
+- Verified plan SHA-256: `01c67e1d00ce13f29dc1991c03a52d4469a75aa3d452140648dd4d88a4411fe7`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -894,3 +894,50 @@ The delayed-read evidence fails five times before the fence and passes five time
 Record: verdicts/pc-e1-1-worker-file-name.md. Scope: cause confirmation only. Package review remains pending.
 The reviewer ran no execution job or reproduction. The red gate remains red. No source CLEAN exists.
 Next: publish the cause record and the requested PR comment, then wait for exact-head READY. Never poll.
+
+
+Cause record pushed: 57e6cd64fa8a766fd61748b3945b157b8c4f01e6 on origin/stage1/review-pc.
+PR #276 comment: https://github.com/trybotster/botster-core/pull/276#issuecomment-6111215443.
+Head: 67fd9112d0e7554d39be6eb6b43260c782dda200. The comment confirms the unchanged missing-fence cause for the lead-approved one re-gate.
+The evidence includes a controlled-read patch on the v1 source. The unpatched runs pass; no unmodified current-tip failure is claimed.
+The first gate remains RED. No package CLEAN exists. The reviewer worktree is clean.
+Wait for exact-head READY with the required gate evidence. Never poll.
+
+
+## PR #276: package review round 1
+
+READY: msg_plugin-w_1791737263_7d00b5. Tier HIGH.
+Head: 67fd9112d0e7554d39be6eb6b43260c782dda200.
+Parent and own-diff base: a0adb1321bfc3deb7d16735e9a622775ba5f1a2d.
+PR base and green gate header base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+Package verdict: CLEAN (0 open), verdicts/pc-e1-1-worker-file-name.md, Round 1.
+The three-file change declares an existing real capability, removes only E1-1 from pending, and adds its own-trial proof line.
+The reviewer read accepted Core erratum 1, the controls row, both real transcript paths, and the verified worker wrapper.
+Both file names launch the real worker. The suite and same-run result check supply the approved #264 proof.
+The contracts pin stays .36. No runtime, transcript, timeout, pin, mutation profile, or real-pending entry changes.
+PC corrected the gate base in msg_plugin-w_1791737363_98c426. The current body also cites 23bk, which contains the 23bh approval.
+The reviewer verified both corrections. No package finding or body note remains open.
+
+Green gate: gates/botster-core-stage1-pc-e1-1-worker-file-name-67fd9112-pool-20261011-093607-9029.log.
+SHA-256: 1d0d0ea7b0eebfe283f23bb7a7bfaadb8b95577901456cb3d6f54f58f528d5bf.
+All ten steps PASS in 551.9 seconds. Linux wrapper exit 0 after 666 seconds.
+Default 1724 PASS, 481 skipped, 17.980 seconds. Slow 554 PASS, 2020 skipped, 56.923 seconds.
+E1-1 PASS in 0.477 seconds; same-run check names it and checks two proofs. Baseline E1-1 PASS in 0.466 seconds.
+Counts: testkit 57/69; real-passing 47/68; real-accepted 48/69.
+Two whole-body capability mutants miss in stage 1 and are caught in stage 2. Zero missed, timeout, unviable, or FLAKY outcomes remain.
+The reviewer matched all four raw records and both catcher records. No execution job ran here.
+
+Plan 23bl amendment (A) explicitly accepts the controlled timing-race diagnostic for #276.
+Lead receipt: msg_plugin-w_1791737498_600484. The reviewer read the new pin and verified its SHA above.
+The first gate stays RED. No unmodified current-v1 failure is claimed. Contracts #49 and its Core pin still own the OU-9 fix.
+The earlier #264 OU-9 outcomes were FLAKY under mutants, not its stage-2 baseline. The formal record preserves this distinction.
+Sol's same-head integration verdict remains required. The current head does not contain PR base 42d7056e.
+After both CLEANs, PC merges current v1 once, posts the base-merge check, and runs one final exact-head gate.
+This verdict approves no later source delta. The original program-controls group remains incomplete.
+
+## PR #277: READY queued for review
+
+READY: msg_plugin-w_1791737722_0fd975. Tier HIGH.
+Head: 7d7d429f06335c18e8a21e6c63085be4c5465eb0. PR and gate base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+PC reports a green gate and R-72 evidence. No package source review or verdict exists yet.
+Next: publish #276 CLEAN. Then read the brief first and review #277. Never poll.

@@ -1,6 +1,8 @@
 # PC package review: worker_file_name capability, PR #276
 
-Status: package review pending. This record confirms the cause for the lead-approved one re-gate only.
+VERDICT: CLEAN (0 open) at `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+
+Round 1 below records the source review. The earlier cause record remains as historical evidence.
 
 - Head: `67fd9112d0e7554d39be6eb6b43260c782dda200`.
 - Parent and recorded gate base: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
@@ -49,4 +51,81 @@ The OU-9 structural fix remains open. It needs its reviewed contracts change and
 
 The reviewer ran no build, test, gate, mutation, diagnostic patch, or reproduction.
 The package review and both HIGH verdicts remain due after exact-head READY with the required gate evidence.
+Wait for the doorbell. Never poll.
+
+## Round 1: exact-head package review
+
+- READY: `msg_plugin-w_1791737263_7d00b5`.
+- Head: `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+- Parent and own-diff base: `a0adb1321bfc3deb7d16735e9a622775ba5f1a2d`.
+- PR base and green gate header base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+- Tier: HIGH. Contracts pin: `contracts-v0.1.36`, unchanged.
+- Plan: 23bl, `~/botster-sessions/pins/stage1-plan.ddc8da81.md`.
+- Plan SHA-256: `01c67e1d00ce13f29dc1991c03a52d4469a75aa3d452140648dd4d88a4411fe7`.
+
+The reviewer read the brief first. The reviewer read the plan changes, the pinned controls row, and accepted Core erratum 1.
+The reviewer checked the complete three-file own diff, the current PR body, the transcript, and the existing wrapper and suite paths.
+Plan 23bh ruling (1) approves this scope. Plan 23bl section 8 governs the one re-gate.
+Plan section 5 is unchanged from the previously read 23bk section.
+
+### Source conclusion
+
+Core erratum 1 requires the embedder to supply the worker path. Core fixes no worker file name.
+The pinned `worker_file_name` row names a capability: `open` accepts `worker.file_name`.
+The tapped real harness now declares that existing capability. The plain harness still declares no controls.
+The existing capability test includes the new name and checks both harness forms.
+
+The unchanged wrapper selects the worker binary by role, independently of the file name.
+Candidate loading checks the prebuilt worker and anchor against their SHA-256 manifest before the real suite starts.
+The guard writes an executable script at the host-supplied name. That script runs the verified anchor and worker.
+`RealCoreHarness::open` supplies that path through `OpenConfig.worker_path`.
+The transcript uses `worker-copy-without-the-botster-name` and `w.v2` in separate data directories.
+Steps 5 and 9 require each real session to reach Running, through the real worker's startup protocol.
+The wrapper supplies a real process boundary. The harness does not model the E1-1 result.
+
+The pending file removes only `conf::e1_1_worker_found_by_host_supplied_path`.
+Its proof line names its own real-tier trial under the approved #264 form.
+The real suite runs that transcript must-pass. The testkit suite keeps its real-only ignore.
+The same-run JUnit check requires the exact selected, unignored trial to PASS.
+The mapping counts the ID once. The existing AD-6 line is unchanged.
+The change alters no runtime, contract, transcript, timeout, mutation profile, pin, or real-pending entry.
+The Prior art note identifies the existing v1 wrapper and guard. Old Core supplies no replacement for this harness capability.
+
+PC corrected the green gate base in receipt `msg_plugin-w_1791737363_98c426`.
+The current PR body distinguishes base `42d7056e` from parent and own-diff base `a0adb132`.
+The current body also uses plan 23bk pin `00635d10`, which contains the 23bh approval.
+That correction closes the plan-pin note Sol raised in `msg_plugin-w_1791737319_39cd3b`.
+The reviewer verified both corrections through the GitHub API. No source finding or body note remains open.
+
+### Gate and retry evidence
+
+Green log: `~/botster-sessions/gates/botster-core-stage1-pc-e1-1-worker-file-name-67fd9112-pool-20261011-093607-9029.log`.
+SHA-256: `1d0d0ea7b0eebfe283f23bb7a7bfaadb8b95577901456cb3d6f54f58f528d5bf`.
+Its header names the exact head and base above. All ten steps PASS in 551.9 seconds.
+The Linux job exits 0 after 665 seconds. The wrapper exits 0 after 666 seconds.
+Default: 1724 PASS, 481 skipped, 17.980 seconds. Slow: 554 PASS, 2020 skipped, 56.923 seconds.
+The E1-1 real trial passes in 0.477 seconds. The same-run check names it at line 5138 and checks two proofs.
+The baseline also passes E1-1 in 0.466 seconds.
+Minimum testkit count is 57/69. Real-passing count is 47/68. Real-accepted count is 48/69.
+
+Stage 1 misses two whole-body `has_control` mutants. Stage 2 catches both.
+Final result: two mutants, two caught, zero missed, zero timeout, zero unviable.
+The reviewer matched the four raw records and both named catcher records. The log has no FLAKY token.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable merge-check job.
+
+Lead receipt `msg_plugin-w_1791737498_600484` explicitly accepts the controlled diagnostic for #276 under plan 23bl amendment (A).
+That amendment allows this timing-race reproduction to satisfy the plain-v1 condition for this case.
+The earlier cause record confirms that #276 does not alter the missing-fence cause.
+No unmodified current-v1 failure is claimed. The first gate remains RED. The approved one re-gate is GREEN.
+The earlier #264 record has two OU-9 FLAKY outcomes under mutants, not failures of its stage-2 baseline.
+This verdict retains that distinction. It uses the lead's explicit #276 approval and the controlled evidence recorded above.
+Contracts #49 and the later Core pin still own the OU-9 structural fix.
+
+### Verdict scope
+
+Package verdict: CLEAN (0 open) on this exact head.
+Sol's same-head integration verdict remains required.
+The reviewed head does not contain PR base `42d7056e`. This green gate precedes the final base import.
+After both CLEANs, PC must merge current v1 once, post the base-merge check, and run one final exact-head gate.
+This verdict approves no later source delta. The original program-controls group remains incomplete.
 Wait for the doorbell. Never poll.
