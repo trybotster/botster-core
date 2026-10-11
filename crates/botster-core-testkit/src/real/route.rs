@@ -7,8 +7,10 @@
 //! once, and every later read waits for bytes until the step deadline. A read that waited before the handoff would hold
 //! the only thread that pumps Core.
 
+use super::program::Requests;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
+use botster_core_edges::edges::ProcessIdentity;
 use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -17,13 +19,48 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
-pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate"];
+pub(super) const CONTROLS: &[&str] =
+    &["client_close", "route_gate", "drop_transport", "route_fill"];
+
+/// What the `route_fill` of a route needs (R-47 item 3, the control row): the requests to the probes, the worker of the
+/// route's session as Core's stored row names it now, the `SO_SNDBUF` of the worker's end read before the handoff, and the
+/// route's applied frame bound F.
+pub(super) struct Fill {
+    pub(super) requests: Requests,
+    pub(super) worker: Box<dyn Fn() -> Result<ProcessIdentity, String>>,
+    pub(super) worker_send_buffer: usize,
+    pub(super) max_frame_bytes: usize,
+}
+
+impl std::fmt::Debug for Fill {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fill")
+            .field("worker_send_buffer", &self.worker_send_buffer)
+            .field("max_frame_bytes", &self.max_frame_bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+/// N = C + F (R-47 item 3): C is what the transport holds outside the worker, the worker end's `SO_SNDBUF` plus the client
+/// end's `SO_RCVBUF`; F is the route's frame bound. The kernel's reported sizes are a safe upper bound, so at least one
+/// frame stays pending in the worker.
+fn fill_size(
+    worker_send_buffer: usize,
+    client_receive_buffer: usize,
+    max_frame_bytes: usize,
+) -> usize {
+    worker_send_buffer
+        .saturating_add(client_receive_buffer)
+        .saturating_add(max_frame_bytes)
+}
 
 /// The client end of one route.
 #[derive(Debug)]
 pub(super) struct RealRoute {
-    /// The client's end of the stream, always nonblocking; `None` after `client_close`.
+    /// The client's end of the stream, always nonblocking; `None` after `client_close` or `drop_transport`.
     end: Option<UnixStream>,
+    /// `None` for a route of the harness with no tap: it runs no `route_fill`.
+    fill: Option<Fill>,
     /// The client bytes that wait for room in the stream.
     unsent: Vec<u8>,
     /// While on (`route_gate`), the client reads nothing, so the worker's writes meet the kernel's backpressure.
@@ -121,10 +158,44 @@ impl RealRoute {
         end.set_nonblocking(true)?;
         Ok(RealRoute {
             end: Some(end),
+            fill: None,
             unsent: Vec::new(),
             gated: false,
             handed: false,
         })
+    }
+
+    /// The route runs `route_fill` with `fill`.
+    pub(super) fn with_fill(mut self, fill: Fill) -> RealRoute {
+        self.fill = Some(fill);
+        self
+    }
+
+    /// `route_fill` (R-47 item 3): the payload of the route's session writes N = C + F bytes of the fill pattern through the
+    /// real `pty_output` path. The control returns when the probe acknowledges the request, never when the write completes
+    /// (Core OU-3d). The pattern has no `0a` byte and no other byte that the terminal's output processing changes (R-48,
+    /// R-60). A precondition that is not reached is an error, never a pass.
+    fn route_fill(&self) -> Result<Value, String> {
+        let fill = self
+            .fill
+            .as_ref()
+            .ok_or("route_fill needs a route of the tapped real harness")?;
+        let end = self
+            .end
+            .as_ref()
+            .ok_or("route_fill: the client's end of the route is closed")?;
+        let client_receive_buffer = rustix::net::sockopt::socket_recv_buffer_size(end)
+            .map_err(|e| format!("route_fill: SO_RCVBUF of the client's end: {e}"))?;
+        let bytes = fill_size(
+            fill.worker_send_buffer,
+            client_receive_buffer,
+            fill.max_frame_bytes,
+        );
+        let worker = (fill.worker)().map_err(|e| format!("route_fill: {e}"))?;
+        fill.requests
+            .write_output(worker, crate::route_client::fill_pattern(bytes))
+            .map_err(|e| format!("route_fill: {e:?}"))?;
+        Ok(json!({ "bytes": bytes }))
     }
 
     /// Writes the unsent bytes while the stream takes them. A failed write loses the stream's bytes, as with a lost
@@ -198,6 +269,16 @@ impl RouteClient for RealRoute {
                 self.gated = crate::route_client::flag(args, "on")?;
                 Ok(json!({}))
             }
+            // Core OU-5 (the steward's real form): the client's end closes with no `shutdown`, and its unsent and unread
+            // bytes are lost. A Unix stream has no reset: the worker sees `ECONNRESET` (Linux, with unread bytes at the close)
+            // or the end of the stream and `EPIPE`, and Core closes the route `PeerClosed` for each. No `SO_LINGER`.
+            "drop_transport" => {
+                self.unsent.clear();
+                self.end = None;
+                Ok(json!({}))
+            }
+            // R-47 item 3, Core OU-3b: the session's output fills the transport and one frame more.
+            "route_fill" => self.route_fill(),
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
@@ -481,10 +562,101 @@ mod slow_tests {
         for op in CONTROLS {
             assert!(route.has_control(op), "{op}");
         }
-        assert!(!route.has_control("route_fill"));
+        assert!(!route.has_control("fail_writes"));
         assert_eq!(
-            route.control("route_fill", &json!({})),
-            Err("unsupported_control: route_fill".to_string())
+            route.control("fail_writes", &json!({})),
+            Err("unsupported_control: fail_writes".to_string())
+        );
+    }
+
+    /// The `route_fill` row: C is an upper bound only while Core does not change the buffer sizes of the route's socket; the
+    /// Core lead confirms that it does not. No source of a workspace crate outside this testkit sets a socket option, except
+    /// tests (a `tests` directory or a `tests.rs` file). The test walks the tree, because a mutation copy has no `.git`.
+    #[test]
+    fn no_crate_sets_a_socket_buffer_size_outside_tests() {
+        const SETTERS: [&str; 3] = [
+            "set_socket_send_buffer_size",
+            "set_socket_recv_buffer_size",
+            "setsockopt",
+        ];
+        let mut dirs = vec![crate::statements::workspace_root().join("crates")];
+        let (mut read, mut found) = (0, vec![]);
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    if !["botster-core-testkit", "tests", "vendor", "target"]
+                        .contains(&name.as_str())
+                    {
+                        dirs.push(path);
+                    }
+                } else if name.ends_with(".rs") && name != "tests.rs" {
+                    read += 1;
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    found.extend(
+                        SETTERS
+                            .iter()
+                            .filter(|setter| text.contains(*setter))
+                            .map(|setter| format!("{}: {setter}", path.display())),
+                    );
+                }
+            }
+        }
+        assert!(read > 100, "the walk read the crates' sources: {read}");
+        assert_eq!(found, Vec::<String>::new());
+    }
+
+    /// R-47 item 3: N = C + F, with C the worker end's send buffer plus the client end's receive buffer; it saturates.
+    #[test]
+    fn the_fill_is_both_buffers_and_one_frame() {
+        assert_eq!(fill_size(8192, 4096, 1000), 13_288);
+        assert_eq!(fill_size(usize::MAX, 1, 1), usize::MAX);
+        assert_eq!(fill_size(0, 0, 7), 7);
+    }
+
+    /// A route with no fill context (the harness with no tap) refuses `route_fill`; a closed client end refuses it too.
+    #[test]
+    fn route_fill_needs_the_tapped_harness_and_an_open_end() {
+        let (mut route, _worker) = pair();
+        assert!(route
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("tapped"));
+        route.control("client_close", &json!({})).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let programs = super::super::program::Programs::listen(root.path()).unwrap();
+        route.fill = Some(Fill {
+            requests: programs.requests(),
+            worker: Box::new(|| Err("unused".into())),
+            worker_send_buffer: 1,
+            max_frame_bytes: 1,
+        });
+        assert!(route
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("closed"));
+    }
+
+    /// `drop_transport` (the steward's real form of OU-5): the client's end closes with no shutdown, and its unsent and
+    /// unread bytes are lost. The worker reads the end of the stream, or `ECONNRESET` when bytes were unread (Linux), and its
+    /// writes fail; the client reads the end.
+    #[test]
+    fn drop_transport_closes_the_client_end_and_loses_its_bytes() {
+        let (mut route, mut worker) = pair();
+        worker.write_all(b"unread").unwrap();
+        route.control("drop_transport", &json!({})).unwrap();
+        route.write(b"lost");
+        let mut buf = [0u8; 8];
+        match worker.read(&mut buf) {
+            Ok(0) => {}
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            other => panic!("the worker reads the end or a reset, not {other:?}"),
+        }
+        assert!(worker.write_all(b"x").is_err(), "no peer");
+        assert_eq!(
+            route.read(8, &deadline(Duration::ZERO)),
+            RouteRead::Eof { ended: None }
         );
     }
 }
