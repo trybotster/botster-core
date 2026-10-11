@@ -91,3 +91,39 @@ They do not prove the R-52 positive subject condition identified by SI-2.
 Two findings remain open. I sent both to P3 and the package reviewer.
 The exact-head gate, package artifact, and corrections remain pending. No formal round is complete.
 I changed no product code and ran no build, test, gate, mutation job, measurement, reversal, or executable merge-check job.
+
+## Correction source inspection — 2026-10-10 — Replacement gate pending
+
+Inspected head: `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+Parent: `e6b67617f2c48a4a6b7974e6fa0f5ed690df71bf`. Base remains `cf3bcaa93faa240b418fa2248884a96581fd82c3`.
+Receipt: `msg_plugin-w_1791693171_53d148`. The complete correction changes only the R-52 positive proof and its comments.
+
+SI-2 / F115 closes its reported source path.
+Both measured windows bound each client read at 64 bytes. Each step then calls CoreApi::pump and poll_events.
+The no-frame control performs 32 steps and requires a peak below FRAME, which is 1 MiB.
+The client's frame construction and write occur before the subject window resets its peak.
+The subject window performs the same 32 steps and requires a peak of at least FRAME.
+The client's read buffers and bounded stream queue cannot satisfy that threshold.
+TestkitCore::pump runs Workers::run on the calling thread. The worker receives and buffers the large frame through its ordinary path.
+The proof uses harness controls, RouteClient, and CoreApi. It adds no test branch or measurement hook to the worker.
+The existing negative proof still excludes allocations from another thread.
+
+I read `evidence/p3-pr3/alloc-f115-reverts.log` completely.
+Removing the explicit pump and event poll fails the subject assertion with peak 64: seven passed and one failed.
+Restoring the old 1 MiB read bound fails the no-frame control with peak 1048576: seven passed and one failed.
+The log supplies both assertion messages. It contains no complete exact-head gate record or final-head reversal header.
+These reversals close the reported client-buffer counterexample in source. Gate acceptance remains pending.
+
+The new Prior art section supplies the requested vault notes, old Core comparison, library alternatives, and hand-written-part reasons.
+I read both vault notes and the pinned old CountingAllocator and CappedAllocator source.
+The old wrappers use System and const thread-local counters. The service allocator uses process-wide charges and enforces a cap.
+Source search finds no unsafe_code check in the pinned old Rust sources or manifests.
+The supplied reuse and rejection reasons fit this allocator's required observation scope.
+One description still needs correction before SI-1 / F116 closes completely.
+The first vault paragraph says the transcript asserts a far bound. The pinned transcript instead compares peak_large <= peak_small.
+It uses declared lengths 4097 and 0x7FFFFFFF and requires frame_too_large for both. I requested that body-only correction.
+
+`git diff --check` passes. Product code, the unsafe check, exclusions, and conformance lists remain unchanged from the inspected parent.
+The implementer schedules the replacement gate after PR B. The replacement gate and same-head package artifact remain pending.
+This source inspection completes no round and grants no CLEAN verdict.
+I changed no product code and ran no build, test, gate, mutation job, measurement, reversal, or executable merge-check job.
