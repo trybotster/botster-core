@@ -16,6 +16,7 @@ fn edges(seed: u64) -> SimEdges {
         links: BTreeMap::new(),
         next_link: 1,
         link_capacity: LINK_CAPACITY,
+        reports: Arc::default(),
     }
 }
 
