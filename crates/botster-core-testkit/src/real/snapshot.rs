@@ -9,15 +9,37 @@ use std::os::unix::fs::{FileTypeExt as _, PermissionsExt as _};
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
 
-/// One node of a data directory, as the snapshot compares it: its kind, its permission bits, and a regular file's bytes. Inode
-/// numbers and times are left out: a restored socket is a new node.
+/// Core's lock file, directly in the data directory (core-sys `storage`). The snapshot never opens it, and records it by its
+/// mode and length only. The harness takes the first snapshot while Core holds the lock, and with a process-owned (`fcntl`)
+/// lock, which the LC-2 fix gives Core, a close of any descriptor of the file in this process releases the lock. Core never
+/// writes the file, so its bytes have nothing to compare.
+const LOCK: &str = "lock";
+
+/// One node of a data directory, as the snapshot compares it: its kind, its permission bits, and a regular file's bytes (the
+/// lock file's length instead). Inode numbers and times are left out: a restored socket is a new node.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Node {
-    Dir { mode: u32 },
-    File { mode: u32, bytes: Vec<u8> },
-    Socket { mode: u32 },
-    Link { target: PathBuf },
-    Other { mode: u32 },
+    Dir {
+        mode: u32,
+    },
+    File {
+        mode: u32,
+        bytes: Vec<u8>,
+    },
+    /// The top-level lock file ([`LOCK`]), never opened.
+    Lock {
+        mode: u32,
+        len: u64,
+    },
+    Socket {
+        mode: u32,
+    },
+    Link {
+        target: PathBuf,
+    },
+    Other {
+        mode: u32,
+    },
 }
 
 /// The directory itself (at the empty path) and every node under it, by its path relative to it. Links are not followed.
@@ -30,15 +52,17 @@ pub(super) type Snapshot = BTreeMap<PathBuf, Node>;
 pub(super) fn snapshot(dir: &Path) -> io::Result<Snapshot> {
     let mut nodes = Snapshot::new();
     // The directory's own kind and mode count too: a drop may change only the socket (R-55 (1) condition 3).
-    nodes.insert(PathBuf::new(), node(dir)?);
+    nodes.insert(PathBuf::new(), node(dir, true)?);
     walk(dir, Path::new(""), &mut nodes)?;
     Ok(nodes)
 }
 
 fn walk(root: &Path, relative: &Path, nodes: &mut Snapshot) -> io::Result<()> {
     for entry in std::fs::read_dir(root.join(relative))? {
-        let path = relative.join(entry?.file_name());
-        let node = node(&root.join(&path))?;
+        let name = entry?.file_name();
+        let opened = !(relative.as_os_str().is_empty() && name == LOCK);
+        let path = relative.join(name);
+        let node = node(&root.join(&path), opened)?;
         if matches!(node, Node::Dir { .. }) {
             walk(root, &path, nodes)?;
         }
@@ -47,13 +71,18 @@ fn walk(root: &Path, relative: &Path, nodes: &mut Snapshot) -> io::Result<()> {
     Ok(())
 }
 
-/// The node at `path`; a link is not followed.
-fn node(path: &Path) -> io::Result<Node> {
+/// The node at `path`; a link is not followed. A regular file that may not be `opened` is a [`Node::Lock`].
+fn node(path: &Path, opened: bool) -> io::Result<Node> {
     let meta = std::fs::symlink_metadata(path)?;
     let mode = meta.permissions().mode() & 0o7777;
     let kind = meta.file_type();
     Ok(if kind.is_dir() {
         Node::Dir { mode }
+    } else if kind.is_file() && !opened {
+        Node::Lock {
+            mode,
+            len: meta.len(),
+        }
     } else if kind.is_file() {
         Node::File {
             mode,
@@ -220,6 +249,81 @@ mod slow_tests {
         assert!(lost_socket(&before, &after)
             .unwrap_err()
             .contains("changed [\"\"]"));
+    }
+
+    /// The variable that makes [`lock_probe`] probe the lock of the file that it names.
+    const LOCK_PROBE: &str = "BOTSTER_TESTKIT_LOCK_PROBE";
+
+    /// The lock probe, run as a child of [`the_snapshot_never_opens_the_lock_file`] (a process cannot see its own `fcntl`
+    /// locks): it tries a process-owned lock of the file that `LOCK_PROBE` names and exits 0 when it gets it, 3 when another
+    /// process holds one. Without the variable it does nothing.
+    #[test]
+    fn lock_probe() {
+        let Some(path) = std::env::var_os(LOCK_PROBE) else {
+            return;
+        };
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .unwrap();
+        let code = match rustix::fs::fcntl_lock(
+            &file,
+            rustix::fs::FlockOperation::NonBlockingLockExclusive,
+        ) {
+            Ok(()) => 0,
+            Err(rustix::io::Errno::AGAIN | rustix::io::Errno::ACCESS) => 3,
+            Err(error) => panic!("the probe's lock: {error}"),
+        };
+        std::process::exit(code);
+    }
+
+    /// The snapshot never opens the top-level lock file: a process-owned lock of this process on it is still held after the
+    /// snapshot, as a child's probe sees, and the lock is recorded by mode and length. Every other file is read: one at
+    /// the top level, and one named `lock` below it.
+    #[test]
+    fn the_snapshot_never_opens_the_lock_file() {
+        let tmp = dir();
+        std::fs::write(tmp.path().join("other"), b"x").unwrap();
+        std::fs::write(tmp.path().join("rows/lock"), b"y").unwrap();
+        let path = tmp.path().join("lock");
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        rustix::fs::fcntl_lock(&held, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+            .unwrap();
+        let probe = || {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "real::snapshot::slow_tests::lock_probe",
+                    "--nocapture",
+                ])
+                .env(LOCK_PROBE, &path);
+            botster_test_process::OwnedChild::spawn(&mut command)
+                .unwrap()
+                .status()
+                .code()
+        };
+        assert_eq!(probe(), Some(3), "held before the snapshot");
+        let nodes = snapshot(tmp.path()).unwrap();
+        assert_eq!(probe(), Some(3), "still held after the snapshot");
+        assert_eq!(
+            nodes[Path::new("lock")],
+            Node::Lock {
+                mode: before_mode(&tmp, "lock"),
+                len: 0
+            }
+        );
+        assert!(matches!(&nodes[Path::new("other")], Node::File { bytes, .. } if bytes == b"x"));
+        assert!(
+            matches!(&nodes[Path::new("rows/lock")], Node::File { bytes, .. } if bytes == b"y")
+        );
+        drop(held);
+        assert_eq!(probe(), Some(0), "free after this process closes it");
     }
 
     /// A link is not followed, and another kind of node keeps its mode.
