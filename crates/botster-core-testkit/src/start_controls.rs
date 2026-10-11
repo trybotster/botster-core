@@ -8,6 +8,7 @@ use crate::harness::TestkitHarness;
 use crate::worker::InstanceKey;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{InstanceId, SessionId, SessionState};
+use botster_core_host::session::Row;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -33,11 +34,16 @@ fn registry_row(
 ) -> Result<Value, ControlError> {
     let OfSession { session } = parse(args)?;
     let row = session_row(harness, handle, &session)?;
-    Ok(json!({
+    Ok(row_report(&row))
+}
+
+/// The answer of `registry_row` for a stored row, on both tiers.
+pub(crate) fn row_report(row: &Row) -> Value {
+    json!({
         "state": row.state,
         "identity_recorded": row.worker.is_some(),
         "labels": row.labels,
-    }))
+    })
 }
 
 /// The start of the session `instance` on the host of `handle`: its data directory and the instance. Core ID-1 scopes an
@@ -83,25 +89,36 @@ fn hold_start_at(
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
-    let HoldStartAt { session, before } = parse(args)?;
-    match before {
-        Before::Payload => {}
-        // No minimum id holds these steps yet.
-        Before::Identity | Before::Running => return Err(ControlError::Unsupported),
-    }
+    let session = held_session(args)?;
     let row = session_row(harness, handle, &session)?;
     let key = start_key(harness, handle, row.instance.clone())?;
-    if row.state != SessionState::Created {
-        return Err(ControlError::Bad(format!(
-            "the start of {} has begun: its row is {:?}",
-            session.0, row.state
-        )));
-    }
+    not_begun(&session, &row)?;
     harness
         .workers()
         .hold_start(key)
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
+}
+
+/// The session of a `hold_start_at`, on both tiers: only the hold `before: payload` has a form.
+pub(crate) fn held_session(args: &Value) -> Result<SessionId, ControlError> {
+    let HoldStartAt { session, before } = parse(args)?;
+    match before {
+        Before::Payload => Ok(session),
+        // No minimum id holds these steps yet.
+        Before::Identity | Before::Running => Err(ControlError::Unsupported),
+    }
+}
+
+/// The hold is set before the `Start`, so the session's stored row must still be `Created`.
+pub(crate) fn not_begun(session: &SessionId, row: &Row) -> Result<(), ControlError> {
+    if row.state == SessionState::Created {
+        return Ok(());
+    }
+    Err(ControlError::Bad(format!(
+        "the start of {} has begun: its row is {:?}",
+        session.0, row.state
+    )))
 }
 
 /// Ends the hold of `hold_start_at`: the step runs at the worker's next turn (Core AD-7, A5-2).
