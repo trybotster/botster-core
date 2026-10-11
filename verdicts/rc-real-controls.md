@@ -1623,3 +1623,36 @@ The integration reviewer requests no extra local run and preserves all local evi
 It also verifies that the #284 merge preserves gated tree `5b13e06270096dfad3b73ea8cf87136c26da0261`.
 The reviewer accepts no future gate result through this receipt.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — failed final gate and retry evidence condition
+
+Exact source head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Implementer messages: `msg_plugin-w_1791755808_cde7cb` and `msg_plugin-w_1791755842_342b2e`.
+Final gate log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-3cf46071-pool-20261011-144458-14865.log`.
+The reviewer read the header, failing test record, mutation-stage records, step summary, and final exit.
+The header matches the source head and base above.
+The first eight steps pass. Mutants fails; fuzz does not run. The wrapper exits 1 after 285 seconds.
+Stage 1 reports six mutants: two caught, four missed, no timeout or unviable result.
+The unmutated stage-2 baseline fails before stage 2 tests any mutant.
+The failure is `conf::ev_5_route_closed_retires_route_keyed_events`, seed 0, step 28.
+It expects `activity_before_close: true, closed: true` and receives `activity_before_close: false, closed: true`.
+The same test passes in the earlier slow step. No combined mutation PASS is accepted.
+
+The reviewer read the complete transcript at contracts-v0.1.39.
+Steps 24 through 26 send one byte, await quiet, and begin Detach without an activity fence.
+The own #285 delta changes no transcript, worker code, or `route_reports` control.
+The transcript calls neither `scripted` `pty_output` nor `input_blocked`.
+These facts support non-interference with the proposed missing-fence mechanism.
+They do not prove that mechanism caused this failure or that the failure reproduces on plain `v1`.
+The reviewer requests trace evidence and a same-signature plain-v1 or accepted controlled timing reproduction under plan 23al and 23bl.
+Request to RC: `msg_plugin-w_1791755860_ed6d16`. Question to the lead: `msg_plugin-w_1791755860_7d682f`.
+
+Lead decision: `msg_plugin-w_1791755874_99ba93`.
+The lead states that its earlier approval was incomplete and no accepted reproduction or trace exists.
+The lead preserves the 23al conditions and the narrow 23bl controlled-timing exception.
+No re-gate is authorized until RC supplies the required evidence and both reviewers accept it.
+The source and body findings remain closed. Final acceptance remains pending the required evidence and a valid completed gate.
+The reviewer ran no test, build, or gate.
