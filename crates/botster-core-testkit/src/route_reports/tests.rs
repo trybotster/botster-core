@@ -73,17 +73,28 @@ const BOTH: Seen = Seen {
     closed: true,
 };
 
-/// R-66: a report is consumed at the driver's next call on its link, never at the call that received it.
+/// The control's answer, and its wakes: one for each answer while a received report waits.
+fn answer(reports: &RouteReports, wakes: &mut usize) -> Seen {
+    reports.answer(&instance(), R2, || *wakes += 1)
+}
+
+/// R-66: a report is consumed at the driver's next call on its link, never at the call that received it. While it waits for
+/// that call, the control wakes the host; after it, the control wakes nothing.
 #[test]
 fn a_report_is_consumed_at_the_next_call_on_its_link() {
     let mut reports = RouteReports::default();
+    let mut wakes = 0;
+    assert_eq!(answer(&reports, &mut wakes), NONE);
+    assert_eq!(wakes, 0, "nothing received");
     calls(&mut reports, &[hello(), [activity(R2), close(R2)].concat()]);
-    assert_eq!(reports.seen(&instance(), R2), NONE);
+    assert_eq!(answer(&reports, &mut wakes), NONE);
+    assert_eq!(wakes, 1);
     assert!(reports.waits());
     reports.call(LinkId(9));
     assert_eq!(reports.seen(&instance(), R2), NONE, "another link's call");
     reports.call(LINK);
-    assert_eq!(reports.seen(&instance(), R2), BOTH);
+    assert_eq!(answer(&reports, &mut wakes), BOTH);
+    assert_eq!(wakes, 1, "nothing waits");
     assert!(!reports.waits());
 }
 
