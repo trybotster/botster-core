@@ -148,6 +148,14 @@ exclude_re = [
     # `conformance strict:` line and no `conformance: passed` line, which every gate log of the step shows.
     'xtask/src/ci\.rs:\d+:\d+: replace lists_job -> Result<\(\)> with Ok\(\(\)\)$',
     'xtask/src/ci\.rs:\d+:\d+: replace conformance_report -> Result<String> with Ok\(.*\)$',
+    # xtask ci.rs command -> Ok(()): process glue. The body checks the parallelism cap, clears the slow record
+    # (`slow_record::clear`, GS L2), runs every step of the gate and prints the summary; a test cannot run the gate inside
+    # a mutation run of it. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no "=== ci
+    # summary ===" table, which every gate log shows. Its decisions are tested: parse_options (a_step_name_must_exist),
+    # run_steps (a_failure_stops_the_run_and_marks_the_rest_not_run, keep_going_runs_every_step,
+    # one_step_can_be_run_alone), summary_line (a_summary_line_names_the_step_the_result_and_the_first_line_of_the_reason)
+    # and slow_record::clear (clearing_removes_the_record_and_a_missing_one_is_no_error).
+    'xtask/src/ci\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask gate-decisions command -> Ok(()): process glue. It runs `cargo mutants --list` on the xtask and reads the
     # repository; a test cannot list the mutants of the real xtask inside a mutation run of it. Only this whole-body
     # replacement is excluded; the body has no operator. Its decisions stay mutation-tested: stdout_of
@@ -168,6 +176,16 @@ exclude_re = [
     # (the_packages_come_from_cargo_metadata), tracked_with_submodules (the_tracked_files_come_from_git) and verdict
     # (a_check_passes_only_with_no_violation).
     'xtask/src/mutants_cited\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask test_budget.rs command -> Ok(()): process glue. The body builds and runs a test tier under nextest, makes the
+    # slow record before and after a passed slow tier (GS L2), and prints the verdict; a test cannot run a tier of the
+    # workspace inside a mutation run of it. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints
+    # no "test-budget: ok" line, which every gate log of the test-budget and slow steps shows. Its decisions are tested:
+    # parse_options (deadline_needs_slow), selection and slow_selection
+    # (the_slow_tier_runs_the_workspace_with_the_slow_features_and_the_slow_binaries), budget_failures
+    # (a_test_over_two_seconds_fails_the_default_tier_and_exactly_two_does_not), run_failures
+    # (the_failures_of_a_bounded_run_are_its_leftovers_its_deadline_and_its_open_output), and slow_record::before_run and
+    # after_pass (slow_a_record_is_reused_only_for_the_same_tree_and_selection, slow tier).
+    'xtask/src/test_budget\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask test_budget.rs kill -> (): process glue. The body sends SIGKILL to the leftovers of a test run; a default-tier
     # test cannot give it a real leftover to end. Only this whole-body replacement is excluded. Its decisions are tested:
     # target (a_cleanup_argument_names_a_process_or_a_group), the parse of each argument, and the refusal of 0, 1 and our
