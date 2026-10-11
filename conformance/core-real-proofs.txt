@@ -12,3 +12,4 @@
 #   botster-core::slow_conformance names no other trial.
 # - The doc comment of each named test cites its `conf::<id>` and its clause; the reviewers check it by reading.
 conf::ad_6_reused_pid_is_never_killed	botster-core::slow_conformance	conf::ad_6_reused_pid_is_never_killed
+conf::e1_1_worker_found_by_host_supplied_path	botster-core::slow_conformance	conf::e1_1_worker_found_by_host_supplied_path
