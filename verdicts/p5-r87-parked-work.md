@@ -141,3 +141,69 @@ I used read-only Git, source inspection, and artifact parsing.
 The next head requires a delta review. The lead controls the final slot, base import, final gate, and merge.
 
 VERDICT: NOT CLEAN
+
+
+## Round 2 — source corrections and evidence limits, 2026-10-11
+
+- Exact head: `bda64e1592e33aa5eedfc8f39d2b114bd0a06b4f`.
+- Tree: `4b77363def4624dd2d3584d77fb4821464933756`.
+- Base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+- Previous head: `6c231801e78ea268dd2894d669a41aa3c1392615`.
+- Previous verdict: `6b1ec1d1c01db123c9e92de43fb2dca53e888f8e`.
+- Fix and provenance receipt: `msg_plugin-w_1791761164_574b97`.
+- Tier: HIGH. Open finding: one MEDIUM evidence finding.
+
+### Closed source and body findings
+
+I read the complete two-commit delta. It changes only real.rs and the shared scenario in refusal.rs.
+`d0493f3e3e38a6575adf7e56a886ebabe5248741` places the alive comment directly above worker_alive. F1 closes.
+The exact head adds an explicit deadline check to the setup loop. The loop reuses the unchanged BOUND.
+A pump that continues to report more reaches the assertion when that deadline expires. F2 closes.
+The loop adds no poll, sleep, new timeout value, or production change.
+The body now cites HIGH rules 3 and 5. The three named host paths occur in the HIGH-path list. F3 closes.
+The two controls and the host diagnostic remain unchanged.
+The previous-head green gate does not validate this new test code. No exact-head gate is accepted yet.
+
+### Provenance correction
+
+P5 states that the initial per-seed record is superseded.
+Its uncommitted source identity rests only on the implementer's statement. It has no target or clean record.
+P5 also cannot establish the cache condition for the forms reversal or engine reversal records.
+A production source edit does not replace the B13 clean or single-worktree proof.
+I withdraw any validation of those three execution records. Their observed log text remains historical evidence only.
+
+The Mac-tier record supersedes the first per-seed record.
+It names clean source `9e5f165a6a3d6389e965a0af082dffb55a086183` and a new private target directory.
+P5 confirms that this script was the first user of that directory. Its script names the same condition.
+The record runs both fenced IDs with testkit seeds 0–31 and real seed 0.
+It patches only two #68 transcript blobs onto .39, and records the matching blob identities.
+I accept this Mac result with its stated source and transcript scope.
+The later isolated pool gate supplies the current implementation's independent mutation result.
+The local mutant-fix record follows a clean and has one worktree writer, according to P5's receipt.
+I need no local reversal claim to accept the independent pool mutation result.
+
+I read the complete provenance comparison and its script.
+I independently verify the diff from 9e5f165a to dc9b230b.
+The host driver, engine, and run blobs match exactly, as do harness.rs and process_controls.rs.
+The only real.rs addition is the eleven-line slow test. The only refusal.rs addition is the cfg(test) shared scenario.
+The two source patch IDs differ because of those added tests. I claim no complete-tree equality from the patch IDs.
+Later tests, comments, the deadline check, and the disjoint base import have explicit review.
+The historical Mac result is not a full gate on the new head or the future contracts pin.
+
+Mac log SHA256: `87c4da324f9bddce3b223ac922e50141a49c964690612b7bfcd37098bdc68204`.
+Provenance record SHA256: `57641464e1f3b57125c0a7726c93ee6e51a2e1fe3fc3bcb04c537cf3b3c34719`.
+
+### R292-E1 — MEDIUM, open: the body accepts unvalidated local records
+
+The live Evidence table still presents the initial per-seed and both reversal logs as accepted execution proof.
+That claim conflicts with the implementer's provenance correction.
+Required change: label these three records historical and unvalidated, or remove their accepted proof claims.
+Use the valid Mac-tier result for the 32-seed and real-tier claim.
+Use the isolated pool result for the mutation claim. Link r87-evidence-provenance.txt and preserve each source limit.
+No new execution job is required for this body correction.
+Sent to P5 and Sol: `msg_plugin-w_1791761262_cecc9a` and `msg_plugin-w_1791761262_1d6254`.
+
+I ran no build, test, gate, mutation job, or executable merge check. I changed no product code.
+The next body correction needs verification before CLEAN. The lead retains control of the final slot and merge.
+
+VERDICT: NOT CLEAN
