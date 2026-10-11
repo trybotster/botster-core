@@ -326,6 +326,9 @@ dependencies = [
 [[package]]
 name = "botster-core-edges"
 version = "0.1.0"
+dependencies = [
+ "botster-test-process",
+]
 
 [[package]]
 name = "botster-core-host"
@@ -336,6 +339,7 @@ dependencies = [
  "botster-core-link",
  "botster-route-codec",
  "botster-terminal-ghostty",
+ "botster-test-process",
  "serde",
  "serde_json",
 ]
@@ -347,6 +351,7 @@ dependencies = [
  "bolero",
  "botster-core-contract",
  "botster-route-codec",
+ "botster-test-process",
  "serde",
  "serde_json",
  "sha2",
@@ -407,6 +412,7 @@ dependencies = [
  "botster-core-contract",
  "botster-core-edges",
  "botster-core-link",
+ "botster-test-process",
  "serde",
  "serde_json",
 ]
@@ -468,6 +474,7 @@ dependencies = [
  "base64",
  "botster-core-contract",
  "botster-route-codec",
+ "botster-test-process",
  "static_assertions",
 ]
 
@@ -534,6 +541,7 @@ dependencies = [
  "botster-core-link",
  "botster-route-codec",
  "botster-terminal-ghostty",
+ "botster-test-process",
  "serde_json",
 ]
 

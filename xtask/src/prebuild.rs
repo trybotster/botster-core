@@ -18,6 +18,18 @@ const PROBE: &str = "botster-conformance-probe";
 const WORKER: &str = "botster-worker";
 const ANCHOR_PACKAGE: &str = "botster-test-process";
 const ANCHOR: &str = "botster-test-anchor";
+/// The record of the worktree that the candidate binaries come from (`botster_test_process::built_in::SOURCE_ROOT_FILE`,
+/// which the tests read; a test checks that the names agree).
+const SOURCE_ROOT_FILE: &str = "source-root";
+
+/// The worktree that `record` (the text of the source-root file, if any) names, when it is not `here` (canonical).
+/// Two worktrees with one target directory and the same `Cargo.lock` share artifact names, and cargo can reuse the other
+/// worktree's build (bug catalog B13), so a candidate of another worktree is never rebuilt over in place.
+fn other_source_root(record: Option<&str>, here: &Path) -> Option<PathBuf> {
+    let built = PathBuf::from(record?.trim_end_matches('\n'));
+    let canonical = built.canonicalize().unwrap_or_else(|_| built.clone());
+    (canonical != here).then_some(built)
+}
 
 /// The git url and the tag of the contracts dependency in the root `Cargo.toml`.
 fn contracts_source(cargo_toml: &str) -> Result<(String, String)> {
@@ -132,6 +144,21 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let meta = metadata(root)?;
     let candidate = meta.target_dir.join("candidate");
     std::fs::create_dir_all(&candidate)?;
+    let here = root
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", root.display()))?;
+    let record = candidate.join(SOURCE_ROOT_FILE);
+    if let Some(other) = other_source_root(std::fs::read_to_string(&record).ok().as_deref(), &here)
+    {
+        bail!(
+            "{} was last prebuilt from {}, and this worktree is {} (bug catalog B13): cargo can reuse that worktree's build; run `cargo clean --target-dir {}`, then run prebuild-worker again",
+            candidate.display(),
+            other.display(),
+            here.display(),
+            meta.target_dir.display()
+        );
+    }
+    std::fs::write(&record, format!("{}\n", here.display()))?;
     // The manifest is written last, after every replacement succeeded: a failed run leaves none.
     let manifest = candidate.join("manifest.json");
     let _ = std::fs::remove_file(&manifest);
@@ -188,6 +215,39 @@ mod tests {
         assert!(!has_worker_binary(&[member("botster-worker", false)]));
         assert!(!has_worker_binary(&[member("other", true)]));
         assert!(!has_worker_binary(&[]));
+    }
+
+    #[test]
+    fn a_candidate_of_another_worktree_is_named() {
+        let root = botster_test_support::tempdir::TempRoot::new().unwrap();
+        let here = root.path().join("b");
+        let other = root.path().join("a");
+        std::fs::create_dir_all(&here).unwrap();
+        std::fs::create_dir_all(&other).unwrap();
+        let here = here.canonicalize().unwrap();
+        assert_eq!(other_source_root(None, &here), None);
+        assert_eq!(
+            other_source_root(Some(&format!("{}\n", here.display())), &here),
+            None
+        );
+        assert_eq!(
+            other_source_root(Some(&format!("{}\n", other.display())), &here),
+            Some(other.clone())
+        );
+        // A removed worktree is another worktree.
+        let gone = root.path().join("gone");
+        assert_eq!(
+            other_source_root(Some(&format!("{}\n", gone.display())), &here),
+            Some(gone)
+        );
+    }
+
+    #[test]
+    fn the_source_root_file_is_the_one_that_the_tests_read() {
+        assert_eq!(
+            SOURCE_ROOT_FILE,
+            botster_test_process::built_in::SOURCE_ROOT_FILE
+        );
     }
 
     #[test]

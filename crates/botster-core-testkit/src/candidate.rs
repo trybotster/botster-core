@@ -30,6 +30,9 @@ pub enum CandidateError {
     Entry { name: String, entries: usize },
     /// The binary cannot be read.
     Unreadable { name: String, why: String },
+    /// The binaries were prebuilt from another worktree, or the record of their worktree is missing (bug catalog B13;
+    /// `botster_test_process::built_in::check_candidate`).
+    OtherRoot { why: String },
     /// The binary is not the one that the manifest lists.
     Mismatch {
         name: String,
@@ -57,6 +60,7 @@ impl std::fmt::Display for CandidateError {
             CandidateError::Unreadable { name, why } => {
                 write!(f, "cannot read {name}: {why}; {hint}")
             }
+            CandidateError::OtherRoot { why } => f.write_str(why),
             CandidateError::Mismatch {
                 name,
                 expected,
@@ -99,8 +103,16 @@ impl Candidate {
             })
     }
 
-    /// Verifies the binaries of `dir` (`target/candidate`) against its `manifest.json`.
+    /// Verifies that the binaries of `dir` (`target/candidate`) were prebuilt from the worktree of this test, then verifies
+    /// them against its `manifest.json`.
     pub fn locate(dir: &Path) -> Result<Candidate, CandidateError> {
+        crate::built_in::check_candidate_here(dir)
+            .map_err(|why| CandidateError::OtherRoot { why })?;
+        Candidate::verify(dir)
+    }
+
+    /// Verifies the binaries of `dir` against its `manifest.json`.
+    fn verify(dir: &Path) -> Result<Candidate, CandidateError> {
         let path = dir.join("manifest.json");
         let text = std::fs::read_to_string(&path).map_err(|e| CandidateError::NoManifest {
             path: path.clone(),
@@ -191,7 +203,7 @@ mod tests {
     #[test]
     fn verified_binaries_are_returned() {
         let dir = candidate_dir(good);
-        let found = Candidate::locate(dir.path()).unwrap();
+        let found = Candidate::verify(dir.path()).unwrap();
         assert_eq!(found.worker, dir.path().join(WORKER));
         assert_eq!(found.probe, dir.path().join(PROBE));
         assert_eq!(found.anchor, dir.path().join(ANCHOR));
@@ -200,7 +212,7 @@ mod tests {
     #[test]
     fn no_manifest_means_the_prebuild_did_not_run() {
         let dir = tempfile::tempdir().unwrap();
-        let error = Candidate::locate(dir.path()).unwrap_err();
+        let error = Candidate::verify(dir.path()).unwrap_err();
         assert!(matches!(error, CandidateError::NoManifest { .. }));
         assert!(error.to_string().contains("cargo xtask prebuild-worker"));
     }
@@ -210,7 +222,7 @@ mod tests {
         for binary in [WORKER, PROBE, ANCHOR] {
             let dir = candidate_dir(good);
             std::fs::write(dir.path().join(binary), b"rebuilt later").unwrap();
-            let error = Candidate::locate(dir.path()).unwrap_err();
+            let error = Candidate::verify(dir.path()).unwrap_err();
             assert!(
                 matches!(&error, CandidateError::Mismatch { name, .. } if name == binary),
                 "{error}"
@@ -218,7 +230,7 @@ mod tests {
         }
         // The comparison ignores the case of the hex digits.
         let upper = candidate_dir(|w, p| good(&w.to_uppercase(), &p.to_uppercase()));
-        assert!(Candidate::locate(upper.path()).is_ok());
+        assert!(Candidate::verify(upper.path()).is_ok());
     }
 
     #[test]
@@ -227,7 +239,7 @@ mod tests {
             |_, probe| json!({"binaries": [{"name": PROBE, "path": PROBE, "sha256": probe}, anchor_entry()]}),
         );
         assert_eq!(
-            Candidate::locate(missing.path()).unwrap_err(),
+            Candidate::verify(missing.path()).unwrap_err(),
             CandidateError::Entry {
                 name: WORKER.into(),
                 entries: 0
@@ -242,7 +254,7 @@ mod tests {
             ]})
         });
         assert_eq!(
-            Candidate::locate(twice.path()).unwrap_err(),
+            Candidate::verify(twice.path()).unwrap_err(),
             CandidateError::Entry {
                 name: WORKER.into(),
                 entries: 2
@@ -251,7 +263,7 @@ mod tests {
         let gone = candidate_dir(good);
         std::fs::remove_file(gone.path().join(PROBE)).unwrap();
         assert!(matches!(
-            Candidate::locate(gone.path()),
+            Candidate::verify(gone.path()),
             Err(CandidateError::Unreadable { .. })
         ));
     }
@@ -266,7 +278,7 @@ mod tests {
             let dir = candidate_dir(|_, _| manifest.clone());
             assert!(
                 matches!(
-                    Candidate::locate(dir.path()),
+                    Candidate::verify(dir.path()),
                     Err(CandidateError::BadManifest { .. })
                 ),
                 "{manifest}"
@@ -275,8 +287,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("manifest.json"), "not json").unwrap();
         assert!(matches!(
-            Candidate::locate(dir.path()),
+            Candidate::verify(dir.path()),
             Err(CandidateError::BadManifest { .. })
         ));
+    }
+
+    #[test]
+    fn a_candidate_without_the_record_of_its_worktree_is_refused() {
+        let dir = candidate_dir(good);
+        assert!(matches!(
+            Candidate::locate(dir.path()),
+            Err(CandidateError::OtherRoot { .. })
+        ));
+        let root = crate::statements::workspace_root().canonicalize().unwrap();
+        std::fs::write(
+            dir.path().join(crate::built_in::SOURCE_ROOT_FILE),
+            format!("{}\n", root.display()),
+        )
+        .unwrap();
+        assert!(Candidate::locate(dir.path()).is_ok());
     }
 }
