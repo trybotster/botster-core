@@ -1207,3 +1207,33 @@ mod held_starts {
         assert_eq!(sent(&rig), bytes, "no byte reordered, dropped or changed");
     }
 }
+
+#[test]
+fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes_nothing() {
+    let mut fake = Fake::default();
+    fake.take_descriptors = true;
+    let mut rig = rig(fake);
+    rig.with(|t| t.fail_next_handoff());
+    // Core DP-2: the endpoint comes back with `Failed`, as from a `sendmsg` that fails.
+    let (endpoint, why) = rig
+        .edges
+        .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8))
+        .unwrap_err();
+    assert_eq!(why, DescriptorSendError::Failed);
+    assert_eq!(endpoint.downcast::<u8>().ok(), Some(5));
+    rig.with(|t| {
+        assert!(t.inner.calls.is_empty(), "{:?}", t.inner.calls);
+        assert!(t.inner.sent.is_empty());
+    });
+    // Once: the next hand-over reaches the inner edge, which takes it.
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(6u8))
+            .ok(),
+        Some(2)
+    );
+    rig.with(|t| {
+        assert_eq!(t.inner.calls, ["descriptor 1 [114, 116]"]);
+        assert_eq!(t.inner.sent, vec![(A, b"rt".to_vec())]);
+    });
+}
