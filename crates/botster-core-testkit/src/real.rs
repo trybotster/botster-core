@@ -1894,7 +1894,7 @@ mod slow_controls {
 
     /// Steward ruling R-55 (1), `host_crash` on real sessions:
     /// - Condition 1: when an exit is unread, the edges are not quiet and the control is `Bad`; it acts after a pump.
-    /// - Condition 2, in the form of the steward's follow-up (draft `shared/steward/drafts/r55-cond2-b.md`): the tap goes
+    /// - Condition 2, in the real-tier form of its follow-up (contracts `main` `d13a165`): the tap goes
     ///   with the Core, so no edge call follows. At the crash there is one reaper thread for each live worker, and the
     ///   descriptors beyond the count before the open are the wake's. One reap after the crash is a real event: the reaper's
     ///   notify on the kept wake. The wake's descriptors are a fixed count: the same for two reapers as for one. That each
