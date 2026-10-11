@@ -34,15 +34,9 @@ conf::ou_7_exit_after_last_frame_then_close
 conf::ou_7_exit_after_tail_queued_then_close
 
 # the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (with ids from P4a PR3: pty_output, pty_input, pty_blocked).
-conf::a2_2_cancel_race_reports_the_real_outcome
-conf::am_2_next_write_waits_for_completion_or_partial_end
 conf::ev_2_drop_oldest_with_marker
 conf::ev_2_retired_instance_never_creates_a_loss_marker
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
-conf::in_2_link_loss_is_unknown_not_zero
-conf::in_2_partial_is_certain
-conf::in_6_cancel_reports_progress
-conf::in_7_lost_worker_ends_pending
 conf::ou_12_output_bytes_are_unmodified_and_in_order
 
 # needs wait_worker_exit for a non-spawned worker (R-46 follow-up 5651aec): its Remove of a stray worker learns of the end only

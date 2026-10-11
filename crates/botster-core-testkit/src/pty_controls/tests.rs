@@ -507,6 +507,77 @@ fn a_blocked_program_makes_the_write_wait_until_it_takes_input() {
     assert_eq!(input(&mut harness), json!("6162"));
 }
 
+/// The bytes that `pty_queued` reports for `s1` on `a`.
+fn queued(harness: &mut TestkitHarness) -> Value {
+    harness
+        .control("a", "pty_queued", &json!({"session": "s1"}))
+        .unwrap()
+}
+
+/// Steward ruling R-74, the held write: `pty_blocked` with `kernel_bytes` lets that many bytes of the write in, unread by the
+/// program, and `pty_queued` reports them. The write stays pending. `on: false` delivers the queue first, then the rest.
+#[test]
+fn a_kernel_queue_holds_the_write_and_pty_queued_reports_it() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, true);
+    settle(core.as_mut(), at);
+    assert_eq!(queued(&mut harness), json!({"bytes": 0}));
+    assert_eq!(
+        harness.control(
+            "a",
+            "pty_blocked",
+            &json!({"session": "s1", "on": true, "kernel_bytes": 2})
+        ),
+        Ok(Value::Null)
+    );
+    let op = write(core.as_mut(), b"abcde");
+    settle(core.as_mut(), at);
+    assert_eq!(queued(&mut harness), json!({"bytes": 2}));
+    assert_eq!(input(&mut harness), json!(""), "the program read none");
+    assert!(
+        core.poll_events(64)
+            .iter()
+            .all(|e| !matches!(e, Event::Completed { op: o, .. } if *o == op)),
+        "the write is held"
+    );
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": false})),
+        Ok(Value::Null)
+    );
+    assert_eq!(queued(&mut harness), json!({"bytes": 0}));
+    assert_eq!(
+        outcome(complete(core.as_mut(), &mut at, op)),
+        (WriteOutcome::Written, 5)
+    );
+    assert_eq!(input(&mut harness), json!("6162636465"));
+}
+
+/// `kernel_bytes` goes with a block only, and `pty_queued` takes a session only: anything else is `Bad`.
+#[test]
+fn kernel_bytes_and_pty_queued_refuse_what_they_cannot_do() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    for args in [
+        json!({"session": "s1", "on": false, "kernel_bytes": 1}),
+        json!({"session": "s1", "kernel_bytes": -1}),
+        json!({"session": "s1", "kernel_bytes": "1"}),
+    ] {
+        assert!(bad(harness.control("a", "pty_blocked", &args)), "{args}");
+    }
+    for args in [
+        json!({"session": "s9"}),
+        json!({"session": "s1", "bytes": 1}),
+        json!({}),
+    ] {
+        assert!(bad(harness.control("a", "pty_queued", &args)), "{args}");
+    }
+    assert!(bad(harness.control(
+        "b",
+        "pty_queued",
+        &json!({"session": "s1"})
+    )));
+}
+
 /// A write that fails with an OS error (`pty_fail_after`) completes `Failed` with its exact count (Core IN-2), and never
 /// waits for a readiness that the error does not give.
 #[test]
