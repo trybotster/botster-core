@@ -3022,3 +3022,21 @@ Sol accepts that count as the lead's correction of P3's report. Sol does not rep
 The active Core pin remains .36. Zero plan findings remain. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open) at 96415955e65b1f8d3d69f5fd60bdb6aaf4f763c5
+
+## Round 82 — revision 23ce, 2026-10-11
+
+Head: `f17f24db1421ab9f7dd88870561f14fad01307e7`.
+Prior reviewed head: `96415955e65b1f8d3d69f5fd60bdb6aaf4f763c5`.
+Only docs/stage1-plan.md changes. Sol reads every changed term and the history row.
+Sections 5, 6.3, and 8 retain their reviewed rules.
+The pin equals the committed bytes and has mode 0444.
+Pin SHA-256: `b51173fc45f137debb95988a69f8d6c09b6b5efb70dbf0b38732e16afacc5318`.
+
+R-84 now includes the steward's explicit-empty condition already recorded as due in Round 81.
+If a clause distinguishes explicitly empty title or cwd from unset, the empty-to-absent mapping stays outside the shared projection.
+RC must check EV-7 and ST-4. The PR body must state the result with the clause text. Reviewer 016c must check it.
+The shared projection still makes no semantic decision. No input count, oracle source, scope, slot, or pin changes.
+This verdict does not resolve the future implementation's clause comparison or accept any empty-to-absent mapping.
+Zero plan findings remain. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open) at f17f24db1421ab9f7dd88870561f14fad01307e7
