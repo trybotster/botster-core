@@ -2,20 +2,26 @@
 
 ## Current verdict
 
-- PR: #247, sha2 dev-profile optimization.
-- Head: `14cde79e46da90b83079b15ce463d833364a1ef6`.
-- Base: `f6778ad85c01266ac49e2ededd97487da689e920`.
+- PR: #248, candidate verification once per test process.
+- Head: `41002679c4a9c24bb16b75c7735bc950bdc6f753`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
 - Verdict: CLEAN.
 - Open findings: 0, including LOW.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The exact-head Linux gate is green. The retained evidence passes the same 412 slow tests before and after the change.
+The earlier head `b4072c19` has a green Linux gate. The PR reports a passing base-merge-check for the reviewed head.
+
+I confirmed byte-identical own diffs and the same 427 slow-suite PASS names. Both corruption probes reject the changed candidate worker.
 
 I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
 
+The final gate on the exact head remains required before merge.
+
+PR #247 received package CLEAN in `c7c538a1` and integration CLEAN in `b5df2e0e`. It is now in the base through `5c480db4`.
+
 ## Remaining review work
 
-Wait for the implementer's READY messages for the candidate cache, in-place mutation run, and baseline reuse PRs.
+Wait for the implementer's READY messages for the in-place mutation run and baseline reuse PRs.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
