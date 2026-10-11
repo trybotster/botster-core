@@ -693,8 +693,11 @@ impl Worker {
                 Ok(Decoded::Unsupported { op, what }) => {
                     Some(Received::Refused(op, RefusalReason::Unsupported { what }))
                 }
+                // Steward ruling R-75: a parseable frame that breaks a field rule of Core 5.1A, and is not over a size bound
+                // or of an unknown kind or value, is refused `refused`, with zero effect. The codec's field rules
+                // (`Input::check`) are of that class.
                 Ok(Decoded::Invalid { op, .. }) => {
-                    Some(Received::Refused(op, RefusalReason::InvalidInput))
+                    Some(Received::Refused(op, RefusalReason::Refused))
                 }
                 Err(error) => Some(Received::Bad(RouteCloseReason::BadFrame {
                     code: error.code,
