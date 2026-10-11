@@ -357,7 +357,8 @@ fn the_input_controls_refuse_what_they_cannot_do() {
 }
 
 /// `program_ready` (R-60): the testkit's program edge has no terminal setup, so a session that the handle has is ready at
-/// once, before and after its start. An unknown handle or session, and an argument that it does not take, are `Bad`.
+/// once, before and after its start. An unknown handle or session, a removed session, and an argument that it does not take,
+/// are `Bad`.
 #[test]
 fn program_ready_is_true_at_once_for_a_session_of_the_handle() {
     let mut harness = TestkitHarness::new(0);
@@ -386,6 +387,14 @@ fn program_ready_is_true_at_once_for_a_session_of_the_handle() {
         );
     }
     assert!(bad(harness.control("b", "program_ready", &args)));
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, mut at) = session(&mut harness, false);
+    let remove = core.begin(Op::Remove { id: sid("s1") }).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, remove),
+        OpResult::Ok(_)
+    ));
+    assert!(bad(harness.control("a", "program_ready", &args)), "removed");
 }
 
 /// `pty_input` is the observer of the input controls: the bytes that the program edge took, in order, as hex. A `hold`

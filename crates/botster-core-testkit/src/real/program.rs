@@ -530,18 +530,14 @@ impl RealCoreHarness {
         match op {
             "program_ready" => {
                 // R-60: the probe connects only after its R-48 terminal setup. A read: it never waits for the connection
-                // (`await_control` does). A session whose worker Core has not recorded yet has no probe yet. A session with
-                // no row is `Bad`, as on the testkit.
+                // (`await_control` does). The answer comes from the session's current stored row, not from the record of
+                // its processes, which outlives `Remove`: a session with no stored row is `Bad`, as on the testkit. A row
+                // with no worker yet has no probe yet.
                 let args: Session = parse(args)?;
-                let dir = self.data_dir_of(handle).ok_or_else(|| {
-                    ControlError::Bad(format!("the handle '{handle}' is not open"))
-                })?;
-                let processes = self.session_processes(&dir, &args.session).ok_or_else(|| {
-                    ControlError::Bad(format!("the session {} has no row", args.session.0))
-                })?;
-                let ready = processes
+                let (_, row) = self.stored(handle, &args.session)?;
+                let ready = row
                     .worker
-                    .is_some_and(|worker| self.programs.has_connected(worker));
+                    .is_some_and(|worker| self.programs.has_connected(worker.identity()));
                 Ok(json!({ "ready": ready }))
             }
             "pty_output" => {
@@ -770,15 +766,14 @@ mod slow_tests {
         assert_eq!(wake.signals.load(Ordering::SeqCst), 3);
     }
 
-    /// R-60: the probe's connection is `program_ready`. Before the hello the probe of `worker` has not connected; the hello
-    /// records it and wakes every open handle's host once, so a wait for `program_ready` ends.
+    /// R-60: the hello wakes every open handle's host once, so a wait for `program_ready` ends. The real-session test proves
+    /// the readiness itself through the control.
     #[test]
-    fn the_hello_records_the_probe_and_wakes_the_hosts() {
+    fn the_hello_wakes_the_hosts_once() {
         let (_root, programs) = programs();
         let wake = Arc::new(CountingWake::default());
         programs.watch(&(Arc::clone(&wake) as Arc<dyn HostWake>));
         let me = identity(std::process::id());
-        assert!(!programs.has_connected(me));
         let mut probe = FakeProbe::connect(&programs, me.pid);
         // The reader wakes the hosts before it reads the next report, so the acknowledged request fences the wake.
         std::thread::scope(|s| {
@@ -787,7 +782,6 @@ mod slow_tests {
             probe.report(&Report::Ack {});
             control.join().unwrap().unwrap();
         });
-        assert!(programs.has_connected(me));
         assert_eq!(wake.signals.load(Ordering::SeqCst), 1);
     }
 
