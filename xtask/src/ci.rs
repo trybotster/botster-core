@@ -7,8 +7,8 @@
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
     caps, fsutil, gate_decisions, high_tier, lists, mutant_logs, mutants_cited, mutants_stale,
-    platform_code, prebuild, process_check, public_api, signals, taint, test_budget, timers,
-    unsafe_exception,
+    platform_code, prebuild, process_check, public_api, signals, slow_coverage, taint, test_budget,
+    timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -241,7 +241,8 @@ fn test_budget_job(root: &Path) -> Result<()> {
     test_budget::command(root, &[])
 }
 
-/// The slow tier: the slow tests, with every real-tier conformance id, under nextest; then the report of the ids of
+/// The slow tier: the slow tests, with every real-tier conformance id, under nextest; then the check that no tier skips a
+/// test that only the slow features build (`slow_coverage`, after the tier passes); then the report of the ids of
 /// `conformance/core-real-pending.txt` (plan 23l). Nextest skips those ids (ignored trials); here they run once, and their
 /// outcome is reported, never counted as passed and never a failure of the step.
 fn slow_job(root: &Path) -> Result<()> {
@@ -253,6 +254,7 @@ fn slow_job(root: &Path) -> Result<()> {
             "10m".to_string(),
         ],
     )?;
+    slow_coverage::command(root, &[])?;
     // The pending-real trials run under the slow tier's bounds: the same deadline, process group, tracker and leftover
     // check (#220 R1-1).
     let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
