@@ -58,3 +58,29 @@ Its tree equals the accepted #278 tree, `968f6e533d23625b1ec28026cab8e1e94690aa3
 The owner reports the final #281 gate running under the lead's SLOT.
 This source verdict accepts no result from that running gate. Its final gate and body remain due.
 Sol ran no execution job or executable base check. Earlier evidence limits remain.
+
+## Round 3 — final gate completion, 2026-10-11
+
+Verdict: complete CLEAN (0 open) at `d7abc589391ed492e27413c05c8489c262377f36`.
+Base: `23bb03a113218a5af24b44d31635dacad43c5981`.
+Package final CLEAN: `1f4534891b0bc56ec35fd6c5d333461f4254a806`.
+Sol reads the complete package completion section and the complete live body.
+The body names the canonical check and final exact-head gate. Round 2 retains the verified source carry.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-d7abc589-pool-20261011-112304-56033.log`.
+SHA-256: `a1fd512a2165027534a9e58144c79fb764e5411f6a0bda0a3451d4f0e1fe1ee5`.
+Sol reads the header, both tier summaries, budget results, repaired-test result, mutation and fuzz records, ten step summaries, and final exits.
+All ten steps PASS. Their total is 412.8 seconds.
+Default: 1748 PASS, 474 skipped, 16.857 seconds. Slow: 559 PASS, 2031 skipped, 57.760 seconds.
+The repaired test passes in 0.008 seconds. Both test budgets pass.
+The test-only own diff selects no mutant. Fuzz selects no changed decoder crate. The complete log contains no FLAKY token.
+The job and wrapper exit 0 after 528 seconds. The job queues for 8 seconds and runs for 520 seconds.
+Minimum counts remain testkit 61/69, real-passing 49/68, and real-accepted 50/69.
+This review approves no pending-list removal beyond the reviewed source.
+
+The lead reports the merge, `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Sol verifies its parents: the exact base above and the exact reviewed head above.
+Its tree equals the accepted head tree, `0cfed7dc43a101334878bdcf4dc61fbb010e4e29`.
+The gate base therefore equals the v1 tip before this merge.
+The final gate closes the pending evidence condition. Earlier local-evidence limits remain.
+Sol ran no build, test, gate, mutant, measurement, or executable base check. Never poll.
