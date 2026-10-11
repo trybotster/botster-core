@@ -2974,3 +2974,51 @@ The active Core pin remains .36. No implementation, gate, tag, pin move, or pend
 Sol runs no execution job. Zero plan findings remain. Never poll.
 
 VERDICT: CLEAN (0 open) at 5e38640f2a02ce1117c1b9435f61ad1687ed0c69
+
+## Round 81 — revision 23cd, 2026-10-11
+
+Head: `96415955e65b1f8d3d69f5fd60bdb6aaf4f763c5`.
+Prior reviewed head: `5e38640f2a02ce1117c1b9435f61ad1687ed0c69`.
+Only docs/stage1-plan.md changes. Sol reads every changed term and the added history row.
+Sections 5, 6.3, and 8 retain their reviewed rules.
+The pin equals the committed plan bytes and has mode 0444.
+Pin SHA-256: `fe4417587ca7efa7cef05610d9a7de328acdb144d199f9f5733237e29fc629dd`.
+
+Sol reads the complete rc-oracle-encode-design-note.md and the current pair-common hazard rule.
+Sol reads the .40 oracle_state row, oracle_modes/oracle_encode note, ModeFlags type, and frozen IN-8, ST-4, and EV-7 rows.
+Sol reads the relevant current oracle state, worker metadata, and explicit-mode encoder paths at v1 926dfb62.
+The accepted R-84 answers govern the design note's questions. This verdict accepts no implementation of those answers.
+
+A partial modes object uses ModeFlags::default(), not session modes.
+The author must supply every mode that affects the input encoding. The reviewer must check that condition.
+Missing modes still uses the oracle session model under the existing control note.
+NotReported and focus-off give an empty hex string. Unsupported gives the named refusal and retains what.
+Paste-off gives the text alone, consistent with IN-8. The testkit adds no encoder or terminal semantic.
+Mouse encoding still needs the session's size. The implementation review must resolve any missing pixel-size condition.
+
+oracle_modes and oracle_state use O_raw, not a second retained model.
+The shared projection is shape-only. It must not make a semantic decision shared by the subject and its oracle.
+The plan states absence when unset. It does not authorize treating an explicitly empty title or cwd as unset.
+Lead receipt msg_plugin-w_1791746580_bc08ab reports the steward's additional empty-versus-unset condition.
+The lead will add that condition in the next revision. RC must check EV-7 and ST-4 before sharing such a mapping.
+The current worker stores title and cwd as Option<String>; the current oracle accessor gives the binding's strings.
+This review does not decide that those states are interchangeable. No implementation or pending removal is accepted here.
+The existing unknown_output_history and size_or_profile_changed limits stay named and pending.
+Resize replay remains a separate gap with no owner.
+
+RC's order is #284 merge, #285, oracle controls, the R-81 Contracts PR, PR B, then the live modes frame.
+The slot order adds #287 after #284 and before the .40 pin.
+Both #287 source CLEANs exist at 2645bfc1. The completed new Linux evidence and updated body remain due.
+The plan does not convert those source verdicts into PR completion or approve a later import.
+
+B13 matches the current pair-common rule: clean before switching worktrees in a shared target directory.
+Local evidence requires a clean or an unchanged writer since the last clean. Pool jobs are outside this local hazard.
+GS owns one HIGH testkit PR after #286 for test-binary and candidate-manifest source checks.
+That future implementation must prove refusal of a stale binary. This plan review accepts no proposed mechanism as tested.
+The Mac disk constraint still requires one target directory per implementer.
+
+R-83 still has 31 findings. The reported transcript count changes from 29 to 26 after P3's clean build.
+Sol accepts that count as the lead's correction of P3's report. Sol does not repeat the scan.
+The active Core pin remains .36. Zero plan findings remain. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open) at 96415955e65b1f8d3d69f5fd60bdb6aaf4f763c5
