@@ -194,6 +194,25 @@ mod tests {
         ));
     }
 
+    /// A second open of a file that this process holds is refused before it opens the file (its close would release the
+    /// lock), through the same path and through a hard link: no descriptor is kept with the holder.
+    #[test]
+    fn a_held_file_is_refused_without_an_open() {
+        static TABLE: Mutex<Table> = Mutex::new(BTreeMap::new());
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("lock");
+        let link = dir.path().join("link");
+        let holder = try_exclusive_in(&TABLE, &path).unwrap();
+        std::fs::hard_link(&path, &link).unwrap();
+        for second in [&path, &link] {
+            assert!(matches!(
+                try_exclusive_in(&TABLE, second),
+                Err(LockError::Held)
+            ));
+        }
+        assert!(TABLE.lock().unwrap()[&holder.key].is_empty());
+    }
+
     /// The path replaced, between the metadata and the open, by a file that this process holds: the new descriptor stays
     /// with the holder, the open is refused, and the drop of the holder closes both and frees the key.
     #[test]
