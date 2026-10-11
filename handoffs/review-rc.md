@@ -1011,3 +1011,21 @@ RC reports only this worktree built in the target after the clean. The reviewer 
 The B13 section retains the same-pin wrong-result reproduction and its different-pin negative control.
 The new exact-head gate remains pending. The reviewer accepts no future gate result.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — final-slot body correction
+
+Implementer message: `msg_plugin-w_1791754946_f0c289`.
+Integration message: `msg_plugin-w_1791754945_b77470`, naming the same condition as TC-SI-6.
+Source head remains `3cf460714016af6683ea6c60f1753dfc0055c660`.
+The reviewer read the corrected live body section and verified that the PR head remains unchanged.
+RC-TK-DELTA-1 is closed.
+The body labels the historical scratch result as one run with the suite's default seeds, not seeds 0-31.
+It states that the .39 pin and #284 are now imported.
+It records the retained seed-10 testkit failure and seed-0 real failure at step 15.
+It keeps the ID testkit-pending with an undiagnosed cause and RC owner.
+It removes the all-seed PASS claim and the claim that the future pin ends the pending status.
+No new source change or comparison run is required for this correction.
+Open package findings: 0, including LOW findings.
+The completed exact-head gate and final body gate result remain pending before CLEAN.
+The reviewer ran no test, build, or gate.
