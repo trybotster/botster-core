@@ -1,6 +1,6 @@
 //! The Linux adapters: /proc for the members and the start time, a pidfd for the exit.
 
-use super::{gone, state_and_group, Member, Waited};
+use super::{gone, state_parent_and_group, Member, Waited};
 use crate::Deadline;
 use rustix::process::Pid;
 
@@ -95,6 +95,19 @@ fn gone_at_open(error: rustix::io::Errno) -> bool {
 /// # Errors
 /// The process table could not be read.
 pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
+    live_where(|_, pgrp| pgrp == group.as_raw_nonzero().get())
+}
+
+/// The live children of `parent`, with their states, as [`live_members`] reads them: a zombie is not live.
+///
+/// # Errors
+/// The process table could not be read.
+pub fn live_children(parent: Pid) -> std::io::Result<Vec<Member>> {
+    live_where(|ppid, _| ppid == parent.as_raw_nonzero().get())
+}
+
+/// The live processes whose parent and group `keep` takes.
+fn live_where(keep: impl Fn(i32, i32) -> bool) -> std::io::Result<Vec<Member>> {
     let mut members = Vec::new();
     for entry in std::fs::read_dir("/proc")? {
         let Some(pid) = entry?
@@ -109,12 +122,12 @@ pub fn live_members(group: Pid) -> std::io::Result<Vec<Member>> {
             Err(error) if ended_since_listing(&error) => continue,
             Err(error) => return Err(error),
         };
-        let Some((state, pgrp)) = state_and_group(&stat) else {
+        let Some((state, ppid, pgrp)) = state_parent_and_group(&stat) else {
             return Err(std::io::Error::other(format!(
                 "process {pid}: an unreadable stat"
             )));
         };
-        if state != "Z" && pgrp == group.as_raw_nonzero().get() {
+        if state != "Z" && keep(ppid, pgrp) {
             if let Some(pid) = Pid::from_raw(pid) {
                 members.push(Member {
                     pid,
