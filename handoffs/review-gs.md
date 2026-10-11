@@ -2,13 +2,13 @@
 
 ## Current Core PR #286 result
 
-PR #286 is NOT CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 
-GS-HF-R1-1 MEDIUM remains open. Design section 8 requires a pool negative proof that fails at seed 1 only.
+GS-HF-R1-1 MEDIUM is closed. The pool negative proof fails only at seed 1. The same scratch source leaves lists green.
 
-The lists run must pass. Held-full must fail and name seed 1. The current positive and all-seeds-fail evidence does not prove seed identity.
+I verified both scratch snapshots and both logs. The first lists result uses a later base and is invalid. The second uses the reviewed base.
 
-The full finding and supplied gate evidence are in `verdicts/gs-gate-speed.md`. Sol owns the HIGH integration review.
+The complete proof receipt is in `verdicts/gs-gate-speed.md`. Sol must close HF-SI-1. Then the implementer waits for the lead's final slot.
 
 I ran no gate, build, test, or executable probe. End the turn while waiting for evidence and the next doorbell.
 

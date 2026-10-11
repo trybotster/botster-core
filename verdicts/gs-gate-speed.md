@@ -2323,3 +2323,44 @@ I read the complete artifact. HF-SI-1 MEDIUM agrees with GS-HF-R1-1 and requires
 Both reviews have one open evidence finding at the exact head above. Sol found no demonstrated source regression.
 
 Sol's push also failed because GitHub DNS resolution failed. This receipt confirms a local artifact, not publication.
+
+### Core PR #286: seed-specific proof, round 2
+
+- Head: `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`.
+- Base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+- VERDICT: CLEAN (package source and evidence review).
+- Open findings: 0.
+
+GS-HF-R1-1 MEDIUM is closed. I read the complete evidence note and the commands, identities, results, and exits in both pool logs.
+
+Evidence note: `~/botster-sessions/shared/core-stage1/evidence/gs-held-full/seed1-negative-proof.md`.
+
+The scratch change sets `max_polls = 0` only when ev_8 runs with the single seed 1. It changes no other run.
+
+Git confirms that scratch snapshot `421a8f76118a042b6e0b5c91b5fd32edaaa76a57` differs from the reviewed head only by that change.
+
+The second snapshot, `c37d70d4206547b9f2dc156ceee7fe26c9b5fdbe`, has an identical tree. Thus, both jobs use the same fault.
+
+Held-full fails only `conf::ev_8_every_query_stays_in_output@seed_1`. The error names seed 1, step 5, and `limit=max_polls`.
+
+The run reports one failed trial and 31 ignored trials. It reports one budget id at 32 seeds. The slow step fails and exits 1.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-151838-69247.log`.
+
+The first job's lists result is invalid for this proof. Its later base causes a list-diff failure before the strict run starts.
+
+The second job explicitly supplies the reviewed base. The lists output confirms that base, reports zero failures in both runs, and exits 0.
+
+The strict report names 363 of 381 pending ids, 18 real-only ids not run, and two held ids. Lists passes in 11.5 seconds.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-152342-380.log`.
+
+The shell prints each step's exit status. Its final echo makes the job wrapper exit zero even when slow fails. I use the step status, not the wrapper status, for this proof.
+
+These are scratch evidence jobs, not merge gates. They complete the required negative proof and do not replace the earlier exact-head green gate.
+
+The live PR retains the reviewed head and base. The implementer reports restoration of the scratch file and a clean tree.
+
+Sol must close HF-SI-1 independently. The lead's final-slot rule still applies before a current-base import and final gate.
+
+This CLEAN applies only to the exact head above. I ran no gate, build, test, base-check script, or executable probe.
