@@ -90,6 +90,10 @@ fn alive(harness: &mut TestkitHarness) -> Value {
     control(harness, "payload_alive", json!({"session": "s1"})).unwrap()["alive"].clone()
 }
 
+fn held(harness: &mut TestkitHarness) -> Value {
+    control(harness, "start_held", json!({"session": "s1"})).unwrap()["held"].clone()
+}
+
 fn hold(harness: &mut TestkitHarness) {
     assert_eq!(
         control(
@@ -109,7 +113,8 @@ fn completes(events: &[Event], op: OpId) -> bool {
 
 /// Core AD-7: a start held before the payload's launch stops after step 3. The row is `Starting` with the worker identity
 /// recorded, no payload runs, and `Start` does not complete. After the release, the payload runs and `Start` completes
-/// `Running`. `registry_row` follows the stored row through `Created` and `Starting`.
+/// `Running`. `registry_row` follows the stored row through `Created` and `Starting`. `start_held` (R-59) is false while the
+/// hold is only armed, true once the held step is due, and false after the release.
 #[test]
 fn a_held_start_launches_its_payload_only_after_the_release() {
     let (mut harness, mut core, mut at) = created(0);
@@ -121,13 +126,20 @@ fn a_held_start_launches_its_payload_only_after_the_release() {
         json!({"state": "Created", "identity_recorded": false, "labels": {}})
     );
     assert_eq!(alive(&mut harness), json!(false), "no worker, no payload");
+    assert_eq!(held(&mut harness), json!(false), "no hold");
     hold(&mut harness);
+    assert_eq!(
+        held(&mut harness),
+        json!(false),
+        "an armed hold has stopped nothing"
+    );
     let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
     let events = settle(&mut harness, core.as_mut(), at);
     assert!(
         !completes(&events, start),
         "the held start does not complete"
     );
+    assert_eq!(held(&mut harness), json!(true), "the hold stopped its step");
     assert_eq!(
         row(&mut harness),
         json!({"state": "Starting", "identity_recorded": true, "labels": {}})
@@ -146,6 +158,7 @@ fn a_held_start_launches_its_payload_only_after_the_release() {
         other => panic!("{other:?}"),
     }
     assert_eq!(alive(&mut harness), json!(true));
+    assert_eq!(held(&mut harness), json!(false), "released");
 }
 
 /// A stop of a held start ends the session, and the kept spawn goes with the worker: no payload runs later, and no hold
@@ -195,7 +208,12 @@ fn a_hold_left_at_the_end_of_a_run_does_not_reach_the_next_run() {
 fn the_start_controls_refuse_what_they_cannot_do() {
     let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
     let mut harness = TestkitHarness::new(0);
-    for op in ["registry_row", "payload_alive", "release_start_at"] {
+    for op in [
+        "registry_row",
+        "payload_alive",
+        "release_start_at",
+        "start_held",
+    ] {
         assert!(
             bad(control(&mut harness, op, json!({"session": "s1"}))),
             "{op}"
@@ -207,7 +225,12 @@ fn the_start_controls_refuse_what_they_cannot_do() {
         json!({"session": "s1", "before": "payload"})
     )));
     let (mut harness, mut core, mut at) = created(0);
-    for op in ["registry_row", "payload_alive", "release_start_at"] {
+    for op in [
+        "registry_row",
+        "payload_alive",
+        "release_start_at",
+        "start_held",
+    ] {
         assert!(
             bad(control(&mut harness, op, json!({"session": "s2"}))),
             "{op}"

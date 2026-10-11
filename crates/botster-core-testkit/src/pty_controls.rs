@@ -20,6 +20,19 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("pty_chunk", pty_chunk);
     registry.register("pty_accept", pty_accept);
     registry.register("pty_fail_after", pty_fail_after);
+    registry.register("program_ready", program_ready);
+}
+
+/// The session's program has finished its terminal setup (`program_ready`, steward ruling R-60). The testkit's program edge
+/// has no real terminal and no setup, so the answer is true at once, for a session that the handle's registry has.
+fn program_ready(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Session = parse(args)?;
+    session_row(harness, handle, &args.session)?;
+    Ok(json!({ "ready": true }))
 }
 
 /// The program edge of the payload of `session` on `handle`, and the wake of the host that owns its worker.

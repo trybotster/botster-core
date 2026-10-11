@@ -14,7 +14,18 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0, plans 23t, 23w and 23ab; contracts-v0.1.27 = b161db8: contracts-v0.1.26 + contracts #30, the
+# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am and 23ar; contracts-v0.1.36 = 96f48d6: contracts-v0.1.35 + contracts
+# #41, a fence-lint change with no transcript change, + ruling R-65 and its follow-up (the host copy closes after RouteReceived; a link
+# lost before the acknowledgement); contracts-v0.1.35 = e318065 was not pinned: contracts-v0.1.32 + contracts
+# #37, the ev_5 pump_collect fence (R-63) and the in_10 await_pty fences (R-56), + #40, the program_ready fence of the 4 echo transcripts
+# (R-60 rule 3), + #39, the fence lint and its exception list, + rulings R-55 and R-57 follow-ups; contracts-v0.1.33 and contracts-v0.1.34
+# were not pinned; contracts-v0.1.32 = 91394e7: contracts-v0.1.29 + contracts
+# #35, program_ready and its fences, the no-0a rule (R-60), + #36, the real oracle_resume form, ControlError::UnsupportedFor and the st_6b
+# fences (R-62), + #38, start_held and the fences of the start-hold transcripts (R-59), + rulings R-60 to R-64;
+# contracts-v0.1.30 and contracts-v0.1.31 were not pinned; contracts-v0.1.29 = 65f76ab: contracts-v0.1.27 + contracts #31, the R-52
+# row text, + #32, the R-56 await_pty fences, + #33, await_title and the ev_2 sentinel (R-57), + #34, expect_closed ended (R-58), + rulings
+# R-54 to R-59 (R-59: start_held and its fences land in a later tag);
+# contracts-v0.1.28 = 94b63b8 was not pinned; contracts-v0.1.27 = b161db8: contracts-v0.1.26 + contracts #30, the
 # probe control socket (BOTSTER_PROBE_CONTROL, CoreHarness::probe_env) and the ad_3 output fence, + rulings R-52 and R-53; contracts-v0.1.26 = 0ac061d: contracts-v0.1.25 + contracts #29, the
 # output check speed fix, with no ledger, transcript or manifest change; contracts-v0.1.25 = ff34059, manifest-final39 unchanged: the
 # R-50 cases, the await_quiet fences and the ad_2 wait_worker_exit follow-up, route_fill, rulings R-49 to R-51; earlier: contracts-v0.1.24 = d79aed5,
@@ -23,13 +34,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.27" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
 
 anyhow = "1"
 data-encoding = "2"
@@ -100,5 +111,16 @@ overflow-checks = true
 
 [profile.dev.package.regex-automata]
 opt-level = 2
+debug-assertions = true
+overflow-checks = true
+
+# The real-process tests verify each prebuilt candidate binary against its sha256 in target/candidate/manifest.json
+# (botster-core-testkit candidate.rs `Candidate::locate`) before each harness. At the dev opt-level the hash ran at about
+# 43 MB/s: 1.4 s per verification of the 60 MB debug worker, 99 % of the real conformance tier's time (GS L0 evidence,
+# 2026-10-11: ~/botster-sessions/gates/botster-core-gs-l0-trace-7e8e07d6-evidence.log). sha2 is optimized in dev and test
+# builds (lead ruling, 2026-10-11), under the conditions of the overrides above: the opt-level only, debug assertions and
+# overflow checks kept, and no Core workspace crate. sha2 is also a production dependency (botster-core-link proof.rs).
+[profile.dev.package.sha2]
+opt-level = 3
 debug-assertions = true
 overflow-checks = true
