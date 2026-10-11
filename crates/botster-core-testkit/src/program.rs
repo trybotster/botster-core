@@ -493,8 +493,9 @@ impl Program for ScriptedProgram {
                 room = room.min(controls.kernel_room);
             }
             if room == 0 && !bytes.is_empty() {
-                // Only a spent `pty_chunk` cap waits for the next step: the step restores it, and nothing else that refuses.
-                if !controls.blocked
+                // Only a spent `pty_chunk` cap waits for the next step: the step restores it, and nothing else that refuses. A
+                // block with room in its kernel queue (R-74) takes more input then too; a full queue waits for the release.
+                if (!controls.blocked || controls.kernel_room > 0)
                     && controls.accept != Some(0)
                     && controls.input_cap.is_some()
                     && controls.input_left == 0
@@ -1236,6 +1237,42 @@ mod tests {
         assert!(
             !control.waits_for_next_step(),
             "pty_accept refuses after the step too"
+        );
+
+        // R-74 (#283 HW-TK-1): a block whose kernel queue has room takes the rest of the write in later steps, so a spent cap
+        // waits for the next step; a full queue, or a spent accept limit, waits for no step.
+        let mut k = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = k.control();
+        control.input_chunk(Some(1));
+        control.block_with_kernel(3);
+        assert_eq!(k.write(b"abcd").unwrap(), 1);
+        assert!(would_block(k.write(b"bcd")));
+        assert!(control.waits_for_next_step(), "the queue has room for 2");
+        for queued in [2, 3] {
+            control.new_step();
+            assert!(!control.waits_for_next_step());
+            assert_eq!(k.write(b"bcd").unwrap(), 1);
+            assert_eq!(control.queued(), queued);
+        }
+        assert!(would_block(k.write(b"d")));
+        assert!(
+            !control.waits_for_next_step(),
+            "the queue is full: the release continues it"
+        );
+        control.new_step();
+        assert!(would_block(k.write(b"d")), "a full queue takes nothing");
+        assert!(!control.waits_for_next_step());
+
+        let mut a = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = a.control();
+        control.input_chunk(Some(1));
+        control.block_with_kernel(3);
+        control.accept_at_most(1);
+        assert_eq!(a.write(b"ab").unwrap(), 1);
+        assert!(would_block(a.write(b"b")));
+        assert!(
+            !control.waits_for_next_step(),
+            "pty_accept refuses with the cap spent and room in the queue"
         );
     }
 
