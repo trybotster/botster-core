@@ -45,12 +45,12 @@ This CLEAN applies only to PR #247 at the reviewed head. It does not cover the c
 
 ## PR #248: verify candidates once per test process
 
-VERDICT: CLEAN
+VERDICT: NOT CLEAN (1 open)
 
 - Reviewed head: `41002679c4a9c24bb16b75c7735bc950bdc6f753`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
 - Risk tier: HIGH.
-- Open findings: 0, including LOW.
+- Open findings: 1 LOW, GS-B-SI-1.
 - Review date: 2026-10-11.
 
 The diff changes only `tests/slow_conformance.rs`. A process-local `OnceLock` stores the candidate verification result. Each harness receives a clone of the verified paths.
@@ -67,7 +67,21 @@ The prebuilt worker gap remains unchanged. The cache does not make an unmutated 
 
 I found no path in this diff that passes a mutant or test that the current gate would reject. This conclusion covers the current gate and harness lifecycle.
 
-The PR includes the required Prior art note. It uses the standard library's `OnceLock` and reuses no old code.
+The PR uses the standard library's `OnceLock` and reuses no old code. Its Prior art note requires correction.
+
+### GS-B-SI-1: incorrect Prior art statement
+
+Severity: LOW. Status: OPEN. The integration reviewer reported this finding after the initial package CLEAN.
+
+The PR states that old Core had no per-harness candidate verification. That statement is incorrect at pinned commit `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+
+`crates/botster-core-daemon/tests/core_harness_test.rs` calls `WorkerBinary::from_env` from `WorkerHarness::new`. The verifier is in `crates/botster-core-test-support/src/real_worker.rs`.
+
+The verifier checks the manifest's source revision, worker size, and SHA-256. Those paths contain no process cache to reuse.
+
+Required change: correct the PR description. State that old Core had per-harness worker provenance verification. State that this PR reuses current `Candidate::locate` and `std::sync::OnceLock`.
+
+No source change is required. I independently verified the finding in the pinned source. My initial review missed this documentation error.
 
 ### Evidence
 
@@ -91,7 +105,7 @@ Those corruption probes start separate test processes. They prove first-verifica
 
 I ran no gate, build, or test. The final gate on the exact head remains required before merge.
 
-This CLEAN covers only PR #248 at the reviewed head. The in-place mutation run and baseline reuse changes remain unreviewed formally.
+The initial package CLEAN in `92746fef` is withdrawn until GS-B-SI-1 closes. The runtime assessment above remains unchanged.
 
 ## PR #251: reject stale mutation exclusions
 

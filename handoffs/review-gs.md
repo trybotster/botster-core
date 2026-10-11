@@ -17,7 +17,11 @@ The final gate on the exact head remains required before merge.
 
 PR #247 received package CLEAN in `c7c538a1` and integration CLEAN in `b5df2e0e`. It is now in the base through `5c480db4`.
 
-PR #248 received package CLEAN at `41002679` in `92746fef`. That verdict requires the final exact-head gate before merge.
+PR #248 at `41002679` is now NOT CLEAN (1 open). GS-B-SI-1 is LOW: its Prior art note incorrectly denies old per-harness verification.
+
+I verified the integration finding in the pinned old source. The implementer must correct the PR description. No source change is required.
+
+The initial package CLEAN in `92746fef` is withdrawn until that finding closes. The integration reviewer also requests the base-merge-check log path.
 
 ## Remaining review work
 
