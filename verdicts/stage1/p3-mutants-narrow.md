@@ -137,3 +137,49 @@ All three findings are closed. The package and integration conclusions agree on 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job. Section 8 requires no repeat gate on this unchanged head.
 
 VERDICT: CLEAN (0 open)
+
+## Round 3 — base import at 159046a7
+
+- Head: `159046a7366597d9c5cec5cadff4050779ba190c`.
+- Base: `a47f4b86c36b78f03862e14f65ea7324b294552d`.
+- Reviewed parent: `599cff43d0bdfd360f1042aa2cdcd60da74c5cc5`.
+- Tree: `9e11810b53a8e27da7e48782053b6ec83d2a4529`.
+- Owner receipt: `msg_plugin-w_1791727886_e7536b`.
+- Package receipt: `msg_plugin-w_1791727960_bc032a`.
+
+Sol reads the complete supplied base-merge-check report. It passes both ancestry checks and all four conditions. The base changes only `conformance/core-real-pending.txt`, outside the four own paths. Sol independently verifies both parents, ancestry, every own blob, and the imported blob. Both pending files equal the exact base. The independent permitted static merge tree equals the recorded tree without conflict. The Git diff check passes.
+
+The full-index binary own diffs are equal: 14668 bytes, SHA256 `51dc98340798191166bd69fb76b836bd4853477424b5ef56d26dd99e79839998`. The ordinary own diffs are also equal: 14412 bytes, SHA256 `5ab3b2797d172ee6f7b96981357ad95990be5721f9dc095c925aca76ab05d6c5`. The source review and three closed findings carry from Round 2. This review does not independently approve the base's #268 removals or any further removal.
+
+### Exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p3-mutants-narrow-159046a7-pool-20261011-070805-82729.log`.
+
+SHA256: `e8ea4d3fec4e4202208758fc13d62b9739fd4c4c9fdc7b099aaca8ea4dd9bb5d`.
+
+Sol reads the exact identity, both suite summaries, accounting, raw mutation outcomes, baseline summary, sole catcher report, and all ten step results.
+
+- All ten steps pass in 172.9 seconds. The job exits zero after 183 seconds. The wrapper exits zero after 184 seconds.
+- The default suite passes 1688 tests, with 481 skipped, in 11.369 seconds.
+- The slow suite passes 546 tests, with 1988 skipped, in 41.057 seconds. Static parsing confirms 546 distinct PASS identities and 179 real-conformance PASS identities.
+- Slow coverage checks 1049 slow-only tests. The gate checks 204 exclusions against 6451 workspace mutants.
+- The sole selected mutant replaces the `Driver::run` body with `Ok(())`. Stage 1 misses it in 1.8 seconds.
+- The unmutated stage-2 baseline passes all 546 tests in 40.320 seconds. The baseline operation takes 45.7 seconds.
+- Stage 2 catches that exact mutant in 18.9 seconds through `botster-worker::bin/botster-worker slow_driver::a_client_close_ends_its_real_route`.
+- Final mutation result: one caught, zero missed, timeout, or unviable. No FLAKY result appears. The mutation step takes 68.6 seconds.
+- Fuzz reports no changed decoder crate.
+- The gate reports 56/69 testkit-passing, 46/68 real-passing, and 47/69 real-accepted. It retains 30 real-pending IDs; five pass under the ignored selection. Those reported passes authorize no further removal here.
+
+The Mac code blobs equal the previously reviewed head. The Round 2 focused Mac record and its proof limits carry for those unchanged blobs. Sol claims no exact-159046a7 Mac run. No isolated write-filter EOF proof or preceding route-read WouldBlock fence is supplied.
+
+### RP-MN-4 LOW — the body labels the previous gate as final. OPEN.
+
+This finding agrees with package F129. Sol fetches the current body and confirms it is byte-identical to the corrected 599cff43 body. Its Gates section labels the 599cff43 gate, on base 19b24d5e, as Final. The body does not record the current head, current base, final gate, or supplied merge-check result.
+
+Required change: publish the current exact head and base. Identify the new final gate and its result. Include the supplied base-merge-check output as BUILD.md requires. Preserve the existing proof limits. No source edit or repeat gate is required.
+
+The package reviewer accepts the source transfer and supplied gate in the receipt above. The published exact-head package artifact remains pending the body correction. Formal CLEAN waits for that correction and artifact.
+
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
+
+VERDICT: NOT CLEAN (1 open) at 159046a7366597d9c5cec5cadff4050779ba190c
