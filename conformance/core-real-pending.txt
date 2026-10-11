@@ -56,7 +56,6 @@ conf::a2_2_cancel_race_reports_the_real_outcome
 conf::am_2_next_write_waits_for_completion_or_partial_end
 conf::dp_3_screen_is_one_frame_within_max_screen_frame_bytes
 conf::ev_2_drop_oldest_with_marker
-conf::ev_2_one_marker_per_session
 conf::ev_2_retired_instance_never_creates_a_loss_marker
 conf::ev_5_full_queue_defers_transition_not_output
 conf::ev_5_released_retires_keyed_droppable_and_loss_events
@@ -66,7 +65,6 @@ conf::in_10_lagging_host_view_gets_stale_not_a_wrong_write
 conf::in_2_link_loss_is_unknown_not_zero
 conf::in_2_partial_is_certain
 conf::in_4_input_rev_client_advances_on_receipt
-conf::in_5_lane_bounds_refuse_at_begin
 conf::in_6_cancel_reports_progress
 conf::in_7_lost_worker_ends_pending
 conf::ou_12_output_bytes_are_unmodified_and_in_order
