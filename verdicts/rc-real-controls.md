@@ -1135,3 +1135,31 @@ The branch still lacks the two xtask test fixes on the comparison base. The fina
 The lead's final-gate slot rule applies. Import review or check and a final exact-head gate remain due after SLOT.
 This verdict accepts no later source, pending removal, pin, or gate result.
 The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
+
+
+### Core #285 — round 2 record correction
+
+VERDICT: NOT CLEAN (2 open)
+Exact source: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+This verdict supersedes round 2 CLEAN. The reviewer missed two errors in the PR body.
+Integration message: `msg_plugin-w_1791747746_5f5050`.
+RC-TK-1, RC-TK-2, and RC-TK-4 remain closed. The logged trial-count issue remains closed.
+
+RC-TK-3 — LOW — reopened: the evidence cause exceeds what the cited log proves.
+The body calls the `120659` log a reproduction of the withdrawn PASS and states a dep-info cause as fact.
+That log shows #285 FAIL at step 16, a #284 executable at the same path, and #285 FAIL at step 16 again.
+It does not reproduce the withdrawn scratch PASS or prove the dep-info cause.
+Required change: identify B13 as the owner's reported diagnosis and state the cited log's actual limit.
+Keep the clean-build provenance and withdrawal explicit. No new execution is required.
+
+RC-TK-5 — LOW — The prior-art comparison is incorrect.
+The body says `botster-fake-route` has no `input_blocked`.
+At both `contracts-v0.1.36` and `contracts-v0.1.40`, `controls.rs` lists and dispatches `input_blocked`.
+At line 42 of `input.rs`, the fake implements it as `self.unread(id) > 0 && !self.can_read_input(id)`.
+Its admission check reads fake queue sizes, exception reservations, and the fake PTY-blocked state.
+The reviewer read the implementation and checked the dispatch at both tags.
+Required change: correct the comparison. Explain why the fake's admission model is unsuitable for Core's stream-boundary observation.
+Keep the Core implementation based on stream room and real socket readiness.
+
+Two LOW findings remain open. Both must close before CLEAN.
+The source corrections and exact-head green gate remain as recorded. The reviewer ran no test, build, or gate.
