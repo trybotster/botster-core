@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.6251ffcb.md`, revision 23bb.
-- Verified plan SHA-256: `fa582f203df6e3ccc51df2d6756e5ef96002c5d52a12896a056c5a1ee8dc2e9c`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.f561dd4e.md`, revision 23bj.
+- Verified plan SHA-256: `bd43104c8b237618e3249f570899fb19c5b6d3e8c71d684fbd114d62f7691007`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -842,3 +842,55 @@ The merge commit and gated head share tree 8b603a9d4533360ab0ab2e89212aa4e71df45
 The reviewer ran no build, test, gate, mutation, reproduction, or executable merge-check job.
 The #264 final gate condition is closed. The original program-controls group remains incomplete.
 Next: push this evidence record and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
+
+
+Final evidence push: 34fbf8f0f98d28b03e301b3d29bc5297e469542a on origin/stage1/review-pc.
+The package CLEAN at 46094d5b carries to final gated head 2f269280 under the verified base-only merge exception.
+PR #264 is MERGED at a0adb1321bfc3deb7d16735e9a622775ba5f1a2d with the same tree as the gated head.
+The final gate condition is closed. The original program-controls group remains incomplete.
+The reviewer worktree is clean. Wait for the doorbell. Never poll.
+
+
+Sol final-record receipt: msg_plugin-w_1791735134_fc45bc.
+Sol read the complete final record at 2f269280 and independently verified disjoint paths, unchanged own diff, pending files, merge parents, and tree.
+The package reviewer supplied the pushed receipt SHA 34fbf8f0f98d28b03e301b3d29bc5297e469542a to PC, Sol, and the lead.
+Both reviewers ran no execution job. Wait for the doorbell. Never poll.
+
+
+## Pending PC a2_3 review: steward ruling R-72
+
+Lead receipt: msg_plugin-w_1791735614_f6a202.
+Draft read: shared/steward/drafts/r72.md. The ruling governs PC's coming a2_3 Core PR, tier HIGH.
+No READY, exact source head, or reviewable implementation arrived with this receipt. No implementation verdict exists for this work.
+R-72 changes the classification premise: Core classifies what failed, not which edge reports first.
+For a worker this host spawned, link EOF in AwaitHello, SendLaunch, or AwaitLaunched waits for the first applicable event:
+- The worker exit report gives Lost(WorkerGone).
+- The existing LC-4 startup deadline gives the link-lost Exited outcome and SessionEnded{exit: Other}.
+The deadline keeps today's EOF/link-lost StartFailed reason. It must not become a startup-timeout reason.
+The PR must state that reason before and after. The fix adds no timer.
+The session stays Starting during the wait. EOF posts no event. Routes close after the state, including routes attached during the wait.
+The ruling covers only workers this host spawned. Adopted workers and Running workers stay outside this ruling, with A21.
+Required evidence: an exit-later test; an alive-to-deadline test; N >= 5 real runs of conf::a2_3_lost_session_closes_routes_session_lost; an A5-4 table with no PASS to non-PASS.
+Apply orchestrate-delivery when reviewing this changed premise. Retain this existing handoff as the review record.
+Next: wait for PC's exact-head READY and the required evidence. Never poll.
+
+
+## PR #276: cause confirmation before READY
+
+PC receipts: msg_plugin-w_1791736235_5c82eb and msg_plugin-w_1791736258_fee5b9.
+Head: 67fd9112d0e7554d39be6eb6b43260c782dda200. Recorded gate base: a0adb1321bfc3deb7d16735e9a622775ba5f1a2d.
+Current GitHub base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f. Tier HIGH. Plan 23bj.
+The first gate is RED on ou_9_baseline_then_live_no_gap at seed 0, step 14, in the unmutated stage-2 baseline.
+Expected after1after2; received beforeafter1. The baseline has no retry. Fuzz did not run.
+The e1_1 trial passes in the slow step and baseline, but the PR is not READY and has no package verdict.
+The lead's 22:35 handoff approves one re-gate under 23al, conditional on this reviewer's cause confirmation.
+The reviewer read the complete three-file own diff, PR body, pinned OU-9 transcript, and P3's diagnostic evidence.
+Cause confirmation: the missing R-57 sentinel + await_title before attach permits before bytes to arrive as live output.
+#276 changes only the e1_1 pending entry, its proof line, and worker_file_name capability with its existing test.
+It does not alter that cause. The diagnostic worker files are unchanged from P3's v1 base to this PR's recorded base.
+P3 reproduces the exact signature three times on v1 e4b6cdf5 with a local controlled-read patch.
+The unmodified plain runs pass. No claim is made of failure on an unmodified current v1 tip.
+The delayed-read evidence fails five times before the fence and passes five times with it. Contracts #49 owns the structural fix.
+Record: verdicts/pc-e1-1-worker-file-name.md. Scope: cause confirmation only. Package review remains pending.
+The reviewer ran no execution job or reproduction. The red gate remains red. No source CLEAN exists.
+Next: publish the cause record and the requested PR comment, then wait for exact-head READY. Never poll.
