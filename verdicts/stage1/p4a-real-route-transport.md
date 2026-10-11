@@ -638,6 +638,10 @@ Publication receipt msg_plugin-w_1791723068_1be009 closes the package publicatio
 Sol verifies that fetched origin/stage1/review-p3 contains `1357ac2882c172114afb3b22eefe713f6f8deff0`.
 Integration completion d9b1d269 and parser verdict ff06aa63 are also pushed. No publication limit remains for these artifacts.
 
+Sol verifies merge `ddd3b849df5db34d20d944ff6b8de23405fdb5c8` from the notified current base.
+Its parents are exact base 0c5ac80e and reviewed head 850bb785. Its tree equals reviewed and gated `f077931e3d09041843c367f891fdb40fc2ee122a`.
+The .36 pin now enters v1 through this reviewed merge. No pending-real removal is included.
+
 ### Exact-head gate acceptance at 850bb785
 
 Owner completion: `msg_plugin-w_1791722007_8b128e`.

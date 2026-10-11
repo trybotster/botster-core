@@ -277,3 +277,27 @@ A changed head must satisfy the applicable import and delta-review rules with it
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 5e6b15184bf4ab9d4bb1e572925b201409ea3d20
+
+## Import inspection: 15d682b2
+
+Head: `15d682b2f45c5b11fc664078292d89198dcf6585`. Base: `ddd3b849df5db34d20d944ff6b8de23405fdb5c8`.
+Parents: reviewed 5e6b1518 and exact base ddd3b849. Tree: `db7c9e981b6a32774dcc4a2d9fa0f845e0721d7d`.
+Receipt: msg_plugin-w_1791723190_fa49ee. Package inspection agreement: msg_plugin-w_1791723281_158281.
+
+Sol reads all four reported shared-path import deltas and the pending-list composition.
+The independent permitted static merge-tree check returns the exact recorded tree without a conflict.
+All fifteen own addition/deletion sequences match the previous reviewed source.
+All 33 outside-own imported paths equal exact base blobs. Ten unchanged own paths equal 5e6b1518 blobs.
+The remaining own-diff changes are context and location changes from the import, not changed own added/deleted lines.
+
+The imported descriptor result is `(usize, Option<StreamEndpoint>)`. EdgeTap borrows the successful result to record sent bytes.
+EdgeTap returns that result unchanged, including the retained endpoint. The fake edge returns None for the endpoint, as before the import's design.
+The own public Tap::signals method and its assertion remain intact. No production branch depends on the testkit.
+The reaper exclusion and process-check allowance retain the reviewed own reasons and retain the base's worker entries.
+The pending list combines the base's three IN-10 removals with the reviewed own AD-6 removal. No other own removal appears.
+The stat-only snapshot and its process-record-lock proof equal the previously reviewed source exactly.
+The static diff check passes. No source finding exists so far.
+
+This is an inspection record, not a formal imported-head CLEAN.
+The canonical base-check log, exact-head gate, final READY/body, and formal package artifact remain pending.
+The prior CLEAN covers only 5e6b1518. Sol runs no execution job.
