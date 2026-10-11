@@ -510,10 +510,10 @@ impl RefusalHandle {
     }
 }
 
-/// The scenario of `conf::ev_5_poll_wakes_pending_work` (R-87) that both tiers run: the stop of `s1` waits for room while
-/// unpolled events fill the mandatory queue, and a poll frees room for it.
+/// The scenarios of the controls that read [`CoreRecord`], which both tiers run: `parked_work` (R-87) and `op_posted`
+/// (R-88 (B)).
 #[cfg(test)]
-pub(crate) mod parked_work_scenario {
+pub(crate) mod record_scenarios {
     use botster_core_conformance::{normalize_op, CoreHarness, OpenSpec, WorkerBuild};
     use botster_core_contract::prelude::*;
     use serde_json::{json, Value};
@@ -633,6 +633,60 @@ pub(crate) mod parked_work_scenario {
             Err(botster_core_conformance::ControlError::Bad(_))
         ));
     }
+
+    fn posted(harness: &mut dyn CoreHarness, op: OpId) -> bool {
+        let answer = harness
+            .control("a", "op_posted", &json!({ "for_op": op }))
+            .expect("op_posted");
+        answer["posted"].as_bool().expect("a posted flag")
+    }
+
+    /// Steward ruling R-88 (B), `op_posted`: a write's completion is not posted before the worker reports the write, it is
+    /// posted once Core consumed the report while the test only pumps, and the completion is then still in the queue for the
+    /// next poll. An id that Core never minted is not posted.
+    pub(crate) fn a_completion_is_posted_before_its_poll(harness: &mut dyn CoreHarness) {
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: json!({}),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        let program = json!({"program": [{"hold": {}}]});
+        complete(
+            harness,
+            core.as_mut(),
+            json!({"Create": {"session": "s1", "request": program}}),
+        );
+        complete(harness, core.as_mut(), json!({"Start": {"id": "s1"}}));
+        core.poll_events(64);
+        let write = core
+            .begin(Op::WriteInput {
+                session: SessionId("s1".into()),
+                payload: InputPayload::Bytes {
+                    bytes: botster_route_codec::prelude::HexBytes(b"xy".to_vec()),
+                },
+                guard: None,
+            })
+            .expect("begin");
+        assert!(
+            !posted(harness, write),
+            "the worker has not reported the write"
+        );
+        pump_until(harness, core.as_mut(), false, |h, _| posted(h, write));
+        let events = core.poll_events(64);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Completed { op, .. } if *op == write)),
+            "the posted completion waits for the poll: {events:?}"
+        );
+        assert!(posted(harness, write), "a polled completion stays posted");
+        assert!(
+            !posted(harness, OpId(write.0 + 1000)),
+            "an id that Core never minted"
+        );
+    }
 }
 
 /// The operation kind of an `Op`: the name of its variant.
@@ -644,49 +698,69 @@ pub fn op_kind(op: &Op) -> String {
     }
 }
 
-/// The sessions whose work waits only for mandatory-queue room, as the Core behind a handle reported them after the last call
-/// that the layer passed on (control `parked_work`, steward ruling R-87). Core reports them in its opaque `diagnostics`
-/// (`parked_work`: a parked engine step, or a frame that a link holds; Core EV-5b, TM-6). A control cannot call the Core, which
-/// the conformance driver owns, so the layer reads the report after each call that can change Core's state.
+/// What the Core behind a handle reported in its opaque `diagnostics` after the last call that the layer passed on. A control
+/// cannot call the Core, which the conformance driver owns, so the layer reads the report after each call that can change
+/// Core's state, and the controls read this record:
+/// - `parked_work` (steward ruling R-87): the sessions whose work waits only for mandatory-queue room (a parked engine step, or
+///   a frame that a link holds; Core EV-5b, TM-6);
+/// - `op_posted` (steward ruling R-88 (B)): `next_op` and `unposted_ops`, from which an op's terminal `Completed` is posted,
+///   polled or not.
 #[derive(Debug, Clone, Default)]
-pub struct ParkedWork(Arc<Mutex<BTreeSet<SessionId>>>);
+pub struct CoreRecord(Arc<Mutex<Recorded>>);
 
-impl ParkedWork {
+#[derive(Debug, Default, serde::Deserialize)]
+struct Recorded {
+    #[serde(default)]
+    parked_work: BTreeSet<SessionId>,
+    #[serde(default)]
+    next_op: u64,
+    #[serde(default)]
+    unposted_ops: BTreeSet<u64>,
+}
+
+impl CoreRecord {
     fn record(&self, core: &dyn CoreApi) {
-        let sessions =
-            serde_json::from_value(core.diagnostics()["parked_work"].clone()).unwrap_or_default();
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = sessions;
+        let recorded = serde_json::from_value(core.diagnostics()).unwrap_or_default();
+        *self.lock() = recorded;
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Recorded> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Whether the work of `session` waits only for mandatory-queue room.
     pub fn parked(&self, session: &SessionId) -> bool {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains(session)
+        self.lock().parked_work.contains(session)
+    }
+
+    /// Whether Core has posted the terminal `Completed` of `op`, polled or not: Core minted the id, and the op is not one that
+    /// waits for its completion. An id that Core never minted is not posted.
+    pub fn op_posted(&self, op: OpId) -> bool {
+        let recorded = self.lock();
+        op.0 != 0 && op.0 < recorded.next_op && !recorded.unposted_ops.contains(&op.0)
     }
 }
 
-/// A `CoreApi` with a script in front of it. It also records the Core's parked work ([`ParkedWork`]).
+/// A `CoreApi` with a script in front of it. It also records what the Core reports in its diagnostics ([`CoreRecord`]).
 pub struct RefusalLayer {
     inner: Box<dyn CoreApi>,
     script: RefusalHandle,
-    parked: ParkedWork,
+    record: CoreRecord,
 }
 
 impl RefusalLayer {
-    pub fn new(inner: Box<dyn CoreApi>, script: RefusalHandle, parked: ParkedWork) -> RefusalLayer {
-        parked.record(inner.as_ref());
+    pub fn new(inner: Box<dyn CoreApi>, script: RefusalHandle, record: CoreRecord) -> RefusalLayer {
+        record.record(inner.as_ref());
         RefusalLayer {
             inner,
             script,
-            parked,
+            record,
         }
     }
 
-    /// Records the parked work after a call, and returns the call's result.
+    /// Records Core's report after a call, and returns the call's result.
     fn recorded<T>(&self, out: T) -> T {
-        self.parked.record(self.inner.as_ref());
+        self.record.record(self.inner.as_ref());
         out
     }
 
@@ -1339,7 +1413,7 @@ pub(crate) mod tests {
         let handle = RefusalHandle::new();
         let (slot, _crash) = crate::crash::Crashable::new(Box::new(behind));
         (
-            RefusalLayer::new(Box::new(slot), handle.clone(), ParkedWork::default()),
+            RefusalLayer::new(Box::new(slot), handle.clone(), CoreRecord::default()),
             handle,
             reached,
         )
