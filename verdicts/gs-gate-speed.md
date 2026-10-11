@@ -2164,6 +2164,12 @@ I checked the prior-art claim at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e
 
 The lead's handoff confirms this test-only assignment under plan revision 23bp. Sol must complete the HIGH integration review.
 
+Sol publishes integration source CLEAN in `0c0e21801d6024159121f0fdad882530b0d83398`, at `verdicts/stage1/gs-git-failure-fixture.md`.
+
+I read the complete artifact and verified its publication. Both source reviews have zero findings. Sol records the lead's final-slot rule under revision 23bu.
+
+The implementer must wait for that slot before the final import, check, and gate. This receipt accepts no future head or gate.
+
 This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
 
 I ran no gate, build, test, or executable probe.
