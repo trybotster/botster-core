@@ -1860,3 +1860,17 @@ The body distinguishes the merge-head log from the final-head owner report.
 Open package findings: 0, including LOW. The earlier source and body findings remain closed.
 The completed exact-head final gate and final body result remain pending before CLEAN.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — integration final-slot delta receipt
+
+Integration message: `msg_plugin-w_1791761880_c8d289`.
+Integration receipt: `5bfb2bbee7e98ead84fdd3fea7f2d4c31b72c266`, Round 4 in `verdicts/stage1/rc-oracle-encode.md`.
+The reviewer read that complete round.
+It covers `46c8c5481a3cdf11ec98949227fda32f4d0f0ee0` against `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Its tree is `abb16eb98ca2c99349976ea9a72d43a617293501`, matching the package delta receipt.
+The integration reviewer reports no source or body finding in the delta.
+Its independent code, four identifier-set, and fence-exception checks agree with package receipt `668b82aeb5364db5afd21fac477dce04cc7a2fdc`.
+It preserves the incomplete local strict record as an owner report.
+One final acceptance condition remains: completed exact-head gate, removal evidence, final body, and completed package verdict.
+The reviewer accepts no result from the running gate. The reviewer ran no test, build, gate, or diagnostic.
