@@ -546,3 +546,104 @@ The package reviewer identified a distinction in the inspection's stop descripti
 `HostMsg::Stop` sets `termed`, but does not itself set the grace deadline.
 `on_end_payload` sets that deadline. I checked both source paths and corrected the inspection above.
 The correction changes no finding, closure, reviewed head, round count, or verdict. R4-1 / F113 remains MEDIUM and OPEN.
+
+## Round 5 source and evidence inspection — 2026-10-10 — Package verdict pending
+
+READY head: `d1e00be37ea9b7830041e043186659f682e985a9`.
+PR and gate base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+Prior reviewed head: `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+Authority: lead message `msg_plugin-w_1791683701_f3c368`, F113 correction plus admission parity.
+Plan 23af and steward R-54 govern the typed reply exception.
+I read the complete three-file correction, each parity-table row, affected admission paths, source merge, and supplied evidence.
+This inspection completes no round before the same-head package verdict arrives.
+
+### Checked F113 correction and parity rows
+
+`Worker::admission(Source)` now contains the Live/exit and stop checks for host writes, route input, and replies.
+`stopping()` checks `termed`, `killed`, and the worker-control grace deadline.
+Host admission preserves its SessionEnded and Stopping outcomes and exact-zero counts.
+Nonempty route input maps either admission error to SessionEnded refusal with its op and no written-byte field.
+The checks run when queued input reaches its turn, including input received before Stop.
+Reply admission retains the Live/exit check and exempts only `Source::Reply` from Stopping under R-54.
+
+I checked every parity-table row:
+
+- Spawn completion: `try_start` waits before selecting any pending source.
+- Payload Live/exit: all selected sources use `admission`.
+- Stopping: host and route use the shared predicate. The reply exception matches R-54.
+- Input guard: the host retains the source-class revision check. DP-5 route bytes and text carry no guard.
+- Terminal guard: the host retains the model revision check. Route input and replies carry no guard.
+- Encoding: host events use the model at transaction start. Current route bytes and text retain their supplied bytes.
+- Revisions: host admission advances the host revision. Route receipt advances the client revision. Replies advance neither.
+
+The table describes selected pending transactions correctly. The empty-input bypass below prevents acceptance of its full route claim.
+R4-1 / F113 closes its reported nonempty-write source path. Admission parity remains unaccepted.
+
+The new immediate and queued route proofs each exercise Stop and Kill before payload exit.
+They check the exact op, SessionEnded refusal, absence of written-byte counts, and no route PTY write.
+Those new proofs use bytes frames. Existing bytes/text proofs and `Route::decide` establish their shared decided-input path.
+The new reply proof uses the Ghostty oracle for its reply bytes.
+It checks reply delivery after both Stop and Kill and a host write refused as Stopping in the same interval.
+It introduces no handwritten terminal reply expectation.
+
+### R5-1 — MEDIUM — OPEN — Empty route input bypasses the shared admission checks
+
+Locations: `worker/input.rs:195-204,261-268,346-359`; `worker/route.rs:130-159,612-627,647-649`.
+Pinned codec location: `botster-route-codec/src/wire.rs:303-319` at contracts-v0.1.27.
+
+The codec accepts a bytes or text frame with its eight-byte op and an empty payload.
+An empty text payload is valid UTF-8. Neither frame is an ignored extension.
+A writable live route decides either frame as `Received::Input` and advances the client revision at receipt.
+`apply_route` calls `enqueue_route_input` for that decided input.
+`enqueue_route_input` returns when the payload is empty, before queuing `Pending::Route` or calling `admission(Source::Route)`.
+
+After Stop or Kill, before payload exit, this path sends no SessionEnded refusal for the accepted empty frame.
+The same bypass omits the SessionEnded check after payload exit on a retained live route.
+The parity table states that route input uses both shared session checks. This complete input frame uses neither.
+DP-5 maps NotWritten(Stopping) and NotWritten(SessionEnded) to SessionEnded refusal.
+R-54 exempts only EV-8 replies and states that every other client input remains refused during Stopping.
+I found no empty-input exception in those rules or the pinned codec.
+
+Apply the shared session checks to valid empty route input at its admission turn.
+Keep a valid empty input silent when the session accepts it, without emitting an empty PTY write or a success acknowledgement.
+Add public proofs for empty bytes and empty text during Stop/Kill and after payload end.
+Require their ops on SessionEnded refusals, no PTY writes, and preserved receipt revisions.
+Include an empty frame that waits behind an active transaction and reaches its turn after Stop.
+Correct the parity table if any contractual difference remains.
+
+I sent this source case to the implementer and package reviewer and requested any contrary clause or prior ruling.
+This is an admission-parity finding within the lead's authorized scope. I ran no reproduction job.
+
+### Source merge, accounting, and supplied evidence
+
+The automatic `0dafe6b9` plus base `15791ea3` tree equals the actual head tree: `7f7adc8f52ccdc78d1d14257ca294b1dd0b6cc67`.
+The merge changes no worker-core correction byte. It retains the accepted #228 source and its scoped exclusion.
+The same twelve IDs move from Core pending to real-pending. No additional own ID leaves pending.
+The #228 removals have no overlap with those twelve additions.
+Real-pending is 83: the base's 71 plus twelve. The grouped comments retain 29 route IDs and 38 program IDs.
+No pin, exclusion pattern, minimum list, held ID, or real-only map changes in this correction.
+`git diff --check` passes. GitHub's head and base match READY and the gate.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p4a-route-input-d1e00be3-pool-20261010-200549-56531.log`.
+The header names the exact head and base. All ten jobs pass in 524.3 seconds.
+Default: 1583 passed, 14.216 seconds. Slow: 408 passed, 150.183 seconds.
+Both testkit reports show 205 passed and zero failed. Strict pending runs 374/395, with 21 real-only IDs and two held IDs.
+The reports list 70 IDs without transcripts, two deferred IDs, and 18 withdrawn IDs.
+Minimum counts are testkit 54/69, real 35/68, and real-accepted 35/69.
+Real-pending is 83, with zero newly passing IDs.
+Stage 1 has 125 mutants: 122 caught, three unviable, zero missed, and zero timeout, in 259.2 seconds.
+Stage 2 does not run because stage 1 misses none. The job and wrapper each exit zero after 629 seconds.
+The job includes 92 queued seconds and 537 running seconds.
+The named immediate, queued, and reply correction proofs pass. They do not exercise the empty-input bypass.
+
+I read `evidence/p3-pr3/pr3-round4-stopping-reverts.log` and `pr3-round5-parity-reverts.log` completely.
+The first log records failed reversals of the route stop check, the shared stop predicate, and its Kill component.
+Its repeated route-check reversal fails both the immediate and queued route proofs.
+The second log records five failed reversals: reply takes Stopping; route skips Stopping; host skips Stopping; no stop check; no session-end check.
+The failures name the corresponding reply, host, route, and payload-end proofs.
+These logs retain result summaries and failed test names, without full assertion output or an exact final-head header.
+I claim no independent precise assertion site or final-head reversal execution from those receipts.
+
+One MEDIUM admission-parity finding remains open. The exact-head package verdict is pending.
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+The source merge comparison uses Git objects only.
