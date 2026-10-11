@@ -207,3 +207,66 @@ The source delta adds no integration finding. This receipt permits no claim that
 Sol runs no build, test, gate, mutation, measurement, or executable base-check script. Never poll.
 
 VERDICT: NOT CLEAN (1 open) at 006b61cc454e0dce4e0063852e6f0701fef081bc
+
+## Round 3 — completed final evidence, 2026-10-11
+
+Head: `006b61cc454e0dce4e0063852e6f0701fef081bc`.
+Base: `23550811fb84c3c2cb066019716987575d7aecb2`.
+Tree: `5b13e06270096dfad3b73ea8cf87136c26da0261`.
+RC-PASTE-FINAL-1 closes. Open integration findings: zero, including LOW.
+The complete source delta review in Round 2 remains applicable to this unchanged head.
+
+### Completed gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-rc-paste-006b61cc-pool-20261011-142613-53641.log`.
+SHA-256: `b46195cec277e3d329876cd8955d86d3fafe71b2f17cffe7c45c8e7be5e6d36e`.
+Sol reads the exact header, applicable conformance and proof records, suite summaries, complete mutation section, and final exits.
+The head and base match this verdict. The Linux job runs on MS-A1, kernel `6.12.111+deb13-amd64`, with four CPUs.
+All ten steps PASS in 327.3 seconds. The job exits zero after 336 seconds, with zero seconds queued.
+The wrapper exits zero after 337 seconds.
+Default: 1779 PASS, 467 skipped, 12.809 seconds. Slow: 578 PASS, 2022 skipped, 43.778 seconds.
+The strict and normal testkit summaries each report 223 PASS, zero failure, and 467 ignored identifiers.
+The strict check runs 356 of 374 pending transcripts; 18 real-only identifiers do not run, and three are held.
+Lists verifies 690 ledger identifiers, 444 pending identifiers, two deferred identifiers, and 18 withdrawn identifiers.
+Minimum: testkit 62/69, real-passing 55/68, real-accepted 56/69. All four named real proofs pass.
+All seven own testkit removals have normal PASS records in this exact gate.
+Both R-82 tests, the ENOSPC write test, and the public failed-write completion test pass.
+The partial-paste session-ended identifier remains pending. No all-seed PASS is claimed for that identifier.
+Twenty-six identifiers remain real-pending. Seven ignored trials pass, including both own real-pending additions.
+Those trial passes do not remove their pending status or erase the retained Mac failures and fence limits.
+
+Mutation stage 1: 58 total, 55 caught, three unviable, zero missed, zero timeout, 91.1 seconds.
+Sol independently compares all 55 raw caught identities with all 55 citation identities.
+Both sets contain 55 unique identities and are equal. Every cited test has a normal PASS in this gate.
+Both constant replacements of `PROGRAM_SIDE_GONE.contains(&errno)` are caught.
+The three unviable replacements return `Some(Default::default())` from `decide`, `paste_begin`, and `paste_chunk`.
+Stage 2 does not run because stage 1 misses no mutant. The complete log contains no FLAKY token.
+Fuzz passes because the diff changes no crate with a decoder harness. Sol claims no fuzz execution or Mac execution from this gate.
+
+### Canonical check, final body, and matching package verdict
+
+Corrected check: `~/botster-sessions/gates/botster-core-rc-paste-base-merge-check-006b61cc-20261011-142236.log`.
+SHA-256: `b13948afa3892199a907bfc8d04f252f2ccc208d44ed4cfd1a3d8fb084b19528`.
+Sol reads all 38 lines. Ancestry and conflict checks pass; overlap, own-diff, and pending-file conditions fail. The command exits one.
+The check confirms that both explicit delta reviews are required. Round 2 supplies the integration source review; no automatic carry applies.
+
+GitHub MCP fails. Sol reads the published PR through the authorized GitHub CLI fallback.
+The live head and base match this verdict.
+Final body SHA-256: `12669601b1ccd0f1280a64b9ab7615c67ae4d9a4f856cf91199f4d62cece8832`.
+Sol reads the complete body delta and verifies that it contains the corrected canonical output exactly.
+The final section retains the dfc38b47 failed gate, local seed limit, pending correction, F-283-1 transfer, and reported B13 provenance.
+The corrected local strict result remains an owner report. The final pool gate independently supplies exact-head execution evidence.
+The final gate paragraph states the correct head, base, duration, and mutation totals.
+The historical .36 table remains distinct from the final .39 result. No new pending removal is claimed.
+
+Package CLEAN: `019f5418f9fa153b781c15bd3ed513bd3fc3ed86`, final-slot section in `verdicts/rc-real-controls.md`.
+Sol reads that complete section. The exact head, base, source scope, canonical failure, final gate, body, and transfer agree.
+All package findings close, including LOW. F-283-1 remains PC's separate work with reviewers 0179 and Sol.
+The transfer does not claim a fix for the imported assertions. RC retains the separate undiagnosed pending failure.
+
+Both reviews and the final evidence now cover this exact head and base.
+The lead controls the merge. The merge must preserve this gated tree.
+This verdict accepts no later head, pin, pending removal, or different merge tree.
+Sol runs no build, test, gate, mutation, measurement, or executable base-check script. Never poll.
+
+VERDICT: CLEAN (0 open) at 006b61cc454e0dce4e0063852e6f0701fef081bc
