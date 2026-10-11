@@ -1386,3 +1386,28 @@ The two related statements also use the narrower patch comparison. No source cha
 The exit-75 source review and the scope review remain valid. This verdict covers Contracts #44 itself.
 
 The steward owns the merge decision and current-base check. The lead relays this verdict. I ran no gate, build, or test.
+
+
+### Core PR #266: merge receipt
+
+- Final head: `928d2c1cb6509219cddaebeecbd6cf013411e24c`.
+- Final base: `ee7c6fca8c0781db09203ac478a8e824cdd3e4ab`.
+- Merge commit: `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+- VERDICT: CLEAN carry-over; merged.
+- Open findings: 0.
+
+The lead reports that all canonical base-merge-check conditions pass. The live PR body records PASS and an identical own diff.
+
+I independently compared the complete own Git diffs before and after the base merge. They are byte-identical. The script itself is unchanged.
+
+The final head's parents are the reviewed head `11a9533f8e3929b528b7d4a762f0019e4e18734d` and the final base above.
+
+The merge commit's parents are the final base and final head. Both trees are `8f54a07bb4a20e281c6f538b2eeab105f471ea89`.
+
+I read the final gate log. It identifies the exact final head and base and passes all ten steps in 116.3 seconds.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-928d2c1c-pool-20261011-062636-87321.log`.
+
+The mutation step reports zero mutants because the own diff changes no Rust source. Both closed findings remain closed.
+
+The next assigned review is the Contracts shared-script split, risk HIGH. I will wait for its exact head. I ran no gate, build, or test.

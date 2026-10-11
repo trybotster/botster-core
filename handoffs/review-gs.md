@@ -15,7 +15,15 @@ The exact head is unchanged. Exit 75 cannot become green through the reviewed co
 
 The exact-head Contracts gate passes all ten steps in 237.2 seconds. No repeat gate is needed for the body correction.
 
-Wait for the merge receipt or a new head. The lead relays the verdict to the steward. I ran no gate, build, or test.
+Contracts #44 waits for its merge receipt or a new head. The lead relays the verdict to the steward.
+
+Core #266 is merged at `2b8cf08230dc3145dfe3a436bc34feee946c9b07`, with final head `928d2c1cb6509219cddaebeecbd6cf013411e24c`.
+
+I verified the merge parents, equal trees, identical own diff, and the exact-head final gate: all ten steps pass in 116.3 seconds.
+
+The lead reports canonical base-merge-check PASS. The next assigned review is the Contracts shared-script split, risk HIGH.
+
+Wait for its exact head. I ran no gate, build, or test.
 
 ## Previous Core PR #266
 
@@ -230,7 +238,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #266's merge receipt or new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
+Core #266 is merged. Wait for the Contracts shared-script split PR, risk HIGH. PR #262 still waits for its new head and evidence.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
