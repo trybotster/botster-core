@@ -77,3 +77,7 @@ conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
+
+# The route's paste passes on the testkit (RC PR A, plan 23bp). On the real tier the terminal echoes the route's bytes, and step 19
+# of in_3 expects input_refused with no ignore of output frames, so the echo arrives first (a transcript fence, as R-60's echo).
+conf::in_3_route_reports_only_exceptions_on_the_route
