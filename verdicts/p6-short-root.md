@@ -101,3 +101,41 @@ GitHub names this exact head and base. The PR remains open.
 I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-11: shared-file base import
+
+Exact head: `61211358870fccaebc064424134f82e1d82c55d6`.
+Base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Parents: `7e899c88bddc985ce8ac9b0fe5b943cff96beed7` and the base above.
+Tree: `cdc886baf9810003ffeb6b1282b6f2a46ec4c2c1`.
+
+I read the complete current own delta, shared-file base delta, PR body, and retained base-check log.
+The lead records #271 as merged with both CLEAN reviews and its final gate.
+That import adds the route_reports argument type, read-only control, capability declaration, dispatch arm, and public control assertions.
+It reads the stored tap and adds no wait or filesystem operation to the root construction path.
+Its tests construct their harness through the unchanged make method and therefore use the short root.
+The import does not change SHORT_ROOT, short_root, the make correction, or the root test and its assertions.
+SR-R1-1 remains closed. No finding remains.
+
+I compare both complete own patches after removing only index lines and hunk-position lines.
+They match: 3248 normalized bytes, SHA256 `c6d18a603c4bc2b577c8fa86d321b6caac80117ecb44bc480de484caf4f4dd96`.
+This comparison does not claim that the full-index diffs are byte-identical.
+The nine other imported paths retain the exact current-base tree entries.
+The current own diff changes only real.rs. It changes no pending list, contract pin, mutation exclusion, ownership, or deadline.
+
+Base-check log: `~/botster-sessions/gates/botster-core-stage1-p6-short-root-61211358-pool-20261011-082534-35425.log`.
+I read it in full. Both ancestry checks and condition 1 pass.
+Condition 2 fails on the shared real.rs path. Condition 3 reports the changed index line.
+Both condition-4 lists match the base. The job exits one after 12 seconds; the wrapper exits one after 13 seconds.
+This failed check requires the present delta review. It does not supply automatic CLEAN transfer.
+
+The prior focused Mac record remains at `9d153e3c`. The parent correction proof remains at `7e899c88`.
+The short-root implementation and public assertions remain intact, so those records retain their stated scope.
+I read only the exact-head header of the reported running final gate:
+`~/botster-sessions/gates/botster-core-stage1-p6-short-root-61211358-pool-20261011-082558-36579.log`.
+Its head and base match this round. I claim no completed result from that header.
+The required final gate result and final body update remain pending.
+This verdict completes the source delta review. It accepts no future import or pending-list removal.
+GitHub names this exact head and base. I changed no product code and ran no execution job.
+
+VERDICT: CLEAN
