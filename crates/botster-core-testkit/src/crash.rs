@@ -14,16 +14,20 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 type Slot = Arc<Mutex<Option<Box<dyn CoreApi>>>>;
+/// A step that runs once, after the next `pump` of the slot returns (R-68 evidence, scratch only).
+type AfterPump = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
 
 /// A `CoreApi` in a slot that its [`CrashHandle`] can empty.
 pub struct Crashable {
     slot: Slot,
+    after_pump: AfterPump,
 }
 
 /// Empties the slot of a [`Crashable`] while the `Crashable` exists.
 #[derive(Clone)]
 pub struct CrashHandle {
     slot: Weak<Mutex<Option<Box<dyn CoreApi>>>>,
+    after_pump: AfterPump,
 }
 
 fn lock(slot: &Slot) -> MutexGuard<'_, Option<Box<dyn CoreApi>>> {
@@ -33,10 +37,12 @@ fn lock(slot: &Slot) -> MutexGuard<'_, Option<Box<dyn CoreApi>>> {
 impl Crashable {
     pub fn new(core: Box<dyn CoreApi>) -> (Crashable, CrashHandle) {
         let slot: Slot = Arc::new(Mutex::new(Some(core)));
+        let after_pump: AfterPump = Arc::default();
         let crash = CrashHandle {
             slot: Arc::downgrade(&slot),
+            after_pump: Arc::clone(&after_pump),
         };
-        (Crashable { slot }, crash)
+        (Crashable { slot, after_pump }, crash)
     }
 
     fn with<R>(&self, call: impl FnOnce(&mut dyn CoreApi) -> R) -> R {
@@ -49,6 +55,14 @@ impl Crashable {
 }
 
 impl CrashHandle {
+    /// Runs `step` once, after the next `pump` of the slot returns, outside the slot's lock (R-68 evidence, scratch only).
+    pub fn after_next_pump(&self, step: Box<dyn FnOnce() + Send>) {
+        *self
+            .after_pump
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(step);
+    }
+
     /// True while the slot still holds its Core: no crash, and the driver still owns the `Crashable`.
     pub fn is_live(&self) -> bool {
         self.slot
@@ -74,7 +88,16 @@ impl CoreApi for Crashable {
         self.with(|core| core.begin(op))
     }
     fn pump(&mut self, now: Now) -> PumpReport {
-        self.with(|core| core.pump(now))
+        let report = self.with(|core| core.pump(now));
+        let step = self
+            .after_pump
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(step) = step {
+            step();
+        }
+        report
     }
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
         self.with(|core| core.poll_events(max))
