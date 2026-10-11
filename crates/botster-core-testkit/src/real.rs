@@ -528,6 +528,49 @@ impl RealCoreHarness {
         Ok(json!({ "alive": alive }))
     }
 
+    /// R-68 evidence (scratch only, never merged): the pid of the session's recorded worker, while it still matches its
+    /// identity.
+    fn matching_worker(&self, handle: &str, session: &SessionId) -> Result<u32, ControlError> {
+        let (tap, processes) = self.recorded(handle, session)?;
+        let worker = processes.worker.ok_or_else(|| {
+            ControlError::Bad(format!("the session {} has no worker process", session.0))
+        })?;
+        let state = lock(&tap).identity_state(worker);
+        match state {
+            IdentityState::Matches => Ok(worker.pid),
+            state => Err(ControlError::Bad(format!(
+                "the recorded worker of the session {} does not match: {state:?}",
+                session.0
+            ))),
+        }
+    }
+
+    /// R-68 evidence (scratch only): stops the session's worker process (`SIGSTOP` to its pid, not to a group). It reads
+    /// nothing from the link until [`RealCoreHarness::worker_resume_after_pump`] lets it go on.
+    fn worker_pause(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let pid = self.matching_worker(handle, &session)?;
+        signal_one(pid, rustix::process::Signal::STOP)?;
+        Ok(Value::Null)
+    }
+
+    /// R-68 evidence (scratch only): the next `pump` of the handle lets the paused worker go on (`SIGCONT`) after the pump
+    /// returns. So the worker's `RouteReceived` and every later report reach the host only after that pump: the late
+    /// acknowledgement of R-68, on demand.
+    fn worker_resume_after_pump(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let pid = self.matching_worker(handle, &session)?;
+        let crash = &self
+            .handles
+            .get(handle)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
+            .crash;
+        crash.after_next_pump(Box::new(move || {
+            signal_one(pid, rustix::process::Signal::CONT).expect("SIGCONT to the paused worker");
+        }));
+        Ok(Value::Null)
+    }
+
     /// Core AD-2, IN-7: the session's worker ends from outside Core, as a kill does. A recorded worker that no longer
     /// matches its identity (it ended, or its pid was reused) gets no signal, and the control is `Bad`.
     fn lose_worker(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -1084,6 +1127,8 @@ impl CoreHarness for RealCoreHarness {
                     | "host_crash"
                     | "reuse_pid"
                     | "bystander_alive"
+                    | "worker_pause"
+                    | "worker_resume_after_pump"
             ) || program::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
@@ -1115,6 +1160,10 @@ impl CoreHarness for RealCoreHarness {
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
             "bystander_alive" if self.tapped => self.bystander_alive(args),
+            "worker_pause" if self.tapped => self.worker_pause(handle, args),
+            "worker_resume_after_pump" if self.tapped => {
+                self.worker_resume_after_pump(handle, args)
+            }
             op if self.tapped && program::CONTROLS.contains(&op) => {
                 self.program_control(handle, op, args)
             }
@@ -1171,6 +1220,16 @@ impl CoreHarness for RealCoreHarness {
             .map_err(|refused| refused.error)?;
         Ok((result, Box::new(route)))
     }
+}
+
+/// One signal to one process (R-68 evidence, scratch only). The pid is a recorded worker that matched its identity.
+fn signal_one(pid: u32, signal: rustix::process::Signal) -> Result<(), ControlError> {
+    let pid = i32::try_from(pid)
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+        .ok_or_else(|| ControlError::Bad(format!("no such pid {pid}")))?;
+    rustix::process::kill_process(pid, signal)
+        .map_err(|error| ControlError::Bad(format!("the signal to {pid:?} failed: {error}")))
 }
 
 /// Whether the recorded process `identity` lives: it still matches its pid and start time (the inner edge's AD-6 check),
@@ -2308,6 +2367,53 @@ mod slow_controls {
 #[cfg(test)]
 mod slow_tests {
     use super::*;
+
+    /// R-68 evidence item 1 (scratch only, never merged): a route whose `RouteReceived` reaches the host after the last pump
+    /// of the old driver, on demand. The worker is stopped (`worker_pause`) before the route attaches and before the
+    /// `Stop`, so it can acknowledge neither. `worker_resume_after_pump` lets it go on right after the next pump returns. In
+    /// `expect_closed` the old driver makes its one pump per route, the worker then acknowledges the route, ends the session
+    /// and closes its copy, and no pump follows: under R-65 the host's copy stays open, so the step ends at `step_timeout`.
+    /// The R-68 driver pumps again on the wake, the host closes its copy, and the step sees the end of the stream.
+    #[test]
+    fn r68_a_route_received_after_the_last_pump_still_closes_the_route() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let transcript: botster_conformance::Transcript = serde_json::from_value(json!({
+            "id": "conf::ou_7_exit_after_last_frame_then_close", "contract": "core", "clause": "OU-7", "subject": "core",
+            "requires": {"controls": ["program_ready", "worker_pause", "worker_resume_after_pump"]},
+            "steps": [
+                {"begin": {"op": {"Create": {"session": "s1", "request": {"program": [
+                    {"print_after_input": {"match_hex": "78", "bytes_hex": "68"}}, {"exit": {"code": 0}}]}}}}},
+                {"begin": {"op": {"Start": {"id": "s1"}}}, "bind": "$s_s1"},
+                {"pump_until": {"event": {"Completed": {"op": "$s_s1", "result": {}}}}, "because": "Core LC-3"},
+                {"await_control": {"control": {"op": "program_ready", "session": "s1"}, "expect": {"ready": true}}},
+                {"control": {"op": "worker_pause", "session": "s1"}},
+                {"attach_route": {"route": "r1", "session": "s1", "client": "c1"}, "because": "Core OU-1"},
+                {"begin": {"op": {"Stop": {"id": "s1"}}}, "bind": "$stp"},
+                {"control": {"op": "worker_resume_after_pump", "session": "s1"}},
+                {"expect_closed": null, "ignore": [{"$any": true}], "on": "r1", "because": "Core OU-7"}
+            ]
+        }))
+        .unwrap();
+        let make = |_seed: u64| {
+            botster_core_conformance::driver_for(Box::new(
+                RealCoreHarness::new(candidate.clone()).expect("the harness"),
+            ))
+        };
+        let started = std::time::Instant::now();
+        let outcome = botster_conformance::run_transcript(
+            &transcript,
+            &make,
+            &botster_conformance::SeedSet::parse("0").unwrap(),
+            &botster_core_conformance::CoreSchemas,
+            &botster_conformance::Limits::real(),
+        );
+        eprintln!(
+            "R68-LATE outcome after {:?}: {outcome:?}",
+            started.elapsed()
+        );
+        assert_eq!(outcome, botster_conformance::Outcome::Passed);
+    }
 
     /// Binaries that do not exist: enough for a harness that starts no process.
     fn nonexistent() -> Candidate {
