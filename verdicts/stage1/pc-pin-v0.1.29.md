@@ -109,3 +109,65 @@ Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-df991fdf-c57ec82
 Sol read the full result and completed this source delta review.
 The initial gate is not a final gate on the current head. The final gate remains required after both reviewers give CLEAN.
 PC-PIN-1 prevents CLEAN now. This verdict grants no merge approval and does not close #233's separate mutation finding.
+
+
+## Round 3: completed comparison and scope disposition
+
+VERDICT: CLEAN (0 open pin findings)
+
+- Head: `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Package CLEAN: `57d6511c49685d914b3afbfb6a7f776f24fc2a31`.
+
+This verdict supersedes integration NOT CLEAN at `8076545997276e120b6edecce671c47eec10ff82` for this pin PR.
+PC-PIN-1 is CLOSED for this pin review under the lead's explicit scope disposition.
+EV-5 remains a separate open item. This verdict does not establish a green Mac suite or resolve that item.
+PIN-SI-1 remains closed. The head has not changed since the preceding source review.
+
+### Comparison evidence
+
+Sol read the three completed job logs, all 90 raw run files, both trace patches, and the trace script.
+The jobs run EV-5 30 times under a looping full real-tier load on macOS 27.0.1.
+The patches add step, event, and diagnostic output. They change no expectation, wait, or poll behavior.
+The script uses local trace copies of the stated contracts sources. Trace output can change scheduling.
+These are diagnostic runs, not full gates on unmodified source.
+
+- Old pin b161db8, Core 5c480db4: 29 passes and one UnknownRoute failure.
+  Log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-old-pin-v1-5c480db4-20261011-011611.log`.
+- New pin 65f76ab, Core c57ec826: 28 passes and two UnknownRoute failures.
+  Log: `~/botster-sessions/gates/botster-core-pc-ev5-trace-mac-new-pin-c57ec826-20261011-011611.log`.
+- New pin 65f76ab, earlier Core df991fdf: 17 passes, six UnknownRoute failures, and seven PendingLimit failures.
+  Log: `~/botster-sessions/gates/botster-core-pc-pin-ev5-trace-mac-df991fdf-20261011-010924.log`.
+
+Sol independently parsed all 90 raw results and the diagnostics before the recovery poll.
+All 16 failed runs have four pending operations and zero queued events at that poll.
+The old/new comparison has 472 seed starts. It records no Completed for d1 among those seeds.
+Both comparison heads include #247's sha2 profile. The earlier df991fdf sample does not.
+The old-pin comparison reproduces UnknownRoute. It does not reproduce the original PendingLimit error.
+The results do not establish equal failure rates or prove that tracing leaves scheduling unchanged.
+
+### Lead and steward disposition
+
+The lead states that a failure on both pins is a pre-existing item outside this pin PR.
+PC forwards that instruction in `msg_plugin-w_1791707329_0eada7`.
+Sol also checked the matching entries in the lead handoff, including the later R-64 update.
+The package reviewer records the same limit in the complete CLEAN verdict. Sol read that verdict in full.
+
+Sol read R-63 and R-64 in the steward rulings.
+R-63 requires a completion fence before the recovery poll. That is later contracts work, outside this .29 pin.
+R-64 accepts P3's diagnosis of r5: the current worker loses its link on descriptor receipt, then Core closes the pending handoff.
+The later Detach can therefore return UnknownRoute. R-64 states that #240 removes this v1 trigger.
+This diagnosis is P3's conclusion as accepted by the steward. Sol does not claim a new runtime reproduction of the cause.
+R-64 separately identifies the missing d1 completion as an AM-3 defect.
+The contract lacks a truthful completion and close form for the live worker's delivered route after link loss.
+The steward sends that question to candidate Core amendment A21. Core must not implement a guessed reason before that decision.
+Those owners and limits remain in force. This pin review does not approve A21 or a new transcript.
+
+### Acceptance limit
+
+All pin, list, dependency, source, and base-import checks from the preceding round remain valid.
+The final Linux gate on this CLEAN head remains required before merge under the lead's pool rule.
+The earlier df991fdf gate is not that final gate. This source CLEAN grants no merge approval by itself.
+The six steward-controlled IDs remain pending. EV-2 and IN-5 remain pending until #233 supplies the required final proof.
+The #233 mutation finding remains open. The unfenced AD-7 pass still does not count toward the real minimum.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
