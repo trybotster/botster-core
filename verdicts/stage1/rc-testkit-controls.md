@@ -416,3 +416,15 @@ Sol accepts no same-head retry result until the applicable attribution condition
 Sol runs no build, test, gate, mutation, reversal, measurement, or diagnostic. Never poll.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
+
+### Lead correction received
+
+Lead message: `msg_plugin-w_1791755967_93a1c6`.
+The lead confirms that no exact-signature plain-v1 failure or accepted controlled reproduction exists.
+The earlier conditional approval is withdrawn; the 23al and 23bl conditions remain binding.
+The lead directs RC to make one pool evidence reproduction on plain v1 `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+The scratch change must alter timing only and include a trace of the exact step-28 signature.
+Both reviewers must accept that record before any re-gate of the same head.
+If the controlled run does not reproduce the signature, no re-gate is allowed; the lead decides the next step.
+Sol's non-interference line remains recorded. This receipt accepts no future reproduction or retry result.
+Package receipt `a5f38a5e760604e694932bd603f295123def08ba` reports the same corrected condition.
