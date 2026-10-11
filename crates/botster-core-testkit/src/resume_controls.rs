@@ -9,13 +9,18 @@
 //! expected side never passes through the encoder, and the comparator touches only oracle terminals, never the live model.
 //! An independent libghostty terminal replays the output that the worker read with the worker's own step rule only to find
 //! the consumed part (R-7).
+//!
+//! Condition 3 (R-62) holds on this tier too: a session that a `Resize` or a `SetColorProfile` reached gives
+//! `unsupported_control` (`crate::oracle_controls::Changed`). Before it, the control replayed with the size and the profile
+//! of the create request and gave a wrong `{"equal": false}`.
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use crate::oracle_compare::{raw_oracle, resume_holds};
+use crate::oracle_controls::Changed;
 use crate::snapshot_controls::CapturePages;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::{CaptureId, ModelRev, SessionId, Size};
+use botster_core_contract::prelude::{CaptureId, ColorProfile, ModelRev, Op, SessionId, Size};
 use botster_terminal_ghostty::{History, Terminal};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -65,6 +70,26 @@ impl ModelLog {
     fn read_at(&self, rev: ModelRev) -> Option<usize> {
         self.revs.iter().find(|(r, _)| *r == rev).map(|(_, at)| *at)
     }
+
+    /// The payload's size, and how many bytes of the output the worker's model consumed: the step rule over all of it.
+    fn consumed(&self, session: &SessionId) -> Result<(Size, usize), ControlError> {
+        let size = self.size.ok_or_else(|| {
+            ControlError::Bad(format!("the session {} has no payload", session.0))
+        })?;
+        Ok((size, replay(&size, &self.output)?))
+    }
+
+    /// O_raw (R-67): a fresh oracle terminal of the payload's size and `profile` that applied every byte that the worker's
+    /// model consumed (`oracle_screen`).
+    pub(crate) fn raw(
+        &self,
+        session: &SessionId,
+        profile: Option<&ColorProfile>,
+    ) -> Result<Terminal, ControlError> {
+        let (size, after) = self.consumed(session)?;
+        raw_oracle(&size, profile, &self.output[..after])
+            .map_err(|e| ControlError::Bad(format!("no oracle terminal: {e:?}")))
+    }
 }
 
 /// A capture as the host completed it: its `model_rev` and every page that `read_page` gave, in order.
@@ -74,17 +99,34 @@ pub(crate) struct CaptureRecord {
     pub(crate) bytes: Vec<u8>,
 }
 
-/// The captures of one handle, recorded as the host's `Completed` passes through the testkit's `poll_events`.
+/// The captures of one handle, recorded as the host's `Completed` passes through the testkit's `poll_events`, and the
+/// sessions that a `Resize` or a `SetColorProfile` reached, recorded as the host begins the op (condition 3).
 #[derive(Debug, Clone, Default)]
-pub(crate) struct CaptureLog(Arc<Mutex<BTreeMap<CaptureId, CaptureRecord>>>);
+pub(crate) struct CaptureLog(Arc<Mutex<Captures>>);
+
+#[derive(Debug, Default)]
+struct Captures {
+    records: BTreeMap<CaptureId, CaptureRecord>,
+    changed: Changed,
+}
 
 impl CaptureLog {
     pub(crate) fn insert(&self, capture: CaptureId, record: CaptureRecord) {
-        lock(&self.0).insert(capture, record);
+        lock(&self.0).records.insert(capture, record);
     }
 
     fn get(&self, capture: CaptureId) -> Option<CaptureRecord> {
-        lock(&self.0).get(&capture).cloned()
+        lock(&self.0).records.get(&capture).cloned()
+    }
+
+    /// The host of this handle begins `op`.
+    pub(crate) fn begun(&self, op: &Op) {
+        lock(&self.0).changed.begun(op);
+    }
+
+    /// Condition 3 for `session` ([`Changed::check`]).
+    pub(crate) fn check(&self, session: &SessionId) -> Result<(), ControlError> {
+        lock(&self.0).changed.check(session)
     }
 }
 
@@ -92,12 +134,12 @@ impl CaptureLog {
 /// It returns the bytes it consumed.
 fn replay(size: &Size, output: &[u8]) -> Result<usize, ControlError> {
     let mut terminal = Terminal::new(size, History::On)
-        .map_err(|e| ControlError::Bad(format!("oracle_resume: no oracle terminal: {e:?}")))?;
+        .map_err(|e| ControlError::Bad(format!("the replay: no oracle terminal: {e:?}")))?;
     // Each step that does not end the replay consumes at least one byte, so `rest` is shorter after it.
     let mut rest = output;
     loop {
         let step = terminal.vt_write_until_query(rest).map_err(|e| {
-            ControlError::Bad(format!("oracle_resume: the oracle refused a step: {e:?}"))
+            ControlError::Bad(format!("the replay: the oracle refused a step: {e:?}"))
         })?;
         terminal.drain_events();
         if step.consumed == 0 && step.query.is_none() {
@@ -116,7 +158,8 @@ struct Resume {
 }
 
 /// `oracle_resume` (Core ST-6b, R-67): `{equal}`. Core's pages of `capture`, loaded in a fresh oracle terminal, with every
-/// byte that the session's model consumed after the capture's `model_rev`, and the live session model now, each equal O_raw. A capture that the
+/// byte that the session's model consumed after the capture's `model_rev`, and the live session model now, each equal O_raw. A
+/// session that a `Resize` or a `SetColorProfile` reached gives `unsupported_control` (condition 3). A capture that the
 /// host did not complete, a `model_rev` that the worker never had, or a worker with no model is `Bad`.
 fn oracle_resume(
     harness: &mut TestkitHarness,
@@ -124,9 +167,12 @@ fn oracle_resume(
     args: &Value,
 ) -> Result<Value, ControlError> {
     let args: Resume = parse(args)?;
-    let record = harness
+    let captures = harness
         .captures_of(handle)
-        .and_then(|captures| captures.get(args.capture))
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    captures.check(&args.session)?;
+    let record = captures
+        .get(args.capture)
         .ok_or_else(|| ControlError::Bad(format!("no completed capture {}", args.capture.0)))?;
     let row = session_row(harness, handle, &args.session)?;
     let worker = row.worker.ok_or_else(|| {
@@ -139,9 +185,7 @@ fn oracle_resume(
         .workers()
         .model_log(worker.identity())
         .map_err(ControlError::Bad)?;
-    let size = log.size.ok_or_else(|| {
-        ControlError::Bad(format!("the session {} has no payload", args.session.0))
-    })?;
+    let (size, after) = log.consumed(&args.session)?;
     let cut = log.read_at(record.model_rev).ok_or_else(|| {
         ControlError::Bad(format!(
             "the worker never had the capture's model_rev {}",
@@ -150,7 +194,6 @@ fn oracle_resume(
     })?;
     // The worker had consumed what the step rule consumes of the output before the cut; the rest it consumed later.
     let before = replay(&size, &log.output[..cut])?;
-    let after = replay(&size, &log.output)?;
     let live = harness
         .workers()
         .model_snapshot(worker.identity())

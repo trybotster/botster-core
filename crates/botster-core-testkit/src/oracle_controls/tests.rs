@@ -1,0 +1,405 @@
+use super::*;
+use botster_core_conformance::{
+    normalize_op, CoreHarness, DataDirRef, OpenSpec, WorkerBuild, WorkerRef,
+};
+use botster_core_contract::prelude::*;
+use botster_route_codec::prelude::hex_encode;
+use std::time::Instant;
+
+/// The most pumps that a test gives Core to reach an event: far above what these sessions need.
+const PUMPS: usize = 50;
+
+/// The size of the session `s1`: small, so that a short output wraps and scrolls.
+const SIZE: Size = Size {
+    rows: 3,
+    cols: 10,
+    cell_px: None,
+};
+
+fn spec() -> OpenSpec {
+    OpenSpec {
+        handle: "a".into(),
+        data_dir: DataDirRef("d".into()),
+        worker: Some(WorkerRef {
+            build: WorkerBuild::Current,
+            file_name: None,
+        }),
+        limits: json!({}),
+    }
+}
+
+fn now(at: Instant) -> Now {
+    Now {
+        monotonic: at,
+        unix: 1_000_000,
+    }
+}
+
+/// Pumps until `op` completes, and returns its result.
+fn complete(core: &mut dyn CoreApi, at: Instant, op: OpId) -> OpResult {
+    for _ in 0..PUMPS {
+        core.pump(now(at));
+        for event in core.poll_events(64) {
+            if let Event::Completed { op: o, result } = event {
+                if o == op {
+                    return result;
+                }
+            }
+        }
+    }
+    panic!("the op {op:?} did not complete");
+}
+
+/// Pumps until Core has no runnable work (the fence of `await_quiet`).
+fn settle(core: &mut dyn CoreApi, at: Instant) {
+    for _ in 0..PUMPS {
+        let more = core.pump(now(at)).more;
+        if !more && core.poll_events(64).is_empty() {
+            return;
+        }
+    }
+    panic!("Core did not settle");
+}
+
+/// A Core on handle `a` with the session `s1` of [`SIZE`] running a payload that holds.
+fn running(harness: &mut TestkitHarness) -> (Box<dyn CoreApi>, Instant) {
+    let mut core = harness.open(&spec()).expect("open");
+    let at = Instant::now();
+    let mut create = json!({"Create": {"session": "s1", "request": {
+        "program": [{"hold": {}}], "size": {"rows": SIZE.rows, "cols": SIZE.cols}}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), at, create),
+        OpResult::Ok(_)
+    ));
+    let start = core.begin(Op::Start { id: sid() }).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), at, start),
+        OpResult::Ok(_)
+    ));
+    settle(core.as_mut(), at);
+    (core, at)
+}
+
+/// Creates and starts a second session `session` on the Core of [`running`], with the same request.
+fn started(harness: &TestkitHarness, core: &mut dyn CoreApi, at: Instant, session: &str) {
+    let mut create = json!({"Create": {"session": session, "request": {
+        "program": [{"hold": {}}], "size": {"rows": SIZE.rows, "cols": SIZE.cols}}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(complete(core, at, create), OpResult::Ok(_)));
+    let start = core
+        .begin(Op::Start {
+            id: SessionId(session.into()),
+        })
+        .unwrap();
+    assert!(matches!(complete(core, at, start), OpResult::Ok(_)));
+    settle(core, at);
+}
+
+fn sid() -> SessionId {
+    SessionId("s1".into())
+}
+
+fn output(harness: &mut TestkitHarness, core: &mut dyn CoreApi, at: Instant, bytes: &[u8]) {
+    harness
+        .control(
+            "a",
+            "pty_output",
+            &json!({"session": "s1", "bytes_hex": hex_encode(bytes)}),
+        )
+        .expect("pty_output");
+    settle(core, at);
+}
+
+/// An independent oracle terminal of [`SIZE`] that applied `bytes`.
+fn applied(bytes: &[u8]) -> Terminal {
+    let mut terminal = Terminal::new(&SIZE, History::On).unwrap();
+    terminal.vt_write(bytes);
+    terminal
+}
+
+fn text(terminal: &Terminal, history: bool) -> String {
+    terminal.screen_text(history).unwrap().text
+}
+
+fn bad(result: Result<Value, ControlError>) -> String {
+    match result {
+        Err(ControlError::Bad(message)) => message,
+        other => panic!("Bad, got {other:?}"),
+    }
+}
+
+/// The refusal of condition 3.
+fn changed() -> Result<Value, ControlError> {
+    Err(ControlError::UnsupportedFor(SIZE_OR_PROFILE_CHANGED.into()))
+}
+
+/// The cursor position report request (CPR, `CSI 6 n`): a stimulus whose reply depends on the terminal's width.
+const CPR: &[u8] = b"\x1b[6n";
+
+/// The expected reply, from an independent libghostty terminal of `size` that applied `prefix` and then `request` (R-7,
+/// BUILD.md architecture rule 2: never a hand-written terminal byte).
+pub(crate) fn shadow(size: &Size, prefix: &[u8], request: &[u8]) -> Value {
+    let mut terminal = Terminal::new(size, History::Off).unwrap();
+    terminal.vt_write(prefix);
+    terminal.drain_events();
+    let reply = terminal
+        .vt_write_until_query(request)
+        .unwrap()
+        .query
+        .map(|query| query.shadow_reply)
+        .unwrap_or_default();
+    if reply.is_empty() {
+        json!({"answerable": false})
+    } else {
+        json!({"answerable": true, "reply_hex": hex_encode(&reply)})
+    }
+}
+
+/// EV-8: the reply comes from a fresh terminal of the session's size after the prefix. Twelve bytes wrap at ten columns, so
+/// the expected CPR differs from the one of a wider terminal: only a terminal of the session's width gives it.
+#[test]
+fn the_query_reply_comes_from_a_fresh_terminal_of_the_sessions_size() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    // The session's own output never reaches the shadow: the fresh terminal sees only the prefix.
+    output(&mut harness, core.as_mut(), at, b"session output");
+    let prefix = b"xxxxxxxxxxxx";
+    let wide = Size {
+        cols: SIZE.cols + 10,
+        ..SIZE
+    };
+    let expected = shadow(&SIZE, prefix, CPR);
+    assert_eq!(expected["answerable"], json!(true), "{expected}");
+    assert_ne!(
+        expected,
+        shadow(&wide, prefix, CPR),
+        "the width decides the reply"
+    );
+    assert_ne!(
+        expected,
+        shadow(&SIZE, b"", CPR),
+        "the prefix decides the reply"
+    );
+    let query = |prefix: &[u8]| json!({"session": "s1", "request_hex": hex_encode(CPR), "prefix_hex": hex_encode(prefix)});
+    assert_eq!(
+        harness.control("a", "oracle_query_reply", &query(prefix)),
+        Ok(expected)
+    );
+    assert_eq!(
+        harness.control(
+            "a",
+            "oracle_query_reply",
+            &json!({"session": "s1", "request_hex": hex_encode(CPR)})
+        ),
+        Ok(shadow(&SIZE, b"", CPR)),
+        "no prefix"
+    );
+    assert_eq!(
+        harness.control(
+            "a",
+            "oracle_query_reply",
+            &json!({"session": "s1", "request_hex": hex_encode(b"x")})
+        ),
+        Ok(json!({"answerable": false})),
+        "a request that is not a query"
+    );
+}
+
+/// EV-8 (d): the profile argument reaches the shadow, so a color query answers from it.
+#[test]
+fn the_query_reply_takes_the_profile_argument() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = running(&mut harness);
+    let mut background = |profile: Option<Value>| {
+        let mut args = json!({"session": "s1", "request_hex": hex_encode(b"\x1b]11;?\x1b\\")});
+        if let Some(profile) = profile {
+            args["profile"] = profile;
+        }
+        harness.control("a", "oracle_query_reply", &args).unwrap()
+    };
+    let profile = |b: u8| json!({"foreground": {"r": 1, "g": 2, "b": 3}, "background": {"r": 40, "g": 50, "b": b}});
+    let first = background(Some(profile(60)));
+    assert_eq!(first["answerable"], json!(true), "{first}");
+    assert_ne!(first, background(Some(profile(61))));
+    assert_eq!(first, background(Some(profile(60))));
+}
+
+/// A wrong argument is `Bad`, never a reply.
+#[test]
+fn a_query_with_a_wrong_argument_is_bad() {
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = running(&mut harness);
+    let mut control = |args: Value| harness.control("a", "oracle_query_reply", &args);
+    assert!(bad(control(json!({"session": "s1", "request_hex": "1b5"}))).contains("request_hex"));
+    assert!(bad(control(
+        json!({"session": "s1", "request_hex": "1b", "prefix_hex": "zz"})
+    ))
+    .contains("prefix_hex"));
+    assert!(bad(control(json!({"session": "s1", "request": "1b"}))).contains("arguments"));
+    assert!(bad(control(json!({"session": "s2", "request_hex": "1b"}))).contains("s2"));
+}
+
+/// ST-2, A2-1: the screen is O_raw's, with the session's size; with history it holds the lines that scrolled off.
+#[test]
+fn the_screen_is_the_raw_oracles_with_and_without_history() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    let bytes = b"one\r\ntwo\r\nthree\r\nfour";
+    output(&mut harness, core.as_mut(), at, bytes);
+    let expected = applied(bytes);
+    for history in [false, true] {
+        assert_eq!(
+            harness.control(
+                "a",
+                "oracle_screen",
+                &json!({"session": "s1", "history": history})
+            ),
+            Ok(json!({"text": text(&expected, history), "rows": SIZE.rows, "cols": SIZE.cols})),
+            "history {history}"
+        );
+    }
+    assert!(text(&expected, true).contains("one"));
+    assert!(!text(&expected, false).contains("one"));
+}
+
+/// Condition 3 (R-62), one test for every tier form: after a `Resize` or a `SetColorProfile` of the session, the controls
+/// that replay its history refuse, and the controls that do not still answer. Before the shared check, the testkit's
+/// `oracle_resume` gave a wrong `{"equal": false}` here.
+#[test]
+fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
+    let profile = ColorProfile {
+        foreground: Rgb { r: 1, g: 2, b: 3 },
+        background: Rgb { r: 4, g: 5, b: 6 },
+        cursor: None,
+        palette: None,
+    };
+    let resize = Size {
+        rows: 5,
+        cols: 12,
+        cell_px: None,
+    };
+    for change in [
+        Op::Resize {
+            session: sid(),
+            size: resize,
+        },
+        Op::SetColorProfile {
+            session: sid(),
+            profile: profile.clone(),
+        },
+    ] {
+        let mut harness = TestkitHarness::new(0);
+        let (mut core, at) = running(&mut harness);
+        output(&mut harness, core.as_mut(), at, b"abc");
+        let capture = core
+            .begin(Op::CaptureSnapshot {
+                session: sid(),
+                owner: ClientId("c1".into()),
+            })
+            .unwrap();
+        let OpResult::Ok(OpOutput::Capture(capture)) = complete(core.as_mut(), at, capture) else {
+            panic!("a capture");
+        };
+        let screen = json!({"session": "s1", "history": false});
+        let resume = json!({"session": "s1", "capture": capture.capture});
+        assert!(harness.control("a", "oracle_screen", &screen).is_ok());
+        assert_eq!(
+            harness.control("a", "oracle_resume", &resume),
+            Ok(json!({"equal": true}))
+        );
+
+        // Core forwards the op to the started session's worker; its result does not matter here, only that it entered.
+        let op = core.begin(change.clone()).unwrap();
+        complete(core.as_mut(), at, op);
+        assert_eq!(
+            harness.control("a", "oracle_screen", &screen),
+            changed(),
+            "{change:?}"
+        );
+        assert_eq!(
+            harness.control("a", "oracle_resume", &resume),
+            changed(),
+            "{change:?}"
+        );
+        assert!(
+            harness
+                .control(
+                    "a",
+                    "oracle_query_reply",
+                    &json!({"session": "s1", "request_hex": hex_encode(CPR)})
+                )
+                .is_ok(),
+            "{change:?}"
+        );
+    }
+}
+
+/// Condition 3 names only the session that the op reached, through the controls: a `Resize` of `s2` refuses `s2`'s history
+/// controls and leaves `s1`'s answering, and an op that is not a `Resize` or a `SetColorProfile` (a capture of each
+/// session) refuses neither.
+#[test]
+fn only_the_resized_or_recolored_session_refuses() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = running(&mut harness);
+    started(&harness, core.as_mut(), at, "s2");
+    output(&mut harness, core.as_mut(), at, b"abc");
+    let screen = |h: &mut TestkitHarness, session: &str| {
+        h.control(
+            "a",
+            "oracle_screen",
+            &json!({"session": session, "history": false}),
+        )
+    };
+    for session in ["s1", "s2"] {
+        let op = core
+            .begin(Op::CaptureSnapshot {
+                session: SessionId(session.into()),
+                owner: ClientId("c1".into()),
+            })
+            .unwrap();
+        complete(core.as_mut(), at, op);
+    }
+    assert!(screen(&mut harness, "s1").is_ok());
+    assert!(
+        screen(&mut harness, "s2").is_ok(),
+        "a capture changes nothing"
+    );
+
+    let op = core
+        .begin(Op::Resize {
+            session: SessionId("s2".into()),
+            size: SIZE,
+        })
+        .unwrap();
+    complete(core.as_mut(), at, op);
+    assert_eq!(screen(&mut harness, "s2"), changed());
+    assert_eq!(
+        screen(&mut harness, "s1"),
+        Ok(json!({"text": text(&applied(b"abc"), false), "rows": SIZE.rows, "cols": SIZE.cols})),
+        "another session's resize"
+    );
+}
+
+/// OU-9, DP-3: a fresh oracle terminal loads the payload of a `screen` frame and reads its visible screen, with its size.
+#[test]
+fn the_screen_payload_loads_a_snapshot_in_a_fresh_terminal() {
+    let source = applied(b"one\r\ntwo\r\nthree\r\nfour");
+    let payload = json!({"payload": {"$bytes_hex": hex_encode(&source.snapshot().unwrap())}});
+    assert_eq!(
+        screen_payload(&payload),
+        Ok(json!({"text": text(&source, false), "rows": SIZE.rows, "cols": SIZE.cols}))
+    );
+    let mut harness = TestkitHarness::new(0);
+    assert_eq!(
+        harness.control("h", "oracle_screen_payload", &payload),
+        screen_payload(&payload),
+        "the testkit serves the shared read with no open handle"
+    );
+    assert!(
+        bad(screen_payload(&json!({"payload": {"$bytes_hex": "00"}}))).contains("does not load")
+    );
+    assert!(bad(screen_payload(&json!({"payload": "00"}))).contains("arguments"));
+}
