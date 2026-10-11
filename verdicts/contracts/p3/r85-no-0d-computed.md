@@ -137,3 +137,8 @@ Delta against `7c780843dc9646ea5b14c0a4278aa4d59dba4409`: one commit, `013bd44`.
 - The gate on the exact head is running: `...-6f101903-pool-20261011-150442-77004.log`.
 
 My review has no open finding on `6f1019038b6c349b88d8182636276e6130b3427e`. The final CLEAN line follows when P3 reports that the gate on that exact head is green.
+
+**Merge 3: `8c8d52ef31bf0bb4a2635364c33df7da9ca69473`** = `6f101903` + main `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7` (#67 merged first, by the steward's order).
+- Main changed only `crates/botster-core-conformance/tests/fence_lint.rs` (+3). The PR's own diff does not include that path, so the merge is disjoint (Q7). No delta review is needed.
+- The recomputed tree `9477630d933d41e5d8311fea8fd85489f8a38724` equals the commit's tree.
+- P3 stopped the gate on `6f101903`. The gate on the exact head `8c8d52ef` is running: `...-8c8d52ef-pool-20261011-150934-9754.log`. The final CLEAN follows when it is green.
