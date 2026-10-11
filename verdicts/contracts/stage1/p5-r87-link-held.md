@@ -105,3 +105,10 @@ No finding. Still to do: main is now `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7` 
 - Main changed only `crates/botster-core-conformance/tests/fence_lint.rs` (#67). The PR's 4 files do not include it, so the merge is disjoint (Q7).
 - The recomputed tree `5f0d952482796981d96a8ad8f167a063b935ba57` equals the commit's tree. The head fast-forwards main, and main is still `52f1b07f`.
 - Gate on the exact head: `...-a4ded216-pool-20261011-151255-31950.log` (sha256 `21ca26a5c25258f510337ba814e44bafadbbd3136a6fbd2abe30c4df93d9b9d3`). The header names head `a4ded216...` and base `52f1b07f...`. msa1, allocation `9991fe78`. Ten steps PASS. Exit 0.
+
+## Final (after #61 merged): CLEAN on ee0295c43fc9073151fa70b5fa675f21046be56b
+
+- `ee0295c4` = `a4ded216` (my previous final CLEAN) + main `c0c2abc09f208fea39896972373da53cb90dd830`. Main changed #61's driver, tests, `in_9` transcripts and exception file, plus the rulings, since `52f1b07f`. None of these is a path of this PR, so the merge is disjoint (Q7).
+- #68's two transcripts (`ev_5_poll_wakes_pending_work`, `tm_6_poll_room_unparks_and_wakes`) have no input-log assertion, so #61's R-85 run-time check does not reach them.
+- The recomputed tree `3bbaeaf35a093d93bc11d994b3b88fb37ebee753` equals the commit's tree. Main is still `c0c2abc0`, and it is the second parent.
+- Gate on the exact head: `...-ee0295c4-pool-20261011-152143-85570.log` (sha256 `2caa7166ef2644e6c72eaf41d159611905fd6092491634e78acc469f73d4060f`). The header names head `ee0295c4...` and base `c0c2abc0...`. Linux node. Ten steps PASS. Exit 0.
