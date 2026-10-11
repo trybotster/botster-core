@@ -409,3 +409,31 @@ Queue time is not a source blocker.
 I found no open source finding in this replacement. The exact-head package verdict remains pending.
 I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 The tree comparisons use Git source objects only. All execution results above come from supplied evidence.
+
+## Round 2 — 2026-10-10
+
+Reviewed head: `004fbd2a0c48a63f7d345ee22245fba8e6640622`.
+Reviewed base: `0a564513e50930ce25f2e4a175f45cffbef7119d`.
+The replacement inspection above records the source corrections, scoped exclusion, eight source merges, coverage, and complete supplied gate.
+
+I read package Round 2 at verdict commit `d98c6a04ffe7209575b32b2607b8c9f1b7da7ec9`, `verdicts/p5-real-controls-b.md`.
+It reports CLEAN on this exact head and base. Both reviewers agree on all three closures and the exclusion's scope.
+Plan 23af is accepted at `4f6516bd638bcf835dae5d7496e6ed9dc660bf5a`; R-54 changes no requirement for this package.
+Its published pin matches SHA256 `8e463cfda8bffa98cbfd321995b13c57e4eb752ef9fc9ccff366ca9c07f40bc6`.
+
+R1-1 / RC-B-F3 LOW is CLOSED: the proofs use observable socket behavior and the public signal record.
+The earlier EOF-guard coverage claim remains withdrawn. The scoped exact-name exclusion resolves the surviving reset-guard mutant.
+R1-2 / RC-B-F1 HIGH is CLOSED: real worker liveness requires identity and a running process, with the unreaped-ended proof passing.
+R1-3 / RC-B-F2 LOW is CLOSED: worker and payload descriptions attach to the correct methods.
+No finding remains open, including LOW. I found no new cross-package issue.
+
+#222 merged first. Its native Mac evidence and both reviews are complete.
+The replacement retains #234 and all reviewed gate changes.
+All ten supplied gate jobs pass. All ten real-pending removals have exact-head real-tier PASS results.
+Both mutation stages pass with exact stage-2 selection: 64 caught, 12 unviable, zero missed, and zero timeout.
+This verdict accepts the exclusion only within the declared failed-handshake stand-in path.
+It establishes no generic AF_UNIX error guarantee.
+
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open).
