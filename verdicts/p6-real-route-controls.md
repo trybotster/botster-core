@@ -214,3 +214,56 @@ One finding remains open: RC-R1-4. This round accepts no later import or pending
 I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN
+
+## Round 4 — 2026-10-11: source and required Mac evidence
+
+Exact head: `2645bfc1c216cea54cd61577cae25e834e66133c`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `a733adc62438eb1b07d7ca795596a261f60f3ab2`.
+This round retains the source review from Rounds 1–3. The implementation head and tree have not changed.
+All source findings remain closed. This round closes RC-R1-4 with completed Mac evidence.
+
+Mac log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-2645bfc1-pool-20261011-120525-8436.log`.
+SHA256: `2d8b8666b146c621d2115cf7092d4898b3cd26a1d50fb71537af14f6bac05395`.
+The retained header and command output identify the exact head above on Darwin 27.0.0.
+Git identifies that head's tree above. The log does not print a tree identity.
+The gate header sets BOTSTER_CI_BASE_REF to `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+That gate setting does not change this branch's source base.
+
+I read the retained results and decoded the complete command from the log.
+The focused command selects the real::route::, real::holders::, edge_tap::, and stream_holders:: library test groups with the slow feature.
+The library summary reports 63 passed, zero failed, zero ignored, and 409 filtered out, in 0.19 seconds.
+The source and filters include the required written-count, socket-holder, socket-identity, and hold tests.
+The summary does not print individual library test names. I do not claim that the log prints those names.
+The Darwin holder path and written-count tests therefore have completed evidence on this exact head.
+RC-R1-4 closes. No review finding remains open.
+
+The later transcript probes have mixed results. Their selected real tests report these outcomes across three runs:
+
+| Selected id | Named real outcomes |
+| --- | --- |
+| ou_1, ou_11, ou_12, ou_3, ou_5 | Three passes each |
+| a2_1_attach_state_rules | Three passes; the testkit tier reports Unsupported for the start hold |
+| ou_9 | Two passes and one failure |
+| ou_10 | One pass and two failures |
+| dp_3 | Three INCONCLUSIVE step_timeout results |
+| a2_1_no_deadline_code_exists | Three INCONCLUSIVE step_timeout results; the testkit tier reports Unsupported |
+| dp_1, dp_2 | Named-proof guards fail; the retained output supplies no named transcript pass |
+
+The ou_9 failure occurs at seed 7, step 21. The ou_10 failures occur at seeds 1 and 4, step 25.
+The dp_3 timeout occurs at seed 0, step 17. The a2_1_no_deadline_code_exists timeout occurs at seed 0, step 23.
+The script temporarily removes twelve ids from both pending lists in the job's copy and restores those files afterward.
+The missing dp_1 and dp_2 proof entries cause aggregate commands to fail, including commands with passing selected tests.
+The script uses set -u without set -e or pipefail. It does not preserve each command's failure in its final exit status.
+The job exits zero after 263 seconds: one queued and 262 running. The wrapper also exits zero after 263 seconds.
+That exit status does not prove a green full Mac gate or green aggregate transcript commands.
+The focused library summary supplies the evidence that closes RC-R1-4.
+The retained filtered ou_3 output contains no RouteStalled report. I do not claim to have read an unfiltered ou_3 log.
+
+This CLEAN verdict covers the reviewed source and required Mac library evidence at the exact head above.
+The completed final Linux gate and updated final PR body remain due. This round does not approve PR completion.
+The Round 1 Linux gate retains its historical parent-head scope. This round accepts no later import or pending removal.
+I sent the Mac evidence limits and body update request directly to P6 in receipt `msg_plugin-w_1791745963_04e973`.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
+
+VERDICT: CLEAN
