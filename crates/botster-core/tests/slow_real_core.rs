@@ -53,8 +53,9 @@ fn pump(core: &mut Core) -> Vec<Event> {
     }
 }
 
-/// Core LC-2: a second `open` of one directory is refused while the first is open, with the real lock; the lock ends with
-/// the handle (LC-12: nothing else ends).
+/// Core LC-2 (`conf::lc_2_data_dir_is_exclusive`, real-only `slow:data-dir-lock`, with the test below): a second `open` of
+/// one directory is refused while the first is open, with the real lock; the lock ends with the handle (LC-12: nothing else
+/// ends).
 #[test]
 fn a_second_open_is_refused_until_the_first_is_dropped() {
     let tmp = tempfile::tempdir().unwrap();
@@ -75,7 +76,7 @@ const LOCK_HOLDER: &str = "BOTSTER_CORE_LOCK_HOLDER";
 /// so it also ends when the test that started it dies.
 #[test]
 fn slow_lock_holder_entry() {
-    use std::io::{Read, Write};
+    use std::io::Write;
     let Some(dir) = std::env::var_os(LOCK_HOLDER) else {
         return;
     };
@@ -83,12 +84,15 @@ fn slow_lock_holder_entry() {
     let mut out = std::io::stdout();
     out.write_all(b"held\n").unwrap();
     out.flush().unwrap();
-    let mut rest = Vec::new();
-    let _ = std::io::stdin().read_to_end(&mut rest);
+    // The test kills the holder long before the cleanup bound; the bound only ends a holder whose test hangs. Either
+    // outcome of the read ends the hold.
+    let _ = botster_test_process::Bounded::new(std::io::stdin())
+        .to_eof(botster_test_process::Deadline::cleanup());
     drop(core);
 }
 
-/// Core LC-2: the lock is the process's. While another process holds a `Core` open on the directory, this process's `open`
+/// Core LC-2 (`conf::lc_2_data_dir_is_exclusive`, real-only `slow:data-dir-lock`, with the test above): the lock is the
+/// process's. While another process holds a `Core` open on the directory, this process's `open`
 /// is refused `DataDirInUse`; once that process dies (`KILL`, so no drop runs) and its end is observed, the `open` succeeds.
 #[test]
 fn an_open_held_by_another_process_is_refused_until_that_process_dies() {
