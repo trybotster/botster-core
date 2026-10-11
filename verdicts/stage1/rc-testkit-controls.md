@@ -428,3 +428,49 @@ Both reviewers must accept that record before any re-gate of the same head.
 If the controlled run does not reproduce the signature, no re-gate is allowed; the lead decides the next step.
 Sol's non-interference line remains recorded. This receipt accepts no future reproduction or retry result.
 Package receipt `a5f38a5e760604e694932bd603f295123def08ba` reports the same corrected condition.
+
+## Round 6 — controlled reproduction review, 2026-10-11
+
+Implementation head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Implementation base and reproduction base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Evidence snapshot: `9c44c653e9d71c32f276842b870a4c6a8a8dc203`.
+This snapshot is plain v1 plus a scratch diagnostic. It is not a delivery head or merge gate.
+RC reports that the diagnostic was never committed or pushed to a delivery branch.
+
+Log: `~/botster-sessions/gates/botster-core-detached-f68f26a7-f68f26a7-pool-20261011-150206-64641.log`.
+SHA-256: `b0fa78606981a6fe0621558c35d473d7c0aac59452fa402790443904caedcc8c`.
+Scratch diff: `~/botster-sessions/gates/rc-ev5-repro-scratch-f68f26a7.diff`.
+SHA-256: `027d7d7aad29ad7cd084dd9081f76001d837a3d07671debae1ac858e339f5397`.
+Sol reads the complete diff, all 192 log lines, and the unmodified route transport and worker loop.
+The header names plain v1, .39, and `--allow-dirty`. The pool compiles the worker and test binaries.
+The job runs on Linux MS-A1, kernel `6.12.111+deb13-amd64`, with four CPUs.
+The single test fails at seed 0, raw step 28, after 0.09 seconds, and exits 101.
+The expected and received values exactly match the failed final gate.
+Expected: `activity_before_close: true, closed: true`. Received: `activity_before_close: false, closed: true`.
+The shell prints the trace after the test and exits zero. The wrapper's zero after 26 seconds is not a test PASS.
+
+The diagnostic changes only `crates/botster-worker/src/route_io.rs`.
+It holds delivery of the selected second-route read for one second and keeps the loop runnable while that read waits.
+It retains the original input value. It changes no transcript, assertion, machine report, or terminal byte.
+The control link continues to run. The trace records the second-route read and RouteClose in the same millisecond, with one input held.
+The selected read contains 14 transport bytes ending in `0x63`; the diagnostic does not replace that frame with a one-byte input.
+No release is recorded: the test fails before the one-second deadline. Sol claims no proof of later delivery or ordering after release.
+
+The unmodified loop reads the control link before route input and feeds its input queue to the machine in order.
+If Detach reaches that control path before the machine receives the route frame, the route can close without a client-input report.
+The transcript's `await_quiet` does not fence that report. The diagnostic postpones that input across the existing close window.
+For this observed prefix, it moves input delivery time without supplying missing behavior or changing the checked predicate.
+Sol accepts the exact-signature controlled reproduction under plan 23bl(A), subject to the lead's explicit case acceptance.
+This acceptance claims no uninstrumented v1 reproduction and no trace of the original failed gate.
+
+Sol confirms non-interference again: #285 changes no transcript, worker, host, or `route_reports` behavior on this path.
+The route write and flush remain unchanged. The transcript calls neither new control.
+Package receipt `1ad1761f78871340bc7745580755080544203d8e` accepts the same record with these limits.
+Sol reads its complete controlled-reproduction section.
+The lead must accept this case explicitly and retain the failure, owner, and repair PR before the one same-head re-gate.
+Both reviewer acceptances now cover the named controlled record. This receipt supplies no gate PASS.
+If the permitted re-gate is red, the head waits for a new commit under section 8.
+The source and body findings remain closed. TC-SI-FINAL-1 remains open for valid final execution and its completed body and package verdict.
+Sol runs no build, test, gate, mutation, reversal, measurement, or diagnostic. Never poll.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition) at 3cf460714016af6683ea6c60f1753dfc0055c660
