@@ -63,6 +63,12 @@
 //!   `af17b97`). Each is a fiction about history; at the moment Core looks, the OS facts that it reads are real. Each
 //!   control's documentation states its fiction and its conditions.
 //!
+//! - `hold_start` and `release_start` (`{session}`, Core LC-4, A2-1; steward ruling, plan 23bg, the same form as the
+//!   testkit's): the tap holds the worker's control link at the host's accept, after its hello, until the release
+//!   ([`Tap::hold_link`], [`Tap::release_link`]). Core spawned the worker, sees no link of it, and the session stays
+//!   `Starting`. `start_held` is true once the link is held. The hold is set while the session is `Created`; a release of
+//!   an armed hold disarms it; a second hold, or a release with no hold, is `Bad`. The worker's own startup clock runs
+//!   during the hold (TM-3, AD-7).
 //! - `fail_handoff` (no arguments, Core DP-2): the next `link_send_descriptor` of the handle's host fails, once
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
 //!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
@@ -623,6 +629,39 @@ impl RealCoreHarness {
         }
     }
 
+    /// Core LC-4, A2-1 (steward ruling, plan 23bg): holds the session's start at the host's accept of the worker's control
+    /// link ([`Tap::hold_link`]). Core spawns the worker (AD-7 step 2); the worker connects and sends its hello; the tap
+    /// holds that link from the driver, so Core sees no link of the worker and the session stays `Starting`. The worker's
+    /// own startup clock runs during the hold. The hold is set before the `Start`.
+    fn hold_start(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        not_begun(&session, &row)?;
+        if lock(&tap).hold_link(row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "the start of {} is already held",
+                session.0
+            )))
+        }
+    }
+
+    /// Ends the hold of `hold_start` ([`Tap::release_link`]): the held link goes to Core's next accept, with every byte in
+    /// order; an armed hold is disarmed.
+    fn release_start(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        if lock(&tap).release_link(&row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "no hold of the start of {}",
+                session.0
+            )))
+        }
+    }
+
     /// Core AD-7, R-49 Q2: ends the hold of `hold_start_at`. Core's next flush sends the `Launch`.
     fn release_start_at(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
@@ -637,13 +676,17 @@ impl RealCoreHarness {
         }
     }
 
-    /// Steward ruling R-59: `{held}`, whether the hold of `hold_start_at` has stopped its step: the tap holds the first byte
-    /// of the session's `Launch` (R-49 Q2). False while the hold is only armed, and when no hold of the session is set. It
+    /// Steward ruling R-59: `{held}`, whether the hold of `hold_start_at` or `hold_start` has stopped its step: the tap holds
+    /// the first byte of the session's `Launch` (R-49 Q2), or the worker's control link (plan 23bg). False while the hold is
+    /// only armed, and when no hold of the session is set. It
     /// reads the tap and never waits (R-14.3): the worker's hello wakes the host, and the next pump reaches the hold.
     fn start_held(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, row) = self.stored(handle, &session)?;
-        let held = lock(&tap).launch_held(&row.instance);
+        let held = {
+            let tap = lock(&tap);
+            tap.launch_held(&row.instance) || tap.link_held(&row.instance)
+        };
         Ok(json!({ "held": held }))
     }
 
@@ -1136,6 +1179,8 @@ impl CoreHarness for RealCoreHarness {
                     | "withhold_control_link"
                     | "signals_received"
                     | "registry_row"
+                    | "hold_start"
+                    | "release_start"
                     | "hold_start_at"
                     | "release_start_at"
                     | "start_held"
@@ -1170,6 +1215,8 @@ impl CoreHarness for RealCoreHarness {
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
             "signals_received" if self.tapped => self.signals_received(handle, args),
             "registry_row" if self.tapped => self.registry_row(handle, args),
+            "hold_start" if self.tapped => self.hold_start(handle, args),
+            "release_start" if self.tapped => self.release_start(handle, args),
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
@@ -1425,6 +1472,8 @@ mod slow_controls {
             "withhold_control_link",
             "signals_received",
             "registry_row",
+            "hold_start",
+            "release_start",
             "hold_start_at",
             "release_start_at",
             "start_held",
@@ -2494,6 +2543,8 @@ mod slow_tests {
             "withhold_control_link",
             "signals_received",
             "registry_row",
+            "hold_start",
+            "release_start",
             "hold_start_at",
             "release_start_at",
             "start_held",

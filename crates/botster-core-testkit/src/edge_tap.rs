@@ -266,6 +266,11 @@ pub struct Tap<E> {
     stand_ins: Vec<(StandIn, Option<usize>)>,
     /// The held starts, by instance (`hold_start_at`, R-49 Q2).
     holds: BTreeMap<InstanceId, Hold>,
+    /// The held control links of starts, by instance (`hold_start`, plan 23bg): `None` while the hold is armed, and the
+    /// worker's link once it arrived and is held from the driver.
+    link_holds: BTreeMap<InstanceId, Option<LinkId>>,
+    /// The new links whose hello the tap has not read yet, while a `hold_start` is armed, in the order of their accept.
+    unnamed: VecDeque<LinkId>,
     /// The next hand-over of a route's stream endpoint fails, once (`fail_handoff`, Core DP-2).
     fail_handoff: bool,
     /// The held hand-over (`hold_handoff`, Core OU-9).
@@ -293,11 +298,10 @@ impl<E: HostEdges> Tap<E> {
     /// nothing, and at most one new link, one exit and one read chunk for each link. When the tap holds something, it
     /// signals the wake edge, so that the host pumps and reads it (TM-6).
     pub fn quiet(&mut self) -> bool {
+        self.sort_unnamed();
         let mut quiet = !self.holds_anything();
         if quiet {
-            if let Some(link) = self.inner.accept_link() {
-                self.links.insert(link, LinkTap::accepted());
-                self.accepts.push_back(link);
+            if self.take_link() {
                 quiet = false;
             }
             if let Some(exit) = self.inner.poll_process_exit() {
@@ -328,10 +332,114 @@ impl<E: HostEdges> Tap<E> {
         quiet
     }
 
+    /// A link that a `hold_start` holds is not a report: its bytes wait for the release, and the edges can be quiet.
     fn holds_anything(&self) -> bool {
         !self.accepts.is_empty()
             || !self.exits.is_empty()
-            || self.links.values().any(LinkTap::holds_anything)
+            || !self.unnamed.is_empty()
+            || self
+                .links
+                .iter()
+                .any(|(link, tap)| tap.holds_anything() && !self.link_held_for_start(*link))
+    }
+
+    /// Whether `link` is held by a `hold_start`.
+    fn link_held_for_start(&self, link: LinkId) -> bool {
+        self.link_holds.values().any(|held| *held == Some(link))
+    }
+
+    /// Takes the next new link of the inner edge: to `accepts`, or, while a `hold_start` is armed, to `unnamed` until its
+    /// hello names its instance ([`Tap::sort_unnamed`]). False when the inner edge has no new link.
+    fn take_link(&mut self) -> bool {
+        let Some(link) = self.inner.accept_link() else {
+            return false;
+        };
+        self.links.insert(link, LinkTap::accepted());
+        if self.link_holds.values().any(Option::is_none) {
+            self.unnamed.push_back(link);
+            self.sort_unnamed();
+        } else {
+            self.accepts.push_back(link);
+        }
+        true
+    }
+
+    /// Reads ahead on each unnamed link until its hello names its instance (plan 23bg). A link of an armed `hold_start`
+    /// is held from the driver; any other link goes to `accepts`, in order: a link whose first frame is no hello, one that
+    /// ended first, or one of an instance with no armed hold. With no armed hold left, every unnamed link goes to
+    /// `accepts`. The bytes read ahead stay in the link's record, in order, for the driver.
+    fn sort_unnamed(&mut self) {
+        let Tap {
+            inner,
+            links,
+            accepts,
+            launches,
+            heard,
+            link_holds,
+            unnamed,
+            ..
+        } = self;
+        let mut buf = vec![0u8; READ_CHUNK];
+        let mut waiting = VecDeque::new();
+        while let Some(link) = unnamed.pop_front() {
+            let Some(state) = links.get_mut(&link) else {
+                continue;
+            };
+            let armed = link_holds.values().any(Option::is_none);
+            while armed && state.instance.is_none() && state.frames.is_some() && state.end.is_none()
+            {
+                match inner.link_recv(link, &mut buf) {
+                    Ok(0) => state.end = Some(End::Closed),
+                    Ok(n) => {
+                        state.observe(&buf[..n], launches, heard);
+                        state.held.extend(&buf[..n]);
+                    }
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                    Err(e) => state.end = Some(End::Failed(e.kind())),
+                }
+            }
+            if armed && state.instance.is_none() && state.frames.is_some() && state.end.is_none() {
+                waiting.push_back(link);
+                continue;
+            }
+            match state.instance.as_ref().and_then(|i| link_holds.get_mut(i)) {
+                Some(slot) if slot.is_none() => *slot = Some(link),
+                _ => accepts.push_back(link),
+            }
+        }
+        *unnamed = waiting;
+    }
+
+    /// Arms `hold_start` for `instance` (Core LC-4, A2-1; steward ruling, plan 23bg): the worker's control link is held from
+    /// the driver when it arrives, so Core sees no link of the worker and the session stays `Starting`. False when a hold of
+    /// `instance` is already set.
+    pub fn hold_link(&mut self, instance: InstanceId) -> bool {
+        if self.link_holds.contains_key(&instance) {
+            return false;
+        }
+        self.link_holds.insert(instance, None);
+        true
+    }
+
+    /// Whether the hold of `instance` holds the worker's link (`start_held`): false while it is only armed.
+    pub fn link_held(&self, instance: &InstanceId) -> bool {
+        matches!(self.link_holds.get(instance), Some(Some(_)))
+    }
+
+    /// Ends the hold of `instance` (`release_start`). A held link goes to the driver's next `accept_link`, with every byte
+    /// that the tap read ahead, in order, and the wake edge signals. An armed hold is disarmed, and the later link goes to the
+    /// driver as usual. False when no hold of `instance` is set.
+    pub fn release_link(&mut self, instance: &InstanceId) -> bool {
+        let Some(held) = self.link_holds.remove(instance) else {
+            return false;
+        };
+        if let Some(link) = held {
+            self.accepts.push_back(link);
+        }
+        self.sort_unnamed();
+        self.inner.wake().signal();
+        true
     }
 
     /// What the driver consumed of the reports of `route` from the worker of `instance` (`route_reports`, R-66). While a report
@@ -620,6 +728,8 @@ impl<E: HostEdges> EdgeTap<E> {
             signals: Vec::new(),
             stand_ins: Vec::new(),
             holds: BTreeMap::new(),
+            link_holds: BTreeMap::new(),
+            unnamed: VecDeque::new(),
             fail_handoff: false,
             handoff: HandoffHold::Off,
             stream_bytes: BTreeMap::new(),
@@ -686,12 +796,15 @@ impl<E: HostEdges> HostEdges for EdgeTap<E> {
 
     fn accept_link(&mut self) -> Option<LinkId> {
         let mut tap = self.tap();
-        if let Some(link) = tap.accepts.pop_front() {
-            return Some(link);
+        tap.sort_unnamed();
+        loop {
+            if let Some(link) = tap.accepts.pop_front() {
+                return Some(link);
+            }
+            if !tap.take_link() {
+                return None;
+            }
         }
-        let link = tap.inner.accept_link()?;
-        tap.links.insert(link, LinkTap::accepted());
-        Some(link)
     }
 
     fn connect_worker(&mut self, instance: &InstanceId) -> Option<LinkId> {
