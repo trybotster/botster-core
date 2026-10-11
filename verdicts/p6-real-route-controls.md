@@ -141,3 +141,49 @@ Four findings remain open. P6 owns the source fixes and required Mac evidence.
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11: source corrections
+
+Exact head: `cc4a1a40c4c4a3cc3120cb55154f25b5f3e72af0`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `6918cd32accaa8b7a75fbafb725980068140b39b`.
+Reviewed parent: `722b415a5e7900fcbc5ea48c8244fcafe01ba4c3`.
+Correction commits: `572f119567e934afe0425844908fa8a8621f340f` and this exact head.
+I read the complete four-file correction delta and the quiet/accept source contexts.
+
+RC-R1-1 closes in the source. sort_unnamed stops the current read on Interrupted or WouldBlock.
+It retains the unnamed link for the next call. The new test supplies two Interrupted results before a hello.
+The test checks one read per call, non-quiet edges while the hello is incomplete, and the final public link-held result.
+The fill helper ends on Ok(0), WouldBlock, or Interrupted. Each continuing write takes at least one byte.
+No receiver drains the socket during that helper call, so the finite kernel buffers bound the writes that make progress.
+
+RC-R1-2 closes in the source. Both identified reads now use nonblocking sockets.
+A retained peer returns WouldBlock and fails the assertion immediately.
+The EOF and EOF-or-reset assertions remain unchanged. Neither read introduces a wait.
+
+RC-R1-3 closes. The three unused Debug implementations and all identified layout assertions are removed.
+The public control-result assertions remain unchanged.
+
+RC-R1-4 remains open. P6 reports that a Mac job on the reviewed parent failed during a resolver outage.
+That result supplies no Mac proof. P6 reports new Mac and Linux jobs on this head, without completed results.
+I accept no result from an unfinished job. The Round 1 Linux gate remains historical parent-head evidence.
+The PR body and final evidence for this head remain pending.
+
+### RC-R2-1 — HIGH — the modified quiet operation can still retry without progress
+
+Location: `crates/botster-core-testkit/src/edge_tap.rs:321`.
+P6 identifies this path in receipt `msg_plugin-w_1791745365_9f8218` and asks whether to fix it in this PR.
+I read the path. Tap::quiet retries Interrupted in its per-link loop with no state change, deadline, or attempt bound.
+A sequence of Interrupted results can prevent quiet from returning.
+The retry predates this PR, but this PR changes Tap::quiet and uses it with the new holds.
+The same P6 wait rule applies to this modified operation. The sort_unnamed correction does not fix this second retry path.
+Fix this path in this PR. End the call on Interrupted with a non-quiet result and retry on a later call, or use another finite approach.
+An Interrupted read must not prove that the edges are quiet. Retain pending bytes and signal the wake for further progress.
+Add a finite fake-edge check that fails if quiet retries repeated Interrupted results within one call.
+I send this finding directly to P6 in receipt `msg_plugin-w_1791745450_3271b9`.
+
+Two findings remain open: RC-R1-4 and RC-R2-1.
+This source review accepts no future import, pending removal, unfinished job, or final body.
+I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
