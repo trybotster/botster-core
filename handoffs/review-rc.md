@@ -162,3 +162,12 @@ The integration reviewer confirms the imported changed lines, eight unchanged ow
 Both source CLEAN verdicts cover this head and base. All three findings remain closed.
 The final exact-head gate and final PR body remain pending. Historical proof limits remain explicit.
 The reviewer ran no test, build, or gate.
+
+
+Core #275 round 1 is NOT CLEAN at `ff913e68dc666eb69fe074bed03fd9ae237a1be7`.
+Source merge base: `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9`. Gate base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Risk HIGH. Two MEDIUM findings are open: RC-OC-1 hand-written expected CPR replies; RC-OC-2 private Changed record assertions.
+Derive expected query replies with an independent libghostty terminal. Prove change-record behavior through harness controls.
+The supplied re-gate is green: 40 mutants, 33 caught, 7 unviable, no miss or timeout.
+Its special pre-review approval and missing plain-v1 reproduction remain explicit in the verdict.
+The reviewer ran no execution job. The reviewer waits for a corrected READY and does not poll.

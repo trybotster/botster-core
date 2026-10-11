@@ -624,3 +624,76 @@ The integration reviewer confirms the imported changed lines, eight unchanged ow
 Both source CLEAN verdicts cover this head and base. All three findings remain closed.
 The final exact-head gate and final PR body remain pending. Historical proof limits remain explicit.
 The reviewer ran no test, build, or gate.
+
+
+## Core #275 — round 1 — NOT CLEAN
+
+Source head: `ff913e68dc666eb69fe074bed03fd9ae237a1be7`.
+Source merge base: `0e1f2feeac9e0aeb46d618b25dcb32f991fcfde9`.
+Gate base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Risk: HIGH. Open findings: 2, both MEDIUM.
+The reviewer read all 13 changed files, the PR body, and plan 23bk's oracle ruling.
+Plans 23ax to 23bb authorize the shared controls, the rebuilt anchor, and the change record at the host wrapper.
+
+### RC-OC-1 — MEDIUM — The tests hand-write expected query replies
+
+Evidence at this exact head:
+
+- `oracle_controls/tests.rs:134` expects literal `\x1b[2;3R`.
+- `oracle_controls/tests.rs:142` expects literal `\x1b[1;1R`.
+- `real/oracle.rs:164` expects literal `\x1b[2;3R`.
+
+These are expected terminal reply bytes. BUILD.md architecture rule 2 prohibits hand-written expected terminal bytes.
+Plan P35 applies this rule to Core assertions as well as conformance IDs.
+The VT definition does not grant an exception in the Core repository.
+Required change: derive each expected reply with an independent libghostty terminal at the intended size.
+Feed the prefix, then the request, and use libghostty's shadow reply.
+Do not derive the expectation through the control under test or its dispatch helper.
+Keep the prefix, no-prefix, and real-tier session-size cases.
+
+### RC-OC-2 — MEDIUM — A test asserts the private change record through its accessor
+
+`oracle_controls/tests.rs:287` constructs private `Changed` and mutates it with `begun`.
+Lines 290, 295, and 296 assert `check`, which reports the private set's membership as success or refusal.
+This is a stateful record test, not a pure decision-function test or a control-boundary proof.
+The user's rule prohibits private-state assertions. BUILD.md testing rule 3 also prohibits tests of helper internals.
+Required change: prove the named session and unrelated-op cases through the harness controls.
+Use the existing control-level resize/profile refusal test or another control-level test.
+Remove the direct `Changed` record assertions. Add no accessor that exposes its records for assertions.
+
+### Source and pending checks
+
+The shared module decodes the contract argument forms and uses libghostty for all three oracle reads.
+Each tier supplies its session lookup. The real harness serves these controls only when tapped.
+The screen history uses the reviewed ModelLog or acknowledged output anchor, with the shared change refusal.
+The resize/profile record remains at the authorized host-wrapper point, before admission.
+The PR body explains the existing facilities considered and the custom code.
+The reviewer found no additional source finding in this round.
+
+Only `ou_9_attach_is_sync_baseline_in_pump` and `st_5_reads_after_exit` leave the testkit pending file.
+Both IDs enter the real pending file. The exact-head gate reports both testkit IDs PASS.
+The minimum `ev_8_no_route_shadow_answers_at_once` stays pending.
+The earlier Mac transcript run is explicitly at `36643dcc` plus a local diff. It is not an exact-head gate.
+The reviewer read the exact-head Mac reversal receipt: all six named reversals failed the real oracle test.
+The receipt is `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-oracle-reversals-mac-ff913e68-20261011-093236.log`.
+
+### Exclusions and gate evidence
+
+The reviewer compared the complete parsed mutation configuration with the previously reviewed `c2dd1fbf` configuration.
+Every exclusion pattern and setting is identical. This PR adds no mutation exclusion.
+The exact-head re-gate reports all ten steps PASS and exit 0:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-oracle-controls-ff913e68-pool-20261011-093754-20596.log`.
+It reports 40 mutants: 33 caught, including 13 in stage 2; 7 unviable; no miss or timeout.
+The cited-mutant and stale-exclusion checks pass.
+
+The earlier `ff913e68` gate failed the repo signal-scan budget at 2.003 seconds against 2 seconds.
+The implementer supplied the lead's explicit one-re-gate approval, `msg_plugin-w_1791736664_ee380f`.
+The lead accepted timing and source-size data instead of the absent pre-review attribution line for this first READY only.
+The lead handoff records the approval and assigns the root fix to GS.
+The reviewer read plan 23bm's amendment B, which names this first use.
+The implementer explicitly reports no failing plain-v1 run and no earlier reviewer attribution.
+The reviewer confirms that the test walks and reads the repository, and this PR changes no scanner or budget code.
+The PR does add source files, which the scanner reads. The supplied comparison does not measure their isolated timing cost.
+The reviewer does not claim a plain-v1 reproduction or that the added files have zero timing cost.
+A corrected source head will require its own exact-head gate. The supplied green log does not close either source finding.
+The reviewer ran no test, build, or gate.
