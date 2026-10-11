@@ -670,32 +670,25 @@ fn sigterm_on_the_worker_ends_its_payload_group_then_the_worker() {
     assert_eq!(status.code(), Some(0));
 }
 
-/// The test's own wait for a child: a child that never ends fails the wait at its deadline, with the step and its pid, and
-/// stays unreaped for its owner. A plain `Child::wait` would block here until the child ends (an hour).
+/// The test's own wait for a worker: a worker that does not end (its payload runs) fails the wait at its deadline, with the
+/// step and its pid. A plain `Child::wait` would block here, because the worker never ends on its own. The worker stays the
+/// test's unreaped child: the link still works, and the bounded wait of `remove` then reaps it with code 0.
 #[test]
-fn a_child_that_never_ends_fails_the_bounded_wait_with_its_pid() {
-    use std::os::unix::process::ExitStatusExt;
-    let mut owner = KilledOnDrop(
-        Some(Command::new("/bin/sleep").arg("3600").spawn().unwrap()),
-        "the proof child ends after SIGKILL",
-    );
-    let child = owner.0.as_mut().unwrap();
-    let id = child.id();
+fn a_worker_that_does_not_end_fails_the_bounded_wait_with_its_pid() {
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let mut s = Session::launch(root.path(), &format!("exec {}", hold.shell()), 5000);
+    let id = s.worker.worker.id();
     // timer: deadline — the proof's own short bound, so that the test does not wait the cleanup bound; not a contract value.
     let deadline = Deadline::after(Duration::from_millis(100));
-    let report = status_within(child, "the proof step", deadline).unwrap_err();
+    let report = status_within(&mut s.worker.worker, "the proof step", deadline).unwrap_err();
     assert_eq!(
         report,
         format!("the proof step: the child {id} did not end within 100ms")
     );
-    assert!(
-        matches!(child.try_wait(), Ok(None)),
-        "the child stays unreaped for its owner"
-    );
-    child.kill().unwrap();
-    let status = status_by_bound(child, "the proof child ends after SIGKILL");
-    assert_eq!(status.signal(), Some(9));
-    owner.0 = None;
+    s.link.msg(&HostMsg::Stop);
+    assert_eq!(s.link.report(), exited(None, Some(15)));
+    s.remove();
 }
 
 /// The test's own link helper (F8): two complete frames and the start of a third in ONE read are all delivered, in order,
@@ -1085,19 +1078,16 @@ fn parent_death_ends_the_driver_observer() {
         "{}::observer_parent",
         module_path!().split_once("::").unwrap().1
     );
-    let mut parent = KilledOnDrop(
-        Some(
-            Command::new(std::env::current_exe().unwrap())
-                .args(["--exact", &name, "--nocapture"])
-                .env("BOTSTER_DRIVER_PARENT_ROOT", root.path())
-                .stdin(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .stdout(std::process::Stdio::null())
-                .spawn()
-                .unwrap(),
-        ),
-        "the observer parent ends after SIGKILL",
-    );
+    let mut parent = ObserverParent(Some(
+        Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", &name, "--nocapture"])
+            .env("BOTSTER_DRIVER_PARENT_ROOT", root.path())
+            .stdin(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap(),
+    ));
     let child = parent.0.as_mut().unwrap();
     let mut reader = BufReader::new(child.stderr.take().unwrap());
     let mut ready = String::new();
@@ -1120,16 +1110,18 @@ fn parent_death_ends_the_driver_observer() {
         .unwrap();
 }
 
-/// A test's own child (not a worker), killed and reaped within the cleanup bound at its drop; the second field names the
-/// step for the report.
-struct KilledOnDrop(Option<Child>, &'static str);
+struct ObserverParent(Option<Child>);
 
-impl Drop for KilledOnDrop {
+impl Drop for ObserverParent {
     fn drop(&mut self) {
         if let Some(mut child) = self.0.take() {
             let _ = child.kill();
             // A drop during a panic only reports: a second panic would abort the test process.
-            if let Err(report) = status_within(&mut child, self.1, Deadline::cleanup()) {
+            if let Err(report) = status_within(
+                &mut child,
+                "the observer parent ends after SIGKILL",
+                Deadline::cleanup(),
+            ) {
                 if std::thread::panicking() {
                     eprintln!("{report}");
                 } else {

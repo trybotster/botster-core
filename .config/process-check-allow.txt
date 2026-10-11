@@ -99,13 +99,17 @@ crates/botster-worker/tests/common/driver_edges.rs | pty_events_resume_reads_aft
 crates/botster-worker/tests/common/driver_edges.rs | waiting_payload | command-wait
 crates/botster-worker/tests/common/driver_edges.rs | with_read_bound | blocking-read
 crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_ends_the_payload_group | blocking-read
-crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_ends_the_payload_group | child-wait
 crates/botster-worker/tests/common/session.rs | a_panic_after_worker_sigkill_ends_the_payload_group | shell-loop
-crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | drop | child-wait
 crates/botster-worker/tests/common/session.rs | fifo | command-wait
 crates/botster-worker/tests/common/session.rs | first_line | blocking-read
 crates/botster-worker/tests/common/session.rs | launch | blocking-read
+
+# session.rs status_within (GS): the reap of a worker (a std Child, which OwnedWorker ends with SIGTERM first, so it is not
+# an OwnedChild) after platform::await_status saw its status within a deadline; the try_wait takes a status that is already
+# available and cannot block. It replaced four unbounded Child::wait sites (remove, the R12 SIGTERM test, the SIGKILL panic
+# test, and the drop of the observer test's parent).
+crates/botster-worker/tests/common/session.rs | status_within | child-wait
 
 # The probes' control socket of the real-tier program controls (PC, #233): the accept runs on a non-blocking listener after a
 # bounded poll (Deadline::cleanup() re-armed each round, closing checked each round); WouldBlock polls again; the check cannot
@@ -123,8 +127,6 @@ crates/botster-worker/tests/common/session.rs | observer_parent | shell-loop
 crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | blocking-read
 crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | blocking-read
 crates/botster-worker/tests/common/session.rs | parent_death_ends_the_driver_observer | spawn
-crates/botster-worker/tests/common/session.rs | remove | child-wait
-crates/botster-worker/tests/common/session.rs | sigterm_on_the_worker_ends_its_payload_group_then_the_worker | child-wait
 crates/botster-worker/tests/common/session.rs | sigterm_on_the_worker_ends_its_payload_group_then_the_worker | shell-loop
 crates/botster-worker/tests/slow_cli.rs | output | child-wait
 crates/botster-worker/tests/slow_cli.rs | output | spawn
