@@ -37,3 +37,15 @@ No finding.
 ### 016c's round 1 on the same head (package scope; recorded, not repeated)
 
 - LOW (body only): the body gives the step numbers 10 and 15, and prior-art step 9, as 1-based counts but does not say so. `pair-common.md` uses 0-based indices, which are 9, 14 and 8. P5 corrects the numbers or labels the count. No source change and no new gate. My CLEAN stays (a package-scope miss). I check the corrected body when P5 sends it.
+
+## CLEAN on 006ccf22 is ON HOLD (Core testkit evidence; steward ruling needed)
+
+P5 reports BLOCKED. Evidence: `~/botster-sessions/shared/core-stage1/evidence/p5-r87/`:
+- `fenced-ev5-poll-testkit-per-seed.log`: Core worktree `stage1/p5-r87-link-held` (base v1 `23550811fb84c3c2cb066019716987575d7aecb2`), with an uncommitted testkit `link_held`, and contracts at this head.
+- `trace-old-seed4-testkit.log`: the old transcript at seed 4, with a trace.
+
+On the testkit, the fenced transcript is INCONCLUSIVE at index 9 (`link_held`, `max_polls`) for 10 of 32 seeds: 4, 8, 9, 10, 12, 13, 15, 17, 25 and 28. At those seeds, Core has already read and accepted the exit report, and the parked work is in the engine (`runnable`). It is not a frame that Core holds on the link, so `held` never becomes true. The old transcript passes at those seeds through the runnable wake.
+
+My round 1 checked that the PR matches R-87's text. It did not check that `link_held` covers every form of the parked work that the TM-6 claim needs. The fence as ruled is too narrow for the testkit's scheduling. This is a contract question for the steward: the fence must cover parked work on the link AND parked work in the engine, or use another form.
+
+The PR must not merge on this head. I re-review the head that follows the steward's ruling.
