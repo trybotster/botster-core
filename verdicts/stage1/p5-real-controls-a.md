@@ -299,3 +299,32 @@ The Git merge base equals the gate base. git diff --check passes.
 I used source-tree and static patch comparisons. I ran no executable merge-check job.
 The exact-head package verdict remains pending. This inspection completes no new review round and grants no CLEAN verdict.
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+## Round 3 completion — 2026-10-10
+
+Reviewed head: `f775a76648d9594b45d3a8663070df79503b824a`.
+PR and full gate base: `72afc28426a8d9cdf8250a954f96fd8f0f1198fa`.
+Tier remains HIGH. This completes the pending Round 3 acceptance review.
+Scope: the unchanged PR delta, five base imports, final Linux gate, applicable native Mac evidence, and exact-head package verdict.
+The source and evidence checks in the preceding Round 3 entries remain applicable.
+
+R1-1 HIGH remains CLOSED: the unknown payload check uses the recorded worker's live children and checks its identity and liveness.
+The real unread-report proof passes at this head and in its stage-2 baseline.
+R2-1 HIGH remains CLOSED: the focused native Mac run covers the byte-identical corrected adapter.
+That run has ten mutants, seven caught, three unviable, and zero missed or timeout.
+All five automatic source merge trees match. The normalized own delta equals the accepted correction at 996a17f0.
+No new source finding remains.
+
+The final gate passes all ten jobs: 1508 default tests and 395 slow tests.
+Its main real conformance tier records 112 distinct PASS rows, including all six IDs removed from pending-real.
+Pending-real is 81 with no additions. The minimum counts are testkit 50/69, real-passing 31/68, and real-accepted 31/69.
+Both mutation stages pass with the reviewed identity checks: 82 mutants, 73 caught, nine unviable, and zero missed or timeout.
+The current-tag probe cache evidence satisfies the lead's clarified requirement after #235.
+The remote head and current v1 base match. git diff --check passes.
+
+I read package CLEAN at `ac617ed66a3202be5bf6106d69b637b4dfaf8ca5`, `verdicts/p5-real-controls-a.md`, Round 3.
+The package verdict covers this exact head and base. Both reviews close the same findings and report zero open findings.
+The earlier pending-acceptance entry remains part of this review's history; this verdict applies to the final f775a766 head.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open).
