@@ -1,5 +1,5 @@
 //! The program controls of the testkit (`docs/core-testkit-controls.md`, `docs/fake-core-notes.md`): `pty_output`,
-//! `pty_blocked`, `pty_input`, `pty_chunk`, `pty_accept` and `pty_fail_after` act at the program edge of a session's payload
+//! `pty_blocked`, `pty_queued`, `pty_input`, `pty_chunk`, `pty_accept` and `pty_fail_after` act at the program edge of a session's payload
 //! only (Core A5-1), never in the worker machine or the host (plan 2.1).
 
 use crate::controls::{parse, session_row, ControlRegistry};
@@ -16,6 +16,7 @@ use std::sync::Arc;
 pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("pty_output", pty_output);
     registry.register("pty_blocked", pty_blocked);
+    registry.register("pty_queued", pty_queued);
     registry.register("pty_input", pty_input);
     registry.register("pty_chunk", pty_chunk);
     registry.register("pty_accept", pty_accept);
@@ -67,11 +68,16 @@ fn program_alive(
         .is_some_and(|worker| harness.workers().payload_alive(worker.identity())))
 }
 
+/// The arguments of `pty_output`, on both tiers. Steward ruling R-76: `scripted` (the fake's mode script) is the one field
+/// that Core ignores, as it ignores the `fake` field of a `Create` request. libghostty derives the modes from the bytes alone
+/// (R-7). Every other unknown field is still `Bad`.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PtyOutput {
-    session: SessionId,
-    bytes_hex: String,
+pub(crate) struct PtyOutput {
+    pub(crate) session: SessionId,
+    pub(crate) bytes_hex: String,
+    #[serde(default, rename = "scripted")]
+    _scripted: Option<serde::de::IgnoredAny>,
 }
 
 /// The payload of the session writes these bytes to its terminal (Core ST-1, OU-7). They are plain output: the worker reads
@@ -113,19 +119,32 @@ struct PtyBlocked {
     session: SessionId,
     #[serde(default = "on")]
     on: bool,
+    #[serde(default)]
+    kernel_bytes: Option<usize>,
 }
 
-/// While on, the payload's terminal takes no write: every write returns `WouldBlock` (Core AM-2, DP-9, A5-3). `on: false`
-/// lets writes proceed again, and also lifts a `pty_accept` limit; it wakes the host, as the PTY's write readiness wakes a
-/// real host. `on: false` on a terminal that is not blocked is a no-op, so a transcript may release without a block.
+/// While on, the payload's terminal takes no write: every write returns `WouldBlock` (Core AM-2, DP-9, A5-3). With
+/// `kernel_bytes: n`, the terminal first takes up to n bytes into a queue that the program does not read, as a real PTY's kernel
+/// buffer does (steward ruling R-74; `pty_queued` reports the queue). `on: false` lets writes proceed again, delivers the queue
+/// to the program in order, and also lifts a `pty_accept` limit; it wakes the host, as the PTY's write readiness wakes a real
+/// host. `on: false` on a terminal that is not blocked is a no-op, so a transcript may release without a block. `kernel_bytes`
+/// with `on: false` is `Bad`.
 fn pty_blocked(
     harness: &mut TestkitHarness,
     handle: &str,
     args: &Value,
 ) -> Result<Value, ControlError> {
     let args: PtyBlocked = parse(args)?;
+    if let (false, Some(_)) = (args.on, args.kernel_bytes) {
+        return Err(ControlError::Bad(
+            "kernel_bytes: only a block (on: true) takes it".into(),
+        ));
+    }
     let (program, wake) = program_of(harness, handle, &args.session)?;
-    program.set_blocked(args.on);
+    match args.kernel_bytes {
+        Some(bytes) => program.block_with_kernel(bytes),
+        None => program.set_blocked(args.on),
+    }
     if let (false, Some(wake)) = (args.on, wake) {
         wake.signal();
     }
@@ -136,6 +155,18 @@ fn pty_blocked(
 #[serde(deny_unknown_fields)]
 struct Session {
     session: SessionId,
+}
+
+/// The bytes of PTY input that wait in front of the program, which it has not read: the queue of `pty_blocked` with
+/// `kernel_bytes` (steward ruling R-74). A read: it changes nothing.
+fn pty_queued(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Session = parse(args)?;
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    Ok(json!({ "bytes": program.queued() }))
 }
 
 /// Every byte of PTY input that the payload's program edge took, in order: the observer of the input controls.
