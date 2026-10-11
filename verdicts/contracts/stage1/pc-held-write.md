@@ -85,3 +85,10 @@ VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration rev
   - The transcript `in_9_kitty_unknown_flag_bits_ignored` is the same blob as on main.
   - Outside the exception file, the PR's own `git diff --raw` against its new merge base is identical to the reviewed one.
   - No semantic overlap: the merged transcript has no `await_pty`, so #52's written-count rule fences none of its three captures, and its four entries are still needed (the lint fails on an unneeded entry).
+
+### The merging gate on `3fec741732ec515a056e1a748c5b2c291c260cea` (read by me)
+
+- Log: `~/botster-sessions/gates/botster-contracts-stage1-pc-held-write-3fec7417-pool-20261011-113818-11211.log`, SHA256 `c1d3120a48aa7aede5392267bf6c5c7e946813157a4ab5202bce8235e82fea4c`.
+- Header: head `3fec741732ec515a056e1a748c5b2c291c260cea`, base `5ee91959dc63a62469870096cd15dbbd0fd25682` (BOTSTER_CI_BASE_REF). That base is still the main tip, and the remote branch is this head.
+- Result: all 10 steps PASS; `botster-gate: exit 0 after 183 s on msa1`. The only "skipped" lines are counts ("0 skipped"; the slow tier's "5 binaries skipped" filter). There is no FLAKY line.
+- **Final: CLEAN on `3fec741732ec515a056e1a748c5b2c291c260cea`, merge-ready from the integration review.** 016c is source CLEAN on the same head.
