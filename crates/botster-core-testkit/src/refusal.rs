@@ -1242,11 +1242,18 @@ pub(crate) mod tests {
     pub(crate) struct Behind {
         reached: Arc<Mutex<Vec<String>>>,
         deadline: Instant,
+        /// What `diagnostics` answers; a test sets it to a Core's report.
+        diagnostics: Arc<Mutex<Value>>,
     }
 
     impl Behind {
         fn note(&self, call: &str) {
             self.reached.lock().unwrap().push(call.to_string());
+        }
+
+        /// The value that `diagnostics` answers, for a test to set.
+        pub(crate) fn diagnostics_slot(&self) -> Arc<Mutex<Value>> {
+            Arc::clone(&self.diagnostics)
         }
     }
 
@@ -1291,7 +1298,7 @@ pub(crate) mod tests {
             }
         }
         fn diagnostics(&self) -> Value {
-            json!({"behind": true})
+            self.diagnostics.lock().unwrap().clone()
         }
         fn terminal_state(&self, _id: &SessionId) -> Result<TerminalState, CoreError> {
             self.note("terminal_state");
@@ -1401,6 +1408,7 @@ pub(crate) mod tests {
         let behind = Behind {
             reached: Arc::clone(&reached),
             deadline: DEADLINE.with(|d| *d),
+            diagnostics: Arc::new(Mutex::new(json!({"behind": true}))),
         };
         (behind, reached)
     }
@@ -1757,6 +1765,31 @@ pub(crate) mod tests {
     }
 
     /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.
+    /// R-87: after each call that it passes on, the layer records the sessions that the Core behind it reports as
+    /// `parked_work` in its `diagnostics`, and `parked` answers from that record at once.
+    #[test]
+    fn the_layer_records_the_parked_work_that_the_core_reports_after_each_call() {
+        let (behind, _reached) = behind();
+        let diagnostics = behind.diagnostics_slot();
+        let parked = ParkedWork::default();
+        let mut layer = RefusalLayer::new(Box::new(behind), RefusalHandle::new(), parked.clone());
+        let (s1, s2) = (SessionId("s1".into()), SessionId("s2".into()));
+        assert!(
+            !parked.parked(&s1),
+            "a report without parked_work names no session"
+        );
+        *diagnostics.lock().unwrap() = json!({"parked_work": ["s1"]});
+        layer.pump(Now {
+            monotonic: Instant::now(),
+            unix: 0,
+        });
+        assert!(parked.parked(&s1), "the pump's report names s1");
+        assert!(!parked.parked(&s2));
+        *diagnostics.lock().unwrap() = json!({"parked_work": []});
+        layer.poll_events(1);
+        assert!(!parked.parked(&s1), "the poll's report names no session");
+    }
+
     #[test]
     fn every_call_without_a_row_passes_through_with_its_result() {
         let (mut layer, handle, reached) = layer();
