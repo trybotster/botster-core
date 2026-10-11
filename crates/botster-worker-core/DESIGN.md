@@ -289,8 +289,9 @@ The resync sequence (at `Stalled → Open`, OU-9):
 
 - `link_send_descriptor` with `SCM_RIGHTS` in `botster-core/src/real.rs` (today `handoff_route` returns `Err`), and the
   host closing its copy of the stream (`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`).
-- The `botster-worker` binary: `recvmsg` descriptors on the `mio` loop (PR B), then the PTY read budget and the
-  `RouteTransport` edge over the socket (PR C, lead ruling of 2026-10-10).
+- The `botster-worker` binary: `recvmsg` descriptors on the `mio` loop (PR B), then the PTY read budget and the route
+  transport over the socket (PR C, lead ruling of 2026-10-10): `botster-worker/src/route_io.rs` holds the bound streams
+  and their bounded reads and writes; `main.rs` registers each stream with the loop.
 - The testkit minimum count and the real minimum count are reported separately in each PR.
 
 ### Proofs that the P4a PRs add (worker-core and testkit tests)

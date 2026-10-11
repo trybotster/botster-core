@@ -801,6 +801,52 @@ fn a_real_route_carries_the_attach_the_input_and_the_output() {
     }
 }
 
+/// OU-3 on the real driver: output far larger than the socket's buffer, and within the route's queue, reaches a client
+/// that reads only after the payload wrote it all: whole and in order. The client reads nothing until then, so the route's
+/// last write waits on a full socket with no more output to come, and only `RouteWritable` sends the rest.
+#[test]
+fn a_real_route_delivers_large_output_whole_and_in_order() {
+    use botster_route_codec::prelude::ToClient;
+    use std::os::fd::AsFd;
+    const BYTES: usize = 3_000_000;
+    let root = temp_root();
+    let mut done = marker_fifo(root.path(), "done");
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "/usr/bin/head -c {BYTES} /dev/zero | /usr/bin/tr '\\0' a; /bin/echo end; /bin/echo done > {}; exec {}",
+        quoted(&root.path().join("done")),
+        hold.shell()
+    );
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s =
+        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    drop(worker_end);
+    assert_eq!(
+        done.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("done\n")
+    );
+    let mut client = RouteClient::new(client);
+    client.read_to_live();
+    let mut output = Vec::new();
+    // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
+    let end = loop {
+        let from = output.len().saturating_sub(2);
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+        if let Some(at) = output[from..].windows(3).position(|w| w == b"end") {
+            break from + at;
+        }
+    };
+    let body: Vec<u8> = output[..end]
+        .iter()
+        .copied()
+        .filter(|b| !b"\r\n".contains(b))
+        .collect();
+    assert_eq!(body.len(), BYTES, "every byte, once");
+    assert!(body.iter().all(|&b| b == b'a'), "only the payload's bytes");
+}
+
 /// OU-5 on the real driver: the client's close of its end ends the route, and the host hears `RouteClosed{PeerClosed}`.
 #[test]
 fn a_client_close_ends_its_real_route() {
