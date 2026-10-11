@@ -124,3 +124,86 @@ Sol reads the complete log. Its header states a clean target and a build from th
 All three real runs fail at seed 0, step 13, with the same empty PTY log.
 The retained real-pending entry remains supported. The source CLEAN verdict at 8d56987e does not change.
 The final READY must identify build provenance for every cited local record under the lead's new B13 condition.
+
+## Round 2 — final import and pending correction, 2026-10-11
+
+PR: Core #284, HIGH.
+Head: `006b61cc454e0dce4e0063852e6f0701fef081bc`.
+Base: `23550811fb84c3c2cb066019716987575d7aecb2`.
+Tree: `5b13e06270096dfad3b73ea8cf87136c26da0261`.
+Previous reviewed head: `8d56987ec2d7983bdeebd2101cca751f1d2c92ee`.
+Previous base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+
+### Source and base composition
+
+Sol reviews the merge `716f07b05cb1a331eb2fc6a18800417789b1be9c` and all three subsequent commits through this head.
+The imported base includes #283 and #282. The base tree exactly equals #282's reviewed and gated tree, `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+Sol verifies that merge's parents and tree. This closes the #282 merge receipt without a new execution claim.
+The previous own delta has ten files; the imported base delta has fourteen.
+Their overlap contains only `program.rs` and `core-real-pending.txt`.
+At the merge, both files preserve the previous own additions and deletions exactly against their respective bases.
+The other eight own files preserve their previous blobs at the merge.
+All other final tree entries preserve the imported base, except the stated own changes.
+After the merge, only the two pending files change. All worker code remains unchanged.
+The own `program.rs` delta retains ENOSPC and its errno test. The imported kernel queue preserves that classification.
+The mutation exclusions remain byte-identical to the new base.
+
+The canonical check for `dfc38b478b018d63f7bb0851397b2a00a0dd4561` fails for that head and its first merge.
+Log: `gates/botster-core-rc-paste-base-merge-check-dfc38b47-20261011-141941.log` under `~/botster-sessions`.
+SHA-256: `d6df59b8a8259201569820c0e626b09b5dae32aa8dfdc99b7266760aec60f5e3`.
+Ancestry and conflict checks pass. The path overlap and pending-file conditions fail; both commands exit one.
+Sol grants no automatic Q7 carry. This round supplies an explicit integration delta review.
+RC must retain the check for the corrected head in the final body.
+
+### Pending correction and evidence limits
+
+Against the new base, the final testkit set removes the same seven own identifiers and adds none.
+The real-pending set adds the same two own identifiers and removes none.
+Sol independently verifies both set formulas against the previous review and the imported base.
+`conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste` stays testkit-pending.
+The temporary eighth removal and third real-pending addition at dfc38b47 are reversed.
+Its new comment records the testkit seed-10 failure, real seed-0 failure, undiagnosed cause, and RC owner.
+
+Failed gate: `gates/botster-core-stage1-rc-paste-dfc38b47-pool-20261011-141844-22243.log` under `~/botster-sessions`.
+SHA-256: `ef4c20b219e1807342e8a2b17c5e0554f4bf76af1a9d71f52a1e7a06f3053287`.
+The exact head and base match. At seed 10, step 15, the route reports `route_closed session_ended` with signal 15.
+The transcript expects `input_refused session_ended` with `written_bytes` for operation 1.
+The strict run reports 223 passes, one failure, and 466 ignored identifiers.
+Formatting, clippy, and taint pass. Lists fails; all six later steps do not run.
+The step total is 81.4 seconds. The job and wrapper exit one after 154 seconds on msa1, with zero seconds queued.
+Sol accepts no mutation or real-tier result from this failed gate.
+
+Sol reads both relevant transcripts at contracts commit `ddce507e2c08e740f899e97dcfec566f3d2275b8` (.39).
+The fence exceptions name partial-paste steps 10 and 16, and invalid-UTF8 step 9.
+The invalid-UTF8 read at raw step 13 follows `await_quiet`, with no PTY fence.
+Its revised pending comment names the R-60 exception, R-56 work, and P3 owner. It claims no diagnosed cause.
+
+The local check on `5ab38e0b560fb490aab62cc99d31589d8225dfce` retains 395 testkit passes and 192 worker passes.
+Its strict check reports 223 passes and one failure while the partial-paste identifier remains pending.
+Log SHA-256: `a0adabe8d700d1bbc487142e35e9f4980f46c382fa8b1f08d78d7a9cc1e3f106`.
+The real partial-paste record retains one failure at seed 0, step 15.
+Log SHA-256: `593bbf5cfb0f03f3f1e8505c34adabd59afde83e7a30ece53717985069dcd01b`.
+These filtered records contain no complete build output or independent clean verification.
+RC reports a clean at 14:13:56 and only this worktree's builds thereafter, in target `~/botster-sessions/targets/rc`.
+That reported provenance satisfies B13's single-worktree condition. Sol does not claim raw verification of the clean.
+RC's dfc38b47 strict PASS used fewer seeds and has no retained log. The failed gate replaces that acceptance claim.
+RC reports 223 strict passes on this corrected head with `BOTSTER_SEEDS=0-31`. This remains an owner report.
+
+### Imported finding and remaining acceptance condition
+
+Sol reads the package review through `3ce01a075f4a1656e75e445aab546b0bd413e75e`, including the complete #284 correction section.
+Package evidence commits: `b47ca04e3ebe6e5f3c49edc25632a2783e3a636a` and `a2a78ed0764e945fce97a70fb489f8d4581fe4dd`.
+RC-PASTE-DELTA-1 identifies imported assertions through `queued()`, `unread()`, and `waits_for_next_step()`.
+Those assertions originate in merged #283. This PR adds no flagged assertion against the new base.
+The lead explicitly transfers the finding to F-283-1, owner PC, with reviewers 0179 and Sol.
+The lead's ruling closes that finding for #284. The transfer does not claim a code fix.
+Sol's previous #283 review missed this finding. Sol preserves the follow-up obligation.
+Open package findings for #284: zero under that ruling.
+
+RC-PASTE-FINAL-1 — MED, open acceptance condition: the corrected head lacks a completed final gate and final evidence body.
+Closure requires the completed exact-head gate, its full applicable evidence, the corrected canonical check, and the matching package verdict.
+The final body must preserve the failed gate, seed limits, pending correction, and B13 provenance.
+The source delta adds no integration finding. This receipt permits no claim that final acceptance is complete.
+Sol runs no build, test, gate, mutation, measurement, or executable base-check script. Never poll.
+
+VERDICT: NOT CLEAN (1 open) at 006b61cc454e0dce4e0063852e6f0701fef081bc
