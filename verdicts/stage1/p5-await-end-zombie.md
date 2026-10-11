@@ -289,3 +289,13 @@ Zero findings remain open. This CLEAN covers only the exact head, base, source, 
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: CLEAN (0 open)
+
+## Merge verification — 2026-10-11
+
+Merge: `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+Parents: reviewed base `2b8cf08230dc3145dfe3a436bc34feee946c9b07` and reviewed head `2c8f6ea45f3815fda9728cf4d2900971fd0d3bc7`.
+Tree: `63b3c6fbe0733cac4ba07feee1bb045b9c0f8088`.
+
+Sol reads the exact local merge object after the P3 import receipt names it. Both parents and the tree match the accepted Round 2 review and gate. No later source is accepted. The evidence limits remain intact. Sol runs no execution job.
+
+VERDICT: CLEAN (0 open)

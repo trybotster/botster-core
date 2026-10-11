@@ -53,3 +53,24 @@ VERDICT: NOT CLEAN (2 open)
 ### Publication receipt
 
 DNS recovers after the local round. Package receipt `msg_plugin-w_1791726527_0c8e47` confirms publication of `752307ff148e715557c9929ff5982018e63e310d`. Sol publishes this NOT CLEAN round in `d63047dedc28842d39a2a342b5dec1cd000e866c`. Both findings remain open. No later source correction is reviewed here.
+
+## Correction source inspection — 599cff43
+
+- Correction: `b5d73c88d70d70f67a9405a9cc1e7ee845c3a998`.
+- Imported head: `599cff43d0bdfd360f1042aa2cdcd60da74c5cc5`.
+- Base: `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+- Parents: the correction and exact base above.
+- Tree: `c5da63985dbd65c9313ece0b5f9389ef5fc0c31a`.
+- Owner receipts: `msg_plugin-w_1791726773_6b72bb` and `msg_plugin-w_1791726800_0c374e`.
+
+The owner explicitly says this is not READY. The owner reports a running gate. Sol reads the complete correction delta and the corrected driver path. Sol reads mio 1.2.3's epoll and kqueue flag functions.
+
+The correction removes the `||` operator and its exclusion. `Driver::run` has no exclusion entry. This source change addresses RP-MN-1 without adding another broad anchor.
+
+The driver now passes only `event.is_read_closed()` as the closed argument. `Routes::event` still combines that argument with readable and error events. A kqueue write-filter EOF alone no longer sets route readability. The owner acknowledges this macOS production behavior change and will state it in the body. The correction abandons the incomplete equivalence claim. It addresses RP-MN-2 through a source change, not through proof that the old mutant was equivalent.
+
+The inspected mio epoll code sets write-closed only for EPOLLHUP or an EPOLLERR case. EPOLLHUP also sets read-closed. EPOLLERR remains an error argument. Thus this source change preserves the Linux readiness value. Sol makes no claim about a new Mac execution record.
+
+The import adds only the three accepted #263 paths. No own path overlaps. All four own blobs equal the correction blobs. All three imported blobs equal the exact base. The own diff equals the correction's prior-base diff byte for byte: 14412 bytes, SHA256 `5ab3b2797d172ee6f7b96981357ad95990be5721f9dc095c925aca76ab05d6c5`. The diff check passes. The independent permitted static merge tree equals the recorded tree, without conflict.
+
+No new source finding appears in this inspection. Formal closure and CLEAN wait for final READY, the corrected body, the supplied exact-head gate, and the package artifact. The earlier NOT CLEAN history remains intact. Sol runs no execution job and requests no reproduction campaign.
