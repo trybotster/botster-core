@@ -1,5 +1,6 @@
 //! The start controls of the testkit (`docs/core-testkit-controls.md`): the stored row of a session (`registry_row`), the
-//! hold of one step of its start (`hold_start_at`, `release_start_at`), and whether its payload runs (`payload_alive`).
+//! hold of one step of its start (`hold_start_at`, `release_start_at`), whether that hold has stopped its step (`start_held`),
+//! and whether its payload runs (`payload_alive`).
 //! They read the storage edge and act at the program edge of the in-process worker, never in the worker machine or the host
 //! (plan 2.1), so the order of AD-7 that a transcript observes is the host's own.
 
@@ -16,6 +17,7 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("registry_row", registry_row);
     registry.register("hold_start_at", hold_start_at);
     registry.register("release_start_at", release_start_at);
+    registry.register("start_held", start_held);
     registry.register("payload_alive", payload_alive);
 }
 
@@ -135,6 +137,20 @@ fn release_start_at(
         .release_start(&key, row.worker.map(|w| w.identity()))
         .map_err(ControlError::Bad)?;
     Ok(Value::Null)
+}
+
+/// `{held}`: whether the hold of `hold_start_at` has stopped its step (steward ruling R-59): the scheduler has the held step
+/// due, which is the worker's spawn of the payload, kept by the hold. False while the hold is only armed, and when no hold of
+/// the session is set. It reads the hold and never waits (R-14.3).
+fn start_held(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfSession { session } = parse(args)?;
+    let row = session_row(harness, handle, &session)?;
+    let key = start_key(harness, handle, row.instance)?;
+    Ok(json!({ "held": harness.workers().start_held(&key) }))
 }
 
 /// `{alive}`: whether the session's payload runs now, as the process edge sees it (Core EV-5(c), AD-7). The payload ends

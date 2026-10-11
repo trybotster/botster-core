@@ -563,6 +563,16 @@ impl RealCoreHarness {
         }
     }
 
+    /// Steward ruling R-59: `{held}`, whether the hold of `hold_start_at` has stopped its step: the tap holds the first byte
+    /// of the session's `Launch` (R-49 Q2). False while the hold is only armed, and when no hold of the session is set. It
+    /// reads the tap and never waits (R-14.3): the worker's hello wakes the host, and the next pump reaches the hold.
+    fn start_held(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        let held = lock(&tap).launch_held(&row.instance);
+        Ok(json!({ "held": held }))
+    }
+
     /// Core DP-2: the next hand-over of a route's stream endpoint fails, once, at the tap ([`Tap::fail_next_handoff`]).
     fn fail_handoff(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let FailHandoff {} = parse(args)?;
@@ -799,6 +809,7 @@ impl CoreHarness for RealCoreHarness {
                     | "registry_row"
                     | "hold_start_at"
                     | "release_start_at"
+                    | "start_held"
                     | "fail_next"
                     | "fail_handoff"
             ) || program::CONTROLS.contains(&op)
@@ -825,6 +836,7 @@ impl CoreHarness for RealCoreHarness {
             "registry_row" if self.tapped => self.registry_row(handle, args),
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
+            "start_held" if self.tapped => self.start_held(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             op if self.tapped && program::CONTROLS.contains(&op) => {
@@ -1006,6 +1018,7 @@ mod slow_controls {
             "registry_row",
             "hold_start_at",
             "release_start_at",
+            "start_held",
             "fail_next",
             "fail_handoff",
         ] {
@@ -1190,6 +1203,11 @@ mod slow_controls {
             !lock(&tap).launch_held(&instance),
             "an armed hold has met nothing"
         );
+        assert_eq!(
+            harness.control("a", "start_held", &json!({"session": "s1"})),
+            Ok(json!({"held": false})),
+            "an armed hold has stopped nothing (R-59)"
+        );
         // Whichever comes first: the `Launch` meets the hold, or the worker has a child (the worker spawns its payload only
         // on the `Launch`, so a child means that the `Launch` passed the hold). A child counts only after a tap met the
         // worker: before that, the recorded pid can still run the guard's wrap stage, whose intermediate is a child that is
@@ -1239,8 +1257,18 @@ mod slow_controls {
             "the start has begun"
         );
         assert_eq!(
+            control("start_held", json!({"session": "s1"})),
+            Ok(json!({"held": true})),
+            "the hold stopped its step (R-59)"
+        );
+        assert_eq!(
             control("release_start_at", json!({"session": "s1"})),
             Ok(Value::Null)
+        );
+        assert_eq!(
+            control("start_held", json!({"session": "s1"})),
+            Ok(json!({"held": false})),
+            "released"
         );
         assert!(
             bad(control("release_start_at", json!({"session": "s1"}))),
@@ -1715,6 +1743,7 @@ mod slow_tests {
             "registry_row",
             "hold_start_at",
             "release_start_at",
+            "start_held",
             "fail_next",
             "fail_handoff",
         ]
