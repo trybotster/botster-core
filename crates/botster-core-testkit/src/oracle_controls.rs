@@ -20,7 +20,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
-/// The controls of this module, on both tiers.
+/// The controls of this module, on both tiers. The real harness (the `slow` feature) lists them.
+#[cfg_attr(not(feature = "slow"), allow(dead_code))]
 pub(crate) const CONTROLS: [&str; 3] = [
     "oracle_query_reply",
     "oracle_screen",
@@ -120,7 +121,9 @@ struct ScreenPayload {
 pub(crate) fn screen_payload(args: &Value) -> Result<Value, ControlError> {
     let ScreenPayload { payload } = parse(args)?;
     let terminal = Terminal::from_snapshot(&payload.0, History::Off, None).map_err(|e| {
-        ControlError::Bad(format!("oracle_screen_payload: the payload does not load: {e:?}"))
+        ControlError::Bad(format!(
+            "oracle_screen_payload: the payload does not load: {e:?}"
+        ))
     })?;
     screen(&terminal, false)
 }
