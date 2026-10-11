@@ -340,3 +340,16 @@ The old source CLEAN does not automatically accept these new pending removals or
 Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
 
 VERDICT: NOT CLEAN (1 open final acceptance condition: RG-SI-FINAL-1) at d3a60c99ab9165422e469de3323a5be12e55977c against base 5e953398925351c12e463a7b0a946b79d9841edc
+
+### Lead disposition on the fence exceptions
+
+Lead message: `msg_plugin-w_1791758213_87ab78`.
+The lead confirms that the earlier per-OS ruling did not consider fence exceptions.
+A PASS of an unfenced read named by the pinned exception file supplies no removal evidence.
+OU-1 attach, OU-11 ownership, and OU-3 progressing reader must stay in real-pending until their fences land.
+The lead directs P6 to restore those three entries, stop the running gate, and run one final gate on the new head.
+Sol independently confirms that OU-12 output order and OU-5 peer fault have no entry in the pinned .39 exception file.
+Those two proposed removals can retain their repeated proof, subject to normal PASS in the completed new-head final gate.
+The mechanical lists guard remains separate work. This disposition does not attest to its implementation.
+The source and LOW body findings remain closed. RG-SI-FINAL-1 remains open until the restoration and final conditions complete.
+Sol accepts no gate or real acceptance from the withdrawn five-removal head. Sol runs no job. Never poll.
