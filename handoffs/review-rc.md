@@ -51,8 +51,11 @@ Core #269 is NOT CLEAN at `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`, with 3 ope
 The gate base is `56fae5826f766b408abca06f99376e0506982bf9`. Risk: HIGH.
 RC-OR-1 is HIGH: the second capture polls unrelated events and holds them outside Core, changing EV-5 admission and retirement.
 The steward's R-69 requires `events_pending` refusal, no held or re-injected events, and success cleanup.
-The three transcript fences need a contracts PR reviewed by 016c. Core #269 then pins that tag.
-Closure needs a real Activity negative test and five Mac passes per ID without refusal.
+Plan 23at separates the transcript fences and pin move from Core #269.
+Core #269 repairs the control, proves the real Activity refusal and success cleanup, and restores the three real-pending entries.
+The three transcript fences need a contracts PR reviewed by 016c.
+P5's separate Core PR pins combined contracts-v0.1.38 after #269 lands on v1.
+The placement check and five Mac passes per ID without refusal apply to that later pin PR.
 RC-OR-2 is MEDIUM: proofs assert private capture records, marks, changed sets, and history counters.
 Replace those assertions with public completions, control results, and boundary observations.
 RC-OR-3 is LOW: the prior-art note must state the existing facilities considered and the reasons for the new custom components.

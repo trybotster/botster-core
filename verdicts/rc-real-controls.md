@@ -381,12 +381,17 @@ The current three transcripts do not consume their final output events before th
 Their final sentinel output is followed by `await_quiet`, `await_title`, and `oracle_resume`; those waits do not poll.
 The lead supplied the steward's placement decision in `msg_plugin-w_1791729601_826e63`.
 RC must add a waiting step on the last caused event in one contracts PR, reviewed by reviewer 016c.
-The waiting step must derive its event from the clauses. Core #269 must then pin that tag.
-The PR body must show that each control runs after the transcript consumes every event that it causes.
+The waiting step must derive its event from the clauses.
+Plan 23at, `stage1-plan.70cf75fb.md`, separates that placement work from Core #269.
+The lead supplied this scope correction in `msg_plugin-w_1791729740_e096ba`, with the steward's agreement.
+Core #269 makes no pin move and must keep the three `oracle_resume` IDs real-pending.
+P5's separate Core PR pins the combined `contracts-v0.1.38` tag after #269 lands on `v1`.
+The placement check applies to the R-69 contracts PR and P5's pin PR, not to Core #269.
 
 Closure evidence: a real-tier negative test with an already queued `Activity` must return `events_pending`.
-Each of the three IDs needs at least five Mac runs with no refusal, plus the Linux gate.
 The success proof must check the public capture count and deadline before and after the control.
+The control repair, refusal proof, no held events, success cleanup, and restored pending entries close RC-OR-1 in #269.
+The five Mac runs per ID without refusal and the Linux transcript gate belong to the later pin PR.
 
 ### RC-OR-2 — MEDIUM — The proofs assert private records and counters
 
