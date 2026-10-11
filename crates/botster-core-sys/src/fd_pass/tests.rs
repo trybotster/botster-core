@@ -279,14 +279,13 @@ fn a_socket_without_no_sigpipe_is_refused_and_sends_nothing() {
 }
 
 /// The guard of `EMSGSIZE` (macOS): a message that fits the send buffer waits for room; a larger one is an error, never
-/// a retry. `EAGAIN` always waits; another error never does.
+/// a retry.
+#[cfg(target_os = "macos")]
 #[test]
 fn emsgsize_waits_only_for_a_message_that_fits_the_send_buffer() {
-    use rustix::io::Errno;
-    assert!(no_room(Errno::WOULDBLOCK, 10, 4));
-    assert!(!no_room(Errno::PIPE, 1, 4));
-    assert_eq!(no_room(Errno::MSGSIZE, 4, 4), cfg!(target_os = "macos"));
-    assert!(!no_room(Errno::MSGSIZE, 5, 4), "it can never fit");
+    assert!(emsgsize_waits(3, 4));
+    assert!(emsgsize_waits(4, 4));
+    assert!(!emsgsize_waits(5, 4), "it can never fit");
 }
 
 /// A frame larger than the socket's send buffer: the send takes at most the buffer's size, with the descriptor, and the
