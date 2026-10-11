@@ -91,3 +91,21 @@ conf::ou_10_no_authorization_in_core
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
+
+# oracle_encode, oracle_modes and oracle_state pass on the testkit (RC, R-84 with the corrected base of R-84 (1)). On the real tier
+# (macOS, ~/botster-sessions/gates/botster-core-rc-oracle-ids-evidence-mac-7b19bfe2-20261011-125939.log), the oracle read is not the
+# step that fails:
+# - in_9_legacy_keys_table and in_9_non_us_layout_uses_supplied_text read an empty pty_input log at step 7: no await_pty fence
+#   (R-83 fence class), P3 with the R-83 contracts PR.
+# - in_9_application_cursor_and_keypad: the program receives 0a for kp_enter's 0d at step 128 (the real PTY's line discipline maps
+#   CR to LF; the oracle never models the line discipline, R-62 Q3), steward via the lead.
+# - ev_5_keyed_events_bounded_by_keys: at step 78 Core's terminal_state title is one output behind the O_raw title after
+#   await_quiet (the model is not fenced to the probe's output history), P3 with the fence PRs.
+# - ev_1_replaced_keyed_event_moves_to_latest_position: no Bell at 3000 at step 13 (expect_eventually), unowned; the lead assigns it.
+# - ev_6_loss_leaves_marker_then_state_is_readable: INCONCLUSIVE at step 60 (step_timeout), unowned; the lead assigns it.
+conf::ev_1_replaced_keyed_event_moves_to_latest_position
+conf::ev_5_keyed_events_bounded_by_keys
+conf::ev_6_loss_leaves_marker_then_state_is_readable
+conf::in_9_application_cursor_and_keypad
+conf::in_9_legacy_keys_table
+conf::in_9_non_us_layout_uses_supplied_text
