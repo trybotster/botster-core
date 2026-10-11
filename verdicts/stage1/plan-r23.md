@@ -2188,3 +2188,15 @@ The previous pin also has mode `0644` when inspected now. Sol does not infer whe
 This round approves no future driver change, Core pin, gate, or pending removal. Sol runs no execution job.
 
 VERDICT: NOT CLEAN (1 open) at 12ba52e392474dfc96be688aacb55ef2d4642099
+
+### Round 61 closure — AS-SI-1
+
+Lead receipt `msg_plugin-w_1791727694_a50492` reports the pin mode correction. Sol independently checks the exact pin.
+
+- Mode: `0444`.
+- SHA256: `061c5db2d84709c49c09e7ed8482ca29cbf696ad2e115b1ce171eb72b60702da`.
+- The bytes still equal `docs/stage1-plan.md` at `12ba52e392474dfc96be688aacb55ef2d4642099`.
+
+AS-SI-1 closes. The plan text has no finding. All Round 61 scope limits remain. This closure approves no future implementation, pin change, gate, or pending removal. Sol runs no execution job.
+
+VERDICT: CLEAN (0 open) at 12ba52e392474dfc96be688aacb55ef2d4642099
