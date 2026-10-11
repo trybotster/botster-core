@@ -808,3 +808,55 @@ fn a_route_closed_by_the_worker_before_the_ack_closes_the_host_copy() {
         vec![RouteCloseReason::HandoffFailed]
     );
 }
+
+/// R-78 item 4, descriptor ownership after a send error: the link's write side closes and it is read on. A stream still in
+/// the outbound bytes never left: it closes now, and its route closes once. A stream that left stays with the link: its
+/// `RouteReceived`, read in the drain, closes the host's copy as before, and its route stays open.
+#[test]
+fn a_send_error_closes_the_queued_streams_and_keeps_the_ones_in_flight() {
+    let mut rig = running();
+    let left = Arc::new(10);
+    let sent = attach(&mut rig, Arc::clone(&left));
+    rig.pump();
+    assert_eq!(descriptors(&rig).len(), 1, "the first stream went");
+    let in_flight = Arc::strong_count(&left);
+    with_link(&rig, |l| l.send_budget = Some(0));
+    rig.driver
+        .begin(Op::ReadModeFlags { session: sid("s1") })
+        .unwrap();
+    let queued = Arc::new(11);
+    let waiting = attach(&mut rig, Arc::clone(&queued));
+    rig.pump();
+    assert_eq!(Arc::strong_count(&queued), 2, "the mark holds the stream");
+    with_link(&rig, |l| {
+        l.send_budget = None;
+        l.fail_send.push(io::ErrorKind::BrokenPipe);
+    });
+    rig.pump();
+    assert!(
+        !with_link(&rig, |l| l.closed_by_host),
+        "the link is read on"
+    );
+    assert_eq!(Arc::strong_count(&queued), 1, "the queued stream closed");
+    assert_eq!(
+        closes_of(&mut rig, waiting.route),
+        vec![RouteCloseReason::HandoffFailed],
+        "one close of the queued route"
+    );
+    assert_eq!(
+        Arc::strong_count(&left),
+        in_flight,
+        "the host keeps its copy of the stream in flight"
+    );
+    rig.worker_says(LinkId(1), WorkerMsg::RouteReceived { route: sent.route });
+    rig.pump();
+    assert_eq!(
+        Arc::strong_count(&left),
+        in_flight - 1,
+        "the drained ack closed the host's copy"
+    );
+    assert!(
+        closes_of(&mut rig, sent.route).is_empty(),
+        "the route stays open"
+    );
+}
