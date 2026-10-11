@@ -206,3 +206,35 @@ The final import must retain the two xtask base fixes and receive the applicable
 Sol sends both remaining body findings to RC and the package reviewer. Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (2 open: TC-SI-3 and TC-SI-5) at 6363d55936ff193c2c1164943b80a3f1adc90ada
+
+## Round 3 — body correction, 2026-10-11
+
+Exact head remains `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Comparison base remains `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Tree remains `e51e0f514763051e806e2ea274b55dd0402284fc`.
+Sol reads the complete body-only delta and complete package Round 3 in `71c1dc82a0461a65c1877807f3ed1deea6212ebe`.
+The package gives CLEAN with zero open findings on this exact source.
+GitHub confirms the unchanged head and comparison base.
+Corrected body SHA-256: `852aa019dfb9ccb68cecb331eedbb8635734a2a5b7c1b5d01bbebd4ed5c4c2d3`.
+
+TC-SI-3 closes. The body labels the B13 cause as the owner's reported diagnosis.
+It states the cited log's FAIL, shared artifact path, and FAIL results and their limits.
+It claims no reproduction of the withdrawn PASS or proof of the dep-info choice.
+The invalid log, replacement provenance, and logged trial counts remain explicit.
+
+TC-SI-5 closes. The body identifies FakeRoute's input_blocked at .36 and .40 and explains the rejected admission-state behavior.
+The Core control continues to observe the client-side stream boundary.
+TC-SI-1, TC-SI-2, and TC-SI-4 remain closed as recorded in Round 2. Zero integration findings remain.
+No source, pin, pending identifier, exclusion, or test changes in this body correction.
+The completed exact-head green gate remains applicable. No repeat execution is needed for this body correction.
+
+The complete own source review, correction review, original Mac parser and reversal results, and corrected Linux gate retain their stated scopes.
+The new three-trial Mac record is supplemental evidence with local test edits; it is not a committed-head gate.
+Uncited local checks and the scratch-composition table remain owner reports, not independent execution proof in this verdict.
+The five removed identifiers have both-tier replacement evidence. The no-recheck and bytes-and-text limits remain pending.
+This source CLEAN accepts no later pending removal, pin, import, or PR completion.
+The final import must retain the two xtask base fixes and receive the applicable check and review after the lead's SLOT.
+The final exact-head gate and final body remain due under that rule.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: CLEAN (0 open; source and supplied evidence before final import) at 6363d55936ff193c2c1164943b80a3f1adc90ada
