@@ -9,11 +9,12 @@
 - Verified plan SHA-256: `2e4d6e962f37ddafe2a68fd50598a1bd218fe3a6a53358f8cccd970884e0daed`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
-- Current base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
+- Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+- Last #233 review base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package CLEAN for PR #233 at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. All five findings are closed. Integration CLEAN and the final exact-head Linux gate remain required.
+- Active review: PR #264 at `617c14228183770b4fc32264aa875728910462de`, base `0c5ac80e512f986edd2ec1455012552a41c7f855`. Package NOT CLEAN (1 open).
+- Last #233 status: package and integration CLEAN at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. All five findings are closed. Its final gate receipt remains pending here.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -663,4 +664,50 @@ Sol's design CLEAN is 211ca91b0e020c4beed0fbb0d1025932858132db, received in msg_
 The reviewer read Sol's complete design verdict and ran no test, build, gate, mutation, or merge-check job.
 The reviewer canceled an unnecessary character-diff read script. It changed no file or evidence.
 Next: publish the design verdict and tell PC to implement the agreed design. Then wait for READY. Never poll.
+The original program-controls group remains incomplete.
+
+Push record: the design CLEAN is on origin/stage1/review-pc at 3e5046b99845e24adca9db6f528d3c4f46c4da22.
+Design SHA-256: 3a88498a9b39d49d110e8cec106670251890da92a2a97a5edee0818927d64811.
+Source base: b3cb268f3c2cb3223dadef02033d2bee49f06c59. Plan: 23ar.
+Implementation reviews and the exact-head gate remain required. The reviewer worktree is clean.
+Wait for the READY doorbell. Never poll.
+
+Sol acknowledgment: msg_plugin-w_1791720125_3e3063.
+Sol reports that he read the complete package design verdict at 3e5046b99845e24adca9db6f528d3c4f46c4da22.
+Sol confirms that both design CLEANs cover the same design SHA-256.
+Sol published his acknowledgment at 7a7b414825cdcd4e008f99c7a2d5e8dc103c41c1.
+The acknowledgment adds no finding. It grants no implementation or gate approval.
+The package design verdict remains CLEAN. Wait for the READY doorbell. Never poll.
+
+## PR #264: named real-process proofs, implementation review round 1
+
+READY: msg_plugin-w_1791722173_6c599c.
+Head: 617c14228183770b4fc32264aa875728910462de.
+Base: 0c5ac80e512f986edd2ec1455012552a41c7f855. Plan: 23ar. Tier: HIGH.
+The reviewer verified the PR head, base, body, and full 12-file source diff.
+All 26 real-only IDs remain pending. The new proof file contains no proof line.
+The PR changes no runtime, contract, transcript, timeout, pin, or pending ID.
+
+Package verdict: NOT CLEAN (1 open), verdicts/pc-real-only-proofs.md.
+RP-PC-1 MEDIUM: results uses regular expressions to find testcase text without validating XML structure.
+It can credit a tag in an XML comment. It can also credit a case in a truncated document.
+A case with an unclosed system-out child also gets credit. These are static source traces, not executed reproductions.
+The approved design requires an XML parser and rejects malformed evidence.
+PC must use an XML parser, count actual testcase elements, and add the negative cases.
+PC must preserve duplicate-case rejection, result checks, exact identities, CDATA, and report freshness.
+PC must complete the Prior art note for the XML parser and retain evidence of the installed nextest report format.
+Sol independently reports the same defect as RP-SI-1 in msg_plugin-w_1791722276_49f759.
+The package reviewer sent Sol its independent source conclusion in msg_plugin-w_1791722308_f7885a.
+
+The reviewer read the completed exact-head Linux gate and its earlier red mutation record.
+Green log: gates/botster-core-stage1-pc-real-only-proofs-617c1422-pool-20261011-053009-92833.log.
+The log names the same head and base. All ten steps pass. The gate exits 0 after 335 seconds on msa1.
+Default: 1648 PASS, 484 skipped, 10.305 seconds. Slow: 480 PASS, 2002 skipped, 29.360 seconds.
+The slow step checks zero named proofs. The empty file proves no clause.
+Mutants: 65 total, 63 caught, 2 unviable, 0 missed, 0 timeout. Stage 2 catches three check mutants.
+The source removes the earlier slice-offset mutants and the equivalent order comparison.
+The new whole-body exclusions cover I/O shells and cite tested decisions. No additional exclusion finding exists.
+The green gate does not close RP-PC-1. Its malformed-report tests omit these cases.
+The reviewer ran no build, test, gate, mutation, reproduction, or merge-check job.
+Next: push this verdict and send it to PC and Sol. Then wait for the fix doorbell. Never poll.
 The original program-controls group remains incomplete.
