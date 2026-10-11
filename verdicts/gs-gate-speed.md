@@ -1499,3 +1499,47 @@ The exact head `56e5b744588b98ccbbb892d6b0a63522317284f0` remains package and in
 The lead received Sol's CLEAN for relay to the steward. The future Core copy and check still need their own review.
 
 I ran no gate, build, or test.
+
+
+## Core PR #262: new-base delta review
+
+- Head: `bbd25214835b4648623cb1e5ac3a89ac50f5d260`.
+- Base: `56fae5826f766b408abca06f99376e0506982bf9`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN (1 LOW open).
+
+The implementer reports canonical base-merge-check failures (1), (2), and (3) on `.cargo/mutants.toml`. Condition (4) passes.
+
+I performed a source delta review. The new head has parents `c5cfdde84f79179328e7b9db19dbf603ca919d14` and the final base above.
+
+The earlier merge has parents `de819474f8f0cdf590d9d15638fb9e2a271f5a47` and `ddd3b849df5db34d20d944ff6b8de23405fdb5c8`.
+
+All three own `xtask` diffs are identical to the reviewed diffs after removal of Git blob index lines. The exact-count parser and decisions remain unchanged.
+
+Removing the new trailing count notes makes `.cargo/mutants.toml` byte-identical to the final base file. No pattern, reason, or configuration value changes.
+
+The new file has 81 count notes. Every annotated line is byte-identical to an annotated line in the earlier reviewed file.
+
+The four removed notes belong to the broad exclusions deleted from the base by #267: `Driver::run`, `Driver::read_pty_chunk`, `Driver::read_control`, and `RealEdges::link_send_descriptor`.
+
+Their old counts were 2, 3, 2, and 4. The merge does not restore those exclusions or increase any count.
+
+The final file has 203 `exclude_re` entries. The implementer reports 204 total exclusions checked against 6458 mutants in the focused check.
+
+I did not execute that check. The implementer reports that the final full gate is running; no final gate log was supplied with this delta request.
+
+The unchanged rules still fail on zero matches or an unequal count. Count equality still cannot prove identity equality after a one-for-one replacement.
+
+The merge changes no own binary build, test selection, mutation stage, or verdict. I found no source defect in the delta.
+
+### GS-EC-R2-1 LOW: OPEN — the body still presents old counts as current
+
+The live body says that 85 of 207 entries have count notes and describes 208 exclusions against 6201 mutants as the merged-head result.
+
+The new head has 81 notes and 203 entries. Those current-source statements need correction. Retain the old gate as clearly identified historical evidence.
+
+Required change: update the current file counts, describe the four deleted exclusions, and add the final exact-head evidence when available.
+
+This finding requires a body correction. It does not require a source change or a repeat gate after the current gate.
+
+Sol must review this HIGH delta separately. I ran no gate, build, or test.
