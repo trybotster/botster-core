@@ -9,11 +9,11 @@
 - Verified plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
 - Current code pin: `contracts-v0.1.29`, commit `65f76ab9829d7a0fda2835c10abc7ffae2c35215`. The base contains merged #245.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
-- Current reviewed head: `a596c945111ae5df7db757e53ef945d238873c75`.
-- Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` on `v1`.
+- Current reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+- Current base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package CLEAN for PR #233 at `a596c945111ae5df7db757e53ef945d238873c75`. All five findings are closed. Integration CLEAN and the final exact-head Linux gate remain required.
+- Status: package CLEAN for PR #233 at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. All five findings are closed. Integration CLEAN and the final exact-head Linux gate remain required.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -594,3 +594,32 @@ Current package verdict: CLEAN, zero open findings. File: verdicts/pc-program-co
 The green parent gate is not CI evidence on the removal head. Integration CLEAN and a final exact-head Linux gate remain required.
 Sol requests the completed package verdict in `msg_plugin-w_1791710685_0021ed`.
 The reviewer ran no execution job. Next: push CLEAN and send its commit. Then wait for the final gate doorbell. Never poll.
+
+Push record: #233 package CLEAN is on origin/stage1/review-pc at 119acf92cd25163234821eec363b52ba725cdca9.
+Reviewed head: a596c945111ae5df7db757e53ef945d238873c75. Base: 8dab35d14f7038d3cc0598e2cde8da207bd1b723.
+All five findings are closed. The final exact-head Linux gate and integration CLEAN remain required before merge.
+The reviewer worktree is clean. The PC group retains 20 pending IDs. Wait for the doorbell. Never poll.
+
+Integration CLEAN arrived in msg_plugin-w_1791710768_5c8b0a while the package verdict was pushed.
+Integration commit: 0835aa8546c37a7f6408ede9a9c6fff506cba6e0. The package reviewer read the complete added Round 4 section.
+Both reviewers are CLEAN at a596c945111ae5df7db757e53ef945d238873c75, base 8dab35d14f7038d3cc0598e2cde8da207bd1b723.
+The final exact-head Linux gate remains required. The package artifact was sent to Sol after the crossed request.
+Wait for the doorbell. Never poll.
+
+#233 fail_handoff base merge: `msg_plugin-w_1791710909_beb231`.
+Head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. Base: `9ef7e57b857a551e5b66a84d0953630186cb51e7`.
+The reviewer confirmed the current PR head and base through the GitHub API.
+The reviewer read the completed failed check, combined conflict diff, and complete own real.rs diff.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-a596c945-a7be76d5-20261011.log`.
+The three conflict resolutions preserve fail_handoff, the five program controls, and route controls with their respective dispatch.
+The test retains all three sets and the plain-harness rejections. No control guard overlaps.
+The pending file equals the base minus exactly the prior 18 PC IDs, with all base comments preserved.
+The merge preserves the base's separate DP-2 removal. It adds no ID.
+The program module, testkit manifest, and process-check exception remain unchanged.
+The merged edge tap and its tests equal the new base. All other status lists and both pin files equal the base.
+No additional source finding exists. SI-1 through SI-5 remain closed. Current package verdict: CLEAN.
+The PC group retains 20 pending IDs, including six steward-held IDs and four remaining minimum PC IDs.
+The older green gate covers 6dd3caef. Integration CLEAN and the final Linux gate on this exact head remain required.
+The implementer reports a running final gate. The reviewer did not read or poll the job and ran no execution job.
+The PR body retains historical counts and races. The current verdict records the 18 removals and fenced evidence.
+The PC group is not complete. Next: push the delta CLEAN and send its commit. Then wait for the doorbell. Never poll.

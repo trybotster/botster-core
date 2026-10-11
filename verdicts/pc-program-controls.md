@@ -2,10 +2,10 @@
 
 VERDICT: CLEAN
 
-- Current head: `a596c945111ae5df7db757e53ef945d238873c75`.
-- Current base: `8dab35d14f7038d3cc0598e2cde8da207bd1b723` (`v1`).
-- Source-reviewed head: `4d05d270d6c6cebcdae247050cd702b6a157c639`.
-- Source-reviewed base: `554d43e890b391cefc9da205c71db6856accb21d`.
+- Current head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+- Current base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` (`v1`).
+- Source-reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
+- Source-reviewed base: `9ef7e57b857a551e5b66a84d0953630186cb51e7`.
 - Previous reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Risk tier: HIGH. This delta belongs to the shared testkit PR.
 - Open findings: 0.
@@ -17,7 +17,48 @@ The final gate failed after package and integration CLEAN on the previous head.
 This verdict supersedes package CLEAN commit `3ebf5746ef1876ce00e86e2bee5bd7a86a318621` for the current PR.
 SI-1 through SI-5 are closed. The previous review below remains the source record for unchanged code.
 
-## Completed gate and two pending-ID removals
+## Delta: fail_handoff base merge
+
+Request: `msg_plugin-w_1791710909_beb231`.
+This verdict supersedes CLEAN commit `119acf92cd25163234821eec363b52ba725cdca9` for the new head.
+The reviewer confirmed the current PR head and base through the GitHub API.
+The head merges #246 from v1. The merge resolves three control-dispatch and test hunks in `real.rs`.
+The reviewer read the combined conflict diff, complete own `real.rs` diff, and completed base-merge check.
+Log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-a596c945-a7be76d5-20261011.log`.
+Conditions 1, 2, and 3 fail because both sides change `real.rs`.
+The real-pending line-set condition fails because the base changes a group comment.
+These failures require a delta review; they supply no automatic review carryover.
+
+Each conflict resolution preserves both changes:
+
+- `has_control` retains the base's `fail_handoff` arm and both program and route control sets.
+- `control` retains the tapped `fail_handoff` dispatch before the tapped program dispatch.
+  The program control names do not include `fail_handoff`, so the guards do not overlap.
+- The control-list test retains `fail_handoff` and all five program controls.
+  The route-control loop, plain-harness rejections, and `pty_fail_after` rejection remain intact.
+
+The pending file equals the current base file minus exactly the prior 18 PC IDs.
+The merge adds no ID. It preserves the base's separate DP-2 removal and every base comment.
+EV-2 and IN-5 remain removed, with the previously checked real PASS evidence.
+The PC group retains 20 pending IDs. The six steward-held IDs and four remaining minimum PC IDs remain pending.
+The core-pending, held, deferred, ledger, and real-only files equal the current base.
+The pin and lock also equal the current base. The pin remains contracts-v0.1.29.
+
+The program module, testkit manifest, and process-check exception are unchanged from a596c945.
+The base's edge-tap implementation and tests are byte-identical in the merge.
+The own diff remains five files. No new runtime, deadline, transcript, or exclusion change belongs to this delta.
+The reviewed conflict resolutions introduce no additional source finding. SI-1 through SI-5 remain closed.
+The preceding Mac proof and completed Linux mutation evidence remain valid for the unchanged program module.
+The implementer reports clean fmt and 352 passing testkit library tests. No retained focused log was supplied for that run.
+The PR body retains its original 16-removal and pre-pin race account. This delta records the current 18 removals and fenced evidence.
+
+VERDICT: CLEAN. Integration CLEAN and the final Linux gate on this exact head remain required before merge.
+The older green gate covers 6dd3caef, not this head or base.
+The implementer reports that the final gate runs on a7be76d5. The reviewer did not read or poll that running job.
+The reviewer runs no build, test, gate, mutation, reversal, or executable merge-check job.
+The PC group is not complete. Wait for the completed gate doorbell. Never poll.
+
+## Earlier completed gate and two pending-ID removals
 
 Request: `msg_plugin-w_1791710640_8d164a`.
 This verdict supersedes NOT CLEAN commit `dfead09daa9a2393549cf0ebfe79223a8caaa140`.
