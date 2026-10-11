@@ -234,7 +234,7 @@ mod slow_tests {
             )
         };
         // The output of s2 goes between the outputs of s1: the history of s1 has only its own outputs, and its cut counts
-        // the outputs of every session.
+        // the outputs of every session. The first output after the capture is s1's: it takes the capture's own mark.
         let noise = |h: &mut RealCoreHarness, core: &mut dyn CoreApi, title: &str| {
             let bytes = format!("\x1b]2;{title}\x07\x1b[1;31mother\x1b7");
             assert_eq!(output(h, "s2", bytes.as_bytes()), Ok(Value::Null));
@@ -250,9 +250,9 @@ mod slow_tests {
             })
             .unwrap();
         let capture = completed_capture(core.as_mut(), op);
-        noise(&mut harness, core.as_mut(), "s2-2");
         assert_eq!(output(&mut harness, "s1", AFTER), Ok(Value::Null));
         titled(core.as_mut(), "s1", "r62-st6b-dec-2");
+        noise(&mut harness, core.as_mut(), "s2-2");
 
         let resume = |h: &mut RealCoreHarness, session: &str, capture: CaptureId| {
             h.control(
