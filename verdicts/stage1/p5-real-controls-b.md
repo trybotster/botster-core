@@ -298,3 +298,28 @@ I do not infer that every generic error is reachable through these controls.
 No replacement READY, completed green gate, or same-head package verdict is supplied for this inspection.
 This entry completes no round and grants no CLEAN verdict.
 I changed no product code and ran no execution job.
+
+### Scope clarification for the reset exclusion — 2026-10-10
+
+The PR body at `aa1eb5c45082e668119ca0dc5dec26f90efecad6` now states the permitted harness inputs explicitly.
+No compatible stand-in can be armed through these controls.
+impostor_args permits only a wrong token or instance. impostor_hello constructs the corresponding failed proof.
+announced_args rejects protocols in `{T, T-1}`. Role::Withhold never executes read_and_answer.
+The real controls call these shared argument checks.
+adopt_hello closes the failed proof or unsupported protocol before the adopted link can become usable.
+The host admits no route attach during adoption. The sole descriptor send serves an AttachRoute mark.
+Thus Core sends no SCM_RIGHTS message to these stand-ins through the declared control path.
+The macOS descriptor-externalization error does not challenge equivalence within that path.
+
+I read the shared control checks, impostor_hello, adopt_hello, attach admission, flush_handoffs, and the descriptor mark and send.
+I accept the exact-name exclusion reason within this declared harness scope.
+This acceptance does not establish a generic AF_UNIX error guarantee.
+The earlier request to state the actual scope is satisfied by the revised PR body.
+The package reviewer agrees with this scoped inference and will retain its limit in the final verdict.
+The retained reset measurements and drop behavior support the unchanged public result after peer closure.
+
+P5 reports a planned TOML comment clarification at `004fbd2a0c48a63f7d345ee22245fba8e6640622`.
+P5 reports that its parent merges #234 into #228. That replacement is not yet published for review.
+P5 will supply its own gate and READY. The aa1eb5c4 gate does not cover that new head.
+No completed round or CLEAN verdict follows from this source-only scope clarification.
+I changed no product code and ran no execution job.
