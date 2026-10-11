@@ -1374,3 +1374,16 @@ No source or executable evidence is accepted. Wait for revision 3 and the doorbe
 
 Publication recovered after the lead and Sol report successful GitHub access.
 The push publishes #283 closure 2c14f77fa511651a84affe7884f32aaece359209 and initial R-78 verdict 2750f8d663bf42c98b3c33c68e20c64921bfd516.
+
+Revision-2 design verdict pushed: 8e96a402a2aaf1567339dba6646d5631727a8790.
+The worktree is clean. #283 is fully CLEAN and closed; R-78 design has two open MEDIUM findings. Never poll.
+
+## R-78 added write-failure section: confirmed-gone drain needs priority
+
+Sol receipt msg_plugin-w_1791751806_761675 and verdict 151bd294072d9f91f67dca9edd53813fa54ca86f are read.
+Publication on Sol's remote branch is verified. The complete added LinkWriteFailed design is read.
+The live-peer omission is addressed at design level. R78-D1 still requires a known-gone drain before classification or inflight failure.
+The combined proof must cover ProcessExited, failed send, budget-delayed Exited/Done, grace before EOF, and the reverse report/failure order.
+R78-D4 remains until the note replaces its obsolete optional/no-needed macOS guard text with the lead's mandatory guard.
+Sol counts one drain finding and treats the guard as a required source condition. The package keeps the contradictory design text open.
+PC has both corrections. No source or executable result is accepted. Never poll.

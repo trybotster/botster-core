@@ -138,3 +138,32 @@ The four process-status cases and both-OS executable evidence remain required fo
 
 The reviewer sends both remaining corrections to PC. No code or executable result is accepted.
 Never poll.
+
+## Added write-failure section and Sol's published record
+
+Receipt: `msg_plugin-w_1791751806_761675`.
+Sol verdict: `151bd294072d9f91f67dca9edd53813fa54ca86f`, `verdicts/stage1/pc-r78-stopping.md`, Round 2.
+The reviewer reads the full new round and verifies its publication on Sol's remote review branch.
+The reviewer reads the complete current design, including `LinkWriteFailed` and the appended macOS section.
+
+The added input and `worker.link_write_failed` address the live-peer omission at design level.
+`send_msg` will return false after the write failure, and a live Matches result will finish Stop at the existing grace.
+R78-D1 remains open for the priority between the confirmed-gone drain and these new failure decisions.
+The note promises no classification at grace for a gone worker with a readable link.
+It also promises probe classification at grace after write failure and immediate failure of in-flight requests.
+These rules conflict when ProcessExited, failed writes, budget-delayed frames, and StopGrace occur before EOF.
+A queued Exited can follow WorkerGone classification. A queued Done can follow an already-failed request.
+
+Required change: preserve the readable drain when death is known or the probe establishes death.
+The live Matches branch must still complete an unreachable Stop at the existing grace.
+Add the combined driver proof with ProcessExited, a failed send, delayed Exited and Done, and grace before EOF.
+Cover the reverse write-failure/exit-report order to establish that request failure does not win before the drain.
+Keep the normal pump bounds. Do not add a timer, limit, or out-of-budget exit drain.
+
+The current macOS section still describes the explicit guard as unnecessary and says the earlier lead ruling is retained.
+That text predates the required guard correction in `msg_plugin-w_1791751699_3263fb`.
+R78-D4 remains open until the note adopts that correction. The lead question itself is resolved.
+Sol counts one remaining MEDIUM drain finding and keeps the mandatory guard as a required source condition.
+This package record retains the guard as a design finding until the contradictory design text changes.
+
+The reviewer sends both corrections to PC. No source or execution result is accepted. Never poll.
