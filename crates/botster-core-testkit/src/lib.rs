@@ -26,6 +26,7 @@ pub mod refusal;
 pub mod resume_controls;
 pub mod route_client;
 pub mod route_controls;
+pub mod route_reports;
 pub mod scheduler;
 pub mod sim;
 pub mod snapshot_controls;
