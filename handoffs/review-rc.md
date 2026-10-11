@@ -1434,3 +1434,17 @@ The new-head gate therefore uses the accepted cause disposition under plan 23an(
 The current canonical check passes, as recorded in package receipt `5c4048614f24c313c8e5edd06e17ca50cdb19d76`.
 Final acceptance still requires the completed exact new-head gate, final body, and matching final verdicts.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — integration Q7 import receipt
+
+Integration message: `msg_plugin-w_1791762939_6c9b11`.
+Integration receipt: `b477466bae49d7439698ea42510170649ae272a0`, Round 7 in `verdicts/stage1/rc-oracle-encode.md`.
+The reviewer read the complete round.
+It covers head `09e9fbc8b26456be592ce99d9814fcea4695536e`, base `3aacc58d086e55a6b186165ccf9001e2618e2869`, and tree `e4e38e9184c645d9e78db8b66aa490ca001a7b35`.
+The integration reviewer verifies Q7 source carry, all seven own blobs, and the exact non-list patch.
+The controlled attribution retains its unchanged-cause scope; the imported pin remains .39.
+It preserves the refused prebuild invocation and requests later strict-command provenance without another run.
+The reviewer sent RC's received worker-provenance clarification and the independent no-crate-change comparison to the integration reviewer.
+Final acceptance still requires the completed exact-head gate, final body, and completed package verdict.
+The reviewer ran no test, build, gate, or diagnostic.
