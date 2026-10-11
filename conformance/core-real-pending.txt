@@ -92,8 +92,3 @@ conf::in_3_route_reports_only_exceptions_on_the_route
 # have one, and pass). The contracts' core-fence-exceptions.txt lists the id (step 9, no program_ready, R-60), and the read of
 # step 13 has no fence: the transcript fences come in the R-56 burn-down. Owner: P3.
 conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
-
-# Passes on the testkit after the contracts-v0.1.39 merge (RC PR A). On the real tier step 15 gets route_closed session_ended
-# where it expects input_refused session_ended with written_bytes (macOS, 1 run, seed 0): no refusal of the paste's rest came.
-# Not diagnosed; the real PTY's kernel buffer may take the bytes that pty_accept 3 holds back (R-74). Owner: RC.
-conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
