@@ -2790,3 +2790,40 @@ This review accepts no future PR, implementation, gate, tag, pin, pending remova
 Sol runs no execution job.
 
 VERDICT: NOT CLEAN (1 open: BU-SI-1, LOW) at 133ea0b268878ed29a9cf9b0994ad8b04498f1fc
+
+## Round 77 — revision 23bv, 2026-10-11
+
+Head: `aeb6815e9178f58c001eecf6e58480b8200788f6`.
+Prior reviewed head: `133ea0b268878ed29a9cf9b0994ad8b04498f1fc`.
+Sol reads every changed term. The pin equals the committed plan bytes and has mode 0444.
+Pin SHA256: `7e94a0589b2d40584ada0f9253fc85c36e01d65905813432643685617b0d60b7`.
+
+BU-SI-1 closes. The first merge of #52 or #53, with #51 already merged, starts the remaining PR's last review round.
+The lead's 05:17 handoff records the steward's explicit confirmation of this corrected trigger.
+The optional text PR keeps its separate merge-ready condition. Core still makes one .39-to-.40 pin move.
+
+Sol reads the complete held R-76 and R-77 text in the steward's pending-rulings-edits.md.
+R-76 permits only the named scripted field to be ignored. Unknown-field rejection remains for every other field.
+The real output bytes must supply the asserted modes. An unsupported script-only expectation remains a Contracts defect.
+The 34-transcript audit begins with RC's five paste identifiers. The draft leaves the other 29 as a separate audit list.
+This plan review approves no audit result or parser implementation.
+
+R-77 names the missing IN-9 output fence and requires checks for stale Activity and consumed later events.
+The fallback title sentinel remains required when an earlier Activity could satisfy the wait.
+The lint names the session, output, prior model revision, guarded begin, and absence of a waiting step on that session.
+A self-test remains required. The optional .40 inclusion does not extend the stall window; otherwise the fix rides .41.
+Sol reads the complete unchanged IN-9 transcript at .36 and .39 and verifies that their bytes are identical.
+Steps 5–7 have no waiting output fence before the guarded write. Both retained logs show the recorded step-8 timeout.
+The observed timeout predates #282. The source supports the missing-fence diagnosis, but these logs do not show a Written completion.
+This plan review accepts no re-gate result or future fence proof.
+
+P5 owns queue_overflow after #282 and the separate ST-6 diagnosis, with a design note first.
+PC owns the future .40 Core pin after #282 merges and the steward tags .40.
+Its real PTY controls and six held-write identifiers remain future work. The testkit part lands in a separate earlier PR.
+The final-gate slot rule remains intact. Contracts reviews stay with 017f; Sol keeps Core and plan reviews.
+
+Zero plan findings remain. The active Core pin remains .36.
+Later held R-73, R-78, and R-79 terms are outside this plan delta and require their own review when recorded.
+This review accepts no future implementation, gate, tag, pin, or pending removal. Sol runs no execution job.
+
+VERDICT: CLEAN (0 open) at aeb6815e9178f58c001eecf6e58480b8200788f6

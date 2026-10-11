@@ -19,7 +19,7 @@ Q7 automatic carry does not apply.
 
 Sol independently compares every cumulative own and imported path against the accepted head and current base.
 All six own blobs outside the source overlap and pending files remain byte-identical.
-All 22 changed base paths outside own scope equal their current-base blobs.
+The base changes 22 paths. Every imported path outside own scope equals its current-base blob.
 The complete own added and removed lines in real.rs remain identical against the new base.
 The complete imported added and removed lines in real.rs equal the base changes exactly.
 Sol reads that complete import delta: the oracle module, capability term, three dispatch arms, and test entries;
