@@ -37,11 +37,14 @@ VERDICT: NOT CLEAN (3 open).
 - **Effect today.** None. No `route_send` in the Core corpus sends a computed body.
 - **Required.** When a sequence has a `written_without_op` part, check the known bytes of every run of the read's session. Or state this limit in the PR body and the driver doc, with the reason that the lint covers literal bodies.
 
-### 016c's open points (recorded; I check them on the next head)
+### 016c's REJECT on the same head (package scope; recorded, not repeated)
 
-- 016c (no verdict yet) names my F2 independently. It also names two points that I did not:
-  - an `await_control` of `pty_input` does not pass through `input_log_rule`. No transcript has this form today, but the rule has the gap;
-  - `input_logs` keeps a name after the variable is bound again by another step.
+016c sent five MEDIUM findings, with source proofs (`.review-r85-proof/round1.rs` and `route.rs`, five failures). I check each fix on the next head:
+- an `await_control` of `pty_input` bypasses the check and the capture tracking;
+- a nested matcher in `expect.bytes` (`$one_of`) escapes the check;
+- a variable that a later step binds again keeps its input-log status;
+- a `let` `field` of `[$log, $bytes_hex]` loses the origin of the unchanged log bytes, so a later check over it is not checked;
+- the route `one_of` returns before it checks a later sequence (my F2).
 
 ### What I checked and found correct
 
