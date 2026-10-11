@@ -356,7 +356,6 @@ conf::in_9_mouse_each_tracking_mode
 conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
 conf::lc_12_stop_all_target_set
-conf::lc_2_data_dir_is_exclusive
 conf::lc_6_signal_reaches_group
 conf::ou_10_no_authorization_in_core
 conf::ou_11_transport_ownership_is_defined
@@ -377,7 +376,6 @@ conf::ou_6_spurious_readiness_is_harmless
 conf::ou_7_progressing_slow_route_delays_exit_lossless
 conf::ou_7_stalled_route_does_not_hold_exit
 conf::ou_8_route_output_frame_kinds
-conf::ou_9_attach_is_sync_baseline_in_pump
 conf::ou_9_oversize_snapshot_closes_route_typed
 conf::ou_9_resync_completes_a_partial_frame
 conf::ou_9_resync_drops_unstarted_frames
@@ -388,7 +386,6 @@ conf::st_3_coordinates_are_zero_based_cells
 conf::st_3_cursor_fields
 conf::st_3_trimming_rules
 conf::st_4_terminal_state
-conf::st_5_reads_after_exit
 conf::st_6_capture_bound
 conf::st_6_snapshot_versioned
 conf::st_6b_baseline_restores_palette_cursor_shape_hyperlinks_modes_and_kitty_flags
@@ -464,7 +461,6 @@ conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
 conf::th_3_no_route_io_in_the_host
-conf::tm_6_begin_and_attach_signal_wake
 conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
