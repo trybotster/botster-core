@@ -442,10 +442,7 @@ mod tests {
         assert_eq!(terminal.cursor_pen().unwrap(), plain);
 
         let extras = terminal.formatter_extras().unwrap();
-        for (bytes, emitted) in [
-            (&b"\x1b[2;3r"[..], &"\x1b[2;3r"[..]),
-            (&b"\x1b(0"[..], &"\x1b(0"[..]),
-        ] {
+        for (bytes, emitted) in [(&b"\x1b[2;3r"[..], "\x1b[2;3r"), (&b"\x1b(0"[..], "\x1b(0")] {
             let mut changed = self::terminal();
             changed.vt_write(bytes);
             let changed = changed.formatter_extras().unwrap();
