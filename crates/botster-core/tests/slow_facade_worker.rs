@@ -400,8 +400,8 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
 
 /// DP-2, steward ruling R-65: the host keeps its copy of a route's stream until the worker reports `RouteReceived`, then
 /// closes it. The worker side closes its received copy first. A one-byte write of the client must then succeed, because the
-/// host's copy keeps the peer open. After `RouteReceived`, the host has no copy: the client reads EOF and a write fails
-/// with `EPIPE`. The worker answers a capture after `RouteReceived` on the same link, so the capture's `Completed` event
+/// host's copy keeps the peer open. After `RouteReceived`, the host has no copy: the client's read reports the close (EOF
+/// on macOS; `ECONNRESET` on Linux, because the closed end held the client's unread byte) and a write fails with `EPIPE`. The worker answers a capture after `RouteReceived` on the same link, so the capture's `Completed` event
 /// shows that the host handled `RouteReceived` (a real event, BUILD rule 5).
 ///
 /// OS behavior that the test relies on: a write to a unix stream socket whose peer is closed on all descriptors fails with
@@ -456,12 +456,14 @@ fn the_host_keeps_its_copy_of_a_route_stream_until_the_worker_reports_it_receive
     go.send(()).unwrap();
     // The worker reads the capture's request after it sent `RouteReceived`.
     capture(core, "a");
-    let mut byte = [0u8; 1];
-    assert_eq!(
-        client.read(&mut byte).expect("EOF, not a timeout"),
-        0,
-        "the host closed its copy"
-    );
+    // The closed peer held an unread byte (the "x" above). Linux reports that close as `ECONNRESET` on the next read
+    // (`af_unix` `unix_release_sock`); macOS reports EOF.
+    let read = client.read(&mut [0u8; 1]).map_err(|e| e.kind());
+    #[cfg(target_os = "linux")]
+    let closed = Err(std::io::ErrorKind::ConnectionReset);
+    #[cfg(not(target_os = "linux"))]
+    let closed = Ok(0);
+    assert_eq!(read, closed, "the host closed its copy");
     assert_eq!(
         client.write(b"y").unwrap_err().kind(),
         std::io::ErrorKind::BrokenPipe
