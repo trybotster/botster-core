@@ -1981,8 +1981,9 @@ mod slow_controls {
             .expect("reopen");
         core.begin(Op::AdoptAll).expect("adopt");
         pump_until(core.as_mut(), |c| {
-            state(c, "s1") == SessionState::Lost(LostReason::WorkerGone)
-                && state(c, "s2") == SessionState::Running
+            let state_of = |s: &str| c.get(&sid(s)).map(|r| r.state).ok();
+            state_of("s1") == Some(SessionState::Lost(LostReason::WorkerGone))
+                && state_of("s2") == Some(SessionState::Running)
         });
         assert_eq!(
             harness.control("b", "signals_received", &of("s1")),
