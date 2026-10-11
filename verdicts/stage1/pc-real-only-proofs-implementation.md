@@ -1,5 +1,29 @@
 # Integration review: PR #264
 
+## Round 3 — summary correction, 2026-10-11
+
+Head: `46094d5b504861e59b66ac8cf16b399841d7ec71`.
+Base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parent: `c0f295ab65fdbd18e9c05928ef835a9f23e4c992`.
+Tree: `43c79dbec1a227ea1424331347361be8595286ce`.
+Package CLEAN: `f9875367aea4d5b2811ac62b2c93c94532892562`, `verdicts/pc-real-only-proofs.md`, Rounds 2 and 3. I read both complete rounds.
+
+I read the complete five-file correction. It changes only comments and documentation: 28 insertions and 19 deletions.
+The two module summaries now distinguish separate named tests from an own real-tier trial.
+The suite summary, DESIGN.md, and proof-file header state the same distinction.
+Separate named tests leave the transcript ignored on both tiers. The own trial runs must-pass on the real tier.
+Both forms retain the exact same-run JUnit PASS requirement. RP-SI-2 closes. RP-SI-1 remains closed.
+No executable code, mapping line, pending identifier, pin, or gate setting changes.
+GitHub identifies this exact head and base. The body is byte-identical to the body reviewed in Round 2 and already states both forms.
+
+The accepted gate evidence belongs to parent head c0f295ab. I claim no execution at this corrected head.
+Both source reviews are CLEAN at this exact head and base. The final merge, base check, gate, and final body record remain due.
+The lead's one-merge rule governs those actions. This verdict approves no future head or source transfer.
+The separate ou_9 cause and structural fix remain OPEN with P3. This source CLEAN does not close that defect.
+I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; source review complete; final exact-head gate pending)
+
 ## Round 2 — parser correction and approved design change, 2026-10-11
 
 Head: `c0f295ab65fdbd18e9c05928ef835a9f23e4c992`.

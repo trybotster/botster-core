@@ -2260,3 +2260,36 @@ The #269 Round 1 and plan Round 62 publication limit is closed. Their historical
 #269 stays NOT CLEAN with three open findings on its recorded exact head.
 
 VERDICT: CLEAN (0 open) at 0af4db8d9278b9062c166dfb3ac382d944491b89
+
+## Round 64 — revision 23av, 2026-10-11
+
+Head: `70cc9bcb28d9b816e3f6a7768eb33c4f31eeac3e`.
+Parent: `0af4db8d9278b9062c166dfb3ac382d944491b89`.
+Pin: `~/botster-sessions/pins/stage1-plan.70cc9bcb.md`.
+Mode: `0444`.
+SHA256: `b693d3f9318d31fb1f3cd1e0b557621f985a2da9320f7625752dad5e14658ab7`.
+Lead receipt: `msg_plugin-w_1791732664_89da4f`.
+
+I verify the exact parent, pin mode, hash, and equality with the committed bytes.
+I read the complete inserted section-0 text and revision row. Removing those two additions restores exact parent bytes.
+No other plan text changes. The manifest and active Core identifiers remain unchanged.
+
+The R-66 definition and three immediate-post conditions agree with the complete steward correction draft.
+The R-69 fence and final sentinel statements agree with the reviewed ruling and the lead's follow-up approvals.
+The R-43(5) eight-transcript scope, same-now pump, tm_3 form, strict-wake driver rule, and negative test agree with the complete follow-up draft.
+The tm_3 form correctly leaves more unasserted and checks exactly Silent after pump_idle.
+The tag order preserves .39 as the default and forbids new gates for #48 or #47 because of this work.
+The #264 own-trial rule agrees with the lead's four conditions and the reviewed source correction.
+The do-not-chase-v1 summary references the binding pair-common rule. That rule retains its earlier-merge exception for overlapping files or a build need.
+
+I independently read the minimum and pending files at v1 `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+The minimum contains 69 identifiers. Thirteen are testkit pending; nine are real pending; the sets do not overlap.
+Their union contains 22 identifiers, leaving 47 outside both pending lists. The named groups sum to 22.
+The existing accepted gate reports 47 real-accepted identifiers. This plan count supplies no new per-identifier execution proof.
+The plan retains the stale-header correction as future work and identifies the open owners.
+
+No plan finding remains. This review approves no future implementation, pin, gate, source import, or pending removal.
+The code pin remains .36. Historical proof limits and the open ou_9 structural defect remain.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open) at 70cc9bcb28d9b816e3f6a7768eb33c4f31eeac3e
