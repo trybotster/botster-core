@@ -3167,3 +3167,27 @@ Sol accepts no implementation, execution evidence, pending removal, later pin, o
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: NOT CLEAN (1 open: PF-SI-2) at 182d483aa792c2e01ae48dc16e1b9334668432b9
+
+## Round 85 — revision 23ci, 2026-10-11
+
+Head: `8b9f6104b117a65a8056303f43da642d9e61736e`.
+Prior reviewed head: `182d483aa792c2e01ae48dc16e1b9334668432b9`.
+Only docs/stage1-plan.md changes. Sol reads the complete changed terms and added history row.
+Sections 5, 6.3, and 8 remain byte-identical.
+Pin: `~/botster-sessions/pins/stage1-plan.067003aa.md`.
+SHA-256: `067003aa799406e570dac84feb6c5821acf443ebfdbe60b796c66ed09a178b5c`.
+The pin equals the committed bytes and has mode 0444.
+
+PF-SI-2 closes. The current-behavior statement now separates Bytes/Text from the unsupported input kinds.
+It names paste_chunk and file_chunk at lines 137–138 and every ToWorker::Input, including the query reply, at lines 139–147.
+Sol reads Route::decide again at verified v1 `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Bytes/Text enter the admission path, subject to writable and readiness conditions. The remaining named input kinds receive the stated Unsupported reasons.
+The corrected statement no longer claims that every route input receives Unsupported with what input.
+The future PR B mapping of an invalid Encoded reply to refused with zero effect remains unchanged.
+
+All other reviewed 23cg/23ch terms and evidence limits in Round 84 remain applicable. Zero plan findings remain.
+The ruling authority, independent oracle source, fresh-terminal base, focus ownership, and final slot conditions remain.
+This verdict accepts no implementation, execution evidence, pending removal, later pin, final import, or PR completion.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: CLEAN (0 open) at 8b9f6104b117a65a8056303f43da642d9e61736e
