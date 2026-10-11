@@ -199,3 +199,50 @@ The supplied local Mac clippy, 84-test, and taint results are owner claims; Sol 
 This inspection grants no formal imported-head CLEAN or execution evidence approval.
 Final READY/body, the exact-head Linux and Mac records, and the package artifact remain pending.
 The prior CLEAN covers only a5406877 and its recorded base and evidence. Sol ran no execution job.
+
+## Second import and supplied Mac inspection: 2c8f6ea4
+
+Head: `2c8f6ea45f3815fda9728cf4d2900971fd0d3bc7`. Base: `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+Parents: inspected 312b48a16cb37163ebb1c897cf9d8a4f8b2374d6 and exact base 2b8cf082.
+Tree: `63b3c6fbe0733cac4ba07feee1bb045b9c0f8088`. Receipt: msg_plugin-w_1791725616_9de892.
+The owner reports a running new-head gate. Final READY and body will follow. No completed 312b48a1 Linux gate is supplied here.
+
+Sol reads the complete second canonical base-check log:
+`~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-2c8f6ea4-pool-20261011-063131-22650.log`.
+SHA256: `8645a78d47ae430019b94fbd3a87ec4c8718f13a10b5f7da12c52288ff996e36`.
+It names the exact prior CLEAN head, new head, and base. Conditions (1)/(4) PASS.
+Conditions (2)/(3) FAIL on the same two shared paths. Both pending files equal base.
+Jobq and the wrapper exit one after 107 seconds. This failure grants no automatic CLEAN transfer.
+
+The independent permitted static merge-tree check returns the exact recorded tree without a conflict.
+The second import changes only ci/remote/job.sh. Sol reads its complete delta and the #266 body.
+The body assigns that CI script to the package reviewer and a pool gate; it does not mark the PR HIGH.
+The delta measures Docker's data root, validates each deciding measurement, exits 75 on an invalid result, and changes the disk messages.
+This #263 inspection supplies no separate formal #266 verdict or independent acceptance of its execution claims.
+The imported job.sh blob equals the new base. All three own blobs equal inspected 312b48a1 exactly.
+All fourteen outside-own imported blobs equal base. The previous shared-path review remains applicable. The static diff check passes.
+
+### Supplied Mac pool record
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-await-end-zombie-312b48a1-pool-20261011-062836-92523.log`.
+SHA256: `0e1a52f1a079e94172a0561eb66add5c105a77c86b90e3821b73aa61eb5acc8f`.
+
+Sol reads the complete 505-line record. It names exact head 312b48a1 and base ee7c6fca, on the Mac pool with two CPUs.
+Worker prebuild passes in 38.2 seconds. Locked clippy covers all targets and features of botster-test-process and passes.
+The slow-profile crate suite passes 85 tests with zero skipped in 11.002 seconds.
+The imported count proof and both affected wait proofs report PASS by exact name.
+All twenty supplied paired selections report two PASS each and 83 skipped. Both wait names appear in every selection.
+Sol requests and runs no repeat. Those supplied selections replace no full Linux gate.
+
+The record prints the complete in-diff Mac source patch against ee7c6fca.
+The mutation selection excludes only the named prebuilt-anchor test because its binary is absent from the mutation copy.
+Both wait proofs remain selected. The unmutated baseline passes in fifteen seconds of build and twelve seconds of tests.
+The gone(&error)-to-false guard replacement is caught at macos.rs:60:23.
+The await_end and ended_before_the_watch Ok(Default::default()) replacements are unviable.
+The result is one caught and two unviable, zero missed or timeout, in 53 seconds. No individual named mutation catcher is printed.
+MAC_EXIT is zero. Jobq and the wrapper exit zero after 164 seconds.
+
+This Mac record covers inspected 312b48a1 and the exact unchanged own code in 2c8f6ea4.
+The later import changes only the Linux gate script. This inspection claims no exact-head Mac run on 2c8f6ea4.
+No source finding appears. Formal CLEAN waits for final READY/body, the new-head full Linux gate, and the package artifact.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
