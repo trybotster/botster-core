@@ -113,15 +113,23 @@ design said "no link message change". That was wrong: the worker cannot know the
 (for example a `max_frame_bytes` choice) from `options` alone. A test proves that the worker announces and enforces
 exactly the limits that the host sent.
 
-**Receiver (worker).** A binding delivers each descriptor before the link bytes that it rides with:
+**Receiver (worker; plan revision 23ae, PR B).** One link read is one `Input::LinkBytes { bytes, descriptors }`: the read
+boundary is in the type, because the kernels place a descriptor segment differently in a read. macOS stops a read before
+the segment once it has copied data, and goes on after it; Linux reads on into the segment and stops after it. On both, a
+read holds at most one segment, and the read that holds the segment's first byte carries its descriptors.
 
-- testkit: a new `LinkEnd::send_with_descriptor(bytes, descriptor)` tags the descriptor with the stream offset of its
-  first byte. A `recv` never returns bytes across a tagged offset, and the descriptor becomes readable at that offset. The
-  worker driver reads it and feeds `Input::Descriptor` before the `LinkBytes` that start at the offset;
-- real (later, real-only): `recvmsg` returns the descriptor with the segment that starts at its byte.
+- testkit: `LinkEnd::send_with_descriptor(bytes, descriptor)` tags the descriptor with the stream offset of its first byte
+  and the length of its segment. `LinkEnd::recv_with_descriptors(buf, form)` reads in either kernel form
+  (`DescriptorForm`). The testkit worker reads its link in its `Workers`' form (the macOS form unless a test sets it);
+- real: `fd_pass::recv_with_fds` on the `mio` loop. The driver keeps each descriptor (close-on-exec) in a table under a
+  `DescriptorId`, gives the machine the ids with the read, and closes the descriptors of reads that the adoption fence drops.
 
-The machine keeps a FIFO of unbound descriptors for the current link. An `AttachRoute` binds the oldest one. An
-`AttachRoute` with no unbound descriptor is a host fault: the worker closes the link, as for a bad frame. At `LinkClosed`
+The machine (`worker/handoff.rs`) attaches a read's descriptors to the one `AttachRoute` frame whose first byte is in that
+read. A frame keeps the read of its first byte until it is complete. The bind is in frame order, when each `AttachRoute`
+frame is complete. A host fault breaks the link: a read with descriptors holds the first byte of no `AttachRoute` frame or
+of more than one, an `AttachRoute` frame starts in a read with no descriptor, its read has another count than one, or
+descriptors come before the hello passes. The worker closes the link and each descriptor of that read once:
+`CloseDescriptor` for each unbound one, and a route that took one ends `HandoffFailed` (lead ruling Q1). At `LinkClosed`
 and at `AdoptLink` (DP-8), the machine emits `CloseDescriptor` for each unbound descriptor of the old link.
 
 ### Worker-core inputs and actions (sans-IO)
@@ -130,7 +138,7 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
 | New `Input` | New `Action` |
 |---|---|
-| `Descriptor(DescriptorId)`: the link delivered one, before the bytes that it rides with | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
+| `LinkBytes{bytes, descriptors}`: one link read and the descriptors that came with it | `BindRoute{descriptor, route}`: the transport of `descriptor` is `route`'s from now |
 | `RouteBytes{route, bytes}`: bytes that the route delivered, in order | `CloseDescriptor(DescriptorId)`: close an unbound descriptor |
 | `RouteWritten{route, result}`: the answer to `RouteWrite`. `Ok(n)` is the bytes that the kernel accepted (the progress point of OU-3a), and `Ok(0)` waits for `RouteWritable`. `Err(errno)` is a terminal write error: the route closes `WriteFailed`. The driver never reports `WouldBlock` (it is `Ok(0)`) or `Interrupted` (the driver writes again) as `Err` | `RouteWrite{route, bytes}`: one write; at most one is out per route |
 | `RouteWritable{route}` | `RouteRead{route, on}`: read interest (off while the admission point is full, DP-5) |
@@ -279,8 +287,8 @@ The resync sequence (at `Stalled → Open`, OU-9):
 
 - `link_send_descriptor` with `SCM_RIGHTS` in `botster-core/src/real.rs` (today `handoff_route` returns `Err`), and the
   host closing its copy of the stream (`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`).
-- The `botster-worker` binary: `recvmsg` descriptors on the `mio` loop, the PTY read budget, and the `RouteTransport` edge
-  over the socket.
+- The `botster-worker` binary: `recvmsg` descriptors on the `mio` loop (PR B), then the PTY read budget and the
+  `RouteTransport` edge over the socket (PR C, lead ruling of 2026-10-10).
 - The testkit minimum count and the real minimum count are reported separately in each PR.
 
 ### Proofs that the P4a PRs add (worker-core and testkit tests)

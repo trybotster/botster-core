@@ -1,7 +1,7 @@
 //! Pure decisions of the real I/O adapter. The Driver uses these decisions for every real edge.
 
 use botster_core_link::launch::WorkerLaunch;
-use botster_worker_core::{CandidateId, Input, WorkerConfig};
+use botster_worker_core::{CandidateId, DescriptorId, Input, WorkerConfig};
 use std::collections::VecDeque;
 use std::io;
 use std::time::{Duration, Instant};
@@ -137,18 +137,28 @@ pub fn worker_config(launch: &WorkerLaunch) -> WorkerConfig {
 /// input of the old link is dropped: the machine hears nothing of the old link after the action. An input of the adopted
 /// candidate becomes the same input of the control link. When the driver no longer holds the candidate (`held` is false:
 /// its connection ended), the fence fails closed: the machine hears that its new link ended (`LinkClosed`), and nothing
-/// that it sends can reach the old host.
-pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) {
+/// that it sends can reach the old host. Returns the descriptors of the old link's reads that it dropped: the machine never
+/// hears of them, so the driver closes them (DP-8).
+pub fn fence(inputs: &mut VecDeque<Input>, adopted: CandidateId, held: bool) -> Vec<DescriptorId> {
+    let mut dropped = Vec::new();
     let queued = std::mem::take(inputs);
     inputs.extend(queued.into_iter().filter_map(|input| match input {
-        Input::LinkBytes(_) | Input::LinkClosed | Input::LinkWritten { .. } => None,
-        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes(bytes)),
+        Input::LinkBytes { descriptors, .. } => {
+            dropped.extend(descriptors);
+            None
+        }
+        Input::LinkClosed | Input::LinkWritten { .. } => None,
+        Input::CandidateBytes(id, bytes) if id == adopted => Some(Input::LinkBytes {
+            bytes,
+            descriptors: Vec::new(),
+        }),
         Input::CandidateClosed(id) if id == adopted => Some(Input::LinkClosed),
         other => Some(other),
     }));
     if !held && !inputs.contains(&Input::LinkClosed) {
         inputs.push_back(Input::LinkClosed);
     }
+    dropped
 }
 
 /// The result of the removal of the worker endpoint at the worker's end. An endpoint that is not there is no failure: the
@@ -395,7 +405,10 @@ mod tests {
     fn the_fence_drops_the_old_link_and_turns_the_adopted_candidate_into_the_link() {
         let (adopted, other) = (CandidateId(2), CandidateId(3));
         let mut inputs = VecDeque::from([
-            Input::LinkBytes(vec![1]),
+            Input::LinkBytes {
+                bytes: vec![1],
+                descriptors: vec![DescriptorId(7)],
+            },
             Input::Timer,
             Input::CandidateBytes(adopted, vec![2]),
             Input::LinkWritten { total: 9 },
@@ -406,12 +419,16 @@ mod tests {
             Input::Candidate(CandidateId(4)),
         ]);
         let mut gone = inputs.clone();
-        fence(&mut inputs, adopted, true);
+        // The old link's read had a descriptor that the machine never heard of: the driver closes it.
+        assert_eq!(fence(&mut inputs, adopted, true), vec![DescriptorId(7)]);
         assert_eq!(
             inputs,
             VecDeque::from([
                 Input::Timer,
-                Input::LinkBytes(vec![2]),
+                Input::LinkBytes {
+                    bytes: vec![2],
+                    descriptors: Vec::new(),
+                },
                 Input::CandidateBytes(other, vec![3]),
                 Input::CandidateClosed(other),
                 Input::LinkClosed,

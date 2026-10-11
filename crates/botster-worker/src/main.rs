@@ -21,12 +21,16 @@
 mod command_line;
 mod io_decisions;
 
+use botster_core_contract::prelude::RouteId;
 use botster_core_edges::Machine;
 use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
+use botster_core_sys::fd_pass;
 use botster_core_sys::payload::{self, LoopThread, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker};
+use botster_worker_core::{
+    Action, CandidateId, DescriptorId, Input, PayloadSpec, SpawnFailure, Worker,
+};
 use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
 use mio::unix::SourceFd;
@@ -36,7 +40,7 @@ use signal_hook_mio::v1_0::Signals;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{self, Read, Write};
 use std::num::NonZeroUsize;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, OwnedFd};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
@@ -126,6 +130,13 @@ struct Driver {
     /// Inputs of the current turn; the machine handles them before the next one.
     inputs: VecDeque<Input>,
     exit: bool,
+    /// The route streams that the control link delivered and the machine has not bound or closed, by the machine's id
+    /// (DP-2). Each is close-on-exec (`fd_pass::recv_with_fds`).
+    descriptors: BTreeMap<DescriptorId, OwnedFd>,
+    next_descriptor: u64,
+    /// The bound route streams. The route transport over them is real-only work of PR C (plan section 6.3 item 1): until
+    /// then the driver holds each stream until `RouteClose`.
+    route_streams: BTreeMap<RouteId, OwnedFd>,
 }
 
 impl Driver {
@@ -184,6 +195,9 @@ impl Driver {
             exits: mpsc::channel(),
             inputs: VecDeque::new(),
             exit: false,
+            descriptors: BTreeMap::new(),
+            next_descriptor: 0,
+            route_streams: BTreeMap::new(),
         })
     }
 
@@ -349,14 +363,17 @@ impl Driver {
                 }
             }
             Action::AdoptLink(id) => self.adopt_link(id)?,
-            // The route descriptors come with `SCM_RIGHTS` on the control socket, which is real-only work after the testkit
-            // PRs of P4a (worker-core DESIGN.md "Real-only"). Until then this driver gives no `Input::Descriptor`, so the
-            // machine binds no route and names none; with no route, the PTY read budget only lifts a limit it never set.
-            Action::BindRoute { .. }
-            | Action::CloseDescriptor(_)
-            | Action::RouteWrite { .. }
-            | Action::RouteClose { .. }
-            | Action::PtyReadBudget(_) => {}
+            // DP-2: a route's stream comes with its `AttachRoute` frame (`read_control`). The machine binds it or closes it.
+            Action::BindRoute { descriptor, route } => {
+                if let Some(stream) = self.descriptors.remove(&descriptor) {
+                    self.route_streams.insert(route, stream);
+                }
+            }
+            Action::CloseDescriptor(id) => drop(self.descriptors.remove(&id)),
+            Action::RouteClose { route } => drop(self.route_streams.remove(&route)),
+            // The route transport and the PTY read budget are real-only work of PR C (plan section 6.3 item 1): until then
+            // no route byte is written, and the budget only limits a route that no byte reaches.
+            Action::RouteWrite { .. } | Action::PtyReadBudget(_) => {}
         }
         Ok(())
     }
@@ -522,15 +539,26 @@ impl Driver {
         }
     }
 
-    /// At most one chunk of the control socket.
+    /// At most one chunk of the control socket, with the descriptors that came with it (DP-2): one read is one input,
+    /// because the descriptors belong to the `AttachRoute` frame whose first byte is in that read (plan 23ae).
     fn read_control(&mut self) {
         if !io_decisions::read_control(self.link_open, self.control_readable) {
             return;
         }
         let mut buf = vec![0u8; self.read_chunk.get()];
-        match self.control.read(&mut buf) {
-            Ok(0) => self.link_lost(),
-            Ok(n) => self.inputs.push_back(Input::LinkBytes(buf[..n].to_vec())),
+        match fd_pass::recv_with_fds(&self.control, &mut buf) {
+            Ok(read) if read.len == 0 => self.link_lost(),
+            Ok(read) => {
+                let descriptors = read
+                    .fds
+                    .into_iter()
+                    .map(|fd| self.keep_descriptor(fd))
+                    .collect();
+                self.inputs.push_back(Input::LinkBytes {
+                    bytes: buf[..read.len].to_vec(),
+                    descriptors,
+                });
+            }
             Err(error) => match io_decisions::failure(&error) {
                 IoFailure::Retry => {}
                 IoFailure::Blocked => self.control_readable = false,
@@ -664,7 +692,8 @@ impl Driver {
     fn adopt_link(&mut self, id: CandidateId) -> io::Result<()> {
         self.drop_link();
         let Some(mut candidate) = self.candidates.remove(&id) else {
-            io_decisions::fence(&mut self.inputs, id, false);
+            let dropped = io_decisions::fence(&mut self.inputs, id, false);
+            self.close_descriptors(dropped);
             return Ok(());
         };
         self.poll.registry().deregister(&mut candidate.stream)?;
@@ -677,8 +706,24 @@ impl Driver {
         self.writable_interest = false;
         self.control_readable = true;
         self.control_writable = true;
-        io_decisions::fence(&mut self.inputs, id, true);
+        let dropped = io_decisions::fence(&mut self.inputs, id, true);
+        self.close_descriptors(dropped);
         Ok(())
+    }
+
+    /// Keeps a received route stream under a new id for the machine.
+    fn keep_descriptor(&mut self, fd: OwnedFd) -> DescriptorId {
+        self.next_descriptor += 1;
+        let id = DescriptorId(self.next_descriptor);
+        self.descriptors.insert(id, fd);
+        id
+    }
+
+    /// Closes the descriptors that the machine will never hear of (the fence dropped their reads).
+    fn close_descriptors(&mut self, ids: Vec<DescriptorId>) {
+        for id in ids {
+            drop(self.descriptors.remove(&id));
+        }
     }
 
     /// The link failed or the host closed it: the machine hears `LinkClosed`.

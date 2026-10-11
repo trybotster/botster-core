@@ -79,8 +79,9 @@ struct Shared {
     /// `queues[s]` holds the bytes that side `s` wrote and side `1 - s` has not read.
     queues: [VecDeque<u8>; 2],
     /// `descriptors[s]`: the descriptors that side `s` sent and side `1 - s` has not received, each with the stream offset
-    /// of the byte that it rides with (`SCM_RIGHTS`: a descriptor travels with a byte).
-    descriptors: [VecDeque<(u64, Descriptor)>; 2],
+    /// of the byte that it rides with (`SCM_RIGHTS`: a descriptor travels with a byte) and the length of its send's
+    /// segment.
+    descriptors: [VecDeque<(u64, usize, Descriptor)>; 2],
     /// `sent[s]`: the bytes that side `s` wrote so far. `taken[s]`: the bytes of them that side `1 - s` read so far.
     sent: [u64; 2],
     taken: [u64; 2],
@@ -191,8 +192,19 @@ impl End {
         // A read never crosses the byte of a descriptor that was not received: the descriptor comes first.
         let before_descriptor = shared.descriptors[peer]
             .front()
-            .map(|(at, _)| usize::try_from(at - shared.taken[peer]).unwrap_or(usize::MAX));
+            .map(|(at, _, _)| usize::try_from(at - shared.taken[peer]).unwrap_or(usize::MAX));
         let max = before_descriptor.map_or(max, |left| max.min(left));
+        Self::read_locked(&mut shared, me, buf, max)
+    }
+
+    /// Reads at most `max` bytes into `buf`, with the lock held.
+    fn read_locked(
+        shared: &mut Shared,
+        me: usize,
+        buf: &mut [u8],
+        max: usize,
+    ) -> io::Result<usize> {
+        let peer = 1 - me;
         let queue = &mut shared.queues[peer];
         if queue.is_empty() || max == 0 {
             return if queue.is_empty() && shared.closed[peer] {
@@ -255,7 +267,7 @@ impl End {
             shared.closed[self.side] = true;
             shared.descriptors[1 - self.side]
                 .drain(..)
-                .map(|(_, descriptor)| descriptor)
+                .map(|(_, _, descriptor)| descriptor)
                 .collect()
         };
         // Dropped outside the lock: a descriptor can hold an endpoint of another duplex, whose drop takes its own lock.
@@ -398,6 +410,16 @@ impl Drop for End {
     }
 }
 
+/// Where a read with a descriptor stops (plan revision 23ae, measured on both kernels). Each form keeps at most one
+/// descriptor segment in a read, and gives the descriptor with the read that holds the segment's first byte.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DescriptorForm {
+    /// macOS: a read stops before a descriptor segment once it has copied data, and goes on after it.
+    StopsBeforeTheSegment,
+    /// Linux: a read goes on into a descriptor segment and stops after it.
+    StopsAfterTheSegment,
+}
+
 /// The in-memory control link (plan 2.3, `Link`): a duplex that also passes descriptor objects by value.
 #[derive(Debug)]
 pub struct LinkEnd(End);
@@ -438,7 +460,7 @@ impl LinkEnd {
         let at = shared.sent[me];
         match End::write_locked(&mut shared, me, bytes) {
             Ok(n) => {
-                shared.descriptors[me].push_back((at, descriptor));
+                shared.descriptors[me].push_back((at, n, descriptor));
                 Ok(n)
             }
             Err(error) => Err((descriptor, error)),
@@ -452,9 +474,59 @@ impl LinkEnd {
         let peer = 1 - self.0.side;
         let taken = shared.taken[peer];
         match shared.descriptors[peer].front() {
-            Some((at, _)) if *at == taken => shared.descriptors[peer].pop_front().map(|(_, d)| d),
+            Some((at, _, _)) if *at == taken => {
+                shared.descriptors[peer].pop_front().map(|(_, _, d)| d)
+            }
             _ => None,
         }
+    }
+
+    /// One read of at most `buf.len()` bytes with the descriptors that come with it, as `recvmsg` returns them in `form`
+    /// (plan revision 23ae, the kernels measured). A read holds at most one descriptor segment, and the descriptor comes
+    /// with the read that holds its segment's first byte. `Ok((0, _))` is the end of the stream.
+    ///
+    /// Clause: Core DP-2.
+    pub fn recv_with_descriptors(
+        &mut self,
+        buf: &mut [u8],
+        form: DescriptorForm,
+    ) -> io::Result<(usize, Vec<Descriptor>)> {
+        let mut shared = lock(&self.0.shared);
+        let (me, peer) = (self.0.side, 1 - self.0.side);
+        if shared.closed[me] {
+            return Ok((0, Vec::new()));
+        }
+        if shared.reset {
+            return Err(io::ErrorKind::ConnectionReset.into());
+        }
+        let cap = shared.control[me]
+            .read_cap
+            .map_or(buf.len(), |cap| buf.len().min(cap));
+        let taken = shared.taken[peer];
+        let ahead = |at: u64| usize::try_from(at - taken).unwrap_or(usize::MAX);
+        let segments = &shared.descriptors[peer];
+        // `max`: where this read stops; `first`: the offset of the segment's first byte in it, when it can reach it.
+        let (max, first) = match (segments.front(), form) {
+            (None, _) => (cap, None),
+            // macOS: a read stops before a segment once it has copied data, and goes on after it, up to the next one.
+            (Some(&(at, _, _)), DescriptorForm::StopsBeforeTheSegment) if ahead(at) == 0 => {
+                let next = segments.get(1).map(|&(next, _, _)| ahead(next));
+                (next.map_or(cap, |next| cap.min(next)), Some(0))
+            }
+            (Some(&(at, _, _)), DescriptorForm::StopsBeforeTheSegment) => {
+                (cap.min(ahead(at)), None)
+            }
+            // Linux: a read goes on into a segment and stops after it.
+            (Some(&(at, len, _)), DescriptorForm::StopsAfterTheSegment) => {
+                (cap.min(ahead(at).saturating_add(len)), Some(ahead(at)))
+            }
+        };
+        let n = End::read_locked(&mut shared, me, buf, max)?;
+        let mut descriptors = Vec::new();
+        if first.is_some_and(|first| first < n) {
+            descriptors.extend(shared.descriptors[peer].pop_front().map(|(_, _, d)| d));
+        }
+        Ok((n, descriptors))
     }
 }
 

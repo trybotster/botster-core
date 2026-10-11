@@ -189,9 +189,10 @@ fn control_and_pty_reads_retain_bytes_at_each_positive_bound() {
         let mut retained = Vec::new();
         while retained.len() < wire.len() {
             h.driver.read_control();
-            let Some(Input::LinkBytes(bytes)) = h.driver.inputs.pop_front() else {
+            let Some(Input::LinkBytes { bytes, descriptors }) = h.driver.inputs.pop_front() else {
                 panic!("queued control bytes must remain readable at bound {bound}");
             };
+            assert!(descriptors.is_empty());
             assert!(!bytes.is_empty() && bytes.len() <= bound);
             retained.extend(bytes);
             assert!(h.driver.inputs.is_empty());
@@ -243,7 +244,10 @@ fn control_reads_require_readiness_and_report_eof_once() {
     h.driver.read_control();
     assert_eq!(
         h.driver.inputs.pop_front(),
-        Some(Input::LinkBytes(b"retained".to_vec()))
+        Some(Input::LinkBytes {
+            bytes: b"retained".to_vec(),
+            descriptors: Vec::new(),
+        })
     );
     h.driver.read_control();
     assert!(!h.driver.control_readable);
