@@ -257,3 +257,43 @@ Sol inspects the downstream decision code. Report errors still fail before a suc
 This is preliminary source inspection within the settled round-four scope.
 The exact-head full gate and formal package round remain pending. This addendum approves no new head, gate, or merge.
 Round 3 stays NOT CLEAN at eb7f5c12. Sol ran no execution job.
+
+## Round 4: first-final-failure settlement
+
+- Head: `727a1c5043ad007f5b2d0a3353be657cf240e403`.
+- Parent: `eb7f5c1264efe3346890d831af27c0cf3ba584ac`.
+- Base remains `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Tree: `be567bfe8afc218b6f018e46eb8b0fbfcf505f4a`.
+- Package CLEAN: `4be62171764a8ef2fbb2bec56632f86f5bca8764`, zero open findings.
+- Package receipt: `msg_plugin-w_1791718988_cadd0b`.
+
+Sol reads the complete package addition and independently confirms its publication by fetch and ancestry.
+Sol reviews the complete two-file source delta within the lead's settled round-four scope.
+The preliminary checks above become the source review for this exact head.
+
+GS-KF-R1-1 HIGH is CLOSED. The report uses only the first final failure.
+A listed first failure makes that mutant MISSED. No later failure supplies a catch.
+The parser moves each corresponding occurrence from caught to missed and retains the total and tested identities.
+It rejects unmatched moved names and a move count larger than the raw caught count.
+A report error still fails the step. Other unsuccessful exit codes remain unsuccessful.
+The adjusted success code becomes 2 when misses exist. Stage 1 sends those exact missed names to stage 2.
+Stage 2 rejects a remaining miss. Both selection checks remain unchanged.
+
+The required fixtures check listed-first plus cancellation as MISSED and unlisted-first as a catch.
+They check adjusted counts, names, codes, stage-2 selection, and failure when both stages miss.
+The report fixture also checks later SIGTERM, ABORT, and FAIL. None replaces the listed first failure.
+The real-tool fixture assertions now expect MISSED counts and the adjusted exit code.
+Sol checks these assertions in source; Sol does not claim their execution.
+
+GS-KF-R2-2 remains CLOSED in source. Its exact-head execution evidence is still pending.
+The complete PR body at this head states the settled rule. The original Prior art check remains applicable.
+The normal tiers, standalone baseline, timeout values, retry policy, and exact mutant selection remain unchanged.
+This delta changes no contracts pin, pending ID, minimum list, or candidate build rule.
+The prebuilt-worker limitation and empty-list Stage 1 exit requirement remain.
+
+No new source finding is open. This source CLEAN covers this exact head and the settled scope.
+The full exact-head gate is still running and has not been supplied or accepted by Sol.
+The 80af70d2 and eb7f5c12 gates do not cover this correction. This CLEAN approves no gate or merge.
+A new head requires its applicable review and exact-head gate. Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at 727a1c5043ad007f5b2d0a3353be657cf240e403
