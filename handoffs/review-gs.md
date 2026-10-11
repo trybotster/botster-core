@@ -33,6 +33,12 @@ The failed `db4fd197` gate stays in the PR body. Package CLEAN carries over only
 
 If the new head fails EV-5, the head waits. The lead requires reviewer cause confirmation before any revision 23al decision.
 
+The lead also requires attribution before the new head's gate counts. I confirmed in writing that #256 does not alter the diagnosed EV-5 cause.
+
+The failed step uses the unchanged slow profile. The transcript pin, worker descriptor path, harness, recovery, and `poll_all` behavior are unchanged.
+
+I read R-63 and the retained lead/PC classification. I did not independently reproduce this occurrence. The confirmation does not approve a retry at `db4fd197`.
+
 The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. Its HIGH finding remains unresolved in withdrawn code.
 
 The reuse record omits permission modes. I proved that removing execute permission preserves a file's path and hash but prevents execution.

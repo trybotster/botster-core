@@ -446,3 +446,23 @@ I will review the next head or the retained base-merge-check evidence when reque
 The integration reviewer reports source CLEAN on `db4fd197` in verdict commit `81b130c9`, with zero open findings.
 
 The integration reviewer keeps gate acceptance separate from source CLEAN. The integration reviewer ran no execution job.
+
+### Requested cause confirmation
+
+The lead adds a condition: the new gate counts only after attribution of the failed `db4fd197` gate.
+
+I confirm: **#256's change does not alter the ev_5 cause.**
+
+I compared `5ac94fab..db4fd197` with the slow step's profile and EV-5's path. The changed retry setting applies only to the mutants profile.
+
+`test_budget` selects the unchanged slow profile for the failed step. The EV-5 transcript pin remains `contracts-v0.1.29`.
+
+The worker descriptor path, harness, pending-operation recovery, and `poll_all` behavior are unchanged. The new mutation log reader does not run on EV-5's path.
+
+I read R-63 and the lead's retained classification from PC's traces. The unfenced recovery can poll before the required completions arrive.
+
+The new fixture tests can change scheduling. They do not repair that recovery or change its cause.
+
+Limit: this confirms the change's relation to the diagnosed cause. I did not independently reproduce this occurrence or equate its error text with another trace.
+
+This confirmation does not approve the second gate at `db4fd197`. The lead's required new head, base-merge-check, and full gate still apply.
