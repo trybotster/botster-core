@@ -762,3 +762,67 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     );
     assert!(!left.exists(), "the endpoint is removed");
 }
+
+/// Steward ruling R-78 item 4 (design test 13), Core AD-2: a worker process that a kill ends while its session is `Stopping`
+/// never leaves the session `Lost(WorkerUnreachable)`. Core's reaper reaps it and reports the exit, and the host reads the
+/// worker's link to its end before it classifies: a session whose worker wrote `Exited` before the link ended is
+/// `Exited` with that code; one whose worker wrote nothing is `Lost(WorkerGone)`. Here the test's thread holds the worker side
+/// of the link, so the link ends when the test closes it, after the exit.
+#[test]
+fn a_worker_lost_while_stopping_ends_worker_gone() {
+    for wrote_exited in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let Running {
+            mut core,
+            _worker,
+            mut link,
+            peer,
+        } = running(tmp.path(), |_, _, _| {});
+        let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
+        pump_until(&mut core, |_| true);
+        assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Stopping);
+        let pid = _worker.pid().expect("the worker recorded its pid");
+        rustix::process::kill_process(pid, rustix::process::Signal::KILL).unwrap();
+        // Core's reaper reaps the worker: its pid is gone, and the reaper's notifier woke the host.
+        let began = common::real_now();
+        while rustix::process::test_kill_process(pid).is_ok() {
+            // timer: deadline — a worker that is never reaped fails the test instead of hanging it
+            assert!(
+                began.elapsed() < Duration::from_secs(10),
+                "the worker was not reaped"
+            );
+            // timer: poll interval — the reaper is Core's, not the test's to be woken by
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        pump_until(&mut core, |_| true);
+        assert_eq!(
+            core.get(&sid("s1")).unwrap().state,
+            SessionState::Stopping,
+            "the link is read to its end first (wrote Exited: {wrote_exited})"
+        );
+        if wrote_exited {
+            say(
+                &mut link,
+                &WorkerMsg::Exited {
+                    code: Some(7),
+                    signal: None,
+                },
+            );
+        }
+        link.shutdown(std::net::Shutdown::Both).unwrap();
+        peer.join().unwrap();
+        let events = pump_until(&mut core, |e| completed(e, stop).is_some());
+        let result = completed(&events, stop).unwrap();
+        if wrote_exited {
+            assert!(
+                matches!(&result, OpResult::Ok(OpOutput::End(SessionEnd::Exited(exit))) if exit.code == Some(7)),
+                "{result:?}"
+            );
+        } else {
+            assert_eq!(
+                result,
+                OpResult::Ok(OpOutput::End(SessionEnd::Lost(LostReason::WorkerGone)))
+            );
+        }
+    }
+}
