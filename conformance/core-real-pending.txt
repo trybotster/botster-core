@@ -95,3 +95,8 @@ conf::st_5_reads_after_exit
 # The route's paste passes on the testkit (RC PR A, plan 23bp). On the real tier the terminal echoes the route's bytes, and step 19
 # of in_3 expects input_refused with no ignore of output frames, so the echo arrives first (a transcript fence, as R-60's echo).
 conf::in_3_route_reports_only_exceptions_on_the_route
+
+# R-82 and v1's route pty_input (#279) make it pass on the testkit (RC PR A). On the real tier step 13 reads an empty route PTY log
+# in 3 of 3 runs: step 12 is await_quiet only, with no await_pty or barrier before the read (dp_5_lane_full and dp_5_route_op_namespace
+# have one, and pass). Not diagnosed further; a transcript fence is the likely cause.
+conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
