@@ -2156,6 +2156,10 @@ Sol publishes final integration CLEAN in `70ed0fe9fdc7c53200655b772cf66604bd9928
 
 I read the complete final artifact and verified its publication. Both final reviews have zero findings at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`.
 
+Core #278 merges as `23bb03a113218a5af24b44d31635dacad43c5981`. I verified the exact base and reviewed-head parents.
+
+The merge tree equals the accepted head tree, `968f6e533d23625b1ec28026cab8e1e94690aa3e`. This completes the package merge receipt.
+
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
@@ -2247,6 +2251,14 @@ Gate: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-d7abc589-pool-
 The live head and base remain unchanged. The final body contains the canonical check and this gate. The lead owns merge approval.
 
 The final gate completes the pending evidence condition. I ran no gate, build, test, or base-check script.
+
+Sol publishes final integration CLEAN in `e57f39aa1014c7d1311f1f1230116f747f2701b2`, at `verdicts/stage1/gs-git-failure-fixture.md`.
+
+I read the complete final artifact and verified its publication. Both final reviews have zero findings at `d7abc589391ed492e27413c05c8489c262377f36`.
+
+Core #281 merges as `926dfb62f3f7168990b2a48741946932d84b2fbb`. I verified the exact base and reviewed-head parents.
+
+The merge tree equals the accepted head tree, `0cfed7dc43a101334878bdcf4dc61fbb010e4e29`. This completes the package merge receipt.
 
 This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
 

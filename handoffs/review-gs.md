@@ -329,6 +329,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Core #278 and #281 are merged. I verified their merge parents and equality with the accepted head trees.
+
+Core #278 merge: `23bb03a113218a5af24b44d31635dacad43c5981`. Core #281 merge: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+
+Both package reviews and both integration reviews are complete with zero findings. I own no build target to remove.
+
 Core #281 is final package CLEAN at `d7abc589391ed492e27413c05c8489c262377f36`. The final gate passes all ten steps.
 
 The repaired test passes. Zero findings remain. The lead owns merge approval.
