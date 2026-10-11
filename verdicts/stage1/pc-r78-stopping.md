@@ -53,3 +53,58 @@ The source implementation, package review, integration source review, final gate
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (1 MEDIUM design finding; R78-SI-1 requires a lead decision) against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+## Round 2 — lead decision and revised drain design, 2026-10-11
+
+The initial verdict `a732b58ee2b32d6a2205a8f562bb80d99cbb395d` is now pushed after the transient DNS failure.
+Lead receipt `msg_plugin-w_1791751563_fad982` rejects the exited-but-unreaped interval.
+The required identity check must report an exited, unreaped worker as Absent without a second reap.
+Linux reads the OS process state. If an OS cannot supply the check, the ruling's named existing-deadline alternative applies.
+Sol reads complete revision 2, SHA-256 `911d80047a8a6b31fa6640325d9d8ef2b138ef9f98772d7b8be02890505c54c4`.
+Sol then reads the complete added write-failure section and revised note.
+Its SHA-256 is `bc2bbb0d90c05d4c4d87be8e79ee8bdcf97e91f8766a7ccb3f920b005738e002`.
+No source PR or executable evidence accompanies this design correction.
+
+### R78-SI-1 — lead question resolved; implementation remains due
+
+Revision 2 proposes a Linux process-state check and a deterministic real zombie proof on both OSes.
+It relies on the current macOS refusal path instead of an explicit SZOMB guard when proc_pidinfo succeeds.
+Sol reads complete B9, the retained zombie log header, raw failure, summaries, and exits.
+Log SHA-256: `882bf51451f220c19a7f618e52d571e599bc37e0ba335dd89c9311cb33d98353`.
+At c121ec31, the Mac test fails because the real answer is Absent and its old expected answer is Matches.
+That record proves the observed refusal-path result. It does not prove behavior on a kernel that supplies zombie information.
+B9's existing live_of approach retains the explicit SZOMB guard for such a kernel.
+Sol reads that complete guard and its refusal path in botster-test-process/src/platform/macos.rs at the reviewed base.
+The lead corrects the macOS design decision in `msg_plugin-w_1791751692_d4a13d`.
+The required design retains the explicit SZOMB guard after successful proc_pidinfo, as live_of does.
+The Mac real zombie proof remains the refusal-path evidence.
+The lead permits the same mutation exclusion form and reason as the existing guard, with a B9 citation.
+This decision resolves the question. The corrected design, exact source guard, narrow exclusion, and evidence remain due for review.
+Sol accepts no broad exclusion or future source change through this decision receipt.
+
+### R78-SI-2 — MEDIUM, still open: separate write failure from a confirmed-gone input drain
+
+Revision 2 retains the read side after a send error and drains within the pump budget.
+The first version defines only a driver write-closed flag. The engine still treats worker.link Some as send success.
+Sol traces that omission through send_msg and kill_payload at the reviewed base.
+A live peer with no EOF can receive a dropped Kill at StopGrace, lose its deadline, and never complete Stop.
+The added section defines Input::LinkWriteFailed and worker.link_write_failed.
+It makes send_msg return false and adds a live-peer/no-EOF proof. That correction addresses the live-peer omission at design level.
+The note does not yet define the necessary branch priority for a worker whose death is already known.
+It promises no classification at grace during a gone worker's drain, but also probe classification at grace after write failure.
+It promises that a queued Done can complete during the drain, but also immediate failure of in-flight requests on write failure.
+Those promises conflict when ProcessExited, write failure, delayed frames, and StopGrace occur before EOF.
+A queued Exited can still be displaced by WorkerGone, and a queued Done can follow an already-failed request.
+Preserve the confirmed-gone drain before classification or request failure when a read link remains.
+Apply that priority when worker.gone is already true and when the identity probe establishes death.
+Keep the Matches branch that ends an unreachable live worker's Stop at the existing grace.
+Add the combined ProcessExited, write failure, budget-delayed Exited/Done, and grace-before-EOF case to the proof plan.
+
+Revision 2 clarifies the first order: Exited is queued, not already fed. The already-fed form is a control case.
+It adds the driver budget case, A5-4 table plan, real process proofs, and prior-art comparison.
+Sol checks the cited old worker readiness function at 72b2e335. It fails the start at readiness failure and does not supply this drain design.
+The claimed socket order is explicitly unverified. Its Linux and Mac real proof remains required before acceptance of that premise.
+No new timer, new limit, out-of-budget drain, adopted-worker change, or implementation result is accepted.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: NOT CLEAN (1 MEDIUM design finding: R78-SI-2) against base 670e5fc799a25794910a1847fc41b3e089bf03f4
