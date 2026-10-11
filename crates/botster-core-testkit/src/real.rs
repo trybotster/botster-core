@@ -177,6 +177,13 @@ struct OfSession {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct OfRoute {
+    session: SessionId,
+    route: RouteId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HostCrash {}
 
 #[derive(Debug, Deserialize)]
@@ -608,6 +615,16 @@ impl RealCoreHarness {
         let (tap, row) = self.stored(handle, &session)?;
         let held = lock(&tap).launch_held(&row.instance);
         Ok(json!({ "held": held }))
+    }
+
+    /// Steward ruling R-66: `{activity_before_close, closed}`, what Core consumed of the worker's reports of `route` in
+    /// `session` ([`Tap::route_reports`]). It reads the tap and never waits (R-14.3); a report that waits for the driver's
+    /// next call wakes the host, so that the next pump consumes it.
+    fn route_reports(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfRoute { session, route } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        let seen = lock(&tap).route_reports(&row.instance, route);
+        Ok(json!({ "activity_before_close": seen.activity_before_close, "closed": seen.closed }))
     }
 
     /// Core DP-2: the next hand-over of a route's stream endpoint fails, once, at the tap ([`Tap::fail_next_handoff`]).
@@ -1080,6 +1097,7 @@ impl CoreHarness for RealCoreHarness {
                     | "hold_start_at"
                     | "release_start_at"
                     | "start_held"
+                    | "route_reports"
                     | "fail_next"
                     | "fail_handoff"
                     | "host_crash"
@@ -1110,6 +1128,7 @@ impl CoreHarness for RealCoreHarness {
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
+            "route_reports" if self.tapped => self.route_reports(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
@@ -1315,6 +1334,7 @@ mod slow_controls {
             "hold_start_at",
             "release_start_at",
             "start_held",
+            "route_reports",
             "fail_next",
             "fail_handoff",
             "host_crash",
@@ -1489,6 +1509,7 @@ mod slow_controls {
     ///   is `unsupported_control`.
     /// - `fail_next` refuses the named call of the handle without calling Core: the session stays `Created`, and the call
     ///   after it reaches Core. A code outside the call's sync column is `Refused`.
+    /// - `route_reports` (R-66) answers for a created session with no route report, and is `Bad` for an unknown session.
     #[test]
     fn the_start_controls_hold_the_launch_and_fail_next_refuses_before_core() {
         let dir = Candidate::beside_test_binary().expect("the candidate directory");
@@ -1523,6 +1544,15 @@ mod slow_controls {
             control("registry_row", json!({"session": "s1"})),
             Ok(json!({"state": "Created", "identity_recorded": false, "labels": {}}))
         );
+        // R-66: no route of s1 has a report yet; an unknown session has no row.
+        assert_eq!(
+            control("route_reports", json!({"session": "s1", "route": 2})),
+            Ok(json!({"activity_before_close": false, "closed": false}))
+        );
+        assert!(bad(control(
+            "route_reports",
+            json!({"session": "s9", "route": 2})
+        )));
         let hold = json!({"session": "s1", "before": "payload"});
         assert_eq!(control("hold_start_at", hold.clone()), Ok(Value::Null));
         assert!(bad(control("hold_start_at", hold.clone())), "one hold");
@@ -2348,6 +2378,7 @@ mod slow_tests {
             "hold_start_at",
             "release_start_at",
             "start_held",
+            "route_reports",
             "fail_next",
             "fail_handoff",
             "host_crash",
