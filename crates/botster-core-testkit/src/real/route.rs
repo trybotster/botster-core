@@ -7,20 +7,25 @@
 //! once, and every later read waits for bytes until the step deadline. A read that waited before the handoff would hold
 //! the only thread that pumps Core.
 
+use super::program::Inputs;
+use crate::edge_tap::Tap;
 use botster_conformance::Deadline;
+use botster_core::RealEdges;
 use botster_core_conformance::RouteClient;
+use botster_core_contract::prelude::{InstanceId, SessionId};
+use botster_core_host::session::{row_key, Row};
 use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
+use std::sync::{Mutex, Weak};
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
 pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate"];
 
 /// The client end of one route.
-#[derive(Debug)]
 pub(super) struct RealRoute {
     /// The client's end of the stream, always nonblocking; `None` after `client_close`.
     end: Option<UnixStream>,
@@ -30,6 +35,45 @@ pub(super) struct RealRoute {
     gated: bool,
     /// Set by the first empty read: the driver pumped after it, so the worker holds the stream.
     handed: bool,
+    /// The input log of the route's session (`pty_input`); `None` on the plain harness, which has no controls.
+    input: Option<SessionInput>,
+}
+
+/// What `pty_input` on a route reads: the tap of the route's handle (its stored rows), the route's session and the session's
+/// instance at the attach, and the probes' input logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
+pub(super) struct SessionInput {
+    /// Weak, as the harness's handle holds it: a route that outlives its host must not keep the host's edges, and with them its
+    /// claim of the data directory (Core LC-2, LC-12).
+    pub(super) tap: Weak<Mutex<Tap<RealEdges>>>,
+    pub(super) session: SessionId,
+    /// The session's instance when the route attached (`None`: the session had no stored row then).
+    pub(super) instance: Option<InstanceId>,
+    pub(super) inputs: Inputs,
+}
+
+impl SessionInput {
+    /// The worker of the route's session instance, as its stored row names it now, and the input that its probe read. A
+    /// session that was removed, or created again with a new instance, is no longer the route's: the route has no input log
+    /// then. The record of the session's processes outlives `Remove`, so the stored row decides.
+    fn log(&self) -> Result<Value, String> {
+        let tap = self
+            .tap
+            .upgrade()
+            .ok_or_else(|| format!("the host of the route of {} is gone", self.session.0))?;
+        let row = tap
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .stored_row(&row_key(&self.session))
+            .and_then(|bytes| Row::decode(&self.session, &bytes))
+            .filter(|row| Some(&row.instance) == self.instance.as_ref())
+            .ok_or_else(|| format!("the route's session instance of {} is gone", self.session.0))?;
+        let worker = row
+            .worker
+            .map(|worker| worker.identity())
+            .ok_or_else(|| format!("the session {} has no worker process yet", self.session.0))?;
+        let input = self.inputs.input(worker).map_err(|e| format!("{e:?}"))?;
+        Ok(crate::route_client::route_pty_log(input))
+    }
 }
 
 /// How long a read waits for bytes: only after the handoff, and only under a deadline that has time left. With no
@@ -124,7 +168,15 @@ impl RealRoute {
             unsent: Vec::new(),
             gated: false,
             handed: false,
+            input: None,
         })
+    }
+
+    /// The route answers `pty_input` from `input` (Core OU-1, DP-4: the conformance driver reads `route_expect_pty`'s log
+    /// through the route).
+    pub(super) fn with_input(mut self, input: SessionInput) -> RealRoute {
+        self.input = Some(input);
+        self
     }
 
     /// Writes the unsent bytes while the stream takes them. A failed write loses the stream's bytes, as with a lost
@@ -198,12 +250,17 @@ impl RouteClient for RealRoute {
                 self.gated = crate::route_client::flag(args, "on")?;
                 Ok(json!({}))
             }
+            // Core OU-1, DP-4: the input that reached the PTY of the route's session.
+            "pty_input" => match &self.input {
+                Some(input) => input.log(),
+                None => Err(format!("unsupported_control: {op}")),
+            },
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
 
     fn has_control(&self, op: &str) -> bool {
-        CONTROLS.contains(&op)
+        CONTROLS.contains(&op) || (op == "pty_input" && self.input.is_some())
     }
 }
 
@@ -485,6 +542,12 @@ mod slow_tests {
         assert_eq!(
             route.control("route_fill", &json!({})),
             Err("unsupported_control: route_fill".to_string())
+        );
+        // A route with no input log of its session (the plain harness) has no `pty_input`.
+        assert!(!route.has_control("pty_input"));
+        assert_eq!(
+            route.control("pty_input", &json!({})),
+            Err("unsupported_control: pty_input".to_string())
         );
     }
 }
