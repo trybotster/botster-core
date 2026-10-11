@@ -37,3 +37,20 @@ I based two of my early answers on the draft, not on main. On main:
 - a held-state precondition is not report consumption;
 - fence matchers must prove their predicates, and report-made states are explicit;
 - the `control.op` selector collides with the argument name of `op_posted`.
+
+## Design revision 3 (sha256 `b93f7e935ba8384d22350626ea98f6dcdcaeeeb85a942089d3677b08204b4938`): no objection
+
+My points are in the design:
+- R-80's `output_fences` is reused (line 82);
+- only expectations that prove the report count (line 83);
+- the cause identity is handle, session, class, op and route (line 130);
+- the four fence forms that the lint now learns;
+- one transcript and clause for each added pair (lines 146-150).
+
+The result on main `c0c2abc0` is 58 matches in 26 ids. There is one new racy read for the lead: `in_6_refused_full_wakes_on_room` s9.
+
+The note on the order with #69:
+- If #69 lands first, the lint clears `ev_5_route_closed` s28/s29 by #69's index-25 `route_reports {$r2}` `activity_before_close: true` fence, then by index 27's `closed: true`, with no exception and with a self-test of that exact form.
+- If the lint lands first, s28/s29 are listed, and #69's merge removes them (shrink-only).
+
+I check this on the READY head.
