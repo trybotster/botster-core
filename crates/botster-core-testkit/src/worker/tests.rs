@@ -47,6 +47,7 @@ fn fixture(capacity: usize) -> (WorkerEdges, LinkEnd, SharedWorker, Instant) {
         read_chunk: READ_CHUNK,
         descriptors: BTreeMap::new(),
         next_descriptor: 0,
+        descriptor_form: DescriptorForm::StopsBeforeTheSegment,
         routes: BTreeMap::new(),
         pty_budget: None,
     };
@@ -238,7 +239,13 @@ fn workers_expose_the_payload_grace_deadline() {
     hello.encode(&mut payload).unwrap();
     let mut bytes = Vec::new();
     encode_frame(FrameType::HELLO, &payload, u32::MAX, &mut bytes).unwrap();
-    worker.handle(now, Input::LinkBytes(bytes));
+    worker.handle(
+        now,
+        Input::LinkBytes {
+            bytes,
+            descriptors: Vec::new(),
+        },
+    );
     let launch = HostMsg::Launch(Box::new(LaunchSpec {
         argv: vec!["program".into()],
         env: BTreeMap::new(),
@@ -259,7 +266,13 @@ fn workers_expose_the_payload_grace_deadline() {
     launch.encode(&mut payload);
     bytes = Vec::new();
     encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
-    worker.handle(now, Input::LinkBytes(bytes));
+    worker.handle(
+        now,
+        Input::LinkBytes {
+            bytes,
+            descriptors: Vec::new(),
+        },
+    );
     worker.handle(
         now,
         Input::Spawned(Ok(PayloadId {
@@ -297,9 +310,14 @@ fn control_reads_retain_frames_at_each_read_bound() {
         let mut decoder = FrameDecoder::new(65536);
         let mut decoded = Vec::new();
         while edges.ready(now, &worker) != 0 {
-            let Input::LinkBytes(chunk) = edges.take(now, &worker, 0) else {
+            let Input::LinkBytes {
+                bytes: chunk,
+                descriptors,
+            } = edges.take(now, &worker, 0)
+            else {
                 panic!("the ready input must carry control bytes");
             };
+            assert!(descriptors.is_empty());
             assert!(!chunk.is_empty());
             assert!(chunk.len() <= bound);
             received.extend_from_slice(&chunk);
@@ -582,28 +600,82 @@ fn route_descriptor_of(
     (crate::net::Descriptor::new(endpoint), client_end)
 }
 
-/// DP-2: the edge gives the machine a descriptor before the bytes that it rides with, and `BindRoute` makes its stream the
-/// route's transport.
+/// The one link read that `edges` gives now: its bytes and its descriptors.
+fn link_read(
+    edges: &mut WorkerEdges,
+    worker: &SharedWorker,
+    now: Instant,
+) -> (Vec<u8>, Vec<DescriptorId>) {
+    assert_eq!(edges.ready(now, worker), 1);
+    let Input::LinkBytes { bytes, descriptors } = edges.take(now, worker, 0) else {
+        panic!("a link read")
+    };
+    (bytes, descriptors)
+}
+
+/// DP-2, plan 23ae: the edge gives the machine a descriptor with the read that holds the first byte of its send, in each
+/// kernel form: macOS stops a read before the descriptor's bytes and goes on after them; Linux reads on into them and stops
+/// after them. Each read holds one descriptor at most.
 #[test]
-fn a_descriptor_comes_before_the_bytes_that_it_rides_with() {
+fn a_descriptor_comes_with_the_read_of_its_first_byte_in_each_form() {
+    for (form, reads) in [
+        (
+            DescriptorForm::StopsBeforeTheSegment,
+            [(&b"ab"[..], 0), (&b"cdef"[..], 1)],
+        ),
+        (
+            DescriptorForm::StopsAfterTheSegment,
+            [(&b"abcd"[..], 1), (&b"ef"[..], 0)],
+        ),
+    ] {
+        let (mut edges, mut peer, worker, now) = fixture(16);
+        edges.descriptor_form = form;
+        peer.send(b"ab").unwrap();
+        let (descriptor, _client) = route_descriptor(&edges.scheduler);
+        assert_eq!(peer.send_with_descriptor(b"cd", descriptor).unwrap(), 2);
+        peer.send(b"ef").unwrap();
+        for (bytes, count) in reads {
+            let (got, descriptors) = link_read(&mut edges, &worker, now);
+            assert_eq!(
+                (got.as_slice(), descriptors.len()),
+                (bytes, count),
+                "{form:?}"
+            );
+        }
+        assert_eq!(edges.ready(now, &worker), 0, "{form:?}");
+    }
+}
+
+/// DP-2, plan 23ae: two sends with descriptors are two reads, each with its own, in each kernel form.
+#[test]
+fn two_descriptor_sends_are_two_reads_in_each_form() {
+    for form in [
+        DescriptorForm::StopsBeforeTheSegment,
+        DescriptorForm::StopsAfterTheSegment,
+    ] {
+        let (mut edges, mut peer, worker, now) = fixture(16);
+        edges.descriptor_form = form;
+        for tag in [b"1", b"2"] {
+            let (descriptor, _client) = route_descriptor(&edges.scheduler);
+            peer.send_with_descriptor(tag, descriptor).unwrap();
+        }
+        let one = link_read(&mut edges, &worker, now);
+        let two = link_read(&mut edges, &worker, now);
+        assert_eq!((one.0.as_slice(), one.1.len()), (&b"1"[..], 1), "{form:?}");
+        assert_eq!((two.0.as_slice(), two.1.len()), (&b"2"[..], 1), "{form:?}");
+        assert_ne!(one.1, two.1, "{form:?}");
+    }
+}
+
+/// DP-2: `BindRoute` makes a received descriptor's stream the route's transport, and `CloseDescriptor` closes one that no
+/// route took.
+#[test]
+fn a_received_descriptor_binds_a_route_or_closes() {
     let (mut edges, mut peer, worker, now) = fixture(16);
-    peer.send(b"ab").unwrap();
     let (descriptor, mut client) = route_descriptor(&edges.scheduler);
     assert_eq!(peer.send_with_descriptor(b"cd", descriptor).unwrap(), 2);
-    assert_eq!(edges.ready(now, &worker), 1);
-    assert_eq!(
-        edges.take(now, &worker, 0),
-        Input::LinkBytes(b"ab".to_vec())
-    );
-    assert_eq!(edges.ready(now, &worker), 1);
-    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
-        panic!("the descriptor comes before its bytes")
-    };
-    assert_eq!(edges.ready(now, &worker), 1);
-    assert_eq!(
-        edges.take(now, &worker, 0),
-        Input::LinkBytes(b"cd".to_vec())
-    );
+    let (_, descriptors) = link_read(&mut edges, &worker, now);
+    let id = descriptors[0];
     edges.perform(
         now,
         Action::BindRoute {
@@ -632,11 +704,8 @@ fn a_descriptor_comes_before_the_bytes_that_it_rides_with() {
     // A descriptor that no route took is closed: its client sees the end.
     let (descriptor, mut orphan) = route_descriptor(&edges.scheduler);
     peer.send_with_descriptor(b"e", descriptor).unwrap();
-    edges.ready(now, &worker);
-    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
-        panic!("a descriptor")
-    };
-    edges.perform(now, Action::CloseDescriptor(id));
+    let (_, descriptors) = link_read(&mut edges, &worker, now);
+    edges.perform(now, Action::CloseDescriptor(descriptors[0]));
     assert_eq!(
         botster_core_edges::RouteTransport::read(&mut orphan, &mut buf).unwrap(),
         0
@@ -650,12 +719,8 @@ fn a_full_route_stream_holds_the_write_until_the_client_reads() {
     let (mut edges, mut peer, worker, now) = fixture(16);
     let (descriptor, mut client) = route_descriptor(&edges.scheduler);
     peer.send_with_descriptor(b"f", descriptor).unwrap();
-    edges.ready(now, &worker);
-    let Input::Descriptor(id) = edges.take(now, &worker, 0) else {
-        panic!("a descriptor")
-    };
-    edges.ready(now, &worker);
-    edges.take(now, &worker, 0);
+    let (_, descriptors) = link_read(&mut edges, &worker, now);
+    let id = descriptors[0];
     edges.perform(
         now,
         Action::BindRoute {
@@ -785,12 +850,8 @@ fn bind_route_of(
 ) -> crate::net::StreamEnd {
     let (descriptor, client) = route_descriptor_of(&edges.scheduler, capacity);
     peer.send_with_descriptor(b"f", descriptor).unwrap();
-    edges.ready(now, worker);
-    let Input::Descriptor(id) = edges.take(now, worker, 0) else {
-        panic!("a descriptor")
-    };
-    edges.ready(now, worker);
-    edges.take(now, worker, 0);
+    let (_, descriptors) = link_read(edges, worker, now);
+    let id = descriptors[0];
     edges.perform(
         now,
         Action::BindRoute {
@@ -811,8 +872,8 @@ fn each_descriptor_gets_its_own_id() {
     peer.send_with_descriptor(b"b", second).unwrap();
     let mut ids = Vec::new();
     while edges.ready(now, &worker) == 1 {
-        if let Input::Descriptor(id) = edges.take(now, &worker, 0) {
-            ids.push(id);
+        if let Input::LinkBytes { descriptors, .. } = edges.take(now, &worker, 0) {
+            ids.extend(descriptors);
         }
     }
     assert_eq!(ids.len(), 2);
