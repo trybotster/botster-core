@@ -1337,6 +1337,35 @@ fn a_held_hand_over_is_blocked_on_its_link_until_the_release() {
     });
 }
 
+/// `route_stream_holders` (plan 23bf): the tap counts the bytes that Core gives `close_route_stream` for a stream, by the
+/// stream's socket, and gives the inner edge the same stream. Another endpoint type is passed on and not counted.
+#[test]
+fn the_bytes_that_core_writes_to_a_route_stream_are_counted_by_socket() {
+    let mut rig = rig(Fake::default());
+    let (worker_end, mut client) = std::os::unix::net::UnixStream::pair().unwrap();
+    let socket = crate::stream_holders::socket_id(std::os::fd::AsFd::as_fd(&worker_end)).unwrap();
+    let other = crate::stream_holders::socket_id(std::os::fd::AsFd::as_fd(&client)).unwrap();
+    assert_eq!(rig.with(|t| t.stream_bytes(socket)), 0);
+    rig.edges
+        .close_route_stream(StreamEndpoint::new(worker_end), b"rc");
+    rig.edges
+        .close_route_stream(StreamEndpoint::new(6u8), b"xyz");
+    assert_eq!(rig.with(|t| t.stream_bytes(socket)), 2);
+    assert_eq!(rig.with(|t| t.stream_bytes(other)), 0);
+    rig.with(|t| {
+        assert_eq!(
+            t.inner.calls,
+            [
+                "close stream None [114, 99]",
+                "close stream Some(6) [120, 121, 122]"
+            ]
+        );
+    });
+    // The fake edge drops the stream without a write: the client reads its end, so the tap kept no copy.
+    let mut buf = [0u8; 4];
+    assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap(), 0);
+}
+
 fn route_frames(route: RouteId) -> Vec<u8> {
     let activity = WorkerMsg::Observed {
         observation: botster_core_link::msg::Observation::ClientInput {

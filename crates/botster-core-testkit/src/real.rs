@@ -79,6 +79,7 @@
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
+mod holders;
 mod program;
 mod resume;
 
@@ -109,6 +110,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io;
+use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -1213,6 +1215,9 @@ impl CoreHarness for RealCoreHarness {
         // no copy of it.
         let worker_send_buffer = rustix::net::sockopt::socket_send_buffer_size(&worker_end)
             .map_err(|e| stream_failed(e.into()))?;
+        // Plan 23bf: the identity of the worker end's socket, read before Core takes the end (`route_stream_holders`).
+        let socket = holders::socket(worker_end.as_fd()).map_err(stream_failed)?;
+        let id = socket.id;
         let route = route::RealRoute::new(client_end).map_err(stream_failed)?;
         let result = core
             .attach(
@@ -1224,13 +1229,21 @@ impl CoreHarness for RealCoreHarness {
             .map_err(|refused| refused.error)?;
         let tap = self.handles.get(handle).map(|h| h.tap.clone());
         let route = match tap {
-            Some(tap) if self.tapped => route.with_fill(route::Fill {
-                requests: self.programs.requests(),
-                worker: session_worker(tap, session.clone()),
-                worker_send_buffer,
-                max_frame_bytes: usize::try_from(result.limits.max_frame_bytes)
-                    .unwrap_or(usize::MAX),
-            }),
+            Some(tap) if self.tapped => route
+                .with_fill(route::Fill {
+                    requests: self.programs.requests(),
+                    worker: session_worker(tap.clone(), session.clone()),
+                    worker_send_buffer,
+                    max_frame_bytes: usize::try_from(result.limits.max_frame_bytes)
+                        .unwrap_or(usize::MAX),
+                })
+                .with_holders(route::Holders {
+                    socket,
+                    host_bytes: Box::new(move || {
+                        let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+                        Ok(lock(&tap).stream_bytes(id))
+                    }),
+                }),
             _ => route,
         };
         Ok((result, Box::new(route)))

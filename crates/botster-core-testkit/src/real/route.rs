@@ -7,6 +7,7 @@
 //! once, and every later read waits for bytes until the step deadline. A read that waited before the handoff would hold
 //! the only thread that pumps Core.
 
+use super::holders::{self, Socket};
 use super::program::Requests;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
@@ -26,6 +27,7 @@ pub(super) const CONTROLS: &[&str] = &[
     "drop_transport",
     "route_fill",
     "route_stream_written",
+    "route_stream_holders",
 ];
 
 /// The most bytes that one read of a `route_accept` drain takes.
@@ -50,6 +52,21 @@ impl std::fmt::Debug for Fill {
     }
 }
 
+/// What the `route_stream_holders` of a route needs (plan 23bf): the identity of the worker end's socket, read before Core
+/// took the end, and the bytes that Core moved through that socket at its edges ([`crate::edge_tap::Tap::stream_bytes`]).
+pub(super) struct Holders {
+    pub(super) socket: Socket,
+    pub(super) host_bytes: Box<dyn Fn() -> Result<u64, String>>,
+}
+
+impl std::fmt::Debug for Holders {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Holders")
+            .field("socket", &self.socket)
+            .finish_non_exhaustive()
+    }
+}
+
 /// N = C + F (R-47 item 3): C is what the transport holds outside the worker, the worker end's `SO_SNDBUF` plus the client
 /// end's `SO_RCVBUF`; F is the route's frame bound. The kernel's reported sizes are a safe upper bound, so at least one
 /// frame stays pending in the worker.
@@ -70,6 +87,8 @@ pub(super) struct RealRoute {
     end: Option<UnixStream>,
     /// `None` for a route of the harness with no tap: it runs no `route_fill`.
     fill: Option<Fill>,
+    /// `None` for a route of the harness with no tap: it runs no `route_stream_holders`.
+    holders: Option<Holders>,
     /// The client bytes that wait for room in the stream.
     unsent: Vec<u8>,
     /// While on (`route_gate`), the client reads nothing from the stream beyond a `route_accept` allowance, so the worker's
@@ -183,6 +202,7 @@ impl RealRoute {
         Ok(RealRoute {
             end: Some(end),
             fill: None,
+            holders: None,
             unsent: Vec::new(),
             gated: false,
             accept: None,
@@ -196,6 +216,28 @@ impl RealRoute {
     pub(super) fn with_fill(mut self, fill: Fill) -> RealRoute {
         self.fill = Some(fill);
         self
+    }
+
+    /// The route runs `route_stream_holders` with `holders`.
+    pub(super) fn with_holders(mut self, holders: Holders) -> RealRoute {
+        self.holders = Some(holders);
+        self
+    }
+
+    /// `route_stream_holders` (Core DP-1, DP-2, OU-1, OU-11; plan 23bf): `holders` is the number of open descriptors of the
+    /// worker end's socket in every process ([`holders::holders`]): Core's copy in this process, the worker's,
+    /// and any other. `host_bytes` is the bytes that Core moved through that socket: Core is sans-IO, and `HostEdges` is its
+    /// only I/O path, so the tap's count of them is the count (lead, plan 23bf). A read through a raw copy outside the edges
+    /// would break the sans-IO rule; such a copy shows in `holders`, and `slow:fd-handoff` is the real byte proof.
+    fn route_stream_holders(&self) -> Result<Value, String> {
+        let of = self
+            .holders
+            .as_ref()
+            .ok_or("route_stream_holders needs a route of the tapped real harness")?;
+        let holders =
+            holders::holders(&of.socket).map_err(|e| format!("route_stream_holders: {e}"))?;
+        let host_bytes = (of.host_bytes)()?;
+        Ok(json!({ "holders": holders, "host_bytes": host_bytes }))
     }
 
     /// `route_fill` (R-47 item 3): the payload of the route's session writes N = C + F bytes of the fill pattern through the
@@ -377,6 +419,8 @@ impl RouteClient for RealRoute {
             // Core OU-9, OU-3, DP-5 (plan 23bf): the bytes that the stream accepted from the worker, cumulative (R-14.3): what
             // the client read, and what the kernel holds for the client unread (`FIONREAD`). After a close of the client's
             // end, the count at the close stays.
+            // Core DP-1, DP-2, OU-1, OU-11 (plan 23bf).
+            "route_stream_holders" => self.route_stream_holders(),
             "route_stream_written" => {
                 let held = match &self.end {
                     Some(end) => {
@@ -853,6 +897,34 @@ mod slow_tests {
             .control("route_fill", &json!({}))
             .unwrap_err()
             .contains("closed"));
+    }
+
+    /// `route_stream_holders` (plan 23bf) needs the tapped harness. It counts the descriptors of the worker end's socket,
+    /// also after the client's end closed, and gives the tap's count of Core's bytes.
+    #[test]
+    fn route_stream_holders_counts_the_worker_ends_descriptors_and_gives_the_host_bytes() {
+        let (mut route, worker) = pair();
+        assert!(route
+            .control("route_stream_holders", &json!({}))
+            .unwrap_err()
+            .contains("tapped"));
+        let socket = holders::socket(std::os::fd::AsFd::as_fd(&worker)).unwrap();
+        route = route.with_holders(Holders {
+            socket,
+            host_bytes: Box::new(|| Ok(7)),
+        });
+        let answer =
+            |route: &mut RealRoute| route.control("route_stream_holders", &json!({})).unwrap();
+        assert_eq!(answer(&mut route), json!({"holders": 1, "host_bytes": 7}));
+        let copy = worker.try_clone().unwrap();
+        assert_eq!(
+            answer(&mut route),
+            json!({"holders": 2, "host_bytes": 7}),
+            "a kept copy shows"
+        );
+        drop((worker, copy));
+        route.control("client_close", &json!({})).unwrap();
+        assert_eq!(answer(&mut route), json!({"holders": 0, "host_bytes": 7}));
     }
 
     /// `drop_transport` (the steward's real form of OU-5): the client's end closes with no shutdown, and its unsent and
