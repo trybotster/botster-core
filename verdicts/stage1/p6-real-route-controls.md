@@ -133,3 +133,70 @@ The final import, applicable check and review, final gate, and final body remain
 Sol runs no build, test, gate, mutant, reversal, or measurement. Never poll.
 
 VERDICT: NOT CLEAN (1 open evidence finding) at 2645bfc1c216cea54cd61577cae25e834e66133c
+
+## Round 3 — corrected gate and body, 2026-10-11
+
+Exact head: `27cb2cc48562334612d2d227aff8d8bb88a30d52`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Gate and live PR comparison base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Tree: `e02638de17d5bf1031e2a6807a07eb20ef906125`.
+The complete source review and unchanged-implementation Mac evidence retain their earlier scopes.
+Sol reads the complete two-line correction again and the affected test context.
+Package source CLEAN at this head remains recorded in `dafcb2fbd0db52070e43a479df1cb1098070b5f8`.
+Sol reads its complete Round 5. The package also reports that its current raw/cited comparison agrees.
+
+### Completed corrected Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-27cb2cc4-pool-20261011-123345-13820.log`.
+SHA-256: `3d15d9aea86074d2e1f1fdde37c51e8aa5962169691a143a18efd02cad99715a`.
+The log has 6040 lines. Sol reads the exact head/base header, tier summaries, stage outcomes, catch records, summary, and exits.
+All ten steps PASS in 1557.6 seconds. The job and wrapper exit zero after 1568 seconds.
+The job queues for one second and runs for 1567 seconds.
+Default: 1755 PASS, 474 skipped, 12.458 seconds. Slow: 570 PASS, 2038 skipped, 41.723 seconds.
+Minimum: testkit 61/69, real-passing 49/68, real-accepted 50/69.
+Eleven of 36 pending-real trials pass. No pending file changes, and these results authorize no pending removal.
+
+Stage 1 has 164 unique mutants: 67 caught, 93 missed, four unviable, zero timeouts, in 298.0 seconds.
+The unmutated slow baseline passes in 46.0 seconds: 570 PASS, including ten slow, and 2728 skipped.
+Stage 2 has 93 unique mutants: 73 caught, zero missed or timed out, 20 unviable, in 1091.6 seconds.
+The stage-2 identities exactly equal the stage-1 missed identities.
+Sol independently compares all 140 raw and named catches. The sets match, with no duplicate identities.
+Every named catcher appears as selected and passing in the normal gate tiers.
+Final result: 140 caught, zero missed, zero timeouts, 24 unviable. Unviable results are not catch evidence.
+Fuzz selects no changed crate with a decoder harness. No mutation exclusion changes in this PR.
+
+RG-SI-1 closes. Stage 1 catches Tap::link_held_for_start -> true with the corrected interrupted-read quiet test.
+The live body records the failed 2645bfc1 gate, its missed mutant, and the new observable quiet assertion.
+No production code changes in the correction. Zero integration findings remain on this source and supplied evidence.
+
+### Flaky result and required follow-up
+
+The log has one FLAKY result: botster-core-sys::slow_process a_spawned_child_matches_its_identity_and_dies_by_the_group_kill.
+It fails then passes under deletion of the route_stream_holders control arm. That retry supplies no catch.
+The named real route holder test independently catches that mutant.
+BUILD.md Testing rule 9 requires a structural fix; its mutation exception permits only removal of a flaky catch.
+Lead receipt `msg_plugin-w_1791749219_245fdb` assigns P6 one structural-fix PR after #287 and states that this result does not block #287.
+Sol reads the complete corrected record at `shared/core-stage1/handoffs/flaky-a-spawned-child-matches-its-identity-and-dies-by-the-group-kill-27cb2cc4.md`.
+Sol reads the sys test, its helpers, and sys/test-process dependency declarations. The test does not call these route controls.
+The record's cargo-tree result remains an owner report. Sol runs no cargo command.
+The raw gate contains no first-attempt panic or assertion values. The exact failure cause remains unknown.
+The proposed many-run campaign is removed from the record after Sol's review. No campaign, retry change, or timeout change is accepted.
+The structural fix remains due. This verdict does not close that separate defect or accept an unproved load diagnosis.
+
+### Current body and final import limits
+
+Sol reads the complete retained body, all later body corrections, and the matching live GitHub body.
+GitHub confirms the exact head and comparison base above.
+Corrected body SHA-256: `47d3c7961a9986ce51931bffa9063d9a69cec87cd2fda8fb21128ccb8c96d4b4`.
+The body labels the old .36 hold_start table as current transcript data, not proof of current R-71 conformance.
+It states the a2_1 named startup requirement, both clock steps, and the removal of ad_7 section 1.
+P3 owns that transcript follow-up after #58 with 016c review. Both identifiers remain pending in this PR.
+The body cites P6's separate flaky-test record and corrects the two slow test paths.
+The historical mixed Mac transcript failures and aggregate exit limits remain explicit.
+No new Mac assertion result is claimed; the required Mac implementation evidence carries because the implementation is unchanged.
+
+The final SLOT, current-v1 import, applicable check and delta review, exact final gate, and final body remain due.
+This source CLEAN accepts no later head, pending removal, pin, final import, or PR completion.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: CLEAN (0 open; source and supplied evidence before final import) at 27cb2cc48562334612d2d227aff8d8bb88a30d52
