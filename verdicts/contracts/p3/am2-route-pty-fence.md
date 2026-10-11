@@ -28,7 +28,7 @@ Implementer: P3. Package reviewer: 016c. Ruling: R-83 (pending; it governs now).
   - the op's clause defines `written_bytes` as the PTY bytes.
 - Where a clause gives `written_bytes` another meaning, the transcript derives the PTY count, and the PR body cites the clause for each such finding.
 - **Steward correction (2026-10-11): DP-5b is not such a case.** Frozen DP-5b defines `written_bytes` as the encoded PTY bytes of the path paste: the path, the space and any markers, never the file content. So a DP-5b `written_bytes` meets the third condition directly.
-- Check `dp_5b_path`: its fence count `1 + $wb11 + 1` is valid only when the PR body names the two extra bytes as other writes.
+- Check `dp_5b_path`: its fence count `1 + $wb11 + 1` is valid only when the PR body names the two extra bytes as other writes. They must not be the space or markers of the paste, because `$wb11` already counts those (016c's note).
 
 ### Addition (C): encoder-owned counts
 
