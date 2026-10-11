@@ -83,3 +83,24 @@ GitHub names this exact head and keeps the PR open. One finding remains.
 I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11: integration documentation finding
+
+Exact head: `0201489c095733651e1241355af23ba77774066d`.
+Actual merge base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Tree: `6b2f8d604b43a6a54497a350b09ace8bb0d31387`.
+
+Integration reports AG-SI-1 LOW. I read the cited route_fill summary and agree with the finding.
+At route_client.rs:140, the summary still defines the available room as zero while gated.
+The method reads worker_end().room(), which now admits a remaining accept allowance under the gate.
+The changed public test explicitly checks four bytes of room under that condition.
+Change the summary to zero while gated with no accept limit, consistent with net.rs and the changed test.
+This correction needs no behavior change. I sent the finding directly to the implementer.
+
+AG-R1-1 remains open. The implementer confirms the retained comparison used local seeds 0–7 and claimed CI seeds incorrectly.
+The implementer prepares a focused comparison with explicit 0–31, cleared selection variables, and printed effective seeds.
+I accept no result from that reported future job. The evidence, table, and body correction remain pending.
+The source and retained first-gate review otherwise keep their Round 1 scope.
+Two findings remain. I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
