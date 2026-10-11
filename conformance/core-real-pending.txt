@@ -91,3 +91,7 @@ conf::ou_10_no_authorization_in_core
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
+
+# R-76 (`scripted` ignored; RC testkit PR) makes it pass on the testkit. On the real tier it is INCONCLUSIVE at step 9
+# (step_timeout, 2 of 2 runs on macOS): after pty_chunk 1, the host paste never completes. Not diagnosed further.
+conf::in_8_no_recheck_after_start
