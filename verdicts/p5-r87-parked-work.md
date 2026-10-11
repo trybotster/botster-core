@@ -242,3 +242,79 @@ I ran no build, test, gate, mutation job, or executable merge check. I changed n
 Both the source repair and remaining evidence corrections need verification before CLEAN. The lead retains control of the final slot and merge.
 
 VERDICT: NOT CLEAN
+
+
+## Round 3 — corrected AdoptAll mapping, 2026-10-11
+
+- Exact head: `2e03346020a63cdc9c069a638170e95cb1416177`.
+- Tree: `344d20332dc8b81fbc782f77cf038b8d6623a558`.
+- Base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+- Previous head: `bda64e1592e33aa5eedfc8f39d2b114bd0a06b4f`.
+- Previous verdict: `8bc8779a0b1fb9384966436ba4fab17678502ad7`, Round 2.
+- Fix receipt: `msg_plugin-w_1791761470_903cc6`.
+- Provenance receipt: `msg_plugin-w_1791761553_ea226d`.
+- Tier: HIGH. Open review findings: zero. Result: source CLEAN; final gate remains required.
+
+### R292-SI1 closure
+
+I read the complete one-commit delta. It changes only engine.rs and queue_pressure.rs.
+For room-blocked Work::Op, the read first uses p.session.
+If that field is None, the read uses the front row's key after stripping ROW_PREFIX.
+This is the same row-key interpretation that adopt_next_row and row_waits_for_its_session use.
+The filter still starts from ready_at(true) minus ready_at(false).
+ready_at and its row_waits_for_its_session exclusion remain unchanged.
+A row waiting for its Create therefore stays excluded. The fallback reports the AdoptRow work that waits only for room.
+The change affects the diagnostic read only. It changes no admission, scheduler decision, queue operation, or wake action.
+
+The new regression creates and shows s1, fills the queue through s2, then begins AdoptAll.
+The test requires the parked set to contain s1 while its row state waits for room.
+After a poll frees room, the test requires an empty set.
+This scenario proves the missing global-op case. It complements the existing DetachLocal, state, route, and held-frame tests.
+I read the supplied reversal log. Without the mapping, the new test fails with an empty set instead of s1.
+The outcome matches the independently inspected source defect.
+Reversal log: `shared/core-stage1/evidence/p5-r87/r292-si1-revert.log`.
+SHA256: `43482ccfb9c21371dbcdfb850fd854b0bbb6a57f1dbb6a7ec60f9946fadfb715`.
+
+P5 reports 299 core-host lib tests passing, clippy with zero errors, and taint PASS after the repair.
+P5 states that both the reversal and passing run follow cargo clean of targets/p5: 11261 files, 3.6 GiB.
+Until both runs complete, only the same Core worktree path writes that target. Branch changes occur within that path.
+Both runs use core-host lib tests only. No prebuilt worker participates.
+That owner statement establishes the B13 clean and single-worktree condition for these runs.
+The clean output remains in the session transcript, not a retained file. I record that limit and perform no independent execution.
+The final isolated gate must validate the exact final source and all in-diff mutants.
+R292-SI1 closes for source and named regression scope.
+
+### R292-E1 closure
+
+I verify the complete live body at the exact head.
+The body now labels four local records historical and unvalidated: the initial per-seed record, both reversal records, and R-88 group A.
+The body says that these records are not proof. It links the provenance record and keeps the R-88 failures visible in that record.
+The group-A raw file retains eight PASS outcomes, two behavior failures, and four unsupported-control failures.
+I claim no validated group-A result or cause from that unvalidated run.
+
+The exact five-blob comparison now names 9e5f165a and dc9b230b.
+The body distinguishes later test additions, comments, the deadline check, and the AdoptRow mapping.
+It states that the 6c231801 gate covers the earlier tests and that the final gate must cover the later changes.
+The dedicated-target Mac proof retains its earlier source, patched-transcript scope, and seed values.
+The pool gate retains its exact earlier head and combined mutation result.
+The corrected body does not claim a completed gate on this head. R292-E1 closes.
+F1, F2, and F3 remain closed through the unchanged comment, deadline, and risk corrections.
+
+The exact-head full-index own diff SHA256 is `03f7b843f452ab4f09e87b733dc14395c28b4e2f96a62a62abc136f9f2f9493e`.
+`git diff --check` passes against the base.
+No pending list, transcript, timeout value, dependency pin, mutation exclusion, or gate selector changes.
+The am_4 deviation remains under the lead's existing decision.
+
+### Final conditions
+
+This verdict accepts the reviewed source and corrected body. It accepts no later head or merge tree.
+The gate on 6c231801 remains previous-head evidence. It does not validate the later production change or test deadline.
+P5 confirms the next sequence: both source CLEANs, FINAL-READY, lead SLOT, base import and check, then one final gate.
+The exact-final-head gate and mutation result remain required before merge.
+Sol's exact-head integration verdict remains separate. The lead controls the slot and merge.
+
+All review findings close. I changed no product code.
+I ran no build, test, gate, mutation job, or executable merge check.
+I used read-only Git, source inspection, and artifact parsing.
+
+VERDICT: CLEAN
