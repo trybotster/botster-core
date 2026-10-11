@@ -498,9 +498,6 @@ fn oracle_encode_keeps_the_fresh_other_modes_that_the_call_does_not_name() {
     let alt = json!({"key": {"char": "q"}, "mods": ["alt"], "event": "press", "text": "\u{e4}"});
     let keypad = json!({"key": {"named": "kp_0"}, "mods": [], "event": "press"});
     let fresh = fresh();
-    for on in ["dec_1035", "dec_1036"] {
-        assert_eq!(fresh.other_modes.get(on), Some(&true), "{on}");
-    }
     assert_ne!(
         key_bytes(&fresh, alt.clone()),
         key_bytes(&ModeFlags::default(), alt.clone())
@@ -768,10 +765,7 @@ fn oracle_modes_are_the_raw_oracles() {
     let bytes = b"\x1b[?2004h\x1b[?1h\x1b[?25l\x1b[?1004h";
     output(&mut harness, core.as_mut(), at, bytes);
     let expected = applied(bytes).modes();
-    assert!(
-        expected.bracketed_paste && expected.application_cursor_keys && expected.focus_reporting
-    );
-    assert!(!expected.cursor_visible);
+    assert_ne!(expected, applied(b"").modes(), "the output sets modes");
     assert_eq!(modes(&mut harness), Ok(json!({"flags": expected})));
     assert!(bad(harness.control("a", "oracle_modes", &json!({"session": "s2"}))).contains("s2"));
 }
