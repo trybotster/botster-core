@@ -520,8 +520,34 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
     // The payload waits on its PTY's input without a timer; the stop below ends it.
     let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
     let endpoint = root.path().join("e");
-    let (instance, token, epoch) = (InstanceId("1-1".into()), [5; 32], 2);
     let stream = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    let mut adopter = adopt(stream, 2);
+    // The fence: the old host's link ends.
+    let mut rest = [0u8; 64];
+    loop {
+        match s.link.stream.read(&mut rest) {
+            Ok(0) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
+            Ok(_) => {}
+            Err(error) => panic!("the old link did not end: {error}"),
+        }
+    }
+    // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
+    adopter.msg(&HostMsg::Stop);
+    let report = adopter.report();
+    assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
+    s.link = adopter;
+    s.remove();
+    assert!(
+        !endpoint.exists(),
+        "the worker removes its endpoint at its end"
+    );
+}
+
+/// AD-6: a new host's link at the worker's endpoint proves the host role at `epoch`. The worker answers on it with its own
+/// proof at that epoch and an `Adopted` report of its running payload.
+fn adopt(stream: UnixStream, epoch: u64) -> Link {
+    let (instance, token) = (InstanceId("1-1".into()), [5; 32]);
     // timer: deadline — the limit of a wait for a real worker's frame; not a contract value.
     stream
         .set_read_timeout(Some(Duration::from_secs(20)))
@@ -553,26 +579,33 @@ fn a_new_host_adopts_the_real_worker_at_its_endpoint() {
         ),
         other => panic!("{other:?}"),
     }
-    // The fence: the old host's link ends.
-    let mut rest = [0u8; 64];
-    loop {
-        match s.link.stream.read(&mut rest) {
-            Ok(0) => break,
-            Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => break,
-            Ok(_) => {}
-            Err(error) => panic!("the old link did not end: {error}"),
-        }
-    }
+    adopter
+}
+
+/// DESIGN.md "Adoption (P5)" part 3: a new host's hello can come after the worker's first read of the connection found
+/// nothing. Then only the poll's readiness of that candidate brings the hello to the worker. The worker holds one candidate
+/// at a time and closes a later one; it accepts one connection per turn and reads it in the same turn. So when the second
+/// connection ends, the worker has read the first one and found nothing, and the test sends the first hello only then.
+#[test]
+fn a_new_host_whose_hello_comes_after_the_first_read_adopts_the_worker() {
+    let root = temp_root();
+    // The payload waits on its PTY's input without a timer; the stop below ends it.
+    let mut s = GuardedSession::launch(root.path(), "exec /bin/cat", 200);
+    let endpoint = root.path().join("e");
+    let first = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    let second = UnixStream::connect(&endpoint).expect("the worker listens at its endpoint");
+    assert_eq!(
+        Bounded::new(second).to_eof(Deadline::cleanup()).unwrap(),
+        b"",
+        "the worker holds one candidate and closes the second"
+    );
+    let mut adopter = adopt(first, 2);
     // The new link obeys the new host: `Stop` ends the payload (LC-5), and `Remove` ends the worker (LC-7).
     adopter.msg(&HostMsg::Stop);
     let report = adopter.report();
     assert!(matches!(report, WorkerMsg::Exited { .. }), "{report:?}");
     s.link = adopter;
     s.remove();
-    assert!(
-        !endpoint.exists(),
-        "the worker removes its endpoint at its end"
-    );
 }
 
 /// Plan R12 (teardown is TERM, then KILL, then reap): `SIGTERM` on the worker kills the payload group that it holds at
