@@ -374,3 +374,22 @@ No source or body finding remains open so far. The supplied exact-head gate pass
 This inspection grants no formal imported-head CLEAN. The same-head package artifact remains pending.
 The stopped 15d682b2 gate supplies no acceptance. No new Mac execution evidence is claimed for 0fed25b3.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 4 complete: imported head 0fed25b3
+
+Head: `0fed25b32a2db1c025ba04233ea3826555b1b26a`. Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+Package completion receipt: msg_plugin-w_1791724876_8421ae.
+Package verdict: `626f9002377a30f2ab20f26b3c01d5326ca94a2d`, verdicts/p5-real-controls-d.md, Round 4.
+Sol reads the complete 85-line package addition and verifies publication on origin/stage1/review-p5.
+It reports CLEAN on this same head and base. Its source, body, gate, and retained Mac-evidence limits agree with the integration inspections.
+
+The source inspections in ae7ca202 and 6a7e23f7 and gate inspection in 79ebecd4 remain applicable.
+D-F7 LOW closes in the published body. Every earlier finding retains its recorded closure evidence.
+Zero integration findings remain open. All ten exact-head Linux steps pass. Both reviewers accept the same import composition.
+The lead-authorized stat-only lock snapshot remains intact. No additional pending-real removal is accepted.
+The prior Mac log covers unchanged own executable code. This verdict claims no exact-head Mac run on 0fed25b3.
+Section 8 requires no repeated full gate for this unchanged head with both applicable CLEANs.
+This CLEAN covers only this exact head, base, corrected body, and supplied evidence. A later import remains outside this verdict.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 0fed25b32a2db1c025ba04233ea3826555b1b26a
