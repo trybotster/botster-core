@@ -353,3 +353,42 @@ Those two proposed removals can retain their repeated proof, subject to normal P
 The mechanical lists guard remains separate work. This disposition does not attest to its implementation.
 The source and LOW body findings remain closed. RG-SI-FINAL-1 remains open until the restoration and final conditions complete.
 Sol accepts no gate or real acceptance from the withdrawn five-removal head. Sol runs no job. Never poll.
+
+## Round 6 — fence-exception restoration, 2026-10-11
+
+Exact head: `95840fd637cd535e4d6d6a5a3b8833b09e8070bd`.
+Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `652a92af93e885f1670be80a53048e7c275b8359`.
+Parent: `d3a60c99ab9165422e469de3323a5be12e55977c`.
+Owner receipt: `msg_plugin-w_1791758297_0a93c8`.
+
+Sol reads the complete commit, cumulative pending delta, and complete body delta through the GitHub CLI fallback.
+The sole changed file restores OU-1 attach, OU-11 ownership, and OU-3 progressing reader to their original groups.
+It adds four comment lines that state the exact .39 fence exceptions and the lead's retention ruling.
+The restore occurs inside the unmerged PR. It does not restore an identifier removed by the merged base.
+The own real-pending identifier delta now removes only OU-5 peer fault and OU-12 output order, with no identifier addition.
+Sol independently compares the identifier sets against the exact base.
+All source blobs equal the reverted head. The testkit pending file equals the base byte for byte.
+Against 75f0fd0d, the effective tree delta is those two identifier removals and the four explanatory comment lines.
+
+This restoration satisfies lead disposition `msg_plugin-w_1791758213_87ab78`.
+The three fence-excepted identifiers have no real acceptance claim here. Their repeated PASS results do not fix their fences.
+OU-5 and OU-12 have no pinned exception entry. Their repeated per-OS proof retains Round 5's limits.
+Their normal PASS in the completed exact-head final gate remains required.
+RG-SI-2 and RG-SI-3 stay closed. No new integration source defect is established.
+
+Body SHA-256 at this read: `54f891c07815f6b9761164fa33da91ee12a9a97da1e5a0100c309f27201329b1`.
+GitHub confirms the exact head and base above.
+The opening scope, candidate table, and retention paragraph correctly identify two removals and three retained identifiers.
+The body retains the reverted readiness change, its incorrect premise, and stopped-gate history.
+Its commit-6 tree statement still says only two removals. The literal tree delta also includes four explanatory comment lines.
+Sol requests that precise correction for the completed final body. No source change or extra execution is requested.
+
+Sol reads package Rounds 7 and 8 at `328cf37ae76673949b97209019d2db1a5f9e2546`, `verdicts/p6-real-route-controls.md`.
+The package independently identifies the stored-wake defect, closes it through full withdrawal, and retains the fence-accounting limit.
+Those rounds cover the earlier fdd942db and d3a60c99 heads. A formal package receipt for 95840fd6 remains due.
+RG-SI-FINAL-1 remains open for the completed canonical check, exact-head final gate, precise final body, and matching package verdict.
+P6 reports that the final gate runs. Sol reads no running output and accepts no unfinished result.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
+
+VERDICT: NOT CLEAN (1 open final acceptance condition: RG-SI-FINAL-1) at 95840fd637cd535e4d6d6a5a3b8833b09e8070bd against base 5e953398925351c12e463a7b0a946b79d9841edc
