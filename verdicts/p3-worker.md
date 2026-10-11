@@ -11796,3 +11796,71 @@ F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 167 — PR #243, replacement repository-list test — 2026-10-11
+
+Head: `7e577f68a167fb1f21e248fcd3300ee87118b9bf`.
+Parent: `3cf27c1b0f6941100b096570bb3ca51ade0a7c2e`.
+Base v1: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+P3 replacement receipt: msg_plugin-w_1791720431_1eebae.
+The complete GitHub response verifies this head and base.
+Body record: /private/tmp/review-p3-pr243-7e577f68.json.
+The PR body is unchanged from the complete final 3cf27c1b body.
+HIGH and the binding BUILD.md, real-process rules, plan 23ar, and lead rulings remain as recorded in Round 166.
+
+### Delta and retained source review
+
+The reviewer reads the complete parent-to-head delta and the surrounding parser and fixture tests.
+The delta changes only xtask/src/known_flaky.rs: four added lines and nine deleted lines.
+The changed function is under cfg(test). It reads the actual repository file and requires parsing to succeed.
+It now requires zero parsed entries rather than the removed EV-5 entry.
+The empty assertion follows the plan's Stage 1 exit condition and the reviewed removal in Round 166.
+Any parsed entry produces one name pair and fails the assertion. Parse errors and file-read errors still fail.
+The parser, stage selection, reports, absent-entry check, and nonempty fixtures do not change.
+The existing empty-file fixture remains. No test exclusion, retry, timeout, production hook, or invented conformance value appears.
+The comment and function name describe the empty-list condition. The source diff check passes.
+The merge base remains the exact base above. No new base import or pending-ID removal occurs.
+
+Round 166 in e04cca4c6322a28b00e062c35d46167d616ecebb supplies the complete composition and runtime review at the parent.
+Every other file remains identical to that reviewed parent.
+That review covers the whole guard change, descriptor receipt, state-dependent failure paths, real-process cleanup, and selected reversals.
+Its protocol-1 confirmation remains closed by the complete lead comment 6108744687.
+Its contracts .36 pin, API snapshot, real socket proofs, and status limits remain applicable to unchanged source.
+The Mac record remains evidence at 3cf27c1b. It is not relabeled as an exact-head execution at 7e577f68.
+P3 reports 295 local xtask tests passing. No supplied completed log independently establishes that report in this round.
+
+### Failed parent gate and remaining acceptance
+
+The reviewer reads the 3cf27c1b gate header, complete named failure, nextest summary, CI summary, and exit record.
+Log: gates/botster-core-stage1-p4a-real-route-transport-3cf27c1b-pool-20261011-050007-38398.log.
+The header names the exact parent and base above, Linux pool execution, and cargo xtask ci.
+The sole failed test is known_flaky::tests::the_repository_list_holds_only_the_ev_5_flake.
+It compares an actual empty list with the removed EV-5 entry at xtask/src/known_flaky.rs:354.
+Nextest reports 1680 tests run: 1679 passed, one failed, and 481 skipped.
+fmt, clippy, taint, lists, public-api, and prebuild-worker pass.
+Test-budget fails because nextest exits 100. Slow, mutants, and fuzz report NOT RUN.
+The CI total is 211.9 seconds. Jobq exits 1 after 314 seconds; botster-gate exits 1 after 315 seconds.
+This correction addresses that assertion mismatch. The failed parent gate does not supply final acceptance.
+No completed replacement gate or A5-4 table is supplied at verdict time.
+The exact-head replacement gate must pass. Its named proof and mutation outcomes still require review.
+The A5-4 table must use before = the exact base above and classify every failure and pending result before merge.
+The unchanged PR body still names the parent and its running gate. P3 must append the replacement result before merge.
+This verdict accepts no future status removal, base import, unreviewed table result, or gate result.
+
+Sol supplies inspection b747c2f672c6cc8e1d82c6710b946671abcfd536 in receipt msg_plugin-w_1791720600_10acfe.
+The reviewer reads its complete new continuation. It confirms the same test delta and failed parent gate.
+Sol has not issued formal integration source CLEAN for this replacement head. That formal review remains required.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #243 is CLEAN at `7e577f68a167fb1f21e248fcd3300ee87118b9bf` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+No new package finding appears. F121 and F122 remain CLOSED.
+Round 166 carries forward for unchanged source with all its evidence and scope limits.
+Formal integration CLEAN, the replacement gate, and the A5-4 acceptance record remain required before merge.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
