@@ -11459,3 +11459,102 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 164 — PR #243, package round 2 — 2026-10-11
+
+Head: `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
+Stacked base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240), unchanged.
+Replacement READY: msg_plugin-w_1791703897_ed0be1.
+The reviewer verifies this exact head and base in the complete current GitHub body.
+Body record: /private/tmp/review-p3-pr243-981a1a74.json.
+Previous verdict: round 163, 64ec3d1d593a4bbe522a1fecb342f30b001901b2, NOT CLEAN at 5ca808f8.
+HIGH, plan 23aj, BUILD.md, and the lead's stacked-PR and final-gate rulings remain binding.
+
+### Complete correction review
+
+The reviewer reads the complete one-commit correction: five paths, 106 insertions and sixteen deletions.
+It adds the real budget proof, passes launch limits through existing helpers, removes the redundant decrement, and fixes zero-write readiness.
+The existing mutation comment now cites the new named proof; no exclusion regex changes.
+No new source merge occurs. The other five own paths retain round 163's complete review.
+The reviewer checks the correction against the whole route transport, descriptor transfer, allowances, and PTY budget change.
+The source diff check passes. No product test hook, sleep, or polling loop is added.
+
+### F122 LOW — CLOSED
+
+write_once now clears writable when a nonempty write returns Ok(0).
+The next readable-only event therefore cannot reuse the old write readiness to produce RouteWritable.
+The existing behavior proof adds exactly that public event assertion before its writable event.
+Its later writable event still produces RouteWritable, and the terminal write error remains terminal.
+The separate empty-write and Interrupted proofs remain unchanged.
+The selected reversal removes this assignment and fails the new assertion with Some(RouteWritable) instead of None.
+This closes the reported generic-stream event path. No observed UnixStream failure is claimed.
+
+### F121 MED — OPEN: the new proof uses invalid limits
+
+The new proof sets route_queue_bytes to 64 KiB and retains all other CoreLimits defaults.
+The pinned contracts .27 CoreLimits default sets max_snapshot_bytes to 16 MiB.
+CoreLimits::validate calls check_cross_limits, which rejects route_queue_bytes below max_snapshot_bytes.
+The reviewer reads that exact source at b161db87ca82873b4f6b21d8433a69f086abb7cf, limits.rs, including defaults and validation.
+The fixture sends Launch directly to the worker, whose on_launch assigns spec.limits without host validation.
+Thus the supplied normal and reversal records execute a configuration that the public host rejects.
+R-45's baseline queue exemption does not remove the CoreLimits cross-limit rule.
+The current AttachRoute helper also derives its AppliedRouteLimits from separate default CoreLimits.
+The proof must represent a valid host launch and its corresponding route request.
+
+Required correction: set related limits to legal values and assert limits.validate() succeeds before launch.
+Derive the applied route limits from those same CoreLimits.
+Retain the normal real-worker evidence and selected ignored-budget reversal with that valid configuration.
+Retain both fixtures, bounded event observations, panic-safe cleanup, and the focused Mac evidence.
+The progressing-reader conformance ID remains pending for its separate real route_fill form.
+This retains the existing F121 proof scope. It adds no source-defect claim or new finding.
+Sol reports the same validity issue in msg_plugin-w_1791703937_8e4901.
+Package receipts: P3 msg_plugin-w_1791703971_86021f; Sol msg_plugin-w_1791703971_a89a75.
+
+The bounded negative observation addresses the earlier immediate-check scheduling gap.
+The client reads nothing while Bounded::line waits for the payload's done marker until Deadline::cleanup.
+The shared helper blocks on descriptor readiness until its deadline and starts no helper thread.
+After the expected deadline, the client reads and the proof requires the output marker, the done marker, and all payload bytes.
+The exact-head Mac records show that both fixtures complete this sequence.
+The uniform output still proves byte count and content, rather than distinguishing reordered identical bytes.
+The legal-configuration gap prevents these records from closing F121.
+
+Removing the driver's redundant budget decrement is valid.
+Each nonempty PtyOutput calls route_output and refreshes the budget through send_budget in settlement before the next PTY read.
+The actual assignment, read-size bound, spent-budget wait, and later route-progress refresh remain unchanged.
+An equivalent decrement reversal is not required. The proof must reject ignoring the actual budget.
+
+### Supplied evidence and limits
+
+The reviewer reads all three new logs completely.
+The ignored-budget reversal disables Action::PtyReadBudget assignment in a working tree based on 5ca808f8 plus the fixes.
+The new proof fails in both fixtures because done arrives while the client reads nothing.
+The driver-observer fixture fails in 0.52 seconds; the prebuilt-worker fixture fails in 0.67 seconds.
+This is precise selected reversal evidence, not a complete exact-head gate, and its configuration remains invalid.
+The F122 reversal reports eleven passing route_io proofs and one failed proof, with nineteen filtered out.
+It records the false RouteWritable result at the new assertion.
+
+The Mac record names this exact head, 2026-10-11T07:30:49Z, and Darwin 27.0.0 after prebuild of three binaries.
+Worker passes 77 tests in 10.66 seconds, slow_cli passes 17 in 0.26 seconds, and slow_session passes 39 in 10.53 seconds.
+The new budget proof has a named PASS in both worker fixtures.
+The separate-process core-sys run passes 115 tests in 0.904 seconds.
+Nine earlier individual passes add no distinct coverage.
+The pre-review gate at 5ca808f8 retains round 163's exact-head and combined-stack limits.
+No new gate runs under the lead's rule: one final gate after both CLEAN reviews.
+A final gate still must cover the corrections and their mutants before merge.
+No conformance ID moves. #240 must land before this stacked PR can merge.
+R-59's unfenced AD-7 tally limit and separate GS exclusion work remain in force.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #243 is NOT CLEAN at `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
+F122 LOW closes. F121 MED remains OPEN because its new proof uses invalid limits.
+This completes #243 package round 2. The next round is within the normal three-round limit.
+If that third round is NOT CLEAN, the lead must decide before a fourth round starts.
+The artifact goes directly to P3 and Sol integration. No ordinary NOT CLEAN report goes to the lead.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
