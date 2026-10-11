@@ -7,9 +7,10 @@ use rustix::process::Pid;
 /// How a wait for a process's exit came out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Waited {
-    /// Its exit event came.
+    /// Its exit event came, or it had begun to exit before the wait began and is not reaped. On macOS its status can still
+    /// be unavailable: XNU posts the exit event before it makes the process a zombie. `await_status` waits for the status.
     Exited,
-    /// It was gone before the wait began.
+    /// It was reaped before the wait began: no process has its pid.
     Gone,
     /// The deadline came first.
     Deadline,
