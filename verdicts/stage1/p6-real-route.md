@@ -309,3 +309,58 @@ The final Linux gate remains the implementer's step after both CLEAN verdicts, u
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+## Source inspection before Round 3 — 2026-10-11
+
+Inspected head: `5921340d4f90d94ab7864b740820c0d5fb88ad03`.
+Parent: `8474e449f19b848f0bfe6e6174316f027b815c4e`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Receipt: `msg_plugin-w_1791701707_7188c6`.
+The lead assigns this correction in the shared handoff's approximately 02:50 entry.
+Authority: approved plan 23aj, pin `~/botster-sessions/pins/stage1-plan.6dbe1c43.md`.
+I verify SHA256 `25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9`.
+The code still pins contracts .27. The later .28 code pin move remains separate.
+
+### Disjoint base import
+
+The parent imports #241 into the reviewed `fd627c55` source without a conflict.
+I read `~/botster-sessions/gates/botster-core-stage1-p6-real-route-8474e449-pool-20261010-231238-48492.log` completely.
+Both ancestry checks and all four conditions pass. The two base paths are disjoint from this PR's six own paths.
+My full-index own diffs match: 28219 bytes, SHA256 `2ab66880f1c71fdf665c191fe2e8f9fae6f1c9f45e8677839500c5d99845ab0b`.
+The automatic source merge tree matches the actual parent tree, `ad190ac37e24f7d2e9e742e785bc732b0fb1d473`.
+The import preserves the accepted runner selection and all four Round 2 corrections.
+
+### Route-control declaration correction
+
+The complete correction changes only `real.rs`: eight insertions and two deletions. Its diff check passes.
+`run_seed` checks `requires.controls` before setup. CoreDriver delegates that declaration to the harness.
+The previous harness declaration omitted `client_close` and `route_gate`, though RealRoute implements both.
+The omission made the runner return UnsupportedControl before the route could receive a step.
+`has_control` now includes `route::CONTROLS` inside the tapped condition.
+The plain harness still declares no control. The tapped harness declares only the two implemented route controls in this added branch.
+The existing public capability test checks both results for every entry in that route list.
+The other positive and negative capability checks remain. RealRoute's control dispatch remains unchanged.
+I read the complete delta, the pre-setup check, declaration delegation, route control dispatch, and affected test.
+This closes the reported declaration defect in source. I find no new integration source defect.
+Both OU-5 and OU-7 IDs remain real-pending. The correction changes no conformance list, pin, dependency, or mutation exclusion.
+The added selection changes no behavior that the operating system decides. It requires no additional focused Mac run for its own delta.
+
+### Retained parent gate and limits
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-8474e449-pool-20261010-231252-49132.log`.
+I read its header, reports, summary, and all thirty outcomes in each mutation stage.
+Its head and base match the parent and base above. All ten stages pass in 2489.2 seconds.
+Default: 1604 passed, 484 skipped, in 11.186 seconds. Slow: 427 passed, 1989 skipped, in 106.861 seconds.
+Strict pending runs 373 / 394 transcripts, with 21 real-only IDs and two held IDs.
+Minimum: testkit 55 / 69, real-passing 36 / 68, real-accepted 37 / 69.
+Pending-real reports zero newly passing IDs among 77 pending IDs.
+Stage 1 misses all thirty mutants in 104.2 seconds because this source requires the slow feature.
+The unmutated slow baseline passes in 103.6 seconds.
+Stage 2 catches 25 and finds five unviable, with zero missed or timeout, in 2097.5 seconds.
+The stage-2 identity multiset equals all thirty stage-1 misses, with no duplicate identity.
+The mutation step takes 2307.5 seconds. The job and wrapper exit zero after 2499 seconds, with no queue wait.
+
+That gate covers the parent. It does not cover the new capability declaration.
+The implementer reports a running replacement gate. Replacement READY and the exact-head package artifact remain pending.
+This source inspection completes no delta round and grants no CLEAN verdict at `5921340d`.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
