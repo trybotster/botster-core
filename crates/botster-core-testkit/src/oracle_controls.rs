@@ -165,7 +165,7 @@ impl Encode {
             .modes
             .as_ref()
             .ok_or_else(|| ControlError::UnsupportedFor("oracle_encode_without_modes".into()))?;
-        let modes = modes_over_default(partial)?;
+        let modes = modes_over_fresh(size, partial)?;
         let bytes = match self.kind {
             EncodeKind::Key => {
                 let key: KeyInput = input_of(&self.input, "key")?;
@@ -197,26 +197,39 @@ impl Encode {
     }
 }
 
-/// R-84 (1): a partial `modes` object is laid over `ModeFlags::default()`, never over the session's modes. A key that is not
-/// a field of `ModeFlags`, or a value of the wrong type, is `Bad`.
-fn modes_over_default(partial: &serde_json::Map<String, Value>) -> Result<ModeFlags, ControlError> {
-    let Value::Object(mut all) = serde_json::to_value(ModeFlags::default())
-        .map_err(|e| ControlError::Bad(format!("oracle_encode: the default modes: {e}")))?
+/// R-84 (1), as the steward corrected it: a partial `modes` object is laid over the modes of a fresh terminal of the pinned
+/// libghostty, never over the session's modes. The base comes from the binding at run time, never from a literal: which
+/// modes a new terminal has on (`dec_1035` and `dec_1036`, for example) is terminal semantics (R-7). `other_modes` merges
+/// key by key, so a partial `other_modes` keeps the fresh terminal's other entries. A key that is not a mode, an
+/// `other_modes` key that a fresh terminal does not report, or a value of the wrong type, is `Bad`.
+fn modes_over_fresh(
+    size: &Size,
+    partial: &serde_json::Map<String, Value>,
+) -> Result<ModeFlags, ControlError> {
+    let bad = |what: String| ControlError::Bad(format!("oracle_encode: {what}"));
+    let fresh = Terminal::new(size, History::Off)
+        .map_err(|e| bad(format!("no fresh terminal: {e:?}")))?
+        .modes();
+    let Value::Object(mut all) =
+        serde_json::to_value(fresh).map_err(|e| bad(format!("the fresh modes: {e}")))?
     else {
-        return Err(ControlError::Bad(
-            "oracle_encode: the default modes are not an object".into(),
-        ));
+        return Err(bad("the fresh modes are not an object".into()));
     };
     for (name, value) in partial {
-        if !all.contains_key(name) {
-            return Err(ControlError::Bad(format!(
-                "oracle_encode: `{name}` is not a mode"
-            )));
+        match (all.get_mut(name), value) {
+            (None, _) => return Err(bad(format!("`{name}` is not a mode"))),
+            (Some(Value::Object(base)), Value::Object(over)) => {
+                for (other, value) in over {
+                    if !base.contains_key(other) {
+                        return Err(bad(format!("`{other}` is not one of the `{name}`")));
+                    }
+                    base.insert(other.clone(), value.clone());
+                }
+            }
+            (Some(slot), value) => *slot = value.clone(),
         }
-        all.insert(name.clone(), value.clone());
     }
-    serde_json::from_value(Value::Object(all))
-        .map_err(|e| ControlError::Bad(format!("oracle_encode: the modes: {e}")))
+    serde_json::from_value(Value::Object(all)).map_err(|e| bad(format!("the modes: {e}")))
 }
 
 /// The `input` of `kind`, in the contract's form.
