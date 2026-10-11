@@ -818,3 +818,188 @@ fn an_exit_reaped_while_the_pump_settles_is_taken_in_that_pump() {
         SessionState::Lost(LostReason::WorkerGone)
     );
 }
+
+/// The bytes of one worker message on the link.
+fn msg_bytes(msg: WorkerMsg) -> Vec<u8> {
+    let mut payload = Vec::new();
+    msg.encode(&mut payload);
+    frame(FrameType::WORKER_MSG, &payload)
+}
+
+/// A session with a 3 s silence threshold, at `pump_events = 1`, settled: the next pump at +3 s has one due `Silent` and
+/// spends its whole budget on it.
+fn budget_spent_by_a_silence(change: impl FnOnce(&mut CoreLimits)) -> Rig {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 64;
+        change(l);
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    rig.settle();
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    rig
+}
+
+/// TM-6, E3-1 item 6, 9B: one due `Silent` at `pump_events = 1`, with no other input, is posted, and the pump reports no
+/// more work: `more` means runnable work remains, and nothing remains. The pump must not report `more` only because its
+/// budget ran out before it asked the process edge and the links (`e3_1_runnable_silent_bypasses_…` step 29).
+#[test]
+fn one_due_silence_that_spends_the_budget_leaves_no_more_work() {
+    let mut rig = budget_spent_by_a_silence(|_| {});
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1);
+    assert!(!report.more, "no exit and no frame waits (TM-6)");
+    assert!(!rig.wake_set(), "the wake clears with no runnable work");
+    assert_eq!(silents(&rig.drain_events()), vec![sid("s1")]);
+}
+
+/// TM-6, 9B (`take_exits`): an exit that the pump has no budget for is taken from the process edge and kept, the pump reports
+/// `more` with the wake set, and the next pump feeds it first: the session ends `Lost(WorkerGone)`.
+#[test]
+fn an_exit_with_no_budget_left_is_kept_and_taken_by_the_next_pump() {
+    let mut rig = budget_spent_by_a_silence(|_| {});
+    rig.mock.lock().unwrap().exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(0),
+    ));
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent");
+    assert!(report.more && rig.wake_set(), "an exit waits (TM-6)");
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Running,
+        "the exit is not fed in a pump with no budget (9B)"
+    );
+    rig.drain_events();
+    rig.pump();
+    assert_eq!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone),
+        "the kept exit is not lost"
+    );
+}
+
+/// TM-6, 9B (`read_link`): with no budget left, a part of a frame on the link is not runnable work, and a whole frame is:
+/// the pump reports `more` only for the whole frame, and the next pump delivers it.
+#[test]
+fn with_no_budget_left_only_a_whole_frame_on_a_link_is_more() {
+    let bell = msg_bytes(WorkerMsg::Observed {
+        observation: Observation::Bell,
+    });
+    let (head, tail) = bell.split_at(bell.len() / 2);
+    let mut rig = budget_spent_by_a_silence(|_| {});
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .to_host
+        .extend_from_slice(head);
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent");
+    assert!(!report.more, "a part of a frame is not runnable (TM-6)");
+    rig.drain_events();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .to_host
+        .extend_from_slice(tail);
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Bell, from both parts");
+    assert!(rig
+        .drain_events()
+        .iter()
+        .any(|e| matches!(e, Event::Bell { .. })));
+
+    // A whole frame behind the spent budget: `more`, and the next pump delivers it.
+    let mut rig = budget_spent_by_a_silence(|_| {});
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Observed {
+            observation: Observation::Bell,
+        },
+    );
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent");
+    assert!(report.more && rig.wake_set(), "a whole frame waits (TM-6)");
+    rig.drain_events();
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1);
+    assert!(rig
+        .drain_events()
+        .iter()
+        .any(|e| matches!(e, Event::Bell { .. })));
+}
+
+/// TM-6, 9B (`read_link`): the end of a link that a read meets with no budget left is kept: the pump reports `more`, the link
+/// stays open in that pump (closing it posts the session's loss), and the next pump closes it.
+#[test]
+fn a_link_end_with_no_budget_left_is_closed_by_the_next_pump() {
+    let mut rig = budget_spent_by_a_silence(|_| {});
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .peer_closed = true;
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent");
+    assert!(report.more && rig.wake_set(), "the link's end waits (TM-6)");
+    assert!(!rig.mock.lock().unwrap().links[&LinkId(1)].closed_by_host);
+    rig.drain_events();
+    rig.pump();
+    assert!(rig.mock.lock().unwrap().links[&LinkId(1)].closed_by_host);
+}
+
+/// TM-6, EV-5b (`retry_held` and `deliver`): a frame that waits for mandatory-queue room is parked, not runnable, so it
+/// does not make `more` true when the budget is spent. A poll that frees room signals the wake, and the frame is delivered.
+#[test]
+fn a_frame_parked_on_queue_room_is_not_more_when_the_budget_is_spent() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 2;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    rig.settle();
+    // Two `Created` states fill the mandatory queue of two, before the silence is due.
+    rig.driver.begin(create("b")).unwrap();
+    rig.driver.begin(create("c")).unwrap();
+    let mut guard = 0;
+    while rig.pump().more {
+        guard += 1;
+        assert!(guard < 20);
+    }
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent");
+    assert!(!report.more, "the Exited frame is parked on room (TM-6)");
+    // The same holds when the frame was already held from an earlier pump.
+    let report = rig.pump();
+    assert!(!report.more && !rig.wake_set());
+    rig.drain_events();
+    assert!(rig.wake_set(), "the poll freed room (EV-5d)");
+    rig.pump();
+    assert!(matches!(
+        rig.driver.get(&sid("s1")).unwrap().state,
+        SessionState::Exited(_)
+    ));
+}
