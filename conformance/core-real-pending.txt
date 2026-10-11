@@ -35,6 +35,7 @@ conf::am_2_next_write_waits_for_completion_or_partial_end
 conf::ev_2_retired_instance_never_creates_a_loss_marker
 conf::in_2_partial_is_certain
 conf::in_6_cancel_reports_progress
+conf::in_7_lost_worker_ends_pending
 conf::ou_12_output_bytes_are_unmodified_and_in_order
 
 # needs wait_worker_exit for a non-spawned worker (R-46 follow-up 5651aec): its Remove of a stray worker learns of the end only
