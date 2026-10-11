@@ -338,6 +338,18 @@ fn hello_and_launch(
             let sent =
                 botster_core_sys::fd_pass::send_with_fd(&link.stream, &bytes, route).unwrap();
             link.stream.write_all(&bytes[sent..]).unwrap();
+            // The worker reports the bound descriptor (R-65) and the launch, in the order of its turns: both, once each.
+            let (mut launched, mut received) = (None, false);
+            while launched.is_none() || !received {
+                match link.report() {
+                    WorkerMsg::Launched { payload, .. } if launched.is_none() => {
+                        launched = Some(payload);
+                    }
+                    WorkerMsg::RouteReceived { route: RouteId(1) } if !received => received = true,
+                    other => panic!("not launched with route 1 received: {other:?}"),
+                }
+            }
+            return (link, launched.unwrap());
         }
     }
     let WorkerMsg::Launched { payload, .. } = link.report() else {
