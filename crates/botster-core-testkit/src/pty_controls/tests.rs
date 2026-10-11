@@ -843,3 +843,74 @@ fn a_route_reads_past_its_first_allowance_while_its_frames_are_refused() {
         "every frame is refused"
     );
 }
+
+/// `input_blocked` (Core DP-5, docs/core-testkit-controls.md): after the workers' ready work, it reports whether the route's
+/// stream takes no more bytes from the client. With the PTY blocked, the worker stops reading the route at its input bound
+/// (a small `route_input_queue_bytes`), and the stream fills: blocked. Released, the worker writes every byte, reads the rest,
+/// and the stream takes bytes again: not blocked. No byte is lost.
+#[test]
+fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
+    use botster_route_codec::prelude::{stream_wrap, Op as WireOp, ToWorker};
+    const QUEUE: u64 = 2048;
+    const PAYLOAD: usize = 200;
+    const FRAMES: usize = 400;
+    let mut harness = TestkitHarness::new(0);
+    let spec = spec_with("a", json!({"route_input_queue_bytes": QUEUE}));
+    let (mut core, at) = session_in(&mut harness, &spec, true, &json!([{"hold": {}}]));
+    let options: AttachOptions = serde_json::from_value(json!({
+        "file_directory": "/tmp",
+        "answers_queries": false,
+        "input": true,
+        "route_limits": {"max_frame_bytes": 1024},
+    }))
+    .unwrap();
+    let (_, mut route) = harness
+        .attach_stream(
+            "a",
+            core.as_mut(),
+            ClientId("c".into()),
+            &sid("s1"),
+            options,
+        )
+        .expect("attached");
+    settle(core.as_mut(), at);
+    let blocked = |route: &mut Box<dyn botster_core_conformance::RouteClient>| {
+        route.control("input_blocked", &json!({}))
+    };
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": true})),
+        Ok(Value::Null)
+    );
+    let frame = |k: usize| {
+        stream_wrap(
+            &ToWorker::Bytes {
+                op: WireOp(k as u64),
+                bytes: vec![b'a' + (k % 26) as u8; PAYLOAD].into(),
+            }
+            .encode(),
+        )
+    };
+    assert!(FRAMES * frame(1).len() > crate::route_client::ROUTE_STREAM_BYTES + 2 * QUEUE as usize);
+    for k in 1..=FRAMES {
+        route.write(&frame(k));
+    }
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": true})));
+    assert_eq!(
+        harness.control("a", "pty_blocked", &json!({"session": "s1", "on": false})),
+        Ok(Value::Null)
+    );
+    for _ in 0..PUMPS {
+        settle(core.as_mut(), at);
+        if blocked(&mut route) == Ok(json!({"blocked": false}))
+            && input(&mut harness).as_str().map_or(0, str::len) == 2 * FRAMES * PAYLOAD
+        {
+            break;
+        }
+    }
+    assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+    let expected: String = (1..=FRAMES)
+        .map(|k| botster_route_codec::prelude::hex_encode(&[b'a' + (k % 26) as u8; PAYLOAD]))
+        .collect();
+    assert_eq!(input(&mut harness), json!(expected), "every byte, in order");
+}
