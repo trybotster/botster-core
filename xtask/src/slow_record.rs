@@ -2,7 +2,8 @@
 //!
 //! The slow step (`cargo xtask test-budget --slow`) and the stage-2 baseline run the same tests: the slow selection
 //! (`test_budget::slow_selection`) over the unmutated tree, each bounded by the slow deadline with the leftover check.
-//! When the slow tier passes, it writes a record: the commit, whether the tree is clean, the selection, the sha256 of each
+//! Before the slow tests run (after their build), the slow tier makes a record; when they pass, it makes it again and
+//! writes it only when both are equal, so the record names the bytes that the passing tests used. The record holds: the commit, whether the tree is clean, the selection, the sha256 of each
 //! file of `target/candidate` (the prebuilt binaries and their manifest, which the tests execute and git does not see),
 //! the sha256 of each test binary of the selection, and each test that the selection runs with its binary
 //! (`cargo nextest list`). `cargo xtask ci` removes the record before its first step, so only the slow step of the same
@@ -233,22 +234,46 @@ pub fn current(
     ))
 }
 
-/// Writes the record of `selection` (`current`) for a slow tier that passed.
+/// The record of `selection` before a slow run (`current`), after the build and before the tests: the bytes that the
+/// tests will use. Any record of an earlier run is removed first.
 ///
 /// # Errors
-/// The record could not be made or written.
-pub fn write(
+/// The record could not be removed or made.
+pub fn before_run(
     root: &Path,
     target_dir: &Path,
     selection: &[String],
     env: &[(&str, &str)],
-) -> Result<()> {
-    let text = current(root, &target_dir.join("candidate"), selection, env)?;
+) -> Result<String> {
+    clear(target_dir)?;
+    current(root, &target_dir.join("candidate"), selection, env)
+}
+
+/// After a passed slow run: writes the record now only when it equals `before` (`before_run`) by `reuse`, so the tests
+/// passed on exactly the recorded bytes; otherwise writes nothing and gives why. A file that a test changes during the
+/// run (a candidate file, a test binary) leaves no record, and the baseline runs.
+///
+/// # Errors
+/// The record now could not be made, or it could not be written.
+pub fn after_pass(
+    root: &Path,
+    target_dir: &Path,
+    before: &str,
+    selection: &[String],
+    env: &[(&str, &str)],
+) -> Result<std::result::Result<(), String>> {
+    let after = current(root, &target_dir.join("candidate"), selection, env)?;
+    if let Err(why) = reuse(Some(before), &after) {
+        return Ok(Err(format!(
+            "the record changed during the slow run ({why})"
+        )));
+    }
     let file = path(target_dir);
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&file, text).with_context(|| format!("write {}", file.display()))
+    std::fs::write(&file, after).with_context(|| format!("write {}", file.display()))?;
+    Ok(Ok(()))
 }
 
 /// Removes the record, so that a later step reads only a record that this run wrote.
@@ -573,7 +598,12 @@ mod slow_tests {
             check(&repo, &target, &selection, &env).unwrap(),
             Err("the slow step of this run left no record of a pass".to_string())
         );
-        write(&repo, &target, &selection, &env).unwrap();
+        let pass = |during: &dyn Fn()| {
+            let before = before_run(&repo, &target, &selection, &env).unwrap();
+            during();
+            after_pass(&repo, &target, &before, &selection, &env).unwrap()
+        };
+        assert_eq!(pass(&|| ()), Ok(()));
         assert_eq!(check(&repo, &target, &selection, &env).unwrap(), Ok(2));
         let other: Vec<String> = ["--workspace", "-E", "test(/second/)"]
             .iter()
@@ -598,13 +628,29 @@ mod slow_tests {
             .unwrap()
             .unwrap_err()
             .contains("the tree now has artifact"));
-        write(&repo, &target, &selection, &env).unwrap();
+        assert_eq!(pass(&|| ()), Ok(()));
         assert_eq!(check(&repo, &target, &selection, &env).unwrap(), Ok(2));
         std::fs::write(candidate.join("manifest.json"), "{\"changed\":1}").unwrap();
         let changed = check(&repo, &target, &selection, &env)
             .unwrap()
             .unwrap_err();
         assert!(changed.contains("manifest.json"), "{changed}");
+        // A candidate file that a passing run changes leaves no record (the old one is gone too), so the baseline runs.
+        let during = pass(&|| {
+            std::fs::write(candidate.join("manifest.json"), "{\"during\":1}").unwrap();
+        });
+        assert!(
+            during
+                .as_ref()
+                .is_err_and(|why| why.contains("changed during the slow run")
+                    && why.contains("manifest.json")),
+            "{during:?}"
+        );
+        assert_eq!(
+            check(&repo, &target, &selection, &env).unwrap(),
+            Err("the slow step of this run left no record of a pass".to_string())
+        );
+        assert_eq!(pass(&|| ()), Ok(()));
         clear(&target).unwrap();
         assert!(check(&repo, &target, &selection, &env).unwrap().is_err());
     }

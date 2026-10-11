@@ -555,6 +555,15 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     } else {
         TIER_LIMIT
     };
+    // The record of the slow tier before its tests (`slow_record`): the bytes that the tests will use.
+    let record_before = options.slow.then(|| {
+        crate::slow_record::before_run(
+            root,
+            &meta.target_dir,
+            &selection(&options, &meta),
+            &tier_env(true),
+        )
+    });
     let pidfile = junit.with_file_name("test-pids");
     let _ = std::fs::remove_file(&pidfile);
     if let Some(dir) = pidfile.parent() {
@@ -570,17 +579,28 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     }
 
     if failures.is_empty() {
-        if options.slow {
-            // The record of the pass, which the stage-2 baseline of this run reuses when the tree and its tests are
-            // the same (`slow_record`).
-            // With no record the baseline runs, so a failed write does not fail the tier.
-            if let Err(error) = crate::slow_record::write(
-                root,
-                &meta.target_dir,
-                &selection(&options, &meta),
-                &tier_env(true),
-            ) {
-                println!("test-budget: no record of the pass for the stage-2 baseline: {error:#}");
+        // The record of the pass, which the stage-2 baseline of this run reuses when the tree and its tests are the
+        // same (`slow_record`). With no record the baseline runs, so no record does not fail the tier.
+        if let Some(before) = record_before {
+            let recorded = before.and_then(|before| {
+                crate::slow_record::after_pass(
+                    root,
+                    &meta.target_dir,
+                    &before,
+                    &selection(&options, &meta),
+                    &tier_env(true),
+                )
+            });
+            match recorded {
+                Ok(Ok(())) => {}
+                Ok(Err(why)) => {
+                    println!("test-budget: no record of the pass for the stage-2 baseline: {why}")
+                }
+                Err(error) => {
+                    println!(
+                        "test-budget: no record of the pass for the stage-2 baseline: {error:#}"
+                    )
+                }
             }
         }
         println!("test-budget: ok");
