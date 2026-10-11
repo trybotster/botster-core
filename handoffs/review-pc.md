@@ -5,9 +5,9 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.1555a98b.md`, revision 23al.
-- Verified plan SHA-256: `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
-- Current code pin: `contracts-v0.1.29`, commit `65f76ab9829d7a0fda2835c10abc7ffae2c35215`. The base contains merged #245.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.a2897c12.md`, revision 23ar.
+- Verified plan SHA-256: `2e4d6e962f37ddafe2a68fd50598a1bd218fe3a6a53358f8cccd970884e0daed`.
+- The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Current reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
 - Current base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
@@ -623,3 +623,44 @@ The older green gate covers 6dd3caef. Integration CLEAN and the final Linux gate
 The implementer reports a running final gate. The reviewer did not read or poll the job and ran no execution job.
 The PR body retains historical counts and races. The current verdict records the 18 removals and fenced evidence.
 The PC group is not complete. Next: push the delta CLEAN and send its commit. Then wait for the doorbell. Never poll.
+
+Push record: #233 delta CLEAN is on origin/stage1/review-pc at cb1f5854e0ea86fb395326ad3423237237fdd543.
+Reviewed head: a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a. Base: 9ef7e57b857a551e5b66a84d0953630186cb51e7.
+Zero open findings. Integration CLEAN and the final exact-head Linux gate remain required.
+The reviewer worktree is clean. Wait for the completed gate doorbell. Never poll.
+
+The implementer refreshed the PR body in msg_plugin-w_1791711102_761f51.
+The reviewer read the updated body at the same head and base. It records 18 removals, 20 pending PC IDs, both fences, and completed versus running gates.
+This is a description change only. Package CLEAN commit cb1f5854e0ea86fb395326ad3423237237fdd543 remains valid.
+Integration CLEAN arrived in msg_plugin-w_1791711107_59ab0e. Integration commit: 00a682a936cfcb7a399f3fbdd397c241c16b17f3.
+The package reviewer read the complete added Round 5 section. Both reviewers are CLEAN at a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a, base 9ef7e57b857a551e5b66a84d0953630186cb51e7.
+The final exact-head Linux gate remains required. Wait for the doorbell. Never poll.
+
+## Phase: named real-process proofs for real-only IDs
+
+The lead assigns this mechanism to PC in the 08:10 and 08:20 PT records of the lead handoff.
+Request: msg_plugin-w_1791719105_06675d. Reviewers: this package reviewer and Sol.
+Source base: b3cb268f3c2cb3223dadef02033d2bee49f06c59. Binding plan: revision 23ar, stage1-plan.a2897c12.md.
+Design: shared/core-stage1/handoffs/pc-real-only-proofs-design.md.
+Design SHA-256: 3a88498a9b39d49d110e8cec106670251890da92a2a97a5edee0818927d64811.
+The reviewer uses orchestrate-delivery to check the changed acceptance premise and evidence boundary.
+The reviewer read its Botster lessons and retained the existing delivery records.
+
+The source confirms that the real tier runs a non-pending real-only transcript instead of its named process proof.
+The current count names a slow category, and the existing JUnit parser checks timing attributes only.
+All 26 real-only IDs are pending at the exact base. The initial empty mapping supplies no proof or additional pass.
+The design preserves the generated real-only file. Core owns the separate proof mapping.
+PC implements selection and result checks. P3 owns the first DP-2 proof and its later pending-ID removal.
+No runtime, contract, transcript, timeout, pin, or pending-ID change belongs to this mechanism phase.
+
+Package design verdict: CLEAN (0 open), verdicts/pc-real-only-proofs-design.md.
+The accepted design requires selected, unignored tests and same-run JUnit PASS for every proof line.
+The result check must reject malformed, missing, skipped, failed, errored, or failed retry evidence.
+An ambiguous duplicate result must not hide a failure. Report freshness must survive cleanup errors.
+The suite only reports the proof source. The successful gate establishes acceptance.
+The source PR still needs both exact-head reviews, a Prior art note, and its gate.
+Sol's design CLEAN is 211ca91b0e020c4beed0fbb0d1025932858132db, received in msg_plugin-w_1791719239_b1f798.
+The reviewer read Sol's complete design verdict and ran no test, build, gate, mutation, or merge-check job.
+The reviewer canceled an unnecessary character-diff read script. It changed no file or evidence.
+Next: publish the design verdict and tell PC to implement the agreed design. Then wait for READY. Never poll.
+The original program-controls group remains incomplete.
