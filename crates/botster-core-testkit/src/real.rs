@@ -2303,12 +2303,7 @@ mod slow_tests {
         use std::os::unix::fs::PermissionsExt as _;
         let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
         let root = harness.root().to_path_buf();
-        assert_eq!(
-            root.parent(),
-            Some(Path::new(SHORT_ROOT)),
-            "{}",
-            root.display()
-        );
+        assert_eq!(root.parent(), Some(Path::new("/tmp")), "{}", root.display());
         let mode = std::fs::metadata(&root).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700, "{mode:o}");
         let longest = InstanceId(format!("{}-{}", u64::MAX, u64::MAX));
