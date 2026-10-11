@@ -1182,3 +1182,13 @@ Stage 2 does not run because stage 1 misses no mutant. Package CLEAN remains val
 Pre-import integration CLEAN is `30f8045fe17057fd6ea2075b05b153e33ed8e2e5` at `80f17bcf`. New-head integration delta review remains pending.
 
 The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+
+### New-head integration completion
+
+Sol published integration CLEAN in `ae7ca202f15ccb271a2b7565e3cdb679952dba42` at the exact new head and base above. No finding remains open.
+
+Sol checked the failed base-merge-check, the own diff, the lockfile overlap, all 37 imported base blobs, the merge tree, and the final body.
+
+Sol also checked the final exact-head gate and both catch identities. The #257 stat-only snapshot condition remains.
+
+Both reviewers are CLEAN on `3c8044f40a6b26400240616b8946b05478b72fca`. The lead owns the merge decision and current-base check.

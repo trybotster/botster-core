@@ -13,7 +13,11 @@ The implementer reports a base-merge-check failure on `Cargo.lock`. I performed 
 
 The own diff is identical after removal of Git blob index lines. The lockfile addition is still the one dev-dependency line.
 
-Source CLEAN applies to the new exact head. Its final gate passes all ten steps in 153.0 seconds. Integration delta review remains pending.
+Source CLEAN applies to the new exact head. Its final gate passes all ten steps in 153.0 seconds.
+
+Integration completion CLEAN: `ae7ca202f15ccb271a2b7565e3cdb679952dba42` at the new exact head and base, with zero findings.
+
+Sol checked the failed base-merge-check, own diff, imported blobs, merge tree, final body, gate, and both catches. The #257 snapshot condition remains.
 
 New-head gate: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-3c8044f4-pool-20261011-055225-5278.log`.
 
@@ -187,7 +191,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #265's integration review or a new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate after #243 merges.
+Wait for PR #265's merge receipt or a new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
