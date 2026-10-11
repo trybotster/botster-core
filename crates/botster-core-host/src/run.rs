@@ -302,13 +302,14 @@ impl HostEngine {
                 f.deadline = None;
             }
         }
-        if broken {
+        // A gone worker is not probed (R-78 design, branch priority): its link drains, and the end of file classifies it, or
+        // it was classified at its exit when no link was left.
+        if broken && !gone {
             let worker = self.sessions.get(id).map(|s| s.worker);
             match worker {
                 // R-78 item 3: the exit watch of a spawned worker may still hold its reaped exit (a deadline runs at the pump
                 // bound, the exits wait for budget), so the reason does not depend on that order. The identity check, which
-                // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step. A gone
-                // worker whose link can still be read is checked too: the answer keeps the drain (R-78 item 4).
+                // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step.
                 Some(WorkerHandle {
                     spawned: true,
                     identity: Some(identity),
