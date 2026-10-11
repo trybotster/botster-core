@@ -49,3 +49,10 @@ VERDICT: CLEAN (0 open) on this exact head. The gate on this head is still to co
 
 - The parent is the reviewed head `06acbd8221efaf1e91c049809920d3141d6e1fb5`. The delta is one line in `docs/core-testkit-controls.md`: "FakeCore's" becomes "on the Core testkit and the real tier" in the `kernel_bytes` row. **F1 is closed.**
 - The rest of the row does not change. "Real tier: ignored, because the kernel buffers" agrees with R-74 ("On the real tier, n is ignored") and with the probe section of the same doc.
+
+## Round 3 (delta): head `c212576f5e643c43b436614103e0b8589a7e2ea6`
+
+VERDICT: CLEAN (0 open in my scope) on this exact head. Not merge-ready: 016c's open MEDIUM (below) needs a new head.
+
+- The parent is `4b7c2bb044b7d0e74b31d04cc0b3e9d1517ec08f`. The delta is one phrase in the same row: "`pty_blocked` on the Core testkit and the real tier" becomes "the testkit's `pty_blocked`", as the steward requires through the lead. Nothing else changes. The branch head on origin is this commit, and main is still `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0`.
+- **016c's REJECT on `4b7c2bb0` (package scope):** a MEDIUM in the R-74 lint case (`fence_lint.rs`). The `writes` map keeps a `WriteInput`'s old session after a `let` or another binding replaces its op variable. So a count can fence a capture of the wrong session, against R-74 condition 2. My round 1 missed it. I do not withdraw a CLEAN for a package-scope finding, and I review the fix as a delta on the next head: entries cleared on every replacement binding (`let` and `Rebound::All` included), an entry only for a current `WriteInput` binding, and a regression test.
