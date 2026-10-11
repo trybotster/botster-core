@@ -13,11 +13,18 @@ use super::RealCoreHarness;
 use crate::capture_layer::lock;
 use crate::controls::parse;
 use crate::oracle_compare::raw_oracle;
-use crate::oracle_controls::{screen, QueryReply, Screen};
+use crate::oracle_controls::{screen, Encode, QueryReply, Screen};
 use botster_core_conformance::ControlError;
 use serde_json::Value;
 
 impl RealCoreHarness {
+    /// `oracle_encode` (steward ruling R-84): the size of the session's stored row; the modes are the call's own.
+    pub(super) fn oracle_encode(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let args: Encode = parse(args)?;
+        let (_, row) = self.stored(handle, &args.session)?;
+        args.encode(&row.request.size)
+    }
+
     /// `oracle_query_reply` (Core EV-8): the size of the session's stored row.
     pub(super) fn oracle_query_reply(
         &self,
