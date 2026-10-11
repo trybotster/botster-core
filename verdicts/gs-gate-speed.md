@@ -162,3 +162,55 @@ The PR reports a red-on-revert check that restores the old worker constant line.
 I ran no gate, build, or test. The final gate remains required under the GS brief after both CLEAN verdicts.
 
 This CLEAN covers only PR #251 at the reviewed head. The in-place mutation run and baseline reuse changes remain unreviewed formally.
+
+## PR #252: run mutation stage 1 in place
+
+VERDICT: NOT CLEAN (1 open)
+
+- Reviewed head: `c4d9c376cca2022d8fc3b41558ed2c62e9686ea6`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Risk tier: HIGH.
+- Open findings: 1 LOW, GS-L1-R1-1.
+- Review date: 2026-10-11.
+
+Stage 1 adds `--in-place`. The shared options remove `--jobs 1`, which conflicts with that option. No selection, profile, timeout rule, or verdict code changes.
+
+I read the installed cargo-mutants 27.1.0 source. Its default worker count is one. Its in-place baseline uses the workspace directory, and its baseline still sets the test timeout.
+
+The existing stage-2 build and candidate binary rules remain unchanged. The prebuilt worker gap remains. The gate uses a disposable source snapshot.
+
+I found no runtime regression in the reviewed diff. One safety statement requires correction before CLEAN.
+
+### GS-L1-R1-1: the baseline does not prove every repository-dependent result
+
+Severity: LOW. Status: OPEN.
+
+The PR Safety section says that a repository-dependent difference fails the baseline and cannot pass a mutant. The `stage1_run_args` comment makes the same broad baseline claim.
+
+A test can pass unmutated in both modes and behave differently only under a mutant. A passing baseline does not exclude that case.
+
+Required change: correct the PR body and source comment. State that the baseline detects unmutated incompatibility only. Use the current source review and per-mutant comparison as evidence.
+
+This finding identifies an incorrect safety argument. It does not claim an observed mutant regression in this repository.
+
+### Evidence
+
+The exact-head Linux gate passes all ten steps and exits 0:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-gate-speed-c4d9c376-pool-20261011-013325-91259.log`
+
+Stage 1 catches all three in-diff mutants. It reports no miss, timeout, or unviable mutant. Stage 2 does not run because stage 1 misses none.
+
+I independently compared outcome lines in the retained copy-versus-in-place log:
+
+`~/botster-sessions/gates/botster-core-gs-l1-copy-vs-inplace-5a41a2c1-evidence.log`
+
+Both runs use the same evidence head. All 119 outcome lines match by full identity and multiplicity after removing timing suffixes.
+
+The lines contain the baseline and 118 mutants: 113 caught, 2 missed, and 3 unviable. Neither run reports a timeout.
+
+The job's `SAME-OUTCOMES` line compares empty files because Python is absent. I do not use that line as evidence. My comparison uses the retained mutant lines.
+
+The evidence tests stage 1 only. It does not claim an old-versus-new stage-2 comparison or resolve the two missed mutants of the evidence head.
+
+The PR includes a Prior art note. I ran no gate, build, or test.

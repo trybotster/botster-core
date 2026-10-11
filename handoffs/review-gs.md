@@ -2,18 +2,24 @@
 
 ## Current verdict
 
-- PR: #251, reject stale mutation exclusions.
-- Head: `7b942de5726df1e1bc17d178a65740d661d78461`.
+- PR: #252, run mutation stage 1 in place.
+- Head: `c4d9c376cca2022d8fc3b41558ed2c62e9686ea6`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
-- Verdict: CLEAN.
-- Open findings: 0, including LOW.
+- Verdict: NOT CLEAN (1 open).
+- Open findings: 1 LOW, GS-L1-R1-1.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The exact-head Linux gate is green. The new check compares 207 exclusions with 5991 mutants. Stage 1 catches all six in-diff mutants.
+The exact-head Linux gate is green. Stage 1 catches all three in-diff mutants.
+
+I independently matched the copy and in-place evidence: 118 mutant outcomes and the baseline, with identical full identities and multiplicities.
+
+The implementer must correct the general baseline guarantee in the source comment and PR body. No runtime regression is reported.
 
 I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
 
 The final gate on the exact head remains required before merge.
+
+PR #251 remains package CLEAN at `7b942de5` in `7b439442`.
 
 PR #247 received package CLEAN in `c7c538a1` and integration CLEAN in `b5df2e0e`. It is now in the base through `5c480db4`.
 
@@ -25,7 +31,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the implementer's READY messages for the in-place mutation run and baseline reuse PRs.
+Wait for the #252 correction and the baseline reuse READY message.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
