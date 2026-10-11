@@ -267,3 +267,54 @@ I sent the Mac evidence limits and body update request directly to P6 in receipt
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-11: quiet contract assertion after the missed mutant
+
+Exact head: `27cb2cc48562334612d2d227aff8d8bb88a30d52`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `e02638de17d5bf1031e2a6807a07eb20ef906125`.
+Parent: `2645bfc1c216cea54cd61577cae25e834e66133c`.
+I read the complete one-file delta and the quiet, holds_anything, link_held_for_start, and test contexts.
+The delta adds one assertion and one comment. It changes no product or harness implementation.
+
+The interrupted-read test now calls quiet again after the tap has read one byte, before the driver's link_recv call.
+The new assertion requires a non-quiet result while that byte waits for the driver on a link without a start hold.
+The existing link_recv assertion still requires the exact byte z. The earlier bounded-attempt and wake assertions remain unchanged.
+The new assertion checks the observable quiet contract. It does not inspect a private hold collection or counter.
+It introduces no wait, sleep, loop, process, signal, or reap operation.
+
+### Completed parent-head Linux evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-2645bfc1-pool-20261011-120525-8394.log`.
+SHA256: `2922694baf31867c1e6086859c9f6882f94ed7febb58efd0c762c336fcb18f74`.
+I read its exact-head/base headers, summaries, mutation outcomes, and relevant conformance results.
+The gate runs at the exact parent above with BOTSTER_CI_BASE_REF set to `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Eight stages pass. Mutants fails. Fuzz does not run because an earlier stage failed.
+The gate takes 1646.0 seconds. The job and wrapper exit one after 1654 seconds: one queued and 1653 running.
+Default passes 1755 tests, with 474 skipped, in 11.016 seconds.
+Slow passes 570 tests, with 2038 skipped, in 40.584 seconds.
+The real minimum remains 49 / 68 passing and 50 / 69 accepted. Eleven of 36 pending-real ids pass.
+This head removes no pending id. These trial outcomes do not authorize a later removal.
+
+A static parser verifies all raw mutation identities and named catch records.
+Stage 1 has 164 unique identities: 66 caught, 94 missed, four unviable, and zero timeout, in 318.3 seconds.
+Stage 2's 94 unique identities exactly match stage 1's missed identities.
+The slow baseline passes in 52.3 seconds. Stage 2 catches 73, misses one, and reports 20 unviable and zero timeout, in 1155.8 seconds.
+Each stage's raw caught identities exactly match its unique named catch records.
+The final total is 139 caught, one missed, 24 unviable, and zero timeout. Unviable results supply no catch evidence.
+The single stage-2 miss is `crates/botster-core-testkit/src/edge_tap.rs:347:9: replace Tap<E>::link_held_for_start -> bool with true`.
+That result is a test-coverage finding at the parent head. The failed gate supplies no complete gate approval.
+
+At the new head, the added assertion covers the missing case in the source.
+With that mutation, holds_anything ignores the buffered byte, and the next quiet call can return true after WouldBlock.
+The new assertion requires false before link_recv consumes the byte. The source therefore targets the reported miss directly.
+I do not claim a completed catch at this new head. P6 reports that the new full Linux gate is running.
+
+The implementation remains byte-identical to Round 4. Its required Mac evidence retains that unchanged-implementation scope.
+The extra assertion has no completed new-head Mac result in this review.
+No source finding remains open. This CLEAN verdict covers the source delta and the carried required Mac implementation evidence.
+The completed new-head Linux gate and updated final body remain due. This verdict does not approve PR completion.
+It accepts no later import or pending removal. It does not convert the failed parent gate into a pass.
+I changed no product code and ran no execution job.
+
+VERDICT: CLEAN
