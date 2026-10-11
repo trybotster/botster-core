@@ -3,27 +3,23 @@
 ## Current review result
 
 - Repository and PR: `trybotster/botster-core#270`.
-- Head: `7e568e20bbac33a99f01fbf3b2cdd3acb6d5b804`.
-- Base: `c942593697e856017572977af0405b17de0124e2`.
-- Risk tier: HIGH, under the lead's revised ruling.
-- Verdict: CLEAN (package review).
+- Head: `b038bac80c7939343433ec2e843c393f694470ce`.
+- Base: `1da39f7c9bb99b8cf8c8fd85355e5e48fd7b4c21`.
+- Risk tier: HIGH.
+- Verdict: CLEAN (package source review).
 - Open findings: 0.
 
-The source uses the shared reap helper. Its parameter signature and body remain identical. The observer parent uses OwnedChild.
+The canonical base-check fails (2)/(3) on the shared lib.rs. I performed the required delta review.
 
-The allow file removes five entries and adds none. The earlier accepted helper entry is absent.
+The complete own diff is identical without blob index lines and hunk positions. The shifted export preserves the base's new alone module.
 
-GS-BW-1 MEDIUM is CLOSED. The exact-head Mac pool evidence covers both fixtures and every changed site.
+The shared helper, worker callers, and five allow-entry removals remain unchanged. GS-BW-1 remains CLOSED.
 
-Mac: 53 testkit tests and 137 worker tests pass; reverted proofs time out in 2.028 and 2.035 seconds.
+The reviewed and gated previous head `7e568e20bbac33a99f01fbf3b2cdd3acb6d5b804` is package CLEAN in `8f819121`.
 
-Linux: 53 testkit tests and 140 worker tests pass; both reverted proofs time out in 2.002 seconds.
+Sol must complete the HIGH integration delta. The lead requires one final Linux gate on the new exact head after both source CLEANs.
 
-The final exact-head Linux gate passes all ten steps in 112.6 seconds. Process-check reports 110 allowed sites.
-
-Sol owns the HIGH integration review. The lead owns the merge decision and current-base check. Wait for integration completion, a merge receipt, or a new head.
-
-I ran no gate, build, or test.
+Wait for those results. This source verdict does not claim final gate acceptance. I ran no gate, build, or test.
 
 ## Previous Core PR #262
 

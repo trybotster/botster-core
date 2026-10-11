@@ -1726,3 +1726,30 @@ Gate: `~/botster-sessions/gates/botster-core-stage1-gs-bounded-waits-7e568e20-po
 The live body describes the revised source and HIGH scope. Sol owns integration review. The lead owns the merge decision and current-base check.
 
 I ran no gate, build, or test.
+
+
+### Core PR #270: new-base source delta
+
+- Head: `b038bac80c7939343433ec2e843c393f694470ce`.
+- Base: `1da39f7c9bb99b8cf8c8fd85355e5e48fd7b4c21`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package source review).
+- Open findings: 0.
+
+The lead requires source CLEAN before the final gate. The head merges reviewed head `7e568e20bbac33a99f01fbf3b2cdd3acb6d5b804` with the new base.
+
+I read the complete canonical base-check log. Conditions (1) and (4) pass; conditions (2) and (3) fail on `crates/botster-test-process/src/lib.rs`.
+
+I performed the required source delta review. The complete own diff is identical after removal of Git blob index lines and hunk positions.
+
+The sole shifted hunk is the `reap_within` export. The new base adds the `alone` module and its documentation above that export.
+
+The merged file keeps both additions and the same reap export. The helper body, worker callers, and allow-file removals remain unchanged.
+
+The live body identifies the previous-head logs correctly. Those logs do not constitute the final Linux gate on this new head.
+
+GS-BW-1 remains CLOSED: its Mac evidence covers unchanged own wait code and the same platform adapters. The source delta adds no new platform wait.
+
+The lead requires one final exact-head Linux gate. Sol must complete the HIGH integration delta. Both conditions remain pending.
+
+The package source verdict does not claim final gate acceptance or merge readiness. I ran no gate, build, or test.
