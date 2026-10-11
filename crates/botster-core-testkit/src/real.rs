@@ -1315,6 +1315,7 @@ mod slow_controls {
             "hold_start_at",
             "release_start_at",
             "start_held",
+            "route_reports",
             "fail_next",
             "fail_handoff",
             "host_crash",
@@ -1489,6 +1490,7 @@ mod slow_controls {
     ///   is `unsupported_control`.
     /// - `fail_next` refuses the named call of the handle without calling Core: the session stays `Created`, and the call
     ///   after it reaches Core. A code outside the call's sync column is `Refused`.
+    /// - `route_reports` (R-66) answers for a created session with no route report, and is `Bad` for an unknown session.
     #[test]
     fn the_start_controls_hold_the_launch_and_fail_next_refuses_before_core() {
         let dir = Candidate::beside_test_binary().expect("the candidate directory");
@@ -1523,6 +1525,15 @@ mod slow_controls {
             control("registry_row", json!({"session": "s1"})),
             Ok(json!({"state": "Created", "identity_recorded": false, "labels": {}}))
         );
+        // R-66: no route of s1 has a report yet; an unknown session has no row.
+        assert_eq!(
+            control("route_reports", json!({"session": "s1", "route": 2})),
+            Ok(json!({"activity_before_close": false, "closed": false}))
+        );
+        assert!(bad(control(
+            "route_reports",
+            json!({"session": "s9", "route": 2})
+        )));
         let hold = json!({"session": "s1", "before": "payload"});
         assert_eq!(control("hold_start_at", hold.clone()), Ok(Value::Null));
         assert!(bad(control("hold_start_at", hold.clone())), "one hold");
@@ -2348,6 +2359,7 @@ mod slow_tests {
             "hold_start_at",
             "release_start_at",
             "start_held",
+            "route_reports",
             "fail_next",
             "fail_handoff",
             "host_crash",
