@@ -260,6 +260,8 @@ impl Worker {
         };
         self.actions
             .push_back(Action::BindRoute { descriptor, route });
+        // The worker holds its own copy of the stream now: the host may close its copy (DP-2, steward ruling R-65).
+        self.report(&WorkerMsg::RouteReceived { route });
         let mut entry = Route {
             limits,
             route_tag: options.route_tag.clone(),
