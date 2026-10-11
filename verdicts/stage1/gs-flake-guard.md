@@ -153,3 +153,32 @@ Without that reviewer confirmation, the new head waits for the EV-5 removal.
 The lead will submit plan 23an to specify attribution after a red gate and v1 import.
 Sol has not reviewed that future plan revision, future import, or future gate.
 The current source verdict stays CLEAN. Gate acceptance remains pending.
+
+
+## Source carry-over: v1 import after #255
+
+- Head: `0e222c592d17995380ec6f20449f91d71207d2fc`.
+- Parents: reviewed `db4fd197b40788a56e57eec47c97b5f005359a80` and current base `c8907b74bd247002784843e1a12f6487b08c579f`.
+- Tree: `e39035ef298ac20f642a7f27f4f75c64081da2c7`.
+- Receipt: `msg_plugin-w_1791714694_4501cd`.
+
+Sol read the complete retained base-merge-check:
+`~/botster-sessions/gates/botster-core-gs-flake-guard-base-merge-check-db4fd197-0e222c59.log`.
+Both ancestry checks and all four conditions pass.
+The four imported paths are disjoint from the six own paths. Both pending files retain the base's bytes.
+The script reports 46885 own-diff bytes and SHA-256 `c74d91f086dfc4fe14fda2c53f6fe68391565b31fd296ac0b1e6a38bdacf6ac2`.
+Sol independently compares raw binary diff outputs: both have 46501 bytes and SHA-256 `1eb4cf9ed0766a6e957dc6af5844f7ce1184de7b8c8e54cdc498174952f99d9a`.
+Those raw outputs are byte-identical. Their format differs from the script's normalized comparison; Sol does not substitute either hash for the other.
+Sol's independent merge-tree calculation equals the imported tree exactly, without a conflict.
+The source CLEAN carries over under the approved base-import rule. No new source delta round is required.
+
+Sol read the lead handoff's written #256 attribution and conditional approval, recorded at approximately 03:50 PT.
+It names the prior PC plain-v1 traces, the qualified #249/#246 classification, the GS reviewer's unchanged-cause line, and P3 combined #240/#243 with .33.
+The GS line preserves its limits: no independent reproduction of this occurrence, no equivalence from error text alone, and possible scheduling changes from fixture tests.
+The lead approves one new-head gate. Another red result requires waiting for the cause removal.
+The historical `PendingLimit` versus `UnknownRoute` distinction remains explicit.
+This import does not remove EV-5's cause. The approved 23an unchanged-cause case applies.
+Sol has not received or reviewed a completed full gate on 0e222c59. This record grants no gate acceptance or merge approval.
+Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) carries to 0e222c592d17995380ec6f20449f91d71207d2fc; exact-head gate acceptance remains pending.
