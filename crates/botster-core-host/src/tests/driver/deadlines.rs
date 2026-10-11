@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// A session that runs, through the driver, with a small `pump_events`: it pumps until each step is through.
-fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
+pub(super) fn run_session(rig: &mut Rig, name: &str, link: LinkId) {
     to_launch(rig, name, link);
     rig.worker_says(link, launched());
     rig.settle();
