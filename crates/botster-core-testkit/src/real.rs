@@ -1727,7 +1727,8 @@ mod slow_controls {
             )
             .expect("attached");
         assert!(route.has_control("pty_input"));
-        assert!(!route.has_control("route_fill"));
+        assert!(route.has_control("route_fill"));
+        assert!(!route.has_control("fail_writes"));
         assert_eq!(
             route.control("pty_input", &Value::Null),
             Ok(json!({"bytes": {"$bytes_hex": ""}, "segments": []})),
