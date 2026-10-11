@@ -342,3 +342,54 @@ fn a_descriptor_on_an_ended_link_is_closed() {
         BTreeMap::from([(DescriptorId(1), 1)])
     );
 }
+
+/// F117: a read with a descriptor whose frame is above the link's bound closes the link (plan section 3), and the
+/// descriptor is closed once, on both forms.
+#[test]
+fn a_descriptor_read_with_a_frame_above_the_bound_closes_the_descriptor() {
+    let mut header = Vec::new();
+    header.extend_from_slice(&(spec().link_frame_bound + 1).to_le_bytes());
+    header.push(FrameType::HOST_MSG.0);
+    for form in FORMS {
+        let mut w = World::running();
+        let inputs = reads(
+            form,
+            &other_frame(),
+            &header,
+            &[DescriptorId(1)],
+            &[],
+            header.len(),
+            3,
+        );
+        let fed = feed_all(&mut w, inputs);
+        let actions = with_link_written(&mut w, fed);
+        assert!(
+            actions.contains(&Action::LinkClose),
+            "{form:?}: {actions:?}"
+        );
+        assert!(binds(&actions).is_empty(), "{form:?}");
+        assert_eq!(
+            descriptor_closes(&actions),
+            BTreeMap::from([(DescriptorId(1), 1)]),
+            "{form:?}: {actions:?}"
+        );
+    }
+}
+
+/// F119: a frame that is not an `AttachRoute` is split over two reads, and each read carries a descriptor. Neither read
+/// holds an `AttachRoute` start, so the link closes, and each descriptor is closed once.
+#[test]
+fn two_descriptor_reads_of_one_other_frame_close_each_descriptor_once() {
+    let mut w = World::running();
+    let frame = other_frame();
+    let mut actions = w.feed(World::read(frame[..3].to_vec(), vec![DescriptorId(1)]));
+    actions.extend(w.feed(World::read(frame[3..].to_vec(), vec![DescriptorId(2)])));
+    let actions = with_link_written(&mut w, actions);
+    assert!(actions.contains(&Action::LinkClose), "{actions:?}");
+    assert!(binds(&actions).is_empty());
+    assert_eq!(
+        descriptor_closes(&actions),
+        BTreeMap::from([(DescriptorId(1), 1), (DescriptorId(2), 1)]),
+        "{actions:?}"
+    );
+}

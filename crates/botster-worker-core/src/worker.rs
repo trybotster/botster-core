@@ -471,6 +471,8 @@ impl Worker {
 
     /// Closes the link after the bytes already sent are written (LC-7: the result reaches the host first).
     fn close_link(&mut self) {
+        // No route will take a descriptor of a closed link, so each close closes them (F117).
+        self.close_unbound();
         if matches!(self.link, LinkState::AwaitHello | LinkState::Ready) {
             self.link = LinkState::Closing;
         }
