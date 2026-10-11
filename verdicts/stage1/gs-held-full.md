@@ -62,3 +62,59 @@ This verdict accepts no later source, import, gate, or pending removal.
 Sol runs no build, test, gate, mutation, measurement, or executable probe. Never poll.
 
 VERDICT: NOT CLEAN (1 open) at 34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4
+
+## Round 2 — seed-specific negative evidence, 2026-10-11
+
+Exact head: `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+HF-SI-1 closes. Open integration findings: 0.
+The source and earlier exact-head green gate retain their Round 1 scopes.
+
+Sol reads the complete note at `~/botster-sessions/shared/core-stage1/evidence/gs-held-full/seed1-negative-proof.md`.
+Note SHA-256: `4c8df2d5aba9a3633aa755b15486aaa66bdddddac9d30b45e4f01c836153ddee`.
+Sol reads both raw command headers, snapshot identities, relevant suite results, strict report, failure details, summaries, and exits.
+Sol independently reads the complete scratch delta against the reviewed head.
+Snapshot `421a8f76118a042b6e0b5c91b5fd32edaaa76a57` changes only `tests/suite/mod.rs`.
+The five added lines set `max_polls = 0` only for EV-8 when the selected seed list equals `[1]`.
+Snapshot `c37d70d4206547b9f2dc156ceee7fe26c9b5fdbe` has the identical tree `2880ab067e899b772ee5a3801247783f0111dc50`.
+Both pool jobs therefore use the same scratch fault on the reviewed source.
+These snapshots use `--allow-dirty`. They are evidence snapshots, not delivery heads or merge gates.
+
+Held-full log: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-151838-69247.log`.
+SHA-256: `3615391a914c83cee115260a7dfb74160dca0356a38db2430b5f1c463a9256f9`.
+The failing trial is exactly `conf::ev_8_every_query_stays_in_output@seed_1`.
+Its detail names seed 1, raw step 5, and `limit=max_polls`, with an INCONCLUSIVE transcript outcome.
+The held verdict correctly fails that trial. The run reports one failed trial and 31 ignored trials in 9.64 seconds.
+The held-full report names one budget identifier at 32 seeds, one trial per seed.
+The slow step FAILS in 165.2 seconds and its shell reports `slow exit 1`.
+The job exits zero after 274 seconds; the outer wrapper exits zero after 275 seconds.
+The final echo causes those wrapper zeros. They do not change the slow failure into PASS.
+
+The first job's lists result is invalid for this proof. Its base is the later f68f26a7 tip.
+The base-relative list check reports 19 problems and exits one before the strict run starts.
+That failure remains retained. It supplies no successful lists evidence.
+
+Corrected lists log: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-152342-380.log`.
+SHA-256: `e3596f124360b3e97fd93e23d96046b99232e4e5d87302c9a2fe39a4c5d077d9`.
+The wrapper header names live v1 5e953398, but the command explicitly overrides `BOTSTER_CI_BASE_REF` with the reviewed base.
+The actual lists output confirms `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Both conformance runs report 216 PASS and zero failures, with 474 ignored trials.
+The strict report names 363 of 381 pending identifiers, 18 real-only identifiers not run, and two held identifiers.
+Lists PASS in 11.5 seconds and the shell reports `lists exit 0`.
+The job queues for 251 seconds and runs for 25 seconds. The job and wrapper exit zero after 276 seconds.
+
+The first-seed strict run leaves the seed-1-only fault inactive. Held-full activates it only in the seed-1 trial.
+A loop that executes seed 0 for every trial would miss this fault. This evidence satisfies design section 8 and HF-SI-1.
+The owner reports scratch restoration and a clean worktree; Sol does not independently attest to that local worktree state.
+GitHub confirms the unchanged delivery head and reviewed base through the CLI fallback after MCP fails.
+The live body includes both commands' results, the scratch condition, and the invalid first lists result.
+Body SHA-256: `aa3837f7b0ad05dffbf3eaf9516e052761d82cebc3ffffccbd9dead89c9997bc`.
+
+Sol reads the complete package Round 2 at `e12e7c8c47badd56a5edda15110f6ee9ff59e543`, `verdicts/gs-gate-speed.md`.
+Its CLEAN closes matching GS-HF-R1-1 on the same head and base. No package finding remains.
+These evidence jobs do not replace the earlier green gate or supply a gate on any later import.
+FINAL-READY, the lead's SLOT, current-base import, applicable check and review, final gate, final body, and Q7 remain due.
+This source and evidence CLEAN accepts no later head, import, pending removal, or final merge.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable probe. Never poll.
+
+VERDICT: CLEAN (0 open; source and evidence before final SLOT) at 34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4 against base 926dfb62f3f7168990b2a48741946932d84b2fbb
