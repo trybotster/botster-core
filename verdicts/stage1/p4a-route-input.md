@@ -709,3 +709,82 @@ I also flagged `enqueue_reply`'s existing empty-byte return for the implementer'
 That expanded audit remains pending; this source closure accepts only the reported F114 path.
 
 I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+## Round 6 — 2026-10-10
+
+Reviewed head: `9ca7f2cecb621f8ad0954df0a981e4494e4bbe4c`.
+Reviewed base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+Previous reviewed head: `d1e00be37ea9b7830041e043186659f682e985a9`.
+READY receipt: `msg_plugin-w_1791691476_f8df1b`.
+The lead authorizes F114 plus the complete early-exit audit in `msg_plugin-w_1791688865_193452`.
+Lead answer `msg_plugin-w_1791688984_c723b5` resolves the audit boundary through accepted plan 23ag.
+Admission must be the first session decision. Receipt decisions, waits without outcomes, and required retirements retain their exceptions.
+The published `stage1-plan.cbbdb74e.md` pin now matches SHA256 `b7c41291e83b89b8224cc7b18f383912440555e999f729c1cfcb1111ce922bcb`.
+
+I read both correction commits, the complete two-file delta, the input unit, and the relevant route and reply producers.
+I read the completed Round 6 audit in the PR body. Receipt `msg_plugin-w_1791691550_c50b64` adds its final producer rows.
+Those body additions change no source or head. The remote PR head and current v1 match the recorded head and base.
+No new source merge occurs. The previous whole-change review and the verified #228 source merge remain applicable.
+Pins, mutation exclusions, public APIs, status lists, and the twelve own pending additions remain unchanged from Round 5.
+`git diff --check` passes. The merge base is the recorded v1 base.
+
+R5-1 / F114 MEDIUM is CLOSED.
+Every empty bytes/text input queues with its route and op. `route_inputs` counts it and reserves refusal room.
+`try_start` calls `admission(Source::Route)` before refusal or the empty skip. The accepted empty input creates no active transaction.
+Stop, Kill, and payload-end refusals retain the op and omit written-byte counts. Receipt advances the client revision once.
+The public proof checks both empty forms, Live progress, and direct and queued refusals after each of those three events.
+Each case now checks the receipt revision. Only the earlier host bytes reach the PTY in queued cases.
+The new pre-Live proof checks both forms, NotReady, the exact op, the receipt revision, and no PTY write.
+These proofs use public reports, actions, decoded client frames, and progress. They expose no private queue state.
+
+The audit closes the additional empty-reply return.
+`enqueue_reply` queues every reply. Rust evaluates `admission(Source::Reply)` before the empty check in the `&&` expression.
+Shadow replies, model PTY writes, and clipboard acknowledgements use this producer without an earlier empty check.
+Replies retain the shared Live/exit check and R-54's typed Stopping exception. They advance no input revision and report no operation result.
+The accepted empty reply creates no active transaction. The existing reply-after-Stop/Kill proof retains the concurrent host Stopping refusal.
+
+Every host write queues. `start_checks` calls host admission before its input and terminal guards.
+Encoding refusal, unsupported worker encoding, host revision advancement, and empty Written completion follow admission.
+Active transactions retain their original admission through blocked writes, short writes, cancellation, and payload-end completion.
+The active-transaction exits in `write_more`, `on_pty_written`, and `finish_active` cannot create an unadmitted transaction.
+`input_payload_ended` sends queued work through `try_start`. Spawning, an active transaction, and an empty queue wait without outcomes.
+
+The audit correctly names each permitted earlier receipt producer.
+`Route::decide` produces Unsupported, NotWritable, or NotReady. `receive_route` produces codec Unsupported, InvalidInput, or an ordered Bad marker.
+An ignored extension is not input. Missing routes, incomplete frames, and receipt already stopped at Bad are no-input exits.
+`apply_route` waits for refusal room without choosing a new outcome. Its existing receipt decision remains final.
+Queued host cancellation retains IN-6's Cancelled result with exact zero. Adoption drops old-host queued writes under host DESIGN section 3, step 4.
+That adoption retains route input and replies and suppresses the old host's active result.
+`on_route_read` discards closing-route bytes. `close_healthy` clears waiting frames and preserves the first close reason.
+Its frame-does-not-fit branch closes the route under the same retirement exception.
+`refuse` suppresses frames on absent or closing routes. Thus route_closed remains the last frame under OU-2b.
+These exits fit plan 23ag. No remaining path makes a session refusal, outcome, or empty skip before admission.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p4a-route-input-9ca7f2ce-pool-20261010-202350-93206.log`.
+The header identifies this exact head and base. All ten CI steps pass in 530.0 seconds on msa1.
+Default: 1585 passed in 10.234 seconds, with 485 skipped. Slow: 408 passed in 104.967 seconds, with 1977 skipped.
+Static parsing confirms all 1585 default and 408 slow PASS records and no failed execution record.
+Both testkit reports show 205 passed and zero failed. Strict pending runs 374/395, with 21 real-only IDs and two held IDs.
+The reports retain 70 IDs without transcripts, two deferred IDs, and 18 withdrawn IDs.
+Minimum counts are testkit 54/69, real 35/68, and real-accepted 35/69. Real-pending is 83, with zero passing IDs.
+Stage 1 has 129 mutants: 126 caught, three unviable, zero missed, and zero timeout, in 197.3 seconds.
+Static parsing confirms 129 distinct individual outcome rows with those counts. Stage 2 skips because stage 1 misses none.
+The job and wrapper each exit zero after 2406 seconds. The job includes 1806 queued seconds and 600 running seconds.
+No own platform-specific source changes. Previously accepted native evidence remains applicable to the unchanged imports.
+
+I read `pr3-round5-empty-input-reverts.log` and `pr3-round6-reply-reverts.log` completely.
+The two earlier route reversals fail the empty-route proof. The repeated early-return reversal also fails with the Round 6 tests.
+Starting an empty reply transaction fails six existing public behavior proofs.
+The empty-reply early-return reversal stays green. Its empty reply has no observable outcome; source ordering proves this structural correction.
+I claim no behavioral red proof for that equivalent reversal. No private helper assertion is required to force a failure.
+These correction records contain summaries and failed names, without full assertion output or an exact-final-head header.
+The exact-head gate supplies the passing acceptance evidence. I claim no independent reversal execution or precise assertion site.
+
+I read the full same-head package Round 157 / package round 6 at `3151bfdd846d68c706ab485cfcbca7986f95906a`.
+Artifact: `verdicts/p3-worker.md`, branch `stage1/review-p3`. The package verdict is CLEAN on this head and base.
+F113 and all earlier specific closures remain closed. F114 closes. No integration finding remains open within this PR's approved scope.
+Later semantic input kinds, the production route driver, and pending real controls retain their approved later P4a/DP-2 PR B scope.
+This verdict grants no completion claim for those later features. It completes the authorized sixth integration round.
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open).
