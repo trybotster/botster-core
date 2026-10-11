@@ -461,3 +461,30 @@ fn a_drain_blocked_on_mandatory_room_waits_for_the_poll() {
     );
     assert!(link(&rig).links[&LinkId(1)].closed_by_host);
 }
+
+/// R-78 item 4 and TM-6: the reaper queues the exit while the pump settles, so the pump takes it after its last read of the
+/// link. The drain has not run, so it is runnable work: the pump reports more, and the next pump drains and closes the link.
+#[test]
+fn an_exit_taken_at_the_settle_leaves_the_drain_runnable() {
+    let mut rig = Rig::new(limits(|_| {}));
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    rig.worker_says(LinkId(1), exited(6));
+    link(&rig).late_exits.push((
+        ProcessIdentity {
+            pid: 500,
+            start_time: 1,
+        },
+        ExitStatus::Code(6),
+    ));
+    let report = rig.pump();
+    assert!(report.more, "the undrained link is runnable work");
+    assert!(rig.wake_set(), "the wake stays set for the drain");
+    rig.settle();
+    assert!(
+        matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(6)),
+        "{:?}",
+        rig.driver.get(&sid("s1")).unwrap().state
+    );
+    assert!(link(&rig).links[&LinkId(1)].closed_by_host);
+}
