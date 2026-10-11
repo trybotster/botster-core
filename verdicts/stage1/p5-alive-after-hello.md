@@ -130,3 +130,56 @@ Sol checked the published replacement and retained evidence. No reviewer executi
 The final gate on this head remains required after both CLEANs under the lead's pool rule.
 This source CLEAN closes no separate finding or final gate for #233, #240, #243, or P6's short data root.
 R-59 still leaves AD-7 unfenced and outside the counted real minimum.
+
+
+## Round 3: completed final gate and the 23al application
+
+VERDICT: CLEAN at `0309469729459788da3a369bcab3443debc7a359` (0 source findings).
+
+Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+The implementation has not changed since Round 2.
+Sol read the complete package cause addenda through `21af7a8e8326d354c2aa68895a136fd1603f0b29`.
+The new Heard record does not change forwarded bytes, descriptor receipt, close decisions, or the completion fence.
+EV-5 runs the changed observer but does not read Heard or arm a hold. Extra observer work can change scheduling.
+The addenda claim no equal link-close time or equal failure rate. Sol accepts that source limit.
+
+### Exception record
+
+Plan 23al is CLEAN at 1555a98b196c259dfe5f5d56a87c473ba49d49dd in integration commit 60df36a3.
+Sol independently verified the published pin's SHA-256 a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab.
+The rule permits one re-gate for a diagnosed v1 cause outside the PR change, with written confirmation and approval.
+The first final gate has one EV-5 PendingLimit failure. Its mutation and fuzz steps do not run.
+Sol read that complete failure and final summary, as recorded in the plan verdict.
+
+The lead states the application precisely in `msg_plugin-w_1791708303_99f70a` and the lead handoff.
+The failure identity is the retry Detach's failed success expectation at the same transcript step.
+Both traced samples have four pending operations and zero queued events before the recovery poll.
+The lead uses P3's diagnosis and R-63/R-64 to connect the descriptor trigger, pending operations, and unfenced recovery.
+The link-close time can select different admission errors: PendingLimit while the slots remain held, or UnknownRoute after r5 closes.
+The plain-v1 sample reproduces UnknownRoute. No supplied plain-v1 sample reproduces PendingLimit itself.
+That distinction remains explicit. The matching diagnostic state alone would not establish a shared cause without the source and trace diagnosis.
+
+Sol accepts the lead's stated failure classification for this application, with the diagnosis and error distinction retained.
+This does not assert that the returned errors are identical or that every failure with those counts has this cause.
+The source confirmation establishes that #249 leaves the diagnosed descriptor and recovery mechanisms unchanged.
+The lead records #240 as the descriptor-trigger removal, PC as the R-63 fence owner, and R-64/A21 as the missing-completion owner.
+The exception does not close EV-5 or approve a new route-close reason. Core must retain the steward's A21 limit.
+The running re-gate began before the corrected rule's acceptance. The lead counted it only after the rule CLEAN and source confirmation.
+Sol grants no second further re-gate and no permission to omit a gate step.
+
+### Green final evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-alive-after-hello-03094697-pool-20261011-013626-2040.log`.
+Sol read the exact-head/base header, EV-5 passes, all 15 stage-1 identities, all six stage-2 identities, and the complete final summary.
+All ten steps pass. EV-5 passes on the testkit and real tiers and in the slow mutation baseline.
+Stage 1 has eight caught mutants, six misses, and one unviable mutant. It reports no timeout.
+Stage 2 tests exactly those six misses. It catches four and reports two unviable mutants, with no miss or timeout.
+The caught slow mutants are both launch_held constant returns, payload_alive's default return, and its deleted negative Heard guard.
+The final result has 12 caught mutants and three unviable mutants. No mutant remains missed or timed out.
+The fuzz step finds no changed decoder harness. The CI summary is 295.9 seconds.
+The job exits 0 after 303 seconds; the wrapper exits 0 after 304 seconds.
+
+The lead merged #249 into b7c97b42b8e559053153f8a8202ee32dbde0a93a.
+Sol checked both parents and the tree. The merge tree equals the reviewed and gated 03094697 tree, 97bc42fce1cd3dc8d2cd84cb9b4fd789c49a4555.
+This completion record closes no gate or source finding for #233, #240, or #243.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.

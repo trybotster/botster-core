@@ -77,3 +77,24 @@ R-59 still leaves AD-7 unfenced and outside the counted real minimum.
 
 The final gate on this exact head remains required after both CLEANs under the GS brief and lead's pool rule.
 This is source CLEAN. It covers no other GS lever and grants no acceptance for the prebuilt-worker gap.
+
+
+## Base-only import record
+
+The lead reports #248 merged at cff50d0f575e6135a357e41fc9001f91b90b6a78 into v1 80d02327472f8b3822a6235a2ac663f5ee7c0bbb.
+Sol read the complete retained check:
+`~/botster-sessions/gates/botster-core-gs-verify-once-base-merge-check-41002679-cff50d0f.log`.
+Both ancestry checks and all four numbered conditions pass.
+The five base paths are disjoint from this PR's own tests/slow_conformance.rs change.
+Both pending files retain the new base's contents.
+Sol independently computed git merge-tree for 41002679 and b7c97b42.
+Its tree equals the imported tree, ac7afc29c353c26f88c49f9b30a0f4a3c5092648.
+Sol independently compared the complete own diffs. Both are 1417 bytes and byte-identical.
+Their SHA-256 remains aff29270eb7c90c2d604d70f24d7cba275c6541a9c35eb3e9f5fe00b180a9340.
+The source CLEAN carries to this verified base-only import under section 8.
+
+The handoff records the older b4072c19 gate and both import checks as the merge evidence.
+Sol has not received a full gate on cff50d0f. The import check is not a full gate and explicitly preserves that requirement.
+Sol asked the lead to identify any written pool-rule override for omitting the final exact-head gate.
+This record confirms source carryover. It makes no new-head gate claim while that question is pending.
+Sol ran no execution job.
