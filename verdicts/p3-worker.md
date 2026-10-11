@@ -12481,3 +12481,87 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. All prior verdict history remains preserved.
 
 VERDICT: CLEAN
+
+
+## Round 176 — #271 R-66 route_reports source and evidence, 2026-10-11
+
+Exact head: `3b9db42f5bab8fdd09c73c1e5d707e4c8a403476`.
+Exact base: `c942593697e856017572977af0405b17de0124e2`.
+Owner READY receipt: `msg_plugin-w_1791730505_c8dbbd`.
+Risk tier: HIGH under BUILD rule 3. The shared testkit requires package and integration review.
+Plan 23au governs this control-only PR. No transcript can use the control before it lands.
+Verified full body: `/private/tmp/review-p3-pr271-3b9db42f.json`.
+
+### Source assessment
+
+The reviewer reads all ten changed paths and the driver's receive, held-frame, delivery, and feed paths.
+The reviewer also reads the engine's acceptance checks, close handling, parked work, and the steward's complete R-66 correction.
+Both testkit tiers record the bytes that the driver receives. The tap's take-ahead does not confirm consumption.
+The driver's next receive call occurs after earlier complete frames leave pending storage and any held frame reaches the engine.
+The record therefore gives a conservative consumption fence. A false answer can remain until the next call.
+The record does not change a byte or add a receive call. Closing a link drops its unconfirmed reports.
+The control uses the stored session instance and rejects bad arguments and unknown handles or sessions.
+The control wakes the host while an unconfirmed report waits. It does not wait for the driver.
+
+Consumption does not prove event posting in general. SessionEnded closes post later under OU-7.
+Parked route work can also delay a close post.
+The accepted post fence requires a reason other than SessionEnded, no parked route work, and enough event budget.
+The ev_5 case uses Detached, a Running session, no parked work, and the default event budget.
+That case remains within the steward's accepted scope. This review accepts no general event-post fence or engine signal.
+The PR changes no production source, pin, pending list, transcript, or timeout.
+
+### Supplied evidence
+
+Gate: `gates/botster-core-stage1-p3-route-reports-3b9db42f-pool-20261011-074821-85638.log`.
+The header names this exact head and base. All ten steps pass.
+Default: 1697 passed, 481 skipped. Slow: 546 passed, 1997 skipped.
+Stage 1 selects 36 mutants: 27 caught, six missed, three unviable, zero timeout.
+Stage 2 catches all six remaining real.rs mutants. Its unmutated baseline passes 546 tests.
+The real route_reports body and tapped guards fail the named existing slow_controls tests.
+The broad has_control false and control-body mutants fail a10_1_wrong_token_is_never_signalled.
+Final result: 33 caught, zero missed, zero timeout, three unviable. No FLAKY record appears.
+The unviable bodies are Directories::open, TestkitHarness::reports_of returning Some(Default::default()), and TestkitHarness::open.
+The gate selects no changed decoder harness. Jobq and botster-gate exit zero after 366 seconds.
+
+Historical Mac evidence remains under `shared/core-stage1/evidence/p3-r66-route-reports/`.
+The reviewer reads its README, six transcript/suite logs, and the supplied real-control mutant log.
+The transcript records name Core 82e20c3a2a7d5f3b6e55510643b2e5ac57c37c76 and Darwin 27.0.0.
+The changed transcript records use local contracts ef33e94fe360b5160d6583db8238fd87ba36c8b2 and local pin/list edits.
+Pinned ev_5 fails five of five records at seed zero, step 28. The new fence passes ten of ten real records.
+The new fence passes five of five testkit records. The wake-removal records pass five of five real runs.
+The last result does not prove the wake guard is unnecessary when no other wake arrives.
+Both full testkit records show 209 passed, zero failed, 481 ignored.
+Read-only comparison confirms identical outcomes for all 690 identifiers.
+The supplied mutant log at 3b9db42f shows the route_reports body and two tapped-guard mutants fail named real control tests.
+These are supplied historical records. They are not execution at a later head or authorization for a repeat campaign.
+The own gate uses pinned transcripts that do not yet use route_reports. Linux proof for the changed transcript remains with the later pin gate.
+
+### Findings
+
+**F130 LOW — module documentation promises event posting after consumption. OPEN.**
+route_reports.rs lines 7–9 say the engine posts every consumed frame's events inside feed.
+That promise contradicts the R-66 correction for SessionEnded and parked route work.
+State the consumed-at-link-edge definition and all accepted post-fence limits.
+
+**F131 MEDIUM — boundary tests assert helper internals. OPEN.**
+The new EdgeTap test asserts t.reports.waits() at lines 1306 and 1326.
+The new control test asserts lock(&reports).waits() at route_controls.rs line 222.
+BUILD Testing rule 3 forbids tests of helper internals.
+Use control answers and wake signals at the boundary to prove these conditions.
+The pure record tests do not make these extra internal assertions necessary.
+
+**F132 LOW — Prior art lacks the facilities comparison and custom-record reason. OPEN.**
+The body names only the absence of this facility in old Core 72b2e335.
+BUILD requires the existing-facilities comparison and a recorded reason for custom infrastructure.
+Name the reused FrameDecoder, Hello, and WorkerMsg facilities.
+Explain why the existing controls do not provide this consumption fence.
+
+Findings sent directly to P3 in `msg_plugin-w_1791730863_7a2371` and Sol in `msg_plugin-w_1791730863_3b794f`.
+Sol independently reports the same three issues.
+P3 has already sent aa219941014caf6830e3105ce1d038d63f46df4c for the first two fixes. That head needs a separate delta review.
+The supplied e61455ab base import is not accepted as a final gate here.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All earlier verdict history remains preserved.
+
+VERDICT: NOT CLEAN
