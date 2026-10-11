@@ -1473,3 +1473,18 @@ The mutation step reports no changed Rust source. No Rust mutant was required fo
 Full gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-job-common-56e5b744-pool-20261011-063138-24237.log`.
 
 Sol owns the separate integration review. The steward owns the merge decision and current-base check. I ran no gate, build, or test.
+
+
+### Contracts PR #45: integration result
+
+Sol reports integration CLEAN with zero open findings in local commit `efeb8c68ed3e6920c288e0ea929e308387d34aaf`.
+
+I read `verdicts/stage1/contracts-gs-job-common.md` from that commit. It identifies the same exact head `56e5b744588b98ccbbb892d6b0a63522317284f0` and base `7176d02b577c9043c72ca4eda3b293104aad6961`.
+
+The integration result agrees with the package result. The artifact evidence compares copied path lists, not content hashes.
+
+The unchanged `cp -a` command supports the copy behavior. Neither review approves the future Core copy, byte check, or pin move.
+
+Sol reports that GitHub DNS blocked publication. The integration commit is available locally; I do not claim that Sol pushed it.
+
+The steward retains the merge decision and current-base check. I ran no gate, build, or test.
