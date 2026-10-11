@@ -119,6 +119,8 @@ pub(crate) struct World {
     pub hellos: Vec<(LinkId, Hello)>,
     pub signals: Vec<(ProcessIdentity, botster_core_edges::edges::GroupSignal)>,
     pub closed: Vec<LinkId>,
+    /// The identities that the engine asked about (`Action::ProbeIdentity`), in order.
+    pub probes: Vec<ProcessIdentity>,
     pub trace: Vec<String>,
     /// The routes whose stream Core closed itself (`Action::CloseRoute`), with the bytes written to the stream first.
     pub route_streams_closed: Vec<(RouteId, Option<Vec<u8>>)>,
@@ -202,6 +204,7 @@ impl World {
             hellos: Vec::new(),
             signals: Vec::new(),
             closed: Vec::new(),
+            probes: Vec::new(),
             trace: Vec::new(),
             route_streams_closed: Vec::new(),
             spawned: BTreeMap::new(),
@@ -390,6 +393,7 @@ impl World {
             }
             Action::CloseLink { link } => self.closed.push(link),
             Action::ProbeIdentity { identity } => {
+                self.probes.push(identity);
                 let state = if self.alive.contains(&identity) {
                     IdentityState::Matches
                 } else if self.alive.iter().any(|p| p.pid == identity.pid) {

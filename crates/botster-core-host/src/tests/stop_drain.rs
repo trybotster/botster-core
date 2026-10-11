@@ -148,6 +148,7 @@ fn a_stop_grace_between_the_exit_and_the_end_of_file_keeps_the_drain() {
         w.pump();
         assert_eq!(state(&w), SessionState::Stopping, "no class at the grace");
         assert!(w.signals.is_empty(), "a gone worker is never signalled");
+        assert!(w.probes.is_empty(), "and never probed");
         if frame {
             w.worker_says("s1", exited_frame(4));
         }
@@ -319,6 +320,10 @@ fn an_exit_and_a_write_failure_in_either_order_keep_the_drain_past_the_grace() {
             "exit first: {exit_first}"
         );
         assert!(w.signals.is_empty(), "exit first: {exit_first}");
+        assert!(
+            w.probes.is_empty(),
+            "exit first {exit_first}: a gone worker is not probed at the grace"
+        );
         let req = w
             .sent
             .iter()
