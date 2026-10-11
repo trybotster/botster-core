@@ -208,6 +208,27 @@ mod slow_tests {
             }))
         );
 
+        // `oracle_modes` and `oracle_state` read the same O_raw; the expected values come from an independent terminal and
+        // from OUTPUT's own title (R-84 (5)).
+        let session = json!({"session": "s1"});
+        assert_eq!(
+            harness.control("a", "oracle_modes", &session),
+            Ok(json!({"flags": expected.modes()}))
+        );
+        assert_eq!(
+            harness.control("a", "oracle_state", &session),
+            Ok(json!({"modes": expected.modes(), "title": "oracle-1"}))
+        );
+        // `oracle_encode` reads no session modes: `{}` is a fresh terminal's modes (R-84 (1)).
+        let up = json!({"key": {"named": "arrow_up"}, "mods": [], "event": "press"});
+        let key: KeyInput = serde_json::from_value(up.clone()).unwrap();
+        let fresh = Terminal::new(&SIZE, History::Off).unwrap().modes();
+        let encode = json!({"session": "s1", "kind": "key", "input": up, "modes": {}});
+        let encoded = Ok(json!(hex_encode(
+            &botster_terminal_ghostty::encode_key_with_modes(&fresh, &key).unwrap()
+        )));
+        assert_eq!(harness.control("a", "oracle_encode", &encode), encoded);
+
         core.begin(Op::Resize {
             session: sid("s1"),
             size: Size {
@@ -224,6 +245,20 @@ mod slow_tests {
             ))
         );
         assert!(cpr(&mut harness).is_ok(), "no history, no refusal");
+        for control in ["oracle_modes", "oracle_state"] {
+            assert_eq!(
+                harness.control("a", control, &session),
+                Err(ControlError::UnsupportedFor(
+                    "size_or_profile_changed".into()
+                )),
+                "{control}"
+            );
+        }
+        assert_eq!(
+            harness.control("a", "oracle_encode", &encode),
+            encoded,
+            "no history, no refusal"
+        );
 
         let print = json!({ "program": [{ "print": "x" }, { "hold": {} }] }).to_string();
         let mut request = harness.stored("a", &sid("s2")).unwrap().1.request;
