@@ -1608,3 +1608,18 @@ No new source change or comparison run is required for this correction.
 Open package findings: 0, including LOW findings.
 The completed exact-head gate and final body gate result remain pending before CLEAN.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — integration final-slot receipt
+
+Integration message: `msg_plugin-w_1791755120_593870`.
+Integration receipt: `a21910449ad85860ede1699aa36335ee0026f9a4`, Round 4 in `verdicts/stage1/rc-testkit-controls.md`.
+The reviewer read that complete round.
+It covers `3cf460714016af6683ea6c60f1753dfc0055c660` against `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+The integration reviewer reports no new source finding. TC-SI-6 closes on the published body correction.
+TC-SI-FINAL-1 remains open for the completed exact-head gate, final evidence body, and matching completed package verdict.
+The integration reviewer verified the five code deltas, pending conflict resolution, seven testkit removals, and two real-pending additions.
+The integration reviewer requests no extra local run and preserves all local evidence limits.
+It also verifies that the #284 merge preserves gated tree `5b13e06270096dfad3b73ea8cf87136c26da0261`.
+The reviewer accepts no future gate result through this receipt.
+The reviewer ran no test, build, or gate.
