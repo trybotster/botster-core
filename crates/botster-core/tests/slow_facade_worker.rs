@@ -21,6 +21,7 @@ use botster_core_sys::fd_pass;
 use botster_test_process::{quoted, Blocker, Bounded, Deadline, Guard, OwnedChild};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
+use std::os::fd::OwnedFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -57,15 +58,16 @@ fn say(stream: &mut UnixStream, msg: &WorkerMsg) {
 }
 
 /// The worker side of the link: the hello with the token proof, `Launched`, and a one-page capture for each
-/// `CaptureSnapshot`. It reads at most `read_size` bytes at a time. For each `AttachRoute`, it sends to `handed` the route,
-/// the number of descriptors of the read that held the frame's start, and the number of reads that the frame took (DP-2,
-/// plan 23ae: a read with descriptors holds the start of exactly one `AttachRoute` frame, and the descriptors belong to
-/// that frame, also when the frame ends in a later read). It ends when the link closes.
+/// `CaptureSnapshot`. It reads at most `read_size` bytes at a time. For each `AttachRoute`, it calls `on_attach` with the
+/// link, the route, the number of descriptors of the read that held the frame's start, the number of reads that the frame
+/// took, and those descriptors (DP-2, plan 23ae: a read with descriptors holds the start of exactly one `AttachRoute`
+/// frame, and the descriptors belong to that frame, also when the frame ends in a later read). It ends when the link
+/// closes.
 fn stand_in_worker(
     mut stream: UnixStream,
     launch: WorkerLaunch,
     read_size: usize,
-    handed: mpsc::Sender<Handoff>,
+    mut on_attach: impl FnMut(&mut UnixStream, Handoff, Vec<OwnedFd>),
 ) {
     let hello = Hello {
         protocol: 1,
@@ -80,29 +82,37 @@ fn stand_in_worker(
     let mut buf = vec![0u8; read_size];
     // The descriptor count of the read that holds the start of the frame in the decoder, and the reads of that frame.
     let mut started = (0, 0);
+    // The descriptors of the last read that had some.
+    let mut descriptors = Vec::new();
     loop {
         let read = match fd_pass::recv_with_fds(&stream, &mut buf) {
             Ok(read) if read.len > 0 => read,
             _ => return,
         };
+        let count = read.fds.len();
+        if count > 0 {
+            descriptors = read.fds;
+        }
         let mut rest = &buf[..read.len];
         while !rest.is_empty() {
             // An empty decoder means that a frame starts with this push (`push` takes no byte past a complete frame).
             if decoder.buffered() == 0 {
-                started = (read.fds.len(), 0);
+                started = (count, 0);
             }
             started.1 += 1;
             let took = decoder.push(rest);
             rest = &rest[took..];
             while let Ok(Some(frame)) = decoder.next_frame() {
                 match HostMsg::decode(&frame.payload) {
-                    Ok(HostMsg::AttachRoute { route, .. }) => {
-                        let _ = handed.send(Handoff {
+                    Ok(HostMsg::AttachRoute { route, .. }) => on_attach(
+                        &mut stream,
+                        Handoff {
                             route,
                             fds: started.0,
                             reads: started.1,
-                        });
-                    }
+                        },
+                        std::mem::take(&mut descriptors),
+                    ),
                     Ok(HostMsg::Launch(_)) => say(
                         &mut stream,
                         &WorkerMsg::Launched {
@@ -219,19 +229,25 @@ fn capture(core: &mut Core, owner: &str) -> CaptureId {
     }
 }
 
-/// Core 2, ST-6, DP-7, A2-1, LC-5, AD-2: the facade's calls reach a real host with a worker on a real link. `release`
-/// frees one capture and `release_owner` frees the captures of its owner (a read of either is then `UnknownCapture`);
-/// `attach` registers a route synchronously, and the real edge hands its stream to the worker on its `AttachRoute` frame
-/// (DP-2); a stop whose link breaks ends the worker process through the real signal edge.
-#[test]
-fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
-    let tmp = tempfile::tempdir().unwrap();
-    let launch = tmp.path().join("launch");
+/// A host with session `s1` `Running` over a real link: the worker process hands its launch to the test, and the test's
+/// thread `peer` speaks the worker side (`stand_in_worker`, with `on_attach`). `link` is a second handle of that link.
+struct Running {
+    core: Core,
+    _worker: common::ScriptWorker,
+    link: UnixStream,
+    peer: std::thread::JoinHandle<()>,
+}
+
+fn running(
+    dir: &Path,
+    on_attach: impl FnMut(&mut UnixStream, Handoff, Vec<OwnedFd>) + Send + 'static,
+) -> Running {
+    let launch = dir.join("launch");
     common::mkfifo(&launch);
     // The worker process hands its launch (token, then arguments) to the test with external commands, then waits, without
     // the CPU, until a signal ends it or the test process is gone.
     let worker = common::ScriptWorker::new(
-        tmp.path(),
+        dir,
         &format!(
             "/bin/echo \"$BOTSTER_WORKER_TOKEN\" \"$@\" | /usr/bin/tee '{}' >/dev/null\n{}",
             launch.display(),
@@ -239,7 +255,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         ),
     );
     let mut core = Core::open(OpenConfig {
-        data_dir: tmp.path().join("d"),
+        data_dir: dir.join("d"),
         worker_path: Some(worker.path.clone()),
         limits: CoreLimits::default(),
     })
@@ -247,20 +263,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let create = core
         .begin(Op::Create {
             session: sid("s1"),
-            request: SpawnRequest {
-                argv: vec!["/bin/true".into()],
-                env: BTreeMap::new(),
-                cwd: "/".into(),
-                size: Size {
-                    rows: 24,
-                    cols: 80,
-                    cell_px: None,
-                },
-                labels: BTreeMap::new(),
-                color_profile: None,
-                notification_policy: None,
-                size_policy: None,
-            },
+            request: request(),
         })
         .unwrap();
     pump_until(&mut core, |e| completed(e, create).is_some());
@@ -278,14 +281,71 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let parsed = WorkerLaunch::parse(&args, Some(token)).expect("a launch");
     let stream = UnixStream::connect(&parsed.control).expect("the host listens");
     let link = stream.try_clone().unwrap();
-    let (handed, handoffs) = mpsc::channel();
-    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed, SMALL_READ, handed));
+    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed, SMALL_READ, on_attach));
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert!(
         matches!(completed(&events, start), Some(OpResult::Ok(_))),
         "{events:?}"
     );
     assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Running);
+    Running {
+        core,
+        _worker: worker,
+        link,
+        peer,
+    }
+}
+
+fn route_options(dir: &Path) -> AttachOptions {
+    AttachOptions {
+        file_directory: dir.display().to_string(),
+        file_permissions: None,
+        route_features: vec![],
+        terminal_formats: vec![],
+        owner: None,
+        query_deadline: Some(Duration::from_secs(1)),
+        route_tag: None,
+        route_limits: None,
+        history: None,
+        stall_deadline: None,
+        answers_queries: true,
+        input: true,
+    }
+}
+
+/// Stops `s1` over a broken link (LC-5): the host signals the worker process itself, which has no handler, so the stop
+/// ends `Lost(WorkerGone)` (AD-2, AD-6).
+fn stop_over_a_broken_link(running: Running) {
+    let Running {
+        mut core,
+        _worker,
+        link,
+        peer,
+    } = running;
+    let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
+    pump_until(&mut core, |_| true);
+    link.shutdown(std::net::Shutdown::Both).unwrap();
+    peer.join().unwrap();
+    let events = pump_until(&mut core, |e| completed(e, stop).is_some());
+    assert_eq!(
+        core.get(&sid("s1")).unwrap().state,
+        SessionState::Lost(LostReason::WorkerGone),
+        "{events:?}"
+    );
+}
+
+/// Core 2, ST-6, DP-7, A2-1, LC-5, AD-2: the facade's calls reach a real host with a worker on a real link. `release`
+/// frees one capture and `release_owner` frees the captures of its owner (a read of either is then `UnknownCapture`);
+/// `attach` registers a route synchronously, and the real edge hands its stream to the worker on its `AttachRoute` frame
+/// (DP-2); a stop whose link breaks ends the worker process through the real signal edge.
+#[test]
+fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (handed, handoffs) = mpsc::channel();
+    let mut running = running(tmp.path(), move |_, handoff, _| {
+        let _ = handed.send(handoff);
+    });
+    let core = &mut running.core;
 
     // `attach`: registered at once; the real edge sends the route's stream with its `AttachRoute` frame (DP-2).
     let (ours, _theirs) = UnixStream::pair().unwrap();
@@ -294,24 +354,11 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
             ClientId("c".into()),
             sid("s1"),
             RouteTransport::Stream(StreamEndpoint::new(ours)),
-            AttachOptions {
-                file_directory: tmp.path().display().to_string(),
-                file_permissions: None,
-                route_features: vec![],
-                terminal_formats: vec![],
-                owner: None,
-                query_deadline: Some(Duration::from_secs(1)),
-                route_tag: None,
-                route_limits: None,
-                history: None,
-                stall_deadline: None,
-                answers_queries: true,
-                input: true,
-            },
+            route_options(tmp.path()),
         )
         .expect("the route is registered");
     let route = attached.route;
-    pump_until(&mut core, |_| true);
+    pump_until(core, |_| true);
     let handoff = handoffs
         // timer: deadline — a host that never sends the route must fail the test, not hang
         .recv_timeout(Duration::from_secs(30))
@@ -325,7 +372,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     );
 
     // `release` frees one capture.
-    let first = capture(&mut core, "a");
+    let first = capture(core, "a");
     assert_eq!(core.read_page(first, 0).unwrap().bytes.0, vec![1, 2, 3]);
     core.release(first);
     assert_eq!(
@@ -333,8 +380,8 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         ErrorCode::UnknownCapture
     );
     // `release_owner` frees the captures of that owner only.
-    let second = capture(&mut core, "b");
-    let kept = capture(&mut core, "k");
+    let second = capture(core, "b");
+    let kept = capture(core, "k");
     core.release_owner(&ClientId("b".into()));
     assert_eq!(
         core.read_page(second, 0).unwrap_err().code,
@@ -348,16 +395,79 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     // identity, to end its payload (`EndPayload`, SIGUSR1, AD-6). This worker process has no handler, so the signal ends it,
     // and the host sees the worker's exit (AD-2: `Lost(WorkerGone)`). A host that sent no signal would wait for
     // `stop_grace` and end the session `Lost(WorkerUnreachable)`.
-    let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
-    pump_until(&mut core, |_| true);
-    link.shutdown(std::net::Shutdown::Both).unwrap();
-    peer.join().unwrap();
-    let events = pump_until(&mut core, |e| completed(e, stop).is_some());
+    stop_over_a_broken_link(running);
+}
+
+/// DP-2, steward ruling R-65: the host keeps its copy of a route's stream until the worker reports `RouteReceived`, then
+/// closes it. The worker side closes its received copy first. A one-byte write of the client must then succeed, because the
+/// host's copy keeps the peer open. After `RouteReceived`, the host has no copy: the client reads EOF and a write fails
+/// with `EPIPE`. The worker answers a capture after `RouteReceived` on the same link, so the capture's `Completed` event
+/// shows that the host handled `RouteReceived` (a real event, BUILD rule 5).
+///
+/// OS behavior that the test relies on: a write to a unix stream socket whose peer is closed on all descriptors fails with
+/// `EPIPE` (macOS and Linux). Rust std starts every process with `SIGPIPE` ignored (bug catalog B6), so the write returns the
+/// error instead of a signal ending the test.
+#[test]
+fn the_host_keeps_its_copy_of_a_route_stream_until_the_worker_reports_it_received() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (closed, worker_closed) = mpsc::channel();
+    let (go, gone) = mpsc::channel::<()>();
+    let mut running = running(tmp.path(), move |link, handoff, descriptors| {
+        let route = handoff.route;
+        // The worker side closes its received copy, then waits for the test before it reports the route received.
+        drop(descriptors);
+        let _ = closed.send(handoff);
+        if gone
+            // timer: deadline — a test that never answers must not hang the worker side
+            .recv_timeout(Duration::from_secs(30))
+            .is_ok()
+        {
+            say(link, &WorkerMsg::RouteReceived { route });
+        }
+    });
+    let core = &mut running.core;
+    let (ours, mut client) = UnixStream::pair().unwrap();
+    // Set while the peer is open: macOS refuses the option (`EINVAL`) on a socket whose peer is closed.
+    // timer: deadline — a host copy that stays open must fail the test, not hang
+    client
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    let route = core
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(ours)),
+            route_options(tmp.path()),
+        )
+        .expect("the route is registered")
+        .route;
+    pump_until(core, |_| true);
+    let handoff = worker_closed
+        // timer: deadline — a host that never sends the route must fail the test, not hang
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the host sends the route");
+    assert_eq!((handoff.route, handoff.fds), (route, 1));
+
+    // Only the host's copy keeps the peer open now.
+    client
+        .write_all(b"x")
+        .expect("the host keeps its copy until RouteReceived");
+
+    go.send(()).unwrap();
+    // The worker reads the capture's request after it sent `RouteReceived`.
+    capture(core, "a");
+    let mut byte = [0u8; 1];
     assert_eq!(
-        core.get(&sid("s1")).unwrap().state,
-        SessionState::Lost(LostReason::WorkerGone),
-        "{events:?}"
+        client.read(&mut byte).expect("EOF, not a timeout"),
+        0,
+        "the host closed its copy"
     );
+    assert_eq!(
+        client.write(b"y").unwrap_err().kind(),
+        std::io::ErrorKind::BrokenPipe
+    );
+
+    stop_over_a_broken_link(running);
 }
 
 /// A FIFO in `dir` that a fixture script writes and the test reads by deadlines. The test holds it open for reading and
@@ -526,7 +636,7 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     {
         let parsed = parsed.clone();
         std::thread::spawn(move || {
-            stand_in_worker(stream, parsed, 4096, mpsc::channel().0);
+            stand_in_worker(stream, parsed, 4096, |_, _, _| {});
             let _ = ended.send(());
         });
     }
