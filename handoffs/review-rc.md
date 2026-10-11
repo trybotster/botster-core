@@ -619,3 +619,20 @@ The #285 source CLEAN concerns the corrected body and reviewed source. It claims
 Integration message `msg_plugin-w_1791747846_0da91b` confirms that both body findings can close at the unchanged head.
 The integration closure commit remains pending. The reviewer sent package closure `71c1dc82a0461a65c1877807f3ed1deea6212ebe`.
 The reviewer ran no test, build, or gate.
+
+
+### Integration CLEAN received for Core #285
+
+Exact source: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+Integration verdict: `7009eba6960ba4e260f1026c12015e40e612585b`, `verdicts/stage1/rc-testkit-controls.md`, round 3.
+Message: `msg_plugin-w_1791747918_f063b1`.
+The integration reviewer reports zero open findings and confirms the complete package closure at `71c1dc82a0461a65c1877807f3ed1deea6212ebe`.
+Both source CLEAN verdicts now cover this exact head.
+The comparison base is `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+The source ancestor is `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+
+The integration reviewer confirms all ten gate PASS results and six matched mutation catches, including four in stage 2.
+The reviewer accepts the valid Mac evidence within its recorded scope and accepts no proved B13 cause.
+The final SLOT, import retaining the two xtask fixes, applicable check or review, final exact-head gate, and final body remain due.
+This receipt accepts no later pin, pending removal, or PR completion.
+The reviewer ran no test, build, or gate.
