@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  A JUnit report written by cargo-nextest 0.9.146 (8af696ddc 2026-09-21), the version that ci/remote/Dockerfile installs in
+  the gate image, on 2026-10-11 (#264, for the package reviewer's RP-PC-1). Unedited except for this comment. It ran a
+  scratch crate `junit-probe` with retries = 1, store-success-output = true and four tests:
+  - tests::passes passes and prints `<testcase name="x" classname="y"/> and ]]> <failure>` (written as escaped text);
+  - tests::flaky fails once and passes on its retry (flakyFailure);
+  - tests::fails fails on both tries (failure and rerunFailure);
+  - tests::ignored is #[ignore]: the report has no test case for it.
+-->
+<testsuites name="nextest-run" tests="3" skipped="0" failures="1" errors="0" uuid="5b2cfaae-c67a-47df-8458-9b6b2c085d1c" timestamp="2026-10-11T05:42:13.834-07:00" time="0.020">
+    <testsuite name="junit-probe" tests="3" skipped="0" errors="0" failures="1">
+        <testcase name="tests::passes" classname="junit-probe" timestamp="2026-10-11T05:42:13.834-07:00" time="0.008">
+            <system-out>
+running 1 test
+a log that says &lt;testcase name=&quot;x&quot; classname=&quot;y&quot;/&gt; and ]]&gt; &lt;failure&gt;
+test tests::passes ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err></system-err>
+        </testcase>
+        <testcase name="tests::flaky" classname="junit-probe" timestamp="2026-10-11T05:42:13.847-07:00" time="0.008">
+            <flakyFailure timestamp="2026-10-11T05:42:13.834-07:00" time="0.009" message="thread &apos;tests::flaky&apos; panicked at src/lib.rs:16:13" type="test failure with exit code 101">thread &apos;tests::flaky&apos; panicked at src/lib.rs:16:13:
+first attempt fails
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+                <system-out>
+running 1 test
+test tests::flaky ... FAILED
+
+failures:
+
+failures:
+    tests::flaky
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+</system-out>
+                <system-err>
+thread &apos;tests::flaky&apos; panicked at src/lib.rs:16:13:
+first attempt fails
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+            </flakyFailure>
+            <system-out>
+running 1 test
+test tests::flaky ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err></system-err>
+        </testcase>
+        <testcase name="tests::fails" classname="junit-probe" timestamp="2026-10-11T05:42:13.834-07:00" time="0.008">
+            <failure message="thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9" type="test failure with exit code 101">thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9:
+assertion `left == right` failed: assertion failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace</failure>
+            <rerunFailure timestamp="2026-10-11T05:42:13.847-07:00" time="0.008" message="thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9" type="test failure with exit code 101">thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9:
+assertion `left == right` failed: assertion failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+                <system-out>
+running 1 test
+test tests::fails ... FAILED
+
+failures:
+
+failures:
+    tests::fails
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+</system-out>
+                <system-err>
+thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9:
+assertion `left == right` failed: assertion failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+            </rerunFailure>
+            <system-out>
+running 1 test
+test tests::fails ... FAILED
+
+failures:
+
+failures:
+    tests::fails
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3 filtered out; finished in 0.00s
+
+</system-out>
+            <system-err>
+thread &apos;tests::fails&apos; panicked at src/lib.rs:9:9:
+assertion `left == right` failed: assertion failed
+  left: 1
+ right: 2
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</system-err>
+        </testcase>
+    </testsuite>
+</testsuites>
