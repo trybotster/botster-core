@@ -461,7 +461,6 @@ conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
 conf::th_3_no_route_io_in_the_host
-conf::tm_6_begin_and_attach_signal_wake
 conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
