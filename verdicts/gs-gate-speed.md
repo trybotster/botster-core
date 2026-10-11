@@ -2112,6 +2112,10 @@ I checked old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` for the named scan
 
 I read pair-common, the current GS brief, and plan revision 23bk, section 8. Sol must complete the HIGH integration review.
 
+Sol publishes integration source CLEAN for this head in `0d05b356210e31488885686953e55fc3ed57b416`, at `verdicts/stage1/gs-repository-signal-scan.md`.
+
+I read the complete artifact and verified its publication. Both source reviews have zero findings. The current-base import and final gate remain required.
+
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
