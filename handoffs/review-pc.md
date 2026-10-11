@@ -851,6 +851,8 @@ The final gate condition is closed. The original program-controls group remains 
 The reviewer worktree is clean. Wait for the doorbell. Never poll.
 
 
+
+
 Sol final-record receipt: msg_plugin-w_1791735134_fc45bc.
 Sol read the complete final record at 2f269280 and independently verified disjoint paths, unchanged own diff, pending files, merge parents, and tree.
 The package reviewer supplied the pushed receipt SHA 34fbf8f0f98d28b03e301b3d29bc5297e469542a to PC, Sol, and the lead.
@@ -992,3 +994,23 @@ Sol's same-head integration verdict remains required. Current v1 has an overlapp
 After both CLEANs, PC merges current v1 once, posts the base-merge check, and runs one final exact-head gate.
 No later source delta or conflict resolution is approved. The original program-controls group remains incomplete.
 Next: publish the verdict and notify PC, Sol, and the lead. Wait for the doorbell. Never poll.
+
+
+Push record: #277 package CLEAN (0 open) is on origin/stage1/review-pc at 0f4d349fcf6cd4b681bd064264a705121877ec55.
+Exact source head: 7d7d429f06335c18e8a21e6c63085be4c5465eb0. Own/PR/gate base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+Sol's same-head integration verdict and the final current-base merge/check/gate remain required.
+#276 package CLEAN remains fd6eeeb3343a7768b8550c872139a85cac308757 on head 67fd9112d0e7554d39be6eb6b43260c782dda200.
+The reviewer worktree is clean. Wait for the doorbell. Never poll.
+
+
+## PR #276: Sol source CLEAN receipt
+
+Receipt: msg_plugin-w_1791740907_873ba1.
+Sol verdict: 5e1a9be28abac3fa274f38a9f59ff82cea8ce25c, verdicts/stage1/pc-e1-1-worker-file-name.md, Round 1.
+The reviewer read the complete verdict and verified publication on origin/stage1/integration-review-sol.
+Both source CLEANs have zero open findings on head 67fd9112d0e7554d39be6eb6b43260c782dda200.
+Package verdict: fd6eeeb3343a7768b8550c872139a85cac308757.
+Own base: a0adb1321bfc3deb7d16735e9a622775ba5f1a2d. PR and green gate base: 42d7056e99ed0aaf2967c5ecc7609cb3c65e970f.
+The same-head integration-review condition is closed. The final current-v1 import, applicable base check, and exact-head gate remain due.
+Neither verdict approves a later source delta or gate. The OU-9 structural fix still needs its Core pin.
+No execution job ran here. Wait for the doorbell. Never poll.

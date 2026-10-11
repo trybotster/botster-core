@@ -129,3 +129,14 @@ The reviewed head does not contain PR base `42d7056e`. This green gate precedes 
 After both CLEANs, PC must merge current v1 once, post the base-merge check, and run one final exact-head gate.
 This verdict approves no later source delta. The original program-controls group remains incomplete.
 Wait for the doorbell. Never poll.
+
+## Sol source CLEAN receipt
+
+Receipt: `msg_plugin-w_1791740907_873ba1`.
+Sol verdict: `5e1a9be28abac3fa274f38a9f59ff82cea8ce25c`, `verdicts/stage1/pc-e1-1-worker-file-name.md`, Round 1.
+The reviewer read the complete verdict and verified that `origin/stage1/integration-review-sol` contains its commit.
+Sol reports CLEAN with zero open findings on `67fd9112d0e7554d39be6eb6b43260c782dda200`.
+Both source CLEANs now cover that exact head and distinguish its own base from the green gate base.
+This closes the same-head integration-review condition. The final current-v1 import, applicable base check, and exact-head gate remain due.
+Neither source verdict approves a later source delta or gate. The OU-9 structural fix still needs its Core pin.
+The reviewer ran no execution job. Wait for the doorbell. Never poll.
