@@ -1989,6 +1989,69 @@ fn a_guard_at_the_reported_client_revision_counts_every_frame_of_the_read() {
     assert_eq!(refusals(&client).len(), 50, "every frame is refused");
 }
 
+/// DP-5, OU-2 (plan 23ad): the worker queues refusals behind the baseline sequence only while the queue keeps
+/// `route_queue_bytes`, and a healthy close discards the frames that still wait for room. A `Detach` while a refused batch
+/// waits: the client reads, after `live`, refusals of at most `route_queue_bytes` in total, then `route_closed`, and not
+/// every frame of the batch is refused.
+#[test]
+fn a_healthy_close_discards_the_frames_that_wait_for_room() {
+    let queue_bytes = 1000;
+    let mut w = with_limits(|l| l.route_queue_bytes = queue_bytes);
+    w.feed(Input::Descriptor(DescriptorId(1)));
+    let mut client = Client::default();
+    let bind = attach(&mut w, RouteId(1), options(), limits());
+    let first = allowance(&bind, RouteId(1)).expect("an allowance");
+    let batch: Vec<u8> = (1..=50)
+        .flat_map(|k| client_frame(&bytes_frame(k, b"x")))
+        .collect();
+    assert!(batch.len() <= first, "{} of {first}: one read", batch.len());
+    let read = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: batch,
+    });
+    assert_eq!(
+        allowance(&read, RouteId(1)),
+        Some(0),
+        "refusals wait for room"
+    );
+    let detach = w.send(&HostMsg::Detach {
+        route: RouteId(1),
+        reason: DetachReason::Revoked,
+    });
+    client.take_all(&mut w, RouteId(1), [bind, read, detach].concat());
+    let live = client
+        .frames
+        .iter()
+        .position(|f| matches!(f, ToClient::Live))
+        .expect("the client read live");
+    let (last, behind) = client.frames[live + 1..]
+        .split_last()
+        .expect("frames after live");
+    assert!(
+        matches!(last, ToClient::RouteClosed { .. }),
+        "route_closed is the last frame: {last:?}"
+    );
+    assert!(
+        behind
+            .iter()
+            .all(|f| matches!(f, ToClient::InputRefused(_))),
+        "{behind:?}"
+    );
+    let queued: usize = behind
+        .iter()
+        .map(|f| botster_route_codec::prelude::stream_wrap(&f.encode()).len())
+        .sum();
+    assert!(
+        queued <= usize::try_from(queue_bytes).unwrap(),
+        "{queued} bytes of refusals behind the baseline"
+    );
+    assert!(
+        behind.len() < 50,
+        "the frames that waited are discarded: {}",
+        behind.len()
+    );
+}
+
 /// DP-5, R-51 (PR3 F107): a complete batch that the worker receives before its `live` is written, within the allowance, on
 /// a route whose queue cannot hold all the refusals. The frames that wait for room were decided at their receipt: when the
 /// client then reads the baseline through `live` and the refusals, every early op is `NotReady`, in order, and none
