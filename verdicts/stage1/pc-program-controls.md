@@ -426,3 +426,30 @@ PC reports that the final gate is running. Sol has not read or polled that runni
 A running gate supplies no result and permits no pending-ID removal or merge.
 Any removal commit requires the corresponding source delta review and exact-head gate under the binding rule.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+
+### Base-only import after Round 3
+
+VERDICT: NOT CLEAN (1 open: SI-5) at 6dd3caef6ac68eb77bd872e54c9c5ff7ebe003fb.
+
+The gate base is now 8dab35d14f7038d3cc0598e2cde8da207bd1b723.
+Request: msg_plugin-w_1791709587_1e48ef.
+The new head only merges that v1 tip into the reviewed 4d05d270 head.
+The base adds #252's reviewed xtask/src/ci.rs change, outside this PR's five own paths.
+Sol checked the source identities. The #252 v1 merge has the reviewed afc33981 tree.
+
+Sol read the complete retained check: ~/botster-sessions/gates/botster-core-pc-base-merge-check-4d05d270-6dd3caef-20261011.log.
+Both ancestry checks and all four numbered conditions pass.
+Both pending files retain their required contents. EV-2 and IN-5 remain pending.
+Sol's independent merge-tree equals the imported tree, 0ef621860a5d371196012ab2c731716e392b2ed2.
+Sol independently compared both complete own diffs, including the real-pending removals. They are byte-identical.
+The check's separate comparison outside the line-set files is 48483 bytes with SHA-256 74399e1ff9c3d0bdb8ae1bb3fc1606758efa09e3d7666243aae1790547aa38c3.
+The unchanged source assessment carries through this verified base-only import. No new delta round is required.
+
+PC reports that it stopped the 4d05d270 gate because its base became stale.
+PC reports that the final gate now runs on 6dd3caef against 8dab35d1.
+Sol has no completed result from that gate and has not read or polled its running log.
+SI-5 stays open until that exact-head gate supplies the corrected mutation result.
+Any EV-2 or IN-5 removal still needs its real PASS record, commit review, and required exact-head gate.
+This import check supplies no full-gate result and grants no merge approval.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
