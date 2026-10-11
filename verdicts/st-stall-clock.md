@@ -1,6 +1,28 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
+
+## Revision 3 review
+
+Reviewed artifact: `shared/core-stage1/handoffs/st-stall-clock-design.md`, revision 3.
+Artifact SHA-256: `2e6d6323dd5743a62962c4e9a9a1148449dcb30f1bf7659e758d56bdd1ba7a01`.
+Reviewed Core base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Review scope: design only. This verdict approves no implementation head or gate evidence.
+
+ST-D2 is CLOSED. Section 3 records the lead's Q4 decision, option (b).
+The stall-clock PR documents the adoption snapshot and restoration rule in both DESIGN.md files. It builds no adoption code.
+The note states the adoption limit: a surviving route has no stall clock until DP-8 route adoption lands.
+Both DESIGN.md files and the PR body must retain that limit.
+
+The note names ST's next PR as the DP-8 dependency. That PR owns route reports, the new RouteId mapping, stable tags and restoration.
+It also owns the specified adoption proof and all five listed `dp_8_*` ids.
+The delivery order is the driver `more_input` PR, the stall-clock PR, then the DP-8 route adoption PR.
+
+ST-D1 and ST-D3 remain CLOSED. All three design findings are closed. No new finding is added.
+The reviewer verified the revision 3 hash and checked the adoption change against the lead's explicit decision.
+The reviewer ran no build or test.
+
+The earlier sections retain review history. This revision 3 verdict supersedes their status.
 
 ## Revision 2 review
 
