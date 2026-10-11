@@ -144,7 +144,11 @@ mod tests {
         assert_eq!(state_parent_and_group("41 cat S 7 40"), None);
     }
 
-    /// A new thread is counted while it runs, and no longer after its join; a new descriptor is counted while it is open.
+    /// A new thread is counted while it runs; a new descriptor is counted while it is open, and no longer after its close.
+    /// The count after a thread's join is not checked: the join returns when the thread's function has returned, and the
+    /// kernel may still count the thread for a moment after that (macOS `pti_threadnum`, Linux `/proc/self/task`), with no
+    /// event that marks its removal (steward ruling R-55 (1) condition 2, real-tier follow-up). The counts are of the whole
+    /// process, so the test needs a process of its own, as nextest gives each test.
     #[test]
     fn the_counts_follow_a_thread_and_a_descriptor() {
         let threads_before = threads().unwrap();
@@ -158,7 +162,6 @@ mod tests {
         assert_eq!(threads().unwrap(), threads_before + 1);
         started.wait();
         thread.join().unwrap();
-        assert_eq!(threads().unwrap(), threads_before);
 
         let descriptors_before = open_descriptors().unwrap();
         let file = std::fs::File::open("/dev/null").unwrap();
