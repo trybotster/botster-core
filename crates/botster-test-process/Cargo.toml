@@ -30,9 +30,11 @@ libc = "0.2"
 rustix = { workspace = true, features = ["event", "fs", "process"] }
 signal-hook.workspace = true
 
-# The platform adapters (src/platform.rs): libproc lists the members of a group and reads a start time, and kqueue awaits
-# an exit and a SIGCHLD.
+# The platform adapters (src/platform.rs): libproc lists the members of a group and the children of a process and reads a
+# start time, and kqueue awaits an exit and a SIGCHLD. errno: libproc's listing reads `errno` to tell an empty listing from
+# an error, so the children's listing clears it first.
 [target.'cfg(target_os = "macos")'.dependencies]
+errno = "0.3"
 kqueue = "1.2.1"
 libproc = "0.14"
 
