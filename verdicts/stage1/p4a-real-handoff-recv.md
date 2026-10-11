@@ -146,3 +146,108 @@ I used only source reads, static parsing, and source-only Git comparisons.
 All three findings remain open. A replacement READY and the package verdict are required for closure.
 
 VERDICT: NOT CLEAN (3 open) at 950527a6ff470b7f893cbb1a73b9d0efb918cf3d
+
+## Round 2 — 2026-10-11: cleanup correction and adoption finding
+
+Head: `f3d6e37066f027666392e65e945599371d428d66`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+READY: `msg_plugin-w_1791698600_621d29`.
+Package NOT CLEAN: `787845a50622c24a81b4e94c26db755204d6532d`, `verdicts/p3-worker.md`, Round 160.
+I read that complete round and the five-path correction: 225 insertions and twenty deletions.
+The other own paths retain Round 1's review. The HIGH classification and approved PR B scope remain in force.
+
+**SI-1 / F117 MEDIUM — CLOSED for the reported paths.**
+`close_unchecked` takes every remaining read before it closes any entry.
+It emits CloseDescriptor for an unbound descriptor and ends a bound route with HandoffFailed.
+Checked reads have already left the table, so their routes remain.
+`close_link` calls this cleanup before it changes state. Decoder errors and frame-triggered closes therefore release the reads.
+`close_link_now` covers Terminate and orphan exit. LinkClosed and adoption also call the cleanup.
+I checked each return after `link_read_begins`, including decoder errors and the post-frame return.
+The new proofs cover oversized frames in both forms, bound routes, Remove, Terminate, and checked-route retention after LinkClosed.
+They observe actions and decoded reports without a private table assertion.
+
+**SI-2 / F118 MEDIUM — CLOSED.**
+The helper sends a pre-launch Signal request after HELLO and waits for its matching Done error before the descriptor send.
+The worker processes that request only after HELLO passes. No payload group exists, so it signals no process.
+The response supplies the event boundary before a descriptor read can arrive.
+Launch and AttachRoute remain in one descriptor send, so receipt still precedes payload spawn.
+The existing bounded report wait supplies the deadline. Source ordering closes the race; repeated passes do not establish closure.
+
+**SI-3 / F119 MEDIUM — CLOSED.**
+`check_reads` returns after `descriptor_fault` takes the remaining table and closes the link.
+The next iteration cannot index a removed key.
+The split non-AttachRoute proof supplies two descriptor reads and observes each close once, LinkClose, and no bind.
+
+**SI-4 / F120 MEDIUM — OPEN at this head: adoption sends a report before HELLO.**
+The old Ready link can hold an unchecked bound read after AttachRoute plus a partial following frame.
+`adopt` emits AdoptLink, then calls `close_unchecked` before HELLO and the counter reset.
+`end_route` reports RouteClosed while the link is Ready. The driver sends it on the adopted transport.
+Core-host `driver.rs::deliver` rejects a first frame that is not HELLO, so valid adoption fails.
+The worker counts those bytes before its reset, while the driver counts them on the new link.
+I confirm the package finding in `msg_plugin-w_1791698672_61d67f` through both action paths and the host handshake.
+The correction must preserve HELLO-first ordering, descriptor closure, and new-link byte accounting.
+It needs a public adoption proof from that Ready state.
+
+I read `round159-reverts-macos.log` and `mac-slow-f3d6e370.log` completely.
+The four selected reversals fail four, five, one, and one proofs, respectively.
+The exact-head Mac record reports worker 59, slow_cli 17, and slow_session 35 passed.
+Its separate core-sys nextest run reports 115 passed. Ten repeated condition-2 passes add no distinct coverage.
+The earlier cargo-test storage failures come from the process-wide RLIMIT_NOFILE test; the lead assigns that separate issue to P6.
+No complete correction-head gate or conformance ID flip is claimed. The earlier gates retain their heads and limits.
+I run no reviewer execution job.
+
+VERDICT: NOT CLEAN (1 open)
+
+## Round 3 — 2026-10-11: adoption correction and the #241 import
+
+Exact head: `e493ff5f6d8622f64feb1805fe1def887f69adad`.
+Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Parents: corrected head `4b437b442a32d5b601afe4507fdb6d36d597cbcc` and the base.
+Tree: `6908221c512046d74e314484b772886bd4659c10`.
+READY: `msg_plugin-w_1791698812_e16e3e`; base import: `msg_plugin-w_1791699110_823ad2`.
+Package correction CLEAN: `d07e100398b8c430f712c9a9b716c9b2d8d5509c`, Round 161.
+Package exact-head carry-forward CLEAN: `80f9bed0555e21542a0e12d68f9d73e8362f4e91`, Round 162.
+Both records are in `verdicts/p3-worker.md`. I read both complete rounds.
+Authority: plan 23ai at `c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d`, contracts .27, and BUILD.md at `56bd0a5`.
+The HIGH classification and the lead's final-gate rule remain in force.
+
+**SI-4 / F120 MEDIUM — CLOSED.**
+I read the complete three-path correction at `4b437b44`: 33 insertions and two deletions.
+After AdoptLink, the worker resets the new-link counters and clears old output-report state.
+It resets the decoder and fences old host requests. `input_fence` sends no report.
+The worker sends HELLO and Adopted before it calls `close_unchecked`.
+The bound route's HandoffFailed report follows those frames and counts against the new `queued_total`.
+No later reset omits those bytes. The driver resets its written total when it installs the transport.
+Cleanup still precedes processing bytes after the candidate HELLO.
+
+The public proof starts with a Ready worker, a bound descriptor, and a partial following frame.
+It requires one descriptor close through RouteClose and exactly HELLO, Adopted, then HandoffFailed after AdoptLink.
+It checks the new epoch's HELLO proof and requires Stop from the new host to produce SIGTERM.
+It asserts no private counter or table. Source ordering establishes the counter result.
+F117's closure scope and checked-route retention remain intact. F118 and F119 remain closed.
+
+I read `~/botster-sessions/shared/core-stage1/evidence/p3-handoff-recv/base-merge-check-4b437b44-e493ff5f.txt` completely.
+Both ancestry checks and all four conditions pass. The two #241 paths are disjoint from the fifteen own paths.
+The supplied diff pair has 120958 bytes and SHA256 `b9388bf20e4768d0010586d7b543e8aba89a21165f05069e9ba9e90a9d7c6268`.
+My ordinary Git diff pair also matches: 119998 bytes, SHA256 `6d7762813106db42849e5910dbd0255f765837c33330c4d8e596ec0262a200ba`.
+The different formats have different sizes; each pair is identical.
+The automatic source merge tree equals the actual tree above and has no conflict. The final diff check passes.
+GitHub names this exact head and base at the final check.
+The import preserves #241's accepted runner selection and all reviewed PR B content.
+No conformance ID, pin, dependency, or mutation exclusion changes in the own delta.
+
+I read `f120-revert-macos.log` completely. The faulty order fails its first-frame assertion: kind 17 instead of HELLO kind 1.
+One selected proof fails, with 174 filtered out. This reversal is not a complete gate.
+I read `mac-slow-4b437b44.log` completely. It names that corrected head and Darwin 27.0.0 after worker prebuild.
+Worker slow passes 59 tests in 5.31 seconds. slow_cli passes 17 in 0.19 seconds; slow_session passes 35 in 5.22 seconds.
+The earlier individual passes add no distinct coverage. The disjoint #241 import changes no operating-system behavior in this delta.
+The earlier Linux gates and full outcome records retain their Round 1 heads and limits.
+P3's worker-core 175, clippy zero, and strict 206/0 remain implementer-reported results.
+No complete correction-head gate is supplied or claimed.
+The final gate must cover the corrections and their mutants after both CLEAN reviews, under the lead's pool rule.
+PR C still owns route I/O, read allowances, and the PTY budget. This PR moves no conformance ID.
+The lc_12 record still lacks real attach_stream support and supplies no acceptance proof for that ID.
+All four findings close. No integration finding remains.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
