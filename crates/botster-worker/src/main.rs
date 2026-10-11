@@ -703,7 +703,7 @@ impl Driver {
 
 // Both fixtures use the same session tests and the same production Driver.
 #[cfg(all(test, feature = "slow"))]
-const DRIVER_OBSERVER: Option<&str> = Some("driver_observer");
+const DRIVER_OBSERVER: Option<&str> = Some("slow_driver_observer");
 
 #[cfg(all(test, feature = "slow"))]
 #[path = "../tests/common/session.rs"]
@@ -711,7 +711,7 @@ mod slow_driver;
 
 #[cfg(all(test, feature = "slow"))]
 #[test]
-fn driver_observer() {
+fn slow_driver_observer() {
     let Some(control) = std::env::var_os("BOTSTER_DRIVER_CONTROL") else {
         return;
     };
