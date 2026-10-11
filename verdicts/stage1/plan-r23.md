@@ -1905,3 +1905,37 @@ This verdict approves the rule. It accepts no #256 cause attribution, import, ga
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 05b18303c0afe4cf9b5e0437f6307f56fb39045b
+
+## Round 54: revision 23ao, four echo fences and the combined pin
+
+- Head: `9dba78c901e3c3a5225d437b91378f8143313e03`.
+- Base and sole parent: `05b18303c0afe4cf9b5e0437f6307f56fb39045b`.
+- Request: `msg_plugin-w_1791715247_6d380e`.
+- Plan SHA-256: `e9faf7490d9dd055a7b6cf68c5903fccc242df7547b94a4cbc2037c0916e9cdd`.
+
+Sol checked the complete net delta. Only docs/stage1-plan.md changes: three added lines and one deleted line.
+Section 0 adds the four-transcript R-60 rule 3 correction and conditional `.34` pin.
+The revision table adds the missing 23an history row and the new 23ao row. No other operative rule changes.
+
+The four transcripts are `ou_7_exit_after_tail_queued_then_close`, `a2_4_other_osc_forms_stay_in_output`,
+`e2_1_osc_1_gives_no_title_changed_and_stays_in_output`, and `ev_7_event_and_output_both_carry_the_sequence`.
+Only the first is a minimum ID. Each correction adds one `await_control program_ready` before the first input.
+Each transcript also declares that control in `requires.controls`. Existing expectations remain.
+The rule matches the published R-60 input fence. The lead's handoff records steward approval, P3 ownership, and the tag condition.
+
+Sol read the retained local diff and proof script in shared/core-stage1/evidence/p3-echo-fence-r60/.
+Sol statically parsed both echo-proof logs. Each log has ten unique runs for each of the four IDs.
+All forty unfenced runs report FAIL. All forty fenced runs report PASSED on the real tier.
+The headers identify the scratch source and macOS. These local proofs support the proposed correction; they are not a Core merge gate.
+
+The combined #240/#243 merge pins `.34` if the steward tags it before that merge's final gate.
+Otherwise, the existing `.33` order remains. The control-first order and full real-tier before/after table remain.
+Whichever contracts PR merges second removes these four IDs from #39's program_ready exception list.
+That condition preserves the shrink-only list after both transcript and lint changes exist.
+The revision changes no manifest, active ID, minimum list, pending file, acceptance threshold, or current code pin.
+Exact-head gates, current-base review, package CLEAN, integration CLEAN, and the 23al/23an limits remain.
+
+This verdict accepts the plan only. It accepts no future tag, contracts PR, combined source, pin move, gate, or pending removal.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 9dba78c901e3c3a5225d437b91378f8143313e03
