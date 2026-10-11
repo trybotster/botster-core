@@ -773,6 +773,23 @@ mod slow_tests {
         assert_eq!(programs.input(me).unwrap(), b"a");
     }
 
+    /// A write to a probe whose end is closed fails at once with the socket's own error: only "no room" (and an interrupted
+    /// write) waits for the socket, so a closed probe never holds a control until the cleanup bound.
+    #[test]
+    fn a_request_write_to_a_closed_probe_fails_with_its_error_not_at_the_bound() {
+        let (harness_end, probe_end) = UnixStream::pair().unwrap();
+        harness_end.set_nonblocking(true).unwrap();
+        drop(probe_end);
+        let error = send_line(&harness_end, b"{}\n", Deadline::cleanup()).unwrap_err();
+        assert!(
+            matches!(
+                error.kind(),
+                io::ErrorKind::BrokenPipe | io::ErrorKind::ConnectionReset
+            ),
+            "{error:?}"
+        );
+    }
+
     /// The accept loop waits when no connection is queued, skips a peer that reset before the accept, and stops at any
     /// other error.
     #[test]
