@@ -1061,6 +1061,35 @@ mod slow_tests {
         );
     }
 
+    /// DP-2: a link that takes no byte now (`WouldBlock`) blocks a route's stream, and does not fail it: the send is
+    /// `Blocked`, so the driver keeps the frame and the stream for a later flush, and the endpoint comes back as it came.
+    #[test]
+    fn a_full_link_blocks_a_route_stream_and_gives_it_back() {
+        use std::os::unix::net::UnixStream as Std;
+        let (mut edges, tmp) = edges();
+        // The peer reads nothing, so the link's buffers fill and a send ends at `WouldBlock`.
+        let _peer = connect(&tmp);
+        let link = accept(&mut edges);
+        let chunk = [0u8; 65_536];
+        loop {
+            match edges.link_send(link, &chunk) {
+                Ok(n) => assert!(n > 0, "a send takes bytes or blocks"),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
+                Err(e) => panic!("a full link blocks: {e}"),
+            }
+        }
+        let (core, _client) = Std::pair().unwrap();
+        let Err((endpoint, DescriptorSendError::Blocked)) =
+            edges.link_send_descriptor(link, b"attach", StreamEndpoint::new(core))
+        else {
+            panic!("a full link blocks the handoff");
+        };
+        assert!(
+            endpoint.downcast::<Std>().is_ok(),
+            "the endpoint comes back as it came"
+        );
+    }
+
     /// R-50, OU-2: a route stream that Core still holds closes with its frame: the client reads the bytes, then the end of
     /// the stream. The stream may come as a `UnixStream` or as its `OwnedFd`. A full stream takes what fits, without
     /// blocking, and still closes; empty bytes close it with no frame.
