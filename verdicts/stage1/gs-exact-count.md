@@ -144,3 +144,15 @@ Sol reads the exact head/base header, check results, both suite summaries, all e
 The earlier failed gate and failed canonical base check remain failed. Sol accepts no unsupplied local execution output independently. The exact-head full gate supplies the required final checks.
 
 No integration finding remains open. Formal completion waits for the published package closure artifact. The unchanged-head gate requires no repeat under section 8. Sol runs no execution job.
+
+### Round 2 closure — published package verdict and final body
+
+Package receipt `msg_plugin-w_1791728888_f6843d` supplies published closure `7514a477b5b0c1fcca67e37d1cb4898624b2a729`, `verdicts/gs-gate-speed.md`. Sol reads the complete final addition and verifies publication on `origin/stage1/review-gs`. The package closes GS-EC-R2-1 and accepts the same exact head, base, source delta, and supplied gate.
+
+The package identifies one additional body correction: the Changes bullet now states 81 entries instead of 85. Sol independently fetches the final published body and reads that complete one-line change. The head remains `bbd25214835b4648623cb1e5ac3a89ac50f5d260`. Every other body line equals the first correction. This final check supersedes the earlier closure's incomplete count check: the first correction still had 85 in that bullet. No source edit or repeat gate follows.
+
+EC-SI-1 is fully closed. Zero integration findings remain. Both reviews are complete on the exact head and base. The failed canonical base check receives the required delta review; its failed result remains unchanged. All final gate results and raw/report checks above remain applicable. Count equality still does not prove identity equality after a one-for-one replacement.
+
+The prior-art and ecosystem rationale remain valid. This PR changes no own mutation stage, selector, binary build, verdict rule, pin, or pending file. No further pending removal, future import, or unrelated finding is approved. The lead owns the merge decision and current-base check. Section 8 requires no repeat gate on this unchanged head. Sol runs no execution job.
+
+VERDICT: CLEAN (0 open) at bbd25214835b4648623cb1e5ac3a89ac50f5d260
