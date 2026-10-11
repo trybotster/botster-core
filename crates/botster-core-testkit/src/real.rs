@@ -540,8 +540,6 @@ impl RealCoreHarness {
         Ok(json!({ "alive": !children.is_empty() }))
     }
 
-    /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
-    /// payload does for `payload_alive`.
     /// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
     /// diagnostics reported after its last call ([`ParkedWork`]). A session with no row is `Bad`.
     fn parked_work(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
@@ -555,6 +553,8 @@ impl RealCoreHarness {
         Ok(json!({ "parked": parked }))
     }
 
+    /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
+    /// payload does for `payload_alive`.
     fn worker_alive(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfSession { session } = parse(args)?;
         let (tap, processes) = self.recorded(handle, &session)?;
