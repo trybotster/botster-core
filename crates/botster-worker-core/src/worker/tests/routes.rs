@@ -1205,7 +1205,8 @@ fn an_unapplied_input_kind_is_refused_unsupported_with_its_op_and_the_route_stay
 
 /// IN-4, DP-5 (PR3 F87, integration R1-4): a complete input frame that is refused is still client input. Invalid UTF-8
 /// text, an unknown enum value and an invalid field are each refused with their op, advance `input_rev{client}` once on
-/// receipt, carry their route and reach no PTY. The route stays open, and a valid frame after them is applied.
+/// receipt, carry their route and reach no PTY. The route stays open, and a valid frame after them is applied. The invalid
+/// field is refused `refused` (steward ruling R-75: never `invalid_input`).
 #[test]
 fn a_refused_complete_input_frame_advances_the_client_revision_once() {
     use botster_route_codec::prelude::{stream_wrap, TYPE_INPUT, TYPE_TEXT};
@@ -1241,7 +1242,7 @@ fn a_refused_complete_input_frame_advances_the_client_revision_once() {
                     what: "event".into()
                 }
             ),
-            (None, RefusalReason::InvalidInput),
+            (None, RefusalReason::Refused),
         ]
     );
     assert!(
