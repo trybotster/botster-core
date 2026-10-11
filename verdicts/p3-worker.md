@@ -10700,3 +10700,160 @@ The artifact goes directly to P3 and current Sol integration. The lead receives 
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+## Round 158 — PR #230, package round 1 — 2026-10-10
+
+Head: `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+Base: `cf3bcaa93faa240b418fa2248884a96581fd82c3`.
+READY receipt: `msg_plugin-w_1791695059_78c6c0`.
+The reviewer verifies the exact head and base in the complete current GitHub body.
+Body record: /private/tmp/review-p3-pr230-ready-final.json.
+This is the first formal package round for #230. Earlier candidate inspections complete no formal round.
+
+### Authority and complete scope
+
+BUILD rules 1 and 3 classify the gate decisions and shared testkit as HIGH.
+The reviewer also checks BUILD rule 5 and the real-process test rules.
+The lead authorizes allocator option A: testkit unsafe_code deny with exactly one allow on the PeakAllocator GlobalAlloc implementation.
+The existing anchor exception remains separate. The xtask command checks both exceptions.
+R-37 permits a test-binary allocator over System, without a production hook, lock, or wait.
+R-52 permits a calling-thread peak with positive subject-frame proof, other-thread exclusion, and allocation-free const TLS.
+The contract pin remains contracts-v0.1.27, b161db87. The later observer ruling does not require a pin change in this PR.
+
+The reviewer reads all twelve own changed paths, their relevant source contexts, and the complete correction delta.
+The change adds allocation controls and proofs, registers the controls, and installs the allocator in the conformance test binary.
+It adds the narrow unsafe exception check and changes one pending conformance ID.
+It adds no production worker instrumentation, facade change, C ABI change, or real-only mapping change.
+The .cargo/mutants.toml change updates proof citations. It adds no mutation exclusion.
+
+### Allocator and controls
+
+PeakAllocator forwards alloc, alloc_zeroed, realloc, and dealloc to System with the original pointers, layouts, and new size.
+The safety statement covers these forwarding requirements. The unsafe allow applies only to this implementation.
+The observer records the largest single allocation size, rather than a sum or a live-byte count.
+A free does not lower the peak. Reallocation records the requested new size.
+The observer uses a const thread-local Cell and a relaxed installation flag.
+The allocator path performs no allocation, lock, or wait. try_with handles thread-local teardown without a panic.
+
+The library exports the allocator but does not install it for its consumers.
+The testkit unit binary and root conformance binary install it as their global allocator.
+The separate no_peak_allocator binary installs no observer.
+That binary proves that has_control returns false and both controls return Unsupported.
+alloc_window resets only the calling thread. alloc_peak reports that thread's largest allocation since the reset.
+Both controls reject unexpected arguments. The supporting decision functions retain their tests.
+The other-thread proof excludes allocations on another thread.
+The first-allocation proof checks that a new thread does not recurse while initializing the observer.
+
+### F115 MED — CLOSED
+
+The earlier positive proof used a 1 MiB client read after its final window reset.
+TestkitRoute::try_read allocates the requested read buffer before the scheduler runs.
+That client allocation could satisfy the positive assertion without observing the worker frame allocation.
+The earlier proof also lacked the public pump needed for the worker to take the complete frame.
+
+At this head, FRAME remains 1 MiB and READ_MAX is 64 bytes.
+The stream capacity is 64 KiB. The source asserts that both client bounds stay below FRAME.
+A no-frame control window performs thirty-two public read/pump steps and requires its peak to stay below FRAME.
+The client then creates and queues the frame. A second reset excludes those preparation allocations.
+The positive window performs the same thirty-two steps and requires its peak to reach FRAME.
+Each step calls public Core::pump and polls public events.
+TestkitCore::pump synchronously calls Workers::run on the calling thread.
+Workers::run resets the program step cap and runs the in-process scheduler.
+Client flush moves existing bytes, and client reads allocate only sixty-four bytes after the final reset.
+The worker route reader supplies the large allocation required by the positive assertion.
+A worker moved to another thread cannot supply that allocation to this calling-thread peak.
+No production hook or private helper accessor is added.
+
+The reviewer reads all of shared/core-stage1/evidence/p3-pr3/alloc-f115-reverts.log.
+Removing pump and event polling fails the positive assertion with peak 64 at tests.rs:225.
+Restoring the 1 MiB client read fails the control assertion with peak 1048576 at tests.rs:206.
+Each record reports seven passed and one failed.
+These selected correction records contain assertion output, but no complete exact-final-head gate header.
+The reviewer does not claim independent execution. The completed final gate supplies acceptance evidence.
+Integration closes the same source finding in 39bdc6609c04e57b025a2ab4f5674fae971c636e.
+
+### Unsafe exception decisions
+
+The exception table names exactly the anchor close_inherited function and the PeakAllocator GlobalAlloc implementation.
+The testkit manifest changes only unsafe_code from forbid to deny. Its other workspace lint entries remain equal.
+The existing whole-crate FFI exception remains unchanged.
+The command checks both manifests and tracked Rust files.
+Its token checks reject unlisted lint changes, nested or repeated allows, and an incorrect item, trait, type, or file.
+The allowed attribute must identify the exact top-level item in its exact file.
+The new proofs retain the original anchor restrictions and cover the added allocator exception and manifest drift.
+
+The reviewer reads unsafe-exception-reverts.log and missed-mutants-reverts.log in shared/core-stage1/evidence/p3-alloc-peak.
+Accepting any item, accepting any file, or omitting the testkit lint table fails the named exception proofs.
+Forcing installed or supports to true fails the separate binary without a global observer.
+The reviewer also reads revert-no-global-allocator.log and unreverted.log in that directory.
+Removing the conformance allocator produces UNSUPPORTED_CONTROL for alloc_peak and fails the DP-3 ID.
+The unchanged allocation control passes that ID.
+These are selected correction records, not complete exact-final-head gates.
+
+### F116 LOW — CLOSED
+
+The complete published Prior art section now satisfies BUILD Starting fresh rule 0.
+Publication receipt: msg_plugin-w_1791694987_230b09. The reviewer verifies the complete current body at the unchanged head and base.
+The note separates the vault's older far-bound lesson from the current differential assertion.
+The pinned transcript declares 4097 and 0x7FFFFFFF, requires frame_too_large for both cases, and checks peak_large <= peak_small.
+
+The reviewer reads both cited vault notes and the old source at 72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c.
+The old CountingAllocator tests use a const thread-local Cell and a test-binary global allocator over System.
+The note retains that generic pattern and rejects the old allocation-count metric for this size observer.
+The old CappedAllocator uses process-wide charges and aborts at a cap. The note rejects that mechanism for this observer.
+The rebuild plan's Services row lists capped_allocator.rs for a different obligation.
+The cited parity audits contain no allocation-observer row. The pinned old manifests contain no unsafe_code lint.
+
+The library comparison supports the local four-method forwarding wrapper and thread-local peak.
+The dhat allocator uses a mutex; stats_alloc exposes aggregate atomic counters; cap tracks and limits live allocation.
+Primary sources: https://docs.rs/dhat/latest/src/dhat/lib.rs.html, https://docs.rs/stats_alloc/latest/src/stats_alloc/lib.rs.html, https://docs.rs/cap/latest/cap/.
+The note records the reuse decisions, rejected mechanisms, and reason for the lead-authorized v1 exception check.
+Integration independently verifies the published correction in cf84b851f7e454d288aff1c047480fba22e340ec.
+
+### Conformance and merge review
+
+Only conf::dp_3_frame_limit_checked_before_allocation leaves core-pending.
+The pinned A20-1 TESTKIT_PROVEN list contains exactly this ID.
+The real runner reports this ID as testkit-proven and does not claim a real allocator measurement.
+Core A20-1 stays held because the separate P6 RealCoreHarness obligation remains.
+The held comment only removes the completed allocation-control obligation.
+No minimum list, held ID, or real-pending ID is removed.
+The real count stays 35/68 passing. Accepted coverage increases to 36/69 through the permitted testkit-proven ID.
+This does not claim completion of the pending real controls or production route driver.
+
+The reviewer reads the supplied base merge record and compares Git objects without running a merge-check job.
+The a51c8969 and e6b67617 trees both equal 90430b5b024eb96c543e1730938539662b4c167c.
+The cc834158 correction changes only the positive proof and its comments after that merge.
+The exact merge base is cf3bcaa93faa240b418fa2248884a96581fd82c3, which contains accepted #227.
+The earlier 11193fcb conflict resolution changes pending-list comments and retains the own A20 note; it changes no ID.
+The final twelve-path delta contains no unresolved product merge change.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-alloc-peak-cc834158-pool-20261010-215500-44897.log.
+The header names the exact head and base. All ten CI steps PASS on msa1.
+Default: 1596 passed in 11.521 seconds, with 484 skipped.
+Slow: 408 passed in 91.500 seconds, with 1987 skipped.
+Both testkit reports: 206 passed, zero failed. Minimum testkit: 55/69.
+Strict pending: 373/394 run, 21 real-only not run, two held.
+Real minimum: 35/68 passing, 36/69 accepted. Real-pending: 83, with zero passing in that list.
+The corrected positive frame proof, other-thread proof, first-allocation proof, and no-observer binary pass.
+The DP-3 ID and all seven generalized exception proofs pass.
+Stage 1: 46 mutants, 45 caught, one unviable, zero missed, zero timeouts, in 197.3 seconds.
+The reviewer reads every individual mutation outcome. Stage 2 skips because stage 1 misses none.
+The lower mutant count than the earlier stacked gate follows #227's merge into the base. No exclusion is added.
+Full CI: 364.9 seconds. Queue: 152 seconds. The job runs 372 seconds and exits zero after 524 seconds.
+The wrapper exits zero after 525 seconds.
+Integration independently reads the final evidence in c5302542eabbcf1ae56b5f86ad03e8be26651bb3.
+The reviewer reads that complete inspection and the published body correction record.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+
+### Verdict
+
+PR #230 is CLEAN at `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+F115 and F116 are CLOSED. No package finding remains open within this PR's approved scope.
+The integration reviewer must complete its same-head formal round separately.
+DP-2 PR B awaits its later direct READY. F39 and F61/F62 retain their separate scopes.
+The non-minimum P3 queue remains parked. All earlier verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
