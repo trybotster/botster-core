@@ -60,7 +60,9 @@ use crate::controls::{damaged, parse};
 use crate::edge_tap::{EdgeTap, Rows, Tap};
 use crate::harness::{limits_of, no_route};
 use crate::process_controls::LoseReason;
+use crate::refusal::{arm_refusal, RefusalHandle, RefusalLayer};
 use crate::stand_in::{self, StandIn};
+use crate::start_controls::{held_session, not_begun, row_report};
 use crate::worker::ImpostorField;
 use botster_core::RealEdges;
 use botster_core_conformance::{
@@ -168,6 +170,9 @@ pub struct RealCoreHarness {
     armed: BTreeMap<PathBuf, Vec<Arm>>,
     /// The number of stand-ins installed: each one puts its real endpoint aside under its own name.
     stand_ins: usize,
+    /// The scripted synchronous refusals of each handle (`fail_next`, R-49 Q3): the testkit's own layer in front of the
+    /// handle's Core returns them without calling Core.
+    refusals: BTreeMap<String, RefusalHandle>,
     /// The guards' sockets, the wrappers and the data directories.
     root: tempfile::TempDir,
 }
@@ -216,6 +221,7 @@ impl RealCoreHarness {
             handles: BTreeMap::new(),
             rows: BTreeMap::new(),
             armed: BTreeMap::new(),
+            refusals: BTreeMap::new(),
             stand_ins: 0,
             root: tempfile::tempdir()?,
         };
@@ -471,14 +477,9 @@ impl RealCoreHarness {
         }
     }
 
-    /// Arms a stand-in for the endpoint of `session`'s worker on the host of `handle`, with the role that `role_of` makes
-    /// from the session's stored row (R-49 Q4). The next `open` of the data directory installs it.
-    fn arm(
-        &mut self,
-        handle: &str,
-        session: &SessionId,
-        role_of: impl FnOnce(&Row) -> Result<stand_in::Role, ControlError>,
-    ) -> Result<Value, ControlError> {
+    /// The stored row of `session` on the host of `handle`, decoded by Core's own decoder, with that host's tap: the row as
+    /// the inner storage edge holds it now, not the record of the rows that passed through the tap.
+    fn stored(&self, handle: &str, session: &SessionId) -> Result<(SharedTap, Row), ControlError> {
         let tap = self.tap(handle)?;
         let bytes = lock(&tap)
             .stored_row(&row_key(session))
@@ -489,6 +490,62 @@ impl RealCoreHarness {
                 session.0
             ))
         })?;
+        Ok((tap, row))
+    }
+
+    /// Core AD-7, AD-1: `{state, identity_recorded, labels}` of the session's stored row.
+    fn registry_row(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (_, row) = self.stored(handle, &session)?;
+        Ok(row_report(&row))
+    }
+
+    /// Core AD-7, R-49 Q2: holds the session's start at its `Launch`. The tap gives the worker no byte of the host's
+    /// `Launch` until `release_start_at`, so the row and the worker identity become durable and no payload runs. The hold is
+    /// set before the `Start`.
+    fn hold_start_at(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let session = held_session(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        not_begun(&session, &row)?;
+        if lock(&tap).hold_launch(row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "the start of {} is already held",
+                session.0
+            )))
+        }
+    }
+
+    /// Core AD-7, R-49 Q2: ends the hold of `hold_start_at`. Core's next flush sends the `Launch`.
+    fn release_start_at(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        if lock(&tap).release_launch(&row.instance) {
+            Ok(Value::Null)
+        } else {
+            Err(ControlError::Bad(format!(
+                "no hold of the start of {}",
+                session.0
+            )))
+        }
+    }
+
+    /// Core A5-3, R-49 Q3: arms a synchronous refusal of the handle's next named call, which the refusal layer returns
+    /// without calling Core.
+    fn fail_next(&mut self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        arm_refusal(self.refusals.entry(handle.to_string()).or_default(), args)
+    }
+
+    /// Arms a stand-in for the endpoint of `session`'s worker on the host of `handle`, with the role that `role_of` makes
+    /// from the session's stored row (R-49 Q4). The next `open` of the data directory installs it.
+    fn arm(
+        &mut self,
+        handle: &str,
+        session: &SessionId,
+        role_of: impl FnOnce(&Row) -> Result<stand_in::Role, ControlError>,
+    ) -> Result<Value, ControlError> {
+        let (_, row) = self.stored(handle, session)?;
         let role = role_of(&row)?;
         let data_dir = self.handles[handle].data_dir.clone();
         let path = endpoint_path(&data_dir, &row.instance);
@@ -628,7 +685,8 @@ impl CoreHarness for RealCoreHarness {
             let driver = HostDriver::open(cfg, edges)?;
             self.handles
                 .insert(spec.handle.clone(), Handle { data_dir, tap });
-            Box::new(driver)
+            let script = self.refusals.entry(spec.handle.clone()).or_default();
+            Box::new(RefusalLayer::new(Box::new(driver), script.clone()))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -692,6 +750,10 @@ impl CoreHarness for RealCoreHarness {
                     | "announce_protocol"
                     | "withhold_control_link"
                     | "signals_received"
+                    | "registry_row"
+                    | "hold_start_at"
+                    | "release_start_at"
+                    | "fail_next"
             )
     }
 
@@ -712,6 +774,10 @@ impl CoreHarness for RealCoreHarness {
             "announce_protocol" if self.tapped => self.announce_protocol(handle, args),
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
             "signals_received" if self.tapped => self.signals_received(handle, args),
+            "registry_row" if self.tapped => self.registry_row(handle, args),
+            "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
+            "release_start_at" if self.tapped => self.release_start_at(handle, args),
+            "fail_next" if self.tapped => self.fail_next(handle, args),
             _ => Err(ControlError::Unsupported),
         }
     }
@@ -842,7 +908,7 @@ mod slow_controls {
 
     /// The real tier serves the controls only on a tapped harness: a plain harness answers `unsupported_control`.
     #[test]
-    fn the_tapped_harness_serves_the_process_storage_and_stand_in_controls() {
+    fn the_tapped_harness_serves_the_process_storage_stand_in_and_start_controls() {
         let candidate = || Candidate {
             worker: PathBuf::from("/nonexistent/worker"),
             probe: PathBuf::from("/nonexistent/probe"),
@@ -860,6 +926,10 @@ mod slow_controls {
             "announce_protocol",
             "withhold_control_link",
             "signals_received",
+            "registry_row",
+            "hold_start_at",
+            "release_start_at",
+            "fail_next",
         ] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
@@ -869,7 +939,6 @@ mod slow_controls {
                 "{op}"
             );
         }
-        assert!(!tapped.has_control("hold_start_at"));
     }
 
     fn sid(name: &str) -> SessionId {
@@ -915,6 +984,13 @@ mod slow_controls {
 
     /// Creates and starts `session` with a payload that runs until a signal ends it (the probe's `hold`).
     fn running(harness: &RealCoreHarness, core: &mut dyn CoreApi, session: &str) {
+        created(harness, core, session);
+        core.begin(Op::Start { id: sid(session) }).expect("start");
+        pump_until(core, |c| state(c, session) == SessionState::Running);
+    }
+
+    /// Creates the session `session`, whose payload is the probe program that holds.
+    fn created(harness: &RealCoreHarness, core: &mut dyn CoreApi, session: &str) {
         let hold = json!({ "program": [{ "hold": {} }] }).to_string();
         let request = SpawnRequest {
             argv: vec![harness.probe_binary(), hold],
@@ -936,8 +1012,109 @@ mod slow_controls {
         })
         .expect("create");
         pump_until(core, |c| c.get(&sid(session)).is_ok());
-        core.begin(Op::Start { id: sid(session) }).expect("start");
-        pump_until(core, |c| state(c, session) == SessionState::Running);
+    }
+
+    /// Core AD-7, A5-3, on real sessions (R-49 Q2 and Q3):
+    /// - `hold_start_at` holds the start at the host's `Launch`: the stored row (`registry_row`) is `Starting` with the
+    ///   worker identity, the worker launched no payload, and the start completes only after `release_start_at`. A second
+    ///   hold, a hold of a begun start, a release with no hold and an unknown session are `Bad`; a hold before another step
+    ///   is `unsupported_control`.
+    /// - `fail_next` refuses the named call of the handle without calling Core: the session stays `Created`, and the call
+    ///   after it reaches Core. A code outside the call's sync column is `Refused`.
+    #[test]
+    fn the_start_controls_hold_the_launch_and_fail_next_refuses_before_core() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let data_dir = harness.data_dir("a");
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: data_dir.clone(),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        created(&harness, core.as_mut(), "s1");
+        created(&harness, core.as_mut(), "s2");
+        let mut control = |op: &str, args: Value| harness.control("a", op, &args);
+        let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+
+        assert_eq!(
+            control(
+                "hold_start_at",
+                json!({"session": "s1", "before": "identity"})
+            ),
+            Err(ControlError::Unsupported)
+        );
+        assert!(bad(control("release_start_at", json!({"session": "s1"}))));
+        assert!(bad(control(
+            "hold_start_at",
+            json!({"session": "s9", "before": "payload"})
+        )));
+        assert_eq!(
+            control("registry_row", json!({"session": "s1"})),
+            Ok(json!({"state": "Created", "identity_recorded": false, "labels": {}}))
+        );
+        let hold = json!({"session": "s1", "before": "payload"});
+        assert_eq!(control("hold_start_at", hold.clone()), Ok(Value::Null));
+        assert!(bad(control("hold_start_at", hold.clone())), "one hold");
+
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        let tap = harness.tap("a").unwrap();
+        pump_until(core.as_mut(), |_| {
+            let row = harness.control("a", "registry_row", &json!({"session": "s1"}));
+            row.is_ok_and(|row| row["identity_recorded"] == json!(true)) && lock(&tap).quiet()
+        });
+        let mut control = |op: &str, args: Value| harness.control("a", op, &args);
+        assert_eq!(
+            control("registry_row", json!({"session": "s1"})),
+            Ok(json!({"state": "Starting", "identity_recorded": true, "labels": {}}))
+        );
+        assert_eq!(
+            control("payload_alive", json!({"session": "s1"})),
+            Ok(json!({"alive": false}))
+        );
+        assert!(
+            bad(control("hold_start_at", hold.clone())),
+            "the start has begun"
+        );
+        assert_eq!(
+            control("release_start_at", json!({"session": "s1"})),
+            Ok(Value::Null)
+        );
+        assert!(
+            bad(control("release_start_at", json!({"session": "s1"}))),
+            "released once"
+        );
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        assert_eq!(
+            harness.control("a", "payload_alive", &json!({"session": "s1"})),
+            Ok(json!({"alive": true}))
+        );
+
+        let mut control = |op: &str, args: Value| harness.control("a", op, &args);
+        assert_eq!(
+            control(
+                "fail_next",
+                json!({"target": "Start", "error": "WrongState"})
+            ),
+            Ok(Value::Null)
+        );
+        assert_eq!(
+            control(
+                "fail_next",
+                json!({"target": "Start", "error": "SessionLimit"})
+            ),
+            Err(ControlError::Refused(
+                json!({"call": "Start", "code": "SessionLimit", "reason": "not_in_sync_column"})
+            ))
+        );
+        let refused = core.begin(Op::Start { id: sid("s2") }).unwrap_err();
+        assert_eq!(refused.code, ErrorCode::WrongState);
+        assert_eq!(state(core.as_mut(), "s2"), SessionState::Created);
+        core.begin(Op::Start { id: sid("s2") })
+            .expect("the next start reaches Core");
+        pump_until(core.as_mut(), |c| state(c, "s2") == SessionState::Running);
     }
 
     /// Core EV-5(c), AD-7 (#222 RC-A-F1): `payload_alive` never takes a `Launched` report that the tap has not read for an
@@ -1278,12 +1455,16 @@ mod slow_tests {
             "announce_protocol",
             "withhold_control_link",
             "signals_received",
+            "registry_row",
+            "hold_start_at",
+            "release_start_at",
+            "fail_next",
         ] {
             assert!(tapped.has_control(op), "{op}");
             assert!(!plain.has_control(op), "{op}");
         }
         assert!(!tapped.has_control("pty_output"));
-        assert!(!tapped.has_control("fail_next"));
+        assert!(!tapped.has_control("wait_worker_exit"));
     }
 
     /// A control that a harness does not serve is `unsupported_control`, never a pass and never a bad argument: on the
