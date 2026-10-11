@@ -46,7 +46,8 @@
 //!   recorded worker still runs: it matches its pid and start time (the inner edge's AD-6 check, the read of Core's own
 //!   re-check of a worker that it did not spawn), and it is live, not a zombie. The AD-6 check reads a zombie as absent on
 //!   every platform: on Linux from the state field of `/proc/<pid>/stat`, and on macOS because the kernel refuses the
-//!   information of a zombie (bug catalog B9; steward ruling R-78 item 3). A zombie does not run. It sends no signal. A session whose row names no worker has none that runs.
+//!   information of a zombie (bug catalog B9; steward ruling R-78 item 3) or answers with the zombie state. A zombie does
+//!   not run. It sends no signal. A session whose row names no worker has none that runs.
 //! - `impostor_worker` (`{session, field, script?}`, Core A10-1, A11-1), `announce_protocol` (`{session, protocol}`, Core
 //!   A6-2, AD-4) and `withhold_control_link` (`{session}`, Core A6-1): a stand-in at the endpoint path of the session's
 //!   worker (steward ruling R-49 Q4, [`crate::stand_in`]). The control only arms it, from the stored row (the recorded
@@ -1284,7 +1285,9 @@ mod slow_controls {
     /// `worker_alive` and `payload_alive` (Core AD-7, EV-5(c)): a recorded process lives while it matches its pid and start
     /// time and runs. Core's reaper reaps every worker that it spawns as it ends, so a recorded worker is a zombie only for a
     /// moment; this test holds its own children unreaped instead. A zombie reads as absent on both platforms: Linux from its
-    /// state field, macOS because the kernel refuses its information (bug catalog B9; R-78 item 3). It does not live. An identity with another start time (a reused pid) does not live either.
+    /// state field, macOS because the kernel refuses its information (bug catalog B9; R-78 item 3), or answers with the zombie
+    /// state, which `start_time` refuses too. It does not live. An identity with another start time (a reused pid) does not
+    /// live either.
     #[test]
     fn a_recorded_process_that_ended_and_is_not_reaped_does_not_live() {
         let dir = Candidate::beside_test_binary().expect("the candidate directory");
