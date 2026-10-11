@@ -621,6 +621,46 @@ fn a_held_route_closes_session_lost_when_the_link_is_lost_after_the_exit() {
     ));
 }
 
+/// AM-3, OU-2, steward ruling R-63: the link of a live worker closes after a `Detach` went to the worker. The `Detach`
+/// waited for the worker's close of the route, which can no longer come: it completes once, and the delivered route closes
+/// once.
+#[test]
+fn a_detach_sent_before_the_link_closes_completes_and_its_route_closes_once() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    settle(&mut w);
+    let route = attach(&mut w);
+    settle(&mut w);
+    let detach = w
+        .engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Detached,
+        })
+        .unwrap();
+    let events = settle(&mut w);
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == detach)),
+        "the detach waits for the worker: {events:?}"
+    );
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    let events = settle(&mut w);
+    let completed = events
+        .iter()
+        .filter(|e| matches!(e, Event::Completed { op, .. } if *op == detach))
+        .count();
+    assert_eq!(completed, 1, "AM-3: one completion: {events:?}");
+    let closes: Vec<_> = closes_of(&events)
+        .into_iter()
+        .filter(|(r, _)| *r == route)
+        .collect();
+    assert_eq!(closes.len(), 1, "OU-2: one close: {events:?}");
+}
+
 /// The worker's `route_closed{session_ended}` for `route`: its queue is delivered (OU-7).
 fn delivered(route: RouteId) -> WorkerMsg {
     WorkerMsg::RouteClosed {
