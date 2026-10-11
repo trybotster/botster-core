@@ -1,4 +1,5 @@
-//! Public reads of cell attributes, colors and cursor appearance (Core ST-6b).
+//! Public reads of cell attributes, colors and cursor appearance (Core ST-6b), and the reads of the testkit's comparator
+//! (steward ruling R-62): the cursor's pending wrap and pen, and the formatter's tab stops, margins and charsets.
 //! Each read copies data from libghostty. This module parses no terminal bytes.
 
 use crate::{reads, sys, Error, Terminal};
@@ -90,6 +91,46 @@ fn style_color(value: sys::StyleColor) -> Result<StyleColor, Error> {
     }
 }
 
+/// A `GhosttyStyle` with its size set, for libghostty to fill.
+fn blank_style() -> sys::Style {
+    let color = sys::StyleColor {
+        tag: 0,
+        value: sys::StyleColorValue { padding: 0 },
+    };
+    sys::Style {
+        size: std::mem::size_of::<sys::Style>(),
+        fg_color: color,
+        bg_color: color,
+        underline_color: color,
+        bold: false,
+        italic: false,
+        faint: false,
+        blink: false,
+        inverse: false,
+        invisible: false,
+        strikethrough: false,
+        overline: false,
+        underline: 0,
+    }
+}
+
+fn cell_style(style: &sys::Style) -> Result<CellStyle, Error> {
+    Ok(CellStyle {
+        foreground: style_color(style.fg_color)?,
+        background: style_color(style.bg_color)?,
+        underline_color: style_color(style.underline_color)?,
+        bold: style.bold,
+        italic: style.italic,
+        faint: style.faint,
+        blink: style.blink,
+        inverse: style.inverse,
+        invisible: style.invisible,
+        strikethrough: style.strikethrough,
+        overline: style.overline,
+        underline: style.underline,
+    })
+}
+
 /// Read a native cell field. Each caller supplies the type specified by the C header.
 fn cell_field<T: Default>(cell: sys::Cell, key: i32) -> Result<T, Error> {
     let mut out = T::default();
@@ -143,25 +184,7 @@ impl Terminal {
         };
         let reference =
             reads::grid_ref(self.handle.as_ptr(), tag, col, row).ok_or(Error::InvalidValue)?;
-        let color = sys::StyleColor {
-            tag: 0,
-            value: sys::StyleColorValue { padding: 0 },
-        };
-        let mut style = sys::Style {
-            size: std::mem::size_of::<sys::Style>(),
-            fg_color: color,
-            bg_color: color,
-            underline_color: color,
-            bold: false,
-            italic: false,
-            faint: false,
-            blink: false,
-            inverse: false,
-            invisible: false,
-            strikethrough: false,
-            overline: false,
-            underline: 0,
-        };
+        let mut style = blank_style();
         let mut cell = 0;
         // SAFETY: the reference is live and both output pointers have the header's types.
         unsafe {
@@ -174,20 +197,7 @@ impl Terminal {
             _ => StyleColor::None,
         };
         Ok(CellAttributes {
-            style: CellStyle {
-                foreground: style_color(style.fg_color)?,
-                background: style_color(style.bg_color)?,
-                underline_color: style_color(style.underline_color)?,
-                bold: style.bold,
-                italic: style.italic,
-                faint: style.faint,
-                blink: style.blink,
-                inverse: style.inverse,
-                invisible: style.invisible,
-                strikethrough: style.strikethrough,
-                overline: style.overline,
-                underline: style.underline,
-            },
+            style: cell_style(&style)?,
             wide: cell_field(cell, sys::cell_data::WIDE)?,
             has_text: cell_field(cell, sys::cell_data::HAS_TEXT)?,
             protected: cell_field(cell, sys::cell_data::PROTECTED)?,
@@ -243,6 +253,110 @@ impl Terminal {
         }
         Ok(CursorAppearance { shape, blinking })
     }
+
+    /// Whether the cursor waits to wrap: the last print filled the last column (R-62, the comparator's cursor reading).
+    pub fn cursor_pending_wrap(&self) -> Result<bool, Error> {
+        let mut wrap = false;
+        // SAFETY: the data key writes a bool into this live output pointer.
+        crate::check(unsafe {
+            sys::ghostty_terminal_get(
+                self.handle.as_ptr(),
+                sys::data::CURSOR_PENDING_WRAP,
+                (&mut wrap as *mut bool).cast(),
+            )
+        })?;
+        Ok(wrap)
+    }
+
+    /// The cursor's pen: the SGR style that the next printed cell gets (R-62, the comparator's cursor reading).
+    pub fn cursor_pen(&self) -> Result<CellStyle, Error> {
+        let mut style = blank_style();
+        // SAFETY: the data key writes a GhosttyStyle, whose size field is set, into this live output pointer.
+        crate::check(unsafe {
+            sys::ghostty_terminal_get(
+                self.handle.as_ptr(),
+                sys::data::CURSOR_STYLE,
+                (&mut style as *mut sys::Style).cast(),
+            )
+        })?;
+        cell_style(&style)
+    }
+
+    /// libghostty's formatter in VT form with only the tab stops, the scrolling region and the active screen's charsets on
+    /// (R-62 F3a). The content is restricted to the top-left cell, which the cell reads also compare. The formatter is
+    /// libghostty's code: the snapshot encoder (GHOSTSNP) does not call it at the pinned Ghostty.
+    pub fn formatter_extras(&self) -> Result<String, Error> {
+        let terminal = self.handle.as_ptr();
+        let cell =
+            reads::grid_ref(terminal, sys::point_tag::ACTIVE, 0, 0).ok_or(Error::InvalidValue)?;
+        let selection = sys::Selection {
+            size: std::mem::size_of::<sys::Selection>(),
+            start: cell,
+            end: cell,
+            rectangle: false,
+        };
+        let options = sys::FormatterTerminalOptions {
+            size: std::mem::size_of::<sys::FormatterTerminalOptions>(),
+            emit: sys::FORMATTER_FORMAT_VT,
+            unwrap: false,
+            trim: false,
+            extra: sys::FormatterTerminalExtra {
+                size: std::mem::size_of::<sys::FormatterTerminalExtra>(),
+                palette: false,
+                modes: false,
+                scrolling_region: true,
+                tabstops: true,
+                pwd: false,
+                keyboard: false,
+                screen: sys::FormatterScreenExtra {
+                    size: std::mem::size_of::<sys::FormatterScreenExtra>(),
+                    cursor: false,
+                    style: false,
+                    hyperlink: false,
+                    protection: false,
+                    kitty_keyboard: false,
+                    charsets: true,
+                },
+            },
+            selection: &selection,
+        };
+        let mut formatter: sys::Formatter = std::ptr::null_mut();
+        // SAFETY: the terminal is live; `options` and the selection that it points to are valid for the call, and the
+        // library copies them. A successful call stores a formatter that the guard frees.
+        crate::check(unsafe {
+            sys::ghostty_formatter_terminal_new(std::ptr::null(), &mut formatter, terminal, options)
+        })?;
+        let formatter = FormatterGuard(formatter);
+        let mut needed = 0usize;
+        // SAFETY: a null buffer asks for the size, which the library stores in `needed`.
+        let probe = unsafe {
+            sys::ghostty_formatter_format_buf(formatter.0, std::ptr::null_mut(), 0, &mut needed)
+        };
+        if probe != sys::SUCCESS && probe != sys::OUT_OF_SPACE {
+            crate::check(probe)?;
+        }
+        let mut buffer = vec![0u8; needed];
+        let mut written = 0usize;
+        // SAFETY: the buffer holds `needed` bytes.
+        crate::check(unsafe {
+            sys::ghostty_formatter_format_buf(
+                formatter.0,
+                buffer.as_mut_ptr(),
+                needed,
+                &mut written,
+            )
+        })?;
+        buffer.truncate(written);
+        String::from_utf8(buffer).map_err(|_| Error::InvalidValue)
+    }
+}
+
+struct FormatterGuard(sys::Formatter);
+impl Drop for FormatterGuard {
+    fn drop(&mut self) {
+        // SAFETY: this guard owns the live formatter and frees it once.
+        unsafe { sys::ghostty_formatter_free(self.0) };
+    }
 }
 
 fn cell_rgb(cell: sys::Cell) -> Result<sys::ColorRgb, Error> {
@@ -295,6 +409,53 @@ mod tests {
     use super::*;
     use crate::History;
     use botster_core_contract::prelude::Size;
+
+    fn terminal() -> Terminal {
+        Terminal::new(
+            &Size {
+                rows: 4,
+                cols: 10,
+                cell_px: None,
+            },
+            History::On,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn the_comparator_reads_see_their_field() {
+        let mut terminal = terminal();
+        assert!(!terminal.cursor_pending_wrap().unwrap());
+        terminal.vt_write(b"0123456789");
+        assert!(terminal.cursor_pending_wrap().unwrap());
+        terminal.vt_write(b"\r");
+        assert!(!terminal.cursor_pending_wrap().unwrap());
+
+        let plain = terminal.cursor_pen().unwrap();
+        assert!(!plain.bold);
+        assert_eq!(plain.foreground, StyleColor::None);
+        terminal.vt_write(b"\x1b[1;31m");
+        let pen = terminal.cursor_pen().unwrap();
+        assert!(pen.bold);
+        assert_eq!(pen.foreground, StyleColor::Palette(1));
+        terminal.vt_write(b"\x1b[0m");
+        assert_eq!(terminal.cursor_pen().unwrap(), plain);
+
+        let extras = terminal.formatter_extras().unwrap();
+        for (bytes, emitted) in [
+            (&b"\x1b[2;3r"[..], &"\x1b[2;3r"[..]),
+            (&b"\x1b(0"[..], &"\x1b(0"[..]),
+        ] {
+            let mut changed = self::terminal();
+            changed.vt_write(bytes);
+            let changed = changed.formatter_extras().unwrap();
+            assert!(!extras.contains(emitted), "{extras:?}");
+            assert!(changed.contains(emitted), "{changed:?}");
+        }
+        let mut cleared = self::terminal();
+        cleared.vt_write(b"\x1b[3g");
+        assert_ne!(cleared.formatter_extras().unwrap(), extras);
+    }
 
     #[test]
     fn native_cell_fields_and_dynamic_colors_match_the_public_reads() {
