@@ -2,7 +2,7 @@
 
 Current verdict: CLEAN source at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
 Round 5 reviews the #246 import after Round 4 closes SI-5 and accepts the two pending-ID removals.
-The required final gate and package delta verdict on this imported head remain pending.
+The required final gate on this imported head remains pending.
 
 ## Source inspection before Round 1 — 2026-10-10
 
@@ -572,3 +572,11 @@ The package CLEAN `119acf92` covers the preceding head; the package delta verdic
 PC reports a final gate running on `a7be76d5`. Sol has not read or polled that running log.
 The completed full gate must pass on this exact head before merge.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+### Package delta receipt after Round 5
+
+Receipt: `msg_plugin-w_1791711047_a594ef`.
+Package CLEAN: `cb1f5854e0ea86fb395326ad3423237237fdd543`, at the same head and base.
+Sol read the complete current delta section.
+The package reviewer reaches the same composition result and retains all five finding closures.
+Both source verdicts are CLEAN. The completed exact-head gate remains required.
