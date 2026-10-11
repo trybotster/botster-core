@@ -385,6 +385,8 @@ fn every_call_passes_to_the_inner_edges_unchanged() {
                 "close stream Some(6) [114, 99]"
             ]
         );
+        // The record of Core's signals (`signals_received` for a session of `reuse_pid`, R-55).
+        assert_eq!(t.signals(), [(identity(5), GroupSignal::Term)]);
         assert_eq!(
             t.inner.picks.calls,
             vec![(ChoicePoint::ReadyWork, 3), (ChoicePoint::ReadyWork, 8)]
