@@ -184,7 +184,7 @@ mod tests {
     /// counts only after the driver's next call on its link. (The wake while a report waits is `RouteReports::answer`'s
     /// test: a wait on the testkit's wake also steps the in-process workers, so it cannot show which call signalled.)
     #[test]
-    fn route_reports_answers_what_the_host_consumed_and_wakes_it_while_a_report_waits() {
+    fn route_reports_answers_what_the_host_consumed_for_the_session_instance() {
         use botster_core_conformance::normalize_op;
         use botster_core_contract::prelude::*;
         use botster_core_host::LinkId;
@@ -219,7 +219,6 @@ mod tests {
                 unix: 1_000_000,
             });
         }
-        assert!(!lock(&reports).waits(), "the last pump received nothing");
         let instance = session_row(&harness, "h", &SessionId("s1".into()))
             .unwrap()
             .instance;

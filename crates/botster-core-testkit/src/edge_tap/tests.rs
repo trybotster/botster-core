@@ -1303,7 +1303,12 @@ fn the_driver_consumes_a_route_report_at_its_next_call_in_every_branch() {
     assert!(!rig.with(Tap::quiet));
     assert_eq!(reports_of(&rig, r2), (false, false), "the take-ahead");
     let signals = rig.signals();
-    assert!(!rig.with(|t| t.reports.waits()));
+    assert_eq!(reports_of(&rig, r2), (false, false));
+    assert_eq!(
+        rig.signals(),
+        signals,
+        "the driver received nothing, so no wake"
+    );
     assert_eq!(rig.recv(A, bytes.len()).unwrap(), bytes);
     assert_eq!(
         reports_of(&rig, r2),
@@ -1323,7 +1328,6 @@ fn the_driver_consumes_a_route_report_at_its_next_call_in_every_branch() {
         io::ErrorKind::WouldBlock
     );
     assert_eq!(reports_of(&rig, r2), (true, true));
-    assert!(!rig.with(|t| t.reports.waits()));
     let signals = rig.signals();
     assert_eq!(reports_of(&rig, r2), (true, true));
     assert_eq!(rig.signals(), signals, "nothing waits, so no wake");

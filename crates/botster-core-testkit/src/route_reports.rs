@@ -4,9 +4,12 @@
 //!
 //! - **Consumed.** The driver's `read_link` calls `link_recv` again only when it has decoded every byte that it read before:
 //!   each complete frame went to the engine (`Delivery::Done`), or it holds one frame in `held` and reads again only after
-//!   `retry_held` gave it to the engine. The engine posts the events of a frame inside that call (`feed`). So when the
-//!   driver calls `link_recv` on a link again, every frame that was complete in the bytes it received before is consumed, and
-//!   its events are posted. A frame becomes consumed at that later call, never earlier.
+//!   `retry_held` gave it to the engine (`feed`). So when the driver calls `link_recv` on a link again, every frame that was
+//!   complete in the bytes it received before is consumed. A frame becomes consumed at that later call, never earlier.
+//! - **Consumed is not posted** (R-66 correction). The record sees the link edge only. Core posts `RouteClosed` later than it
+//!   consumes the close report when the reason is `SessionEnded` (OU-7: after the session's queue is delivered), and when the
+//!   close is parked behind parked route work of the session. So `closed: true` fences the post only when the reason is not
+//!   `SessionEnded`, no route work of the session is parked, and the event budget can carry the post.
 //! - **The answer.** `closed`: Core consumed the worker's `RouteClosed` for the route. `activity_before_close`: Core consumed a
 //!   `ClientInput` observation of the route (the report that posts `Activity{source: Client(route)}`) before that close, or
 //!   with no close yet. Only the frames of one link are ordered: a route is the route of one worker link.
