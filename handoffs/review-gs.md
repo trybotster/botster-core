@@ -329,6 +329,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Contracts #50 is package CLEAN at `338008cbeea0bc1e675680e2d1c2935bf4702383`. All findings, including the LOW body count, are closed.
+
+The gate passes all ten steps with 20 caught and 2 unviable mutants. Sol and reviewer 016c must complete their required reviews.
+
+The round 3 record supersedes the historical NOT CLEAN entries below. A future base merge and Core pin require their own review.
+
 Contracts #50 is NOT CLEAN at `9bb6fd56e88514de82ecbc4d93c920372a3e0736`. GS-R43-1 HIGH remains open.
 
 Round 2 at `2bec33c8b5d8fa45d1e2bdc5f152084f7bc64dee` remains NOT CLEAN. The original example is repaired.

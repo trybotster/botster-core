@@ -1919,3 +1919,51 @@ The transcript files remain unchanged from round 1. The supplied Core comparison
 I read the updated live body and plan revision 23bd. Neither the passing gate nor the revised body closes GS-R43-1.
 
 I ran no gate, build, test, or executable probe. Sol owns the HIGH integration review.
+
+## Contracts PR #50: R-43(5), round 3
+
+- Head: `338008cbeea0bc1e675680e2d1c2935bf4702383`.
+- Source comparison: reviewed head `2bec33c8b5d8fa45d1e2bdc5f152084f7bc64dee`.
+- Original source base: `9d19b997fd044ca76c0844f8a32fa79d930e5ec4`.
+- Gate base: `5ff1b52be672bc107e80cd0d911110034745eda4`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review).
+- Open findings: 0.
+
+GS-R43-1 HIGH is CLOSED. The scan ignores an empty or non-list `expect_set`. The exact empty-set example applies no control and retains the seeded wake.
+
+Acknowledgements use the direct `strict_wait_step` predicate. Barriers use the recursive runner predicate. The shared `order_kind` function retains its original classification body.
+
+The scanner therefore follows the distinct execution paths that caused the round 2 finding. The new tests cover both paths and the empty set.
+
+The original scope repair remains intact. Unused fields do not disable seeded wakes. Direct waits and Core dispatch use the same `wait_wake_spec` predicate.
+
+GS-R43-R3-LOW-1 is CLOSED. The live body first stated 11 tests without a historical-head qualifier. The exact head has 13 tests.
+
+The implementer corrected the body without a source change. Each local reversal now names its historical head and that head's test count.
+
+I verified the unchanged exact head and corrected live body. The supplied gate independently reports all 13 `spurious_wakes` tests passing.
+
+All ten gate steps pass in 395.5 seconds. The default suite passes 2093 tests, and the slow suite passes 33 tests.
+
+The mutation step reports 22 mutants: 20 caught and 2 unviable. It reports no missed mutant. The earlier failed mutation gate remains in the body.
+
+Gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-338008cb-pool-20261011-092004-41960.log`.
+
+The transcript files remain identical to round 1. I inspected the committed JSON without executing it: all 24 suite waits are direct steps.
+
+Each wait has only `wait_wake`, `expect`, and `because` keys. The dispatch change therefore does not change these transcript operations.
+
+The earlier Core comparison evidence remains applicable to these unchanged transcripts. It retains the same four testkit failures and the real-tier results stated in round 1.
+
+The dropped-signal proof retains strict failure on the seeded harness. A harness without the control retains the steward's accepted real-spurious-wake residual.
+
+The eight transcript changes implement the authorized TH-2 widening and same-clock checks. The `tm_3` exception retains exactly the steward's specified event check.
+
+This review does not approve a broader widening, a pending-list removal, or the four unresolved Core results. The next Core pin needs its own review.
+
+I checked the prior-art claim against old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`. Its cited spurious-wake paths concern route writable readiness.
+
+Sol and reviewer 016c must complete their required reviews. The steward owns merge approval. A future base merge is not covered by this exact-head verdict.
+
+I ran no gate, build, test, or executable probe.
