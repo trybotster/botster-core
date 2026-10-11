@@ -370,10 +370,11 @@ mod slow_tests {
     use std::process::Command;
 
     /// Each stage lists its own tests and removes every listed test that its list has. `slow_in_both` is in both stages:
-    /// both runs leave it out. `tests::runs_only_under_slow` is a test that only the slow feature builds, in the library
-    /// binary that both stages have: only stage 2 has it, and stage 1's filter does not name it. `selected` is in a binary
-    /// that only stage 2 builds. Both runs pass with their filters and still run `slow_kept`. An entry that neither tier
-    /// lists fails the slow step's check.
+    /// both runs leave it out. `slow_tests::runs_only_under_slow` (the copy renames the fixture's `mod tests`, so the slow
+    /// filter selects it, GS-KF-R2-2) is a test that only the slow feature builds, in the library binary that both stages
+    /// have: only stage 2 has it, and stage 1's filter does not name it. `selected` is in a binary that only stage 2
+    /// builds. Without its exclusion, each stage runs each listed test that it has; with it, none, and it still runs
+    /// `slow_kept`. An entry that neither tier lists fails the slow step's check.
     #[test]
     fn each_stage_leaves_out_every_listed_test_that_it_builds() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -398,6 +399,10 @@ mod slow_tests {
             )
             .unwrap();
         }
+        let lib = dir.path().join("src/lib.rs");
+        let source = std::fs::read_to_string(&lib).unwrap();
+        assert_eq!(source.matches("mod tests").count(), 1);
+        std::fs::write(&lib, source.replace("mod tests", "mod slow_tests")).unwrap();
         let target = dir.path().join("target");
         let packages = ["botster-core".to_string()];
         let entry = |binary: &str, test: &str| Entry {
@@ -409,7 +414,7 @@ mod slow_tests {
         };
         let entries = [
             entry("botster-core", "slow_in_both"),
-            entry("botster-core", "tests::runs_only_under_slow"),
+            entry("botster-core", "slow_tests::runs_only_under_slow"),
             entry("botster-core::slow_conformance", "selected"),
         ];
         let stage1_selection = crate::test_budget::tier_selection(false, &packages);
@@ -449,6 +454,24 @@ mod slow_tests {
                 String::from_utf8_lossy(&output.stderr).into_owned(),
             )
         };
+        // Before the exclusion: stage 1 runs every test, so `slow_in_both`; stage 2's slow filter selects all three.
+        for (selection, filter, listed) in [
+            (&stage1_selection, "all()", &entries[..1]),
+            (
+                &stage2_selection,
+                crate::test_budget::SLOW_FILTER,
+                &entries[..],
+            ),
+        ] {
+            let (passed, log) = run(selection, filter);
+            assert!(passed, "{filter}: {log}");
+            for entry in listed {
+                assert!(
+                    log.contains(&format!("{} {}", entry.binary, entry.test)),
+                    "{filter}: {log}"
+                );
+            }
+        }
         for (selection, filter) in [
             (&stage1_selection, &stage1_filter),
             (&stage2_selection, &stage2_filter),

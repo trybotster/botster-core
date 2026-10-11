@@ -502,9 +502,14 @@ fn mutants_job(root: &Path) -> Result<()> {
             .with_context(|| format!("read {}", known_flaky::FILE))?,
     )
     .map_err(anyhow::Error::msg)?;
+    // A listed test is never a catch, whatever a stage's filter leaves out (`mutant_logs::stage_report`).
+    let flaky_ids: Vec<String> = flaky
+        .iter()
+        .map(|entry| format!("{} {}", entry.binary, entry.test))
+        .collect();
     let outcomes_of = |out: &Path| -> Result<Option<Outcomes>> {
         match std::fs::read_to_string(out.join("outcomes.json")) {
-            Ok(text) => Ok(Some(parse_stage_outcomes(&text, |path| {
+            Ok(text) => Ok(Some(parse_stage_outcomes(&text, &flaky_ids, |path| {
                 std::fs::read_to_string(out.join(path))
                     .with_context(|| format!("read {}", out.join(path).display()))
             })?)),
@@ -705,7 +710,11 @@ struct Outcomes {
 ///
 /// # Errors
 /// The file has no counts (`parse_outcomes`), no `outcomes` array, or a missed outcome without a mutant name.
-fn parse_stage_outcomes(json: &str, read: impl Fn(&str) -> Result<String>) -> Result<Outcomes> {
+fn parse_stage_outcomes(
+    json: &str,
+    flaky: &[String],
+    read: impl Fn(&str) -> Result<String>,
+) -> Result<Outcomes> {
     let summary = parse_outcomes(json)?;
     let v: serde_json::Value = serde_json::from_str(json)?;
     let mutants = v["outcomes"]
@@ -730,7 +739,7 @@ fn parse_stage_outcomes(json: &str, read: impl Fn(&str) -> Result<String>) -> Re
         summary,
         missed,
         tested,
-        report: mutant_logs::stage_report(json, read),
+        report: mutant_logs::stage_report(json, flaky, read),
     })
 }
 
@@ -2081,7 +2090,7 @@ mod tests {
             {"scenario":{"Mutant":{"name":"a.rs:1:2: replace f -> bool with true"}},"summary":"MissedMutant"},
             {"scenario":{"Mutant":{"name":"a.rs:3:4: replace g with ()"}},"summary":"CaughtMutant"},
             {"scenario":{"Mutant":{"name":"b.rs:5:6: replace + with - in h"}},"summary":"MissedMutant"}]}"#;
-        let outcomes = parse_stage_outcomes(json, no_logs).unwrap();
+        let outcomes = parse_stage_outcomes(json, &[], no_logs).unwrap();
         assert_eq!(outcomes.summary, counts(3, 1, 2, 0, 0));
         assert_eq!(
             outcomes.missed,
@@ -2099,13 +2108,13 @@ mod tests {
             ]
         );
         let no_list = r#"{"total_mutants":0,"caught":0,"missed":0,"timeout":0,"unviable":0}"#;
-        assert!(parse_stage_outcomes(no_list, no_logs).is_err());
+        assert!(parse_stage_outcomes(no_list, &[], no_logs).is_err());
         let unnamed = r#"{"total_mutants":1,"caught":0,"missed":1,"timeout":0,"unviable":0,"outcomes":[
             {"scenario":{"Mutant":{}},"summary":"MissedMutant"}]}"#;
-        assert!(parse_stage_outcomes(unnamed, no_logs).is_err());
+        assert!(parse_stage_outcomes(unnamed, &[], no_logs).is_err());
         let unnamed_caught = r#"{"total_mutants":1,"caught":1,"missed":0,"timeout":0,"unviable":0,"outcomes":[
             {"scenario":{"Mutant":{}},"summary":"CaughtMutant"}]}"#;
-        assert!(parse_stage_outcomes(unnamed_caught, no_logs).is_err());
+        assert!(parse_stage_outcomes(unnamed_caught, &[], no_logs).is_err());
     }
 
     /// P5's gate on #222 (`deb34002`): cargo-mutants 27.1.0 tested a struct-field deletion that stage 1 had caught,
@@ -2968,6 +2977,7 @@ mod slow_tests {
         let mutants_out = out.join("mutants.out");
         let outcomes = parse_stage_outcomes(
             &std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap(),
+            &[],
             |path| Ok(std::fs::read_to_string(mutants_out.join(path))?),
         )
         .unwrap();
@@ -3013,6 +3023,121 @@ mod slow_tests {
                 "{line}"
             );
         }
+        // GS-KF-R1-1 on the same real run: with the catching test listed as known-flaky and no filter that leaves it out
+        // (a test that the stage's list did not have), its catches are no catches, and the report fails the step.
+        let listed = parse_stage_outcomes(
+            &std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap(),
+            &["flaky tests::two_tripled_is_six".to_string()],
+            |path| Ok(std::fs::read_to_string(mutants_out.join(path))?),
+        )
+        .unwrap();
+        let error = listed
+            .report
+            .expect_err("a known-flaky catch fails the report");
+        assert!(
+            error.contains(
+                "is CAUGHT only by the known-flaky tests [\"flaky tests::two_tripled_is_six\"]"
+            ),
+            "{error}"
+        );
+    }
+
+    /// GS-KF-R1-1, on real tools: stage 1's list (`--workspace`, unified features) is not a superset of the builds that
+    /// cargo-mutants tests (the mutated package alone, with its own features). In the fixture `xtask/fixtures/
+    /// known-flaky-unify`, `b` enables the feature `x` of `a`, and `a tests::guarded` exists only without `x`: the
+    /// workspace list lacks it, `-p a` lists it, and no stage filter can leave it out. The step's stage-1 command then runs
+    /// it, and it catches each mutant of `triple`. Listed as known-flaky, it is no catch, and the report fails the step
+    /// (`mutant_logs::stage_report`).
+    #[test]
+    fn slow_a_listed_test_that_the_workspace_list_lacks_is_still_no_catch() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("the repository");
+        let fixture = root.join("xtask/fixtures/known-flaky-unify");
+        let dir = tempfile::tempdir().unwrap();
+        for sub in ["a/src", "b/src", ".config"] {
+            std::fs::create_dir_all(dir.path().join(sub)).unwrap();
+        }
+        for (from, to) in [
+            ("Cargo.toml.in", "Cargo.toml"),
+            ("a/Cargo.toml.in", "a/Cargo.toml"),
+            ("a/src/lib.rs", "a/src/lib.rs"),
+            ("b/Cargo.toml.in", "b/Cargo.toml"),
+            ("b/src/lib.rs", "b/src/lib.rs"),
+        ] {
+            std::fs::copy(fixture.join(from), dir.path().join(to)).unwrap();
+        }
+        for file in ["nextest.toml", "test-wrapper.sh"] {
+            std::fs::copy(
+                root.join(".config").join(file),
+                dir.path().join(".config").join(file),
+            )
+            .unwrap();
+        }
+        let guarded = ("a".to_string(), "tests::guarded".to_string());
+        let target = dir.path().join("target");
+        let workspace = slow_coverage::tests(
+            dir.path(),
+            &target,
+            &test_budget::tier_selection(false, &[]),
+        )
+        .unwrap();
+        let package =
+            slow_coverage::tests(dir.path(), &target, &["-p".to_string(), "a".to_string()])
+                .unwrap();
+        assert!(!workspace.contains(&guarded), "{workspace:?}");
+        assert!(package.contains(&guarded), "{package:?}");
+        let entry = known_flaky::Entry {
+            binary: guarded.0.clone(),
+            test: guarded.1.clone(),
+            diagnosis: "d".into(),
+            owner: "o".into(),
+            removed_by: "#1".into(),
+        };
+        assert_eq!(
+            known_flaky::stage_filter(std::slice::from_ref(&entry), &workspace, None),
+            None
+        );
+
+        let out = dir.path().join("stage1");
+        write_skip(&out, &[]).unwrap();
+        let mut command = crate::tools::cargo(dir.path());
+        command
+            .arg("mutants")
+            .args(MUTANTS_OPTIONS)
+            .args(stage1_run_args(&out, None))
+            .envs(test_budget::tier_env(false))
+            .stdout(std::process::Stdio::null());
+        let mut run = OwnedChild::spawn_group(&mut command).unwrap();
+        let status = run.status_by(Deadline::after(test_budget::SLOW_DEADLINE));
+        let mutants_out = out.join("mutants.out");
+        let json = std::fs::read_to_string(mutants_out.join("outcomes.json")).unwrap();
+        let read = |path: &str| Ok(std::fs::read_to_string(mutants_out.join(path))?);
+        let unlisted = parse_stage_outcomes(&json, &[], read).unwrap();
+        assert_eq!(
+            (
+                status.code(),
+                unlisted.summary.missed,
+                unlisted.summary.caught > 0
+            ),
+            (Some(0), 0, true),
+            "{status}: {unlisted:?}"
+        );
+        let report = unlisted.report.expect("the report");
+        assert!(
+            report
+                .iter()
+                .all(|line| line.ends_with("` by a tests::guarded")),
+            "{report:?}"
+        );
+        let listed = parse_stage_outcomes(&json, &["a tests::guarded".to_string()], read).unwrap();
+        let error = listed
+            .report
+            .expect_err("a known-flaky catch fails the report");
+        assert!(
+            error.contains("is CAUGHT only by the known-flaky tests [\"a tests::guarded\"]"),
+            "{error}"
+        );
     }
 
     /// The red-on-revert proof of plan 23n, on real cargo-mutants runs of the fixture `xtask/fixtures/mutants-two-stage`:
@@ -3072,7 +3197,7 @@ mod slow_tests {
             let outcomes = std::fs::read_to_string(out.join("mutants.out/outcomes.json"))
                 .ok()
                 .map(|text| {
-                    parse_stage_outcomes(&text, |path| {
+                    parse_stage_outcomes(&text, &[], |path| {
                         Ok(std::fs::read_to_string(out.join("mutants.out").join(path))?)
                     })
                     .unwrap()
