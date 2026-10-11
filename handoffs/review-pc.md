@@ -5,15 +5,15 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.c7cbc474.md`, revision 23ai.
-- Verified plan SHA-256: `ea4b778d22a7421c0da60a224e7624ffe50e30799dfc919087b6e9787df9bd6b`.
-- Required contracts pin: `contracts-v0.1.27`, commit `b161db8`. The PC pair owns the pin move.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.6dbe1c43.md`, revision 23aj.
+- Verified plan SHA-256: `25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9`.
+- Current code pin: `contracts-v0.1.27`, commit `b161db8`. Plan 23aj requires the PC pair to move it to `contracts-v0.1.28`, commit `94b63b8`, in a separate HIGH PR.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Current reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
 - Current reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Status: package NOT CLEAN (1 open) for PR #233 at `8cfdd6715c6a69c419d9819636e185bfff74bb24`. SI-5 awaits normal-run and gate evidence.
+- Status: package NOT CLEAN (1 open) for PR #233 at `8cfdd6715c6a69c419d9819636e185bfff74bb24`. SI-5 awaits the green Linux gate. The focused Mac normal-run and reversal evidence are accepted.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
 - The contracts crate-catchup reviewer owned that PR's review. The pin move merged as #231 before the PC Core review.
@@ -331,3 +331,71 @@ The #242 formal verdict still awaits its pre-review gate. The 22 pending PC IDs 
 Sol read the new proof and reversal in `msg_plugin-w_1791702833_e83760`.
 Sol finds no new source defect and also requests a focused Mac normal-run result with the exact head and operating system.
 Sol will read the failed gate and the package artifact when supplied. Sol ran no execution job.
+
+Push record: delta verdict `d26e3057d4909ec718de1e49ad2feb094a806e83` is on `origin/stage1/review-pc`.
+Current #233 verdict: NOT CLEAN (1 open) at `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
+The reviewer worktree is clean. Wait for the corrected gate and focused Mac evidence. Never poll.
+
+SI-5 focused Mac evidence received: `msg_plugin-w_1791702900_155291`.
+The reviewer read both complete logs. Each names head `8cfdd6715c6a69c419d9819636e185bfff74bb24` and macOS 27.0.1 arm64.
+Normal log: `~/botster-sessions/gates/botster-core-pc-send-line-test-mac-8cfdd671-20261011-001400.log`.
+All 16 real::program tests pass, including the new closed-peer test. The run exits with code 0.
+Reversal log: `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-8cfdd671-20261011-001419.log`.
+The log includes the guard-to-true diff. The closed-peer test fails with TimedOut after 10 seconds, with exit code 101.
+The reviewer checked the PR comment. It records both logs and the exact failed-gate result.
+
+Lead acceptance: `msg_plugin-w_1791702907_569ca9`.
+The lead states that the local Mac run meets plan 23ai when its log is in the PR.
+The lead requires no pool Mac job. SI-5 now waits only for the green Linux gate on 8cfdd671.
+The package verdict remains NOT CLEAN (1 open) until that gate evidence arrives.
+The reviewer ran no execution job and did not poll the running gate.
+Next: wait for the Linux gate doorbell. The #242 formal review also waits for its pre-review gate.
+
+Corrected #233 gate failed: `msg_plugin-w_1791703021_b283c5`.
+Head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`. Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-8cfdd671-pool-20261011-001231-18048.log`.
+The reviewer read the header, failure record, test summary, and gate summary.
+Seven steps passed. The slow step failed: 444 tests passed and one failed.
+Failure: `conf::ad_7_payload_launches_after_durable_identity`, seed 0, step 6.
+The control returned alive:true where the transcript expects alive:false.
+Mutation and fuzz did not run. The gate exited with code 1.
+The added closed-peer test has a Linux PASS record in the slow run.
+The implementer reports that the lead assigned the payload_alive failure to P5.
+The implementer will not repeat the gate before P5's fix merges, under the lead's rule.
+After that merge, the implementer plans to merge v1 and run the gate again.
+SI-5 remains open because the corrected mutation stage has not run and no green final gate exists.
+The package verdict remains NOT CLEAN (1 open). The Mac evidence remains accepted.
+The reviewer ran no execution job. Next: wait for the P5-fix merge and new gate evidence. Never poll.
+
+Integration delta verdict received: `msg_plugin-w_1791703212_96aca7`.
+Sol reports NOT CLEAN (1 open) for #233 head `8cfdd6715c6a69c419d9819636e185bfff74bb24`, base `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Integration verdict: `6ad0e12e9bfb858c88ef0ef2ab8273eb8b7b4948`, `verdicts/stage1/pc-program-controls.md`.
+The reviewer read the complete Round 2 record. Both reviewers keep SI-5 open for the green final Linux gate and corrected mutation result.
+Both reviewers accept the source correction, focused Mac normal run, and selected reversal.
+SI-1 through SI-4 remain closed. Neither reviewer ran an execution job.
+
+The current binding brief now names plan revision 23aj, `stage1-plan.6dbe1c43.md`.
+The reviewer verified SHA-256 `25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9` and read all changes from 23ai.
+Plan head: `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
+The revision requires contracts-v0.1.28 at 94b63b8, with the R-56 input fences and R-54 through R-57 rulings.
+The PC pair owns that separate HIGH pin PR. The current #233 code still uses contracts-v0.1.27.
+IN-5 leaves real-pending only if the pin PR's Linux gate reports PASS.
+The title step and EV-2 sentinel fence belong to a later tag. The launch/adoption scope limit applies to that fence.
+No manifest, ledger, withdrawn, pending, or active Core ID changes occur in this plan revision.
+The reviewer changes no pin, transcript, or expectation.
+Next: wait for the P5-fix merge, new #233 gate, #242 gate, or pin-PR READY doorbell. Never poll.
+
+#242 formal review complete: READY `msg_plugin-w_1791703733_716b5f`.
+Head: `75cb8b37c2691bf156d15f62b06b45fb3879b010`. Base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Verdict: CLEAN, zero open findings. File: `verdicts/pc-title-order.md`.
+The reviewer completed the logic review and read both new test PASS records in the exact-head gate.
+Gate log: `~/botster-sessions/gates/botster-core-stage1-pc-title-order-75cb8b37-pool-20261011-001710-40110.log`.
+All ten steps pass. The diff has no mutant and changes no crate with a decoder harness.
+The gate exits with code 0 after 689 seconds. The CI summary reports 364.1 seconds.
+The reviewer read the selected reversal. Both tests fail when observe(Title) omits TitleChanged.
+The reviewer checked the current PR head, base, body, Prior art, and launch/adoption scope limit.
+The lead requires no integration review for this LOW PR.
+The reviewer ran no execution job. Next: push the verdict and send its commit to the implementer and lead.
+The #233 verdict remains NOT CLEAN (1 open), pending the P5 fix and green corrected gate.
+This #242 verdict removes no pending ID and does not complete the PC group.
+Then wait for the doorbell. Never poll.
