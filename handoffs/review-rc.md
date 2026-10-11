@@ -32,6 +32,13 @@ The package reviewer checked merge `c8907b74bd247002784843e1a12f6487b08c579f` in
 Its parents are the recorded base and reviewed head. Its tree has no difference from the reviewed and gated head.
 The earlier integration NOT CLEAN verdict was `25a1ca56597ed6ee463e715ab2983b297de873c2`.
 The retained Mac failure reproduces on plain v1 and remains explicit in the verdict.
+Core #259 is CLEAN at `6b20f6f2116f34526cf6ebf09e263776fff35123`, with 0 open findings.
+Base: `d86bfcc747718452efe57b2aa207492acde96573`. Risk: HIGH.
+The pin moves from contracts-v0.1.29 to contracts-v0.1.32 under plan 23an, section 0 item (2).
+Normal and strict testkit results match by ID. The initial exact-head gate passes all ten steps.
+The fenced `ad_7_payload` passes on Mac and Linux. The other six Mac trials remain pending and are not passes.
+No ID leaves a pending file. No Core logic or mutation exclusion changes.
+Integration CLEAN and the final full gate remain required before merge.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

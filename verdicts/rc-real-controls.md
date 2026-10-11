@@ -274,3 +274,57 @@ The package reviewer checked merge commit `c8907b74bd247002784843e1a12f6487b08c5
 Its parents are base `5ac94fabf41909a733267a62b692c1a4ee72bf62` and reviewed head `15633946e020a9d092ff2fcb8d0bf20560efd202`.
 Its tree has no difference from the reviewed and gated head.
 The Mac failure limits remain explicit. The reviewer ran no test or gate.
+
+## #259: round 1
+
+Date: 2026-10-11.
+Head: `6b20f6f2116f34526cf6ebf09e263776fff35123`.
+Base: `d86bfcc747718452efe57b2aa207492acde96573`.
+Risk: HIGH.
+
+**VERDICT: CLEAN**
+
+Open findings: 0.
+The reviewer read the complete four-file diff and checked the exact PR head through GitHub.
+Plan 23an, section 0 item (2), authorizes this one pin move after the two controls land.
+The base contains `program_ready` and `start_held`. The base is the head's merge base.
+
+All seven workspace dependencies name `contracts-v0.1.32`.
+All nine contracts entries in the lock name commit `91394e726b1bd697307d0d5b05712b876f9189be`, which is that tag's commit.
+The lock changes only the source references. It changes no version or dependency list.
+The other changes update five pending reasons and one test comment.
+The named A15, A17, A18 and A19 cases still have no transcript at the new tag.
+No ID leaves a pending file.
+
+The reviewer read the contracts delta, including the control definitions, driver handling of `UnsupportedFor`, and the transcript fences.
+The fences follow R-59, R-60 and R-62. The compression payload changes replace only `0a` with `2e` in equal-length byte strings.
+The three ST-6b transcripts retain their pending status. This pin does not claim a real `oracle_resume` proof.
+R-62's comparator and real-form conditions still apply to that later implementation.
+The deferred files, withdrawn files and BUILD.md are unchanged between the two tags.
+This PR adds no Core logic, test assertion, process owner, production hook, or mutation exclusion.
+The mutation configuration is byte-identical to the configuration from the complete exclusion review recorded above.
+
+The reviewer checked both retained Mac testkit logs:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-pin32-compare-testkit-mac-20261011-033646-v1-v0.1.29.log` and
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-pin32-compare-testkit-mac-20261011-033646-pin-v0.1.32.log`.
+Each normal and strict run has 690 result lines: 206 passed, 484 ignored, and 0 failed.
+After sorting by ID, all 690 result lines match separately for normal and strict runs.
+The raw line order differs because test completion order differs.
+
+The reviewer read the retained Mac real-tier log:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-pin32-real-mac-6b20f6f2-20261011-033646.log`.
+Its header names the exact head and a local removal of six real-pending entries for this trial.
+`ad_7_payload_launches_after_durable_identity` passes in the R-59 fenced form.
+The three route cases are INCONCLUSIVE at steps 5, 5 and 4.
+The three ST-6b cases report `UNSUPPORTED_CONTROL` for `oracle_resume`.
+Those six trials are not passes, and their IDs remain pending in the committed head.
+
+The reviewer checked the initial full gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-pin-v0132-6b20f6f2-pool-20261011-033824-56127.log`.
+Its header names the exact head and base. All ten steps pass, and the final exit is 0.
+The diff has no mutant. The real slow tier reports the fenced `ad_7_payload` PASS.
+The real-pending count is 58, with 0 passed. The gate reports real-passing 40/68 and real-accepted 41/69.
+
+Integration CLEAN remains required. The final full gate remains required after source CLEAN on the final head before merge.
+Any later implementation change requires a delta review, subject to the plan's base-merge rule.
+The reviewer ran no test or gate.
