@@ -421,7 +421,6 @@ impl<E: HostEdges> Tap<E> {
         true
     }
 
-    /// The hold whose `Launch` met it on `link`.
     /// Arms `fail_handoff` (Core DP-2): the next `link_send_descriptor` gives the endpoint back with `Failed` and the inner
     /// edge takes nothing, as a `sendmsg` that fails takes nothing. Core then closes the endpoint, so the client reads the
     /// end of its stream, and the route closes `HandoffFailed`.
@@ -429,6 +428,7 @@ impl<E: HostEdges> Tap<E> {
         self.fail_handoff = true;
     }
 
+    /// The hold whose `Launch` met it on `link`.
     fn hold_on(&mut self, link: LinkId) -> Option<&mut Hold> {
         self.holds.values_mut().find(|hold| hold.link == Some(link))
     }
