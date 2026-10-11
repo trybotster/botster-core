@@ -205,3 +205,22 @@ The lead must retain that required final receipt. A later head or base change re
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 6ca56167c66facc5eb8ac3b2c9cafd6988cd5195
+
+
+## Round 2 addendum: publication and gate receipt
+
+VERDICT: CLEAN (0 open)
+
+Head remains `6ca56167c66facc5eb8ac3b2c9cafd6988cd5195`, base `517c22350de462256f2b5be0a9fa913a98d0e42f`.
+Verdict 2bca30b61b0a930179163154fb3a27fe305b30d7 is now pushed. The DNS publication block is closed.
+Lead message `msg_plugin-w_1791713324_746f6a` identifies the already reviewed exact-head gate as the merge gate.
+Sol checked section 8, "When a head is ready for review", in plan 23am.
+That rule accepts the supplied green gate when the reviewers report CLEAN on the same head.
+Sol's preceding statement that this head needs a further post-CLEAN gate was incorrect. Sol withdraws that extra condition.
+The gate at `025228-16571` covers the exact corrected head and base, and both reviewers are CLEAN on that head.
+No new commit or base import occurred in the source. The evidence read in Round 2 is complete for this receipt.
+Any later source head or base change still needs its applicable review and exact-head gate.
+This correction grants no approval for an omitted gate on an imported head. The four historical gate failures remain recorded.
+Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at 6ca56167c66facc5eb8ac3b2c9cafd6988cd5195
