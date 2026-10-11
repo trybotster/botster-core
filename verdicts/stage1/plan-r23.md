@@ -1466,3 +1466,40 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at cbbdb74e27b0492ddf99104f6076546d00e8ea8f
+
+## Round 43 — revision 23ah — 2026-10-10
+
+Reviewed head: `9fcddc35d719e3561afca768f1fd3d5905589507`.
+Prior accepted head: `cbbdb74e27b0492ddf99104f6076546d00e8ea8f`.
+Scope: section 0 adds R-55, and the revision table adds one row.
+The revision changes one file in one commit on the prior accepted head.
+I compared both complete plan texts. These are the only changes.
+
+I read R-55 at contracts commit `70dff23d1654040ae6f8e33dc0416078e5372085`.
+The plan references that fixed ruling and preserves its conditions.
+`host_crash` requires a quiet point, no surviving handle thread or descriptor, and no directory change except the socket file.
+The restored file must be a real owner-only socket node without a listener.
+`reuse_pid` requires the worker to end through an identity-checked group kill and `wait_worker_exit`.
+No Core may hold the directory during the rewrite.
+Core's Row encoder and decoded comparisons must prove that only the pid changes.
+The bystander must have a different start time.
+The referenced ruling also requires an unrelated child in its own group and a pid outside all other recorded identities.
+`bystander_alive` requires a live process that is not a zombie. The parent reaps it only at teardown.
+`signals_received` includes every signalling edge call by the reading handle, with its target, under R-49 Q1.
+The new handle records the complete set because the bystander starts after the old handle ends.
+Each fictional history in the control code must cite R-55.
+The contracts control descriptions must also receive the R-55 references required by the ruling.
+
+The separate runner PR must skip a non-pending real-only id only on the testkit tier.
+The real tier must still require its named real-process proof.
+This agrees with sections 1 and 4.2b and revision 23s.
+This verdict accepts no runner code, control implementation, pending-list removal, proof result, or gate.
+Those changes require their own reviews.
+
+The revision changes no code pin, frozen contract, conformance ID, coverage list, passing count, staffing limit, or stage acceptance condition.
+The fetched plan head matches the assigned head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `67d7b35062e9ae8ab6e9f5272916ac27959e95a480070fd671eb7c06eb0f90db`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 9fcddc35d719e3561afca768f1fd3d5905589507
