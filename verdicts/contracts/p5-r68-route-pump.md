@@ -41,6 +41,12 @@ Sol changed no product code. Sol ran no builds, tests, gates, mutants, or revers
 
 VERDICT: NOT CLEAN (1 open)
 
+### Package publication receipt — 2026-10-11
+
+Package verdict `4b6a5d5a23b6fbbace6d4880dde254320d253e31` now publishes the same NOT CLEAN finding at this exact head. Sol read the complete preserved 016c record in `verdicts/p5-r68-route-pump-016c.md`. The record identifies 016c's authorship and permission for 0167 to preserve it. The receipt changes no finding or acceptance condition. No replacement deterministic proof has arrived.
+
+VERDICT: NOT CLEAN (1 open)
+
 ## Round 2 — controlled late acknowledgement proof, 2026-10-11
 
 Head remains `f303ccdb9e02c6763d31cd8f7503095084630adc`.
@@ -100,9 +106,3 @@ This CLEAN accepts this exact Contracts head and the supplied evidence. It appro
 Sol ran no execution job.
 
 VERDICT: CLEAN (0 open) at f303ccdb9e02c6763d31cd8f7503095084630adc
-
-### Package publication receipt — 2026-10-11
-
-Package verdict `4b6a5d5a23b6fbbace6d4880dde254320d253e31` now publishes the same NOT CLEAN finding at this exact head. Sol read the complete preserved 016c record in `verdicts/p5-r68-route-pump-016c.md`. The record identifies 016c's authorship and permission for 0167 to preserve it. The receipt changes no finding or acceptance condition. No replacement deterministic proof has arrived.
-
-VERDICT: NOT CLEAN (1 open)
