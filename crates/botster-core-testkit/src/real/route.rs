@@ -23,7 +23,6 @@ use std::time::Duration;
 pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate"];
 
 /// The client end of one route.
-#[derive(Debug)]
 pub(super) struct RealRoute {
     /// The client's end of the stream, always nonblocking; `None` after `client_close`.
     end: Option<UnixStream>,
@@ -39,7 +38,6 @@ pub(super) struct RealRoute {
 
 /// What `pty_input` on a route reads: the registry rows of the route's data directory, its session, and the probes' input
 /// logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
-#[derive(Debug)]
 pub(super) struct SessionInput {
     pub(super) rows: Rows,
     pub(super) session: SessionId,
@@ -528,6 +526,12 @@ mod slow_tests {
         assert_eq!(
             route.control("route_fill", &json!({})),
             Err("unsupported_control: route_fill".to_string())
+        );
+        // A route with no input log of its session (the plain harness) has no `pty_input`.
+        assert!(!route.has_control("pty_input"));
+        assert_eq!(
+            route.control("pty_input", &json!({})),
+            Err("unsupported_control: pty_input".to_string())
         );
     }
 }
