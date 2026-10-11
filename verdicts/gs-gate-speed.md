@@ -165,12 +165,12 @@ This CLEAN covers only PR #251 at the reviewed head. The in-place mutation run a
 
 ## PR #252: run mutation stage 1 in place
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
 
-- Reviewed head: `c4d9c376cca2022d8fc3b41558ed2c62e9686ea6`.
+- Reviewed head: `afd827ebe4074d64d3ba6a92a39b64363bc2a651`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
 - Risk tier: HIGH.
-- Open findings: 1 LOW, GS-L1-R1-1.
+- Open findings: 0, including LOW.
 - Review date: 2026-10-11.
 
 Stage 1 adds `--in-place`. The shared options remove `--jobs 1`, which conflicts with that option. No selection, profile, timeout rule, or verdict code changes.
@@ -179,13 +179,13 @@ I read the installed cargo-mutants 27.1.0 source. Its default worker count is on
 
 The existing stage-2 build and candidate binary rules remain unchanged. The prebuilt worker gap remains. The gate uses a disposable source snapshot.
 
-I found no runtime regression in the reviewed diff. One safety statement requires correction before CLEAN.
+I found no runtime regression in the reviewed diff. The corrected safety statement closes the documentation finding.
 
 ### GS-L1-R1-1: the baseline does not prove every repository-dependent result
 
-Severity: LOW. Status: OPEN.
+Severity: LOW. Status: CLOSED.
 
-The PR Safety section says that a repository-dependent difference fails the baseline and cannot pass a mutant. The `stage1_run_args` comment makes the same broad baseline claim.
+The initial PR Safety section said that a repository-dependent difference fails the baseline and cannot pass a mutant. The initial `stage1_run_args` comment made the same claim.
 
 A test can pass unmutated in both modes and behave differently only under a mutant. A passing baseline does not exclude that case.
 
@@ -193,9 +193,15 @@ Required change: correct the PR body and source comment. State that the baseline
 
 This finding identifies an incorrect safety argument. It does not claim an observed mutant regression in this repository.
 
+Commit `afd827eb` corrects only that source comment. The PR body now states the same limit. I read both corrections.
+
+The current source review supports the change: the real-tree walker skips `.git` and `target`. The inspected Git tests use temporary repositories.
+
+The fixture mutation tests also copy their inputs into temporary directories. The correction changes no executable code. GS-L1-R1-1 is closed.
+
 ### Evidence
 
-The exact-head Linux gate passes all ten steps and exits 0:
+The Linux gate on the earlier head `c4d9c376` passes all ten steps and exits 0:
 
 `~/botster-sessions/gates/botster-core-stage1-gs-gate-speed-c4d9c376-pool-20261011-013325-91259.log`
 
@@ -214,3 +220,5 @@ The job's `SAME-OUTCOMES` line compares empty files because Python is absent. I 
 The evidence tests stage 1 only. It does not claim an old-versus-new stage-2 comparison or resolve the two missed mutants of the evidence head.
 
 The PR includes a Prior art note. I ran no gate, build, or test.
+
+The reviewed head contains only the comment correction above that gated head. The final gate on the exact reviewed head remains required before merge.

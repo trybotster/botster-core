@@ -3,17 +3,17 @@
 ## Current verdict
 
 - PR: #252, run mutation stage 1 in place.
-- Head: `c4d9c376cca2022d8fc3b41558ed2c62e9686ea6`.
+- Head: `afd827ebe4074d64d3ba6a92a39b64363bc2a651`.
 - Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
-- Verdict: NOT CLEAN (1 open).
-- Open findings: 1 LOW, GS-L1-R1-1.
+- Verdict: CLEAN.
+- Open findings: 0, including LOW.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The exact-head Linux gate is green. Stage 1 catches all three in-diff mutants.
+The earlier head `c4d9c376` has a green Linux gate. Stage 1 catches all three in-diff mutants.
 
 I independently matched the copy and in-place evidence: 118 mutant outcomes and the baseline, with identical full identities and multiplicities.
 
-The implementer must correct the general baseline guarantee in the source comment and PR body. No runtime regression is reported.
+GS-L1-R1-1 LOW is closed. The reviewed head corrects the safety comment only. The PR body states the same baseline limit.
 
 I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
 
@@ -31,7 +31,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the #252 correction and the baseline reuse READY message.
+Wait for the baseline reuse READY message. The final exact-head gate for #252 remains required before merge.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
