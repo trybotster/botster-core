@@ -167,8 +167,8 @@ This CLEAN covers only PR #251 at the reviewed head. The in-place mutation run a
 
 VERDICT: CLEAN
 
-- Reviewed head: `afd827ebe4074d64d3ba6a92a39b64363bc2a651`.
-- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Reviewed head: `afc33981b70834589f93c37d25581c731efda30b`.
+- Base: `554d43e890b391cefc9da205c71db6856accb21d`.
 - Risk tier: HIGH.
 - Open findings: 0, including LOW.
 - Review date: 2026-10-11.
@@ -221,4 +221,20 @@ The evidence tests stage 1 only. It does not claim an old-versus-new stage-2 com
 
 The PR includes a Prior art note. I ran no gate, build, or test.
 
-The reviewed head contains only the comment correction above that gated head. The final gate on the exact reviewed head remains required before merge.
+The previous reviewed head `afd827eb` contains only the comment correction above that gated head. The final gate on the exact reviewed head remains required before merge.
+
+### Delta review after the base merge
+
+The new reviewed head `afc33981` merges base `554d43e8` into the previous CLEAN head `afd827eb`.
+
+I read the retained base-merge-check log:
+
+`~/botster-sessions/gates/botster-core-gs-gate-speed-base-merge-check-afd827eb-new.log`
+
+The report fails the path-overlap and byte-identity checks. The base also changed `xtask/src/ci.rs`. This merge therefore requires a delta review.
+
+I compared both own diffs. Every diff line is identical after removing the Git index line and hunk headers. No PR change was added or removed.
+
+The base changes in `ci.rs` add the stale-exclusion import and check. They do not change the mutation options or stage arguments. The merged file keeps both changes.
+
+No new finding is open. CLEAN now applies to `afc33981b70834589f93c37d25581c731efda30b`. The final gate on that exact head remains required.

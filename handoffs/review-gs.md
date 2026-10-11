@@ -3,8 +3,8 @@
 ## Current verdict
 
 - PR: #252, run mutation stage 1 in place.
-- Head: `afd827ebe4074d64d3ba6a92a39b64363bc2a651`.
-- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Head: `afc33981b70834589f93c37d25581c731efda30b`.
+- Base: `554d43e890b391cefc9da205c71db6856accb21d`.
 - Verdict: CLEAN.
 - Open findings: 0, including LOW.
 - Full verdict: `verdicts/gs-gate-speed.md`.
@@ -13,7 +13,11 @@ The earlier head `c4d9c376` has a green Linux gate. Stage 1 catches all three in
 
 I independently matched the copy and in-place evidence: 118 mutant outcomes and the baseline, with identical full identities and multiplicities.
 
-GS-L1-R1-1 LOW is closed. The reviewed head corrects the safety comment only. The PR body states the same baseline limit.
+GS-L1-R1-1 LOW is closed. The previous head `afd827eb` corrects the safety comment only. The PR body states the same baseline limit.
+
+The latest head merges the new base. The base-merge-check fails because both branches changed `ci.rs`. I completed the required delta review.
+
+Every own-diff line remains identical except the index line and hunk headers. The base's stale-exclusion check does not change the mutation arguments.
 
 I ran no gates, builds, or tests. The integration reviewer must issue a separate verdict for this HIGH PR.
 
