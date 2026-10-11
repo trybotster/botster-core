@@ -1286,3 +1286,21 @@ The live PR body's first fix bullet says that `free_bytes()` measures Docker's d
 Required change: describe `measure()` and `free_on()` as implemented, or describe the measured filesystem without naming a function.
 
 This is a body-only correction. The source and exact-head evidence require no change for this finding. I ran no gate, build, or test.
+
+
+### PR #266 body correction and final verdict
+
+- Head: `11a9533f8e3929b528b7d4a762f0019e4e18734d`, unchanged.
+- Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- VERDICT: CLEAN.
+- Open findings: 0.
+
+GS-DF-R2-1 LOW is CLOSED. I read the live PR body; its current fix bullet correctly names `measure()` and `free_on()`.
+
+The defect paragraph retains the old function name because it describes the old source. GS-DF-R1-1 MEDIUM remains CLOSED.
+
+The exact-head full gate and focused failure evidence remain valid. No source commit changed after those runs; no repeat gate is needed.
+
+This verdict covers Core PR #266 only. It does not review or approve the separate contracts copy.
+
+The lead owns the merge decision and current-base check. I ran no gate, build, or test.

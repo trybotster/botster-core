@@ -6,15 +6,17 @@
 - Head: `11a9533f8e3929b528b7d4a762f0019e4e18734d`.
 - Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
 - Scope: CI script; the lead requires package review and a pool gate.
-- Verdict: NOT CLEAN (1 open).
+- Verdict: CLEAN.
 - GS-DF-R1-1 MEDIUM: CLOSED. Every decision measurement now checks status and numeric output and exits the job shell with 75 on failure.
-- GS-DF-R2-1 LOW: OPEN. The PR body names the removed `free_bytes()` function in its current fix description.
+- GS-DF-R2-1 LOW: CLOSED. The live PR body correctly names `measure()` and `free_on()`.
 
 All nine supplied script scenarios pass. Failed and invalid reads exit 75 with zero container starts. The earlier script fails three required exit-code cases.
 
 The exact-head full gate passes all ten steps in 118.7 seconds. The source has no open finding.
 
-Wait for the body-only correction. The exact head and evidence need no change for it. I ran no gate, build, or test.
+Open findings: 0. The exact-head full gate and focused evidence remain valid. No repeat gate is needed.
+
+This verdict covers Core #266 only. Wait for a merge receipt or new head. I ran no gate, build, or test.
 
 PR #265 is merged at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`. Its reviewed and gated tree is verified.
 
@@ -211,7 +213,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #266's correction. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
+Wait for PR #266's merge receipt or new head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
