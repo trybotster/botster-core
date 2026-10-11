@@ -20,7 +20,7 @@ pub(super) enum Node {
     Other { mode: u32 },
 }
 
-/// Every node under a directory, by its path relative to it. Links are not followed.
+/// The directory itself (at the empty path) and every node under it, by its path relative to it. Links are not followed.
 pub(super) type Snapshot = BTreeMap<PathBuf, Node>;
 
 /// The snapshot of `dir`.
@@ -29,37 +29,45 @@ pub(super) type Snapshot = BTreeMap<PathBuf, Node>;
 /// A node could not be read.
 pub(super) fn snapshot(dir: &Path) -> io::Result<Snapshot> {
     let mut nodes = Snapshot::new();
+    // The directory's own kind and mode count too: a drop may change only the socket (R-55 (1) condition 3).
+    nodes.insert(PathBuf::new(), node(dir)?);
     walk(dir, Path::new(""), &mut nodes)?;
     Ok(nodes)
 }
 
 fn walk(root: &Path, relative: &Path, nodes: &mut Snapshot) -> io::Result<()> {
     for entry in std::fs::read_dir(root.join(relative))? {
-        let entry = entry?;
-        let path = relative.join(entry.file_name());
-        let meta = std::fs::symlink_metadata(root.join(&path))?;
-        let mode = meta.permissions().mode() & 0o7777;
-        let kind = meta.file_type();
-        let node = if kind.is_dir() {
+        let path = relative.join(entry?.file_name());
+        let node = node(&root.join(&path))?;
+        if matches!(node, Node::Dir { .. }) {
             walk(root, &path, nodes)?;
-            Node::Dir { mode }
-        } else if kind.is_file() {
-            Node::File {
-                mode,
-                bytes: std::fs::read(root.join(&path))?,
-            }
-        } else if kind.is_socket() {
-            Node::Socket { mode }
-        } else if kind.is_symlink() {
-            Node::Link {
-                target: std::fs::read_link(root.join(&path))?,
-            }
-        } else {
-            Node::Other { mode }
-        };
+        }
         nodes.insert(path, node);
     }
     Ok(())
+}
+
+/// The node at `path`; a link is not followed.
+fn node(path: &Path) -> io::Result<Node> {
+    let meta = std::fs::symlink_metadata(path)?;
+    let mode = meta.permissions().mode() & 0o7777;
+    let kind = meta.file_type();
+    Ok(if kind.is_dir() {
+        Node::Dir { mode }
+    } else if kind.is_file() {
+        Node::File {
+            mode,
+            bytes: std::fs::read(path)?,
+        }
+    } else if kind.is_socket() {
+        Node::Socket { mode }
+    } else if kind.is_symlink() {
+        Node::Link {
+            target: std::fs::read_link(path)?,
+        }
+    } else {
+        Node::Other { mode }
+    })
 }
 
 /// The socket node that a drop removed: `before` and `after` differ only in that one node, a socket directly in the
@@ -190,6 +198,28 @@ mod slow_tests {
             lost_socket(&deep, &deep_after).is_err(),
             "not at the top level"
         );
+    }
+
+    /// R-55 (1) condition 3: the directory's own mode is part of the snapshot, so a drop that changes it fails, even when
+    /// it also loses the socket.
+    #[test]
+    fn a_change_of_the_directorys_mode_fails() {
+        let tmp = dir();
+        let before = snapshot(tmp.path()).unwrap();
+        assert_eq!(
+            before[Path::new("")],
+            Node::Dir {
+                mode: before_mode(&tmp, "")
+            }
+        );
+        std::fs::remove_file(tmp.path().join("c")).unwrap();
+        let mode = before_mode(&tmp, "") ^ 0o070;
+        std::fs::set_permissions(tmp.path(), std::fs::Permissions::from_mode(mode)).unwrap();
+        let after = snapshot(tmp.path()).unwrap();
+        assert_eq!(after[Path::new("")], Node::Dir { mode });
+        assert!(lost_socket(&before, &after)
+            .unwrap_err()
+            .contains("changed [\"\"]"));
     }
 
     /// A link is not followed, and another kind of node keeps its mode.
