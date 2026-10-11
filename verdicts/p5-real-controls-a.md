@@ -207,3 +207,103 @@ The reviewer changed no product code and ran no builds, tests, mutation jobs, or
 The package review must wait for the missing native evidence before CLEAN.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-10
+
+Reviewed head: `f775a76648d9594b45d3a8663070df79503b824a`.
+Tree: `c153c3e7f7e21e80013f2c68067ed856801a907e`.
+Parents: `6b1545c47e6078d7471198548547906eed511348` and `72afc28426a8d9cdf8250a954f96fd8f0f1198fa`.
+PR and gate base: `72afc28426a8d9cdf8250a954f96fd8f0f1198fa`, contained by the head.
+Tier: HIGH, shared testkit and test-process code.
+Authority: approved plan 23ae, pin `stage1-plan.b895ad49.md`, and the accepted P5 controls plan.
+The plan SHA256 is `db0522ad7a0ca5f0ede3e7b236049f11be504161d6cfa9ee9c65638d46c4ac3b`.
+The remote PR head, base, and body agree with READY.
+
+### RC-A-F1 — HIGH — CLOSED
+
+The Round 2 correction remains unchanged.
+An unread `Launched` report does not establish payload absence.
+The tap retains only observed payload identities; unknown payload liveness comes from the recorded worker's live children.
+The identity-and-liveness check after the listing still protects that observation.
+The exact-head gate passes the independent reopen proof in 1.110 seconds.
+The proof also passes in the slow mutation baseline.
+The known-payload, ended-worker, and reused-identity checks remain covered.
+
+### RC-A-F2 — HIGH — CLOSED
+
+The required native Mac mutation evidence now exists.
+The reviewer read the one-file correction at `996a17f0afab8f6509d32623cfeaf00619fd2a01` and both native runs.
+The Mac file at the final head equals the corrected evidence head byte for byte.
+
+The old Mac run reports one surviving `&&` to `||` mutant in `live_of`.
+P5 reports that Darwin 27 refuses zombie BSD information with ESRCH, so zombies leave through the existing refusal path.
+The correction keeps the zombie status guard as an independent early `continue`, before the group or parent predicate.
+This structure preserves the decision and retains protection when a kernel supplies zombie information.
+No new source finding remains.
+
+Old log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-7351d67e-pool-20261010-144633-33392.log`.
+The reviewer parsed all 12 records and checked their retained logs.
+Baseline: 83 pass. Eleven mutants: seven caught, three unviable, one missed, zero timeout.
+The job and gate exit 2 after 128 seconds.
+
+Corrected log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-996a17f0-pool-20261010-145010-46992.log`.
+The command prebuilds the candidate and selects test-process with the slow feature and profile.
+It uses `--no-config`, `--in-place`, the Mac file, `-F live_`, and immediate fail-fast behavior.
+The reviewer parsed all 11 records and checked their retained logs.
+Baseline: 83 pass. Ten mutants: seven named test failures and three missing-Default compile failures.
+All catches exit 100 in the test phase. All unviable mutants exit 101 in the build phase.
+Zero mutants are missed, and no mutant times out.
+The job and gate exit zero after 32 seconds, including one queued second.
+The changed Mac functions are within this scope.
+
+### Final delta and lists
+
+The five commits after the checked native correction only merge `v1`.
+The own patch ID remains `db11d2469d4053b6f854249192b9d813927fdd1d` against the current base.
+All twelve own source/list files equal the checked correction.
+Cargo.lock imports the v0.1.27 pin; its own change is unchanged.
+Sol integration independently confirms all five automatic merge trees and the unchanged normalized own delta.
+
+Real pending remains 81 IDs: six removals from the base, no additions.
+All six removed IDs have actual PASS lines in the exact-head real tier.
+The ledger, Core pending, deferred/status copies, minimum list, and real-only map equal the current base bytes.
+`git diff --check` passes.
+The previously accepted source checks remain applicable.
+No finding remains open, including LOW.
+
+### Exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-f775a766-pool-20261010-164259-46992.log`.
+
+The header names the exact head and current base.
+The command is the current plain gate command, `cargo xtask ci`.
+All ten stages pass.
+Default: 1508 passed, 497 skipped. Slow: 395 passed, 1953 skipped.
+Testkit conformance: 193 actual passes. Real conformance: 112 actual passes.
+Real pending reports 81 IDs and zero newly passing IDs.
+Ledger: 690 IDs. Core pending: 477 IDs.
+Minimum: testkit 50 / 69, real-passing 31 / 68, real-accepted 31 / 69.
+The live-child proof passes in 0.003 seconds and runs again in the slow mutation baseline.
+
+Stage 1: 82 mutants, 52 caught, 22 missed, eight unviable, zero timeout, in 279.8 seconds.
+The slow baseline passes all 395 selected tests in 139.7 seconds, including its build.
+Stage 2 tests exactly the 22 misses: 21 caught, one unviable, zero missed or timeout, in 892.9 seconds.
+Final verdict: 82 tested, 73 caught, nine unviable, zero missed or timeout.
+The job exits zero after 1503 seconds; the gate exits zero after 1504 seconds on msa1.
+The gate now supplies slow-feature mutation coverage directly.
+
+The final prebuild installs `contracts-v0.1.27#b161db87` from the per-tag probe build introduced by #235.
+It reuses the preceding build on the same pool volume.
+Supplementary log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-a-6b1545c4-pool-20261010-161751-86815.log`.
+That green gate shows both probe-script compilation lines at the exact tag.
+The reviewer checked both logs and the source that keys the probe build directory by tag.
+
+Lead ruling `msg_plugin-w_1791677444_a628f9` accepts this evidence.
+The lead states that its compilation-line check ended after #235 merged; the check applied only during the stale-directory period.
+A reused build at the same tag is correct under the per-tag build rule.
+
+The reviewer changed no product code and ran no builds, tests, gates, mutation jobs, or base-merge checks.
+This package verdict applies to the exact head above.
+The separate integration verdict is still required before merge.
+
+VERDICT: CLEAN
