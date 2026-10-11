@@ -1,5 +1,91 @@
 # Integration review: PR #264
 
+## Round 2 — parser correction and approved design change, 2026-10-11
+
+Head: `c0f295ab65fdbd18e9c05928ef835a9f23e4c992`.
+Base: `010f2a49952f9b77581f304dbaa41006b115d40b`.
+Parents: `c6dab671539ff9ab0ad392c4e549834eb3d34d7b` and the base.
+Tree: `09094039c926614c9b060827b5eda9b29aca08c1`.
+Risk: HIGH. Plan 23au applies.
+
+I read the complete sixteen-file own delta, current body, suite decision context, gate ordering, and supplied failed base check.
+The check fails conditions 1, 2, and 3. Both pending-file checks pass. The failed result remains failed.
+I review the mutation-file resolution as a delta. It retains the base's pending_real count annotation and the two reviewed glue exclusions.
+The known_flaky change supplies the new empty proof argument to its existing test. It changes no flaky exclusion.
+All 60 imported-only paths equal the base. Both pending files and ci/known-flaky.toml equal the base.
+The code pin remains .36. This PR removes no identifier from a pending list.
+
+### Parser correction — RP-SI-1 CLOSED
+
+The raw-text reader is replaced by roxmltree 0.21.1, locked with checksum `f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb`.
+Only xtask uses the dependency. Its memchr dependency already exists in the lock.
+I read the library's parse entry point and default options. DTD processing is disabled by default.
+The check validates a complete XML document before it collects actual testcase elements.
+It requires the testsuites root and direct testcase-to-testsuite-to-root ancestry. Missing name or classname is an error.
+Comments, CDATA, and escaped output cannot create testcase elements.
+Every duplicate case must pass. An unknown result element or failure element at any depth prevents PASS.
+An unreadable or malformed file remains an error even with no proof lines. A missing named identity cannot establish PASS.
+The new tests cover each retained malformed-document witness and the missing-case witnesses. RP-SI-1 closes.
+
+I read the complete installed-nextest fixture and its test. The gate image pins nextest 0.9.146.
+The fixture contains a first-try pass, a flakyFailure, a failure with rerunFailure, and no case for the ignored test.
+Its printed XML is escaped text. The test grants PASS only to the first-try pass.
+The body records the parser comparison and explains why the owner rejected quick-junit's permissive model.
+I do not claim independent execution of that library comparison. The chosen parser and explicit closed element set satisfy the reviewed requirement.
+The original pinned old-Core comparison remains as recorded in Round 1.
+
+### Approved own-trial design
+
+The lead's handoff records approval on 2026-10-11 around 15:56 PT. The initial approved design remains the base decision.
+The approved change permits a proof line to name its own real-tier trial after R-55 gave ad_6 a real-tier form.
+I use the orchestrate-delivery skill to check this changed premise against the producer, consumer, and result check.
+The own form requires exact binary `botster-core::slow_conformance` and test equal to the mapped identifier.
+The list check rejects a non-real-only identifier and a different real-tier trial.
+The testkit tier ignores the own trial. The real tier runs its transcript must-pass.
+Separate named proofs retain ignored transcript trials on both tiers. A missing proof line makes the trial fail.
+Slow coverage requires every named test to exist, remain unignored, and match the slow filter.
+An own-trial identifier cannot enter the set of ignorable real-only trials.
+The slow step checks exact same-run binary/test identities in its JUnit file before pending-real reporting.
+The stale-report removal still fails on every error except NotFound. The configured paths agree with the helper.
+Both proof forms have positive and negative decision tests. Minimum accounting counts each identifier once and prints the exact proof source.
+The checked-in ad_6 line names its own must-pass trial. Its pending removal belongs to earlier v1, not this PR.
+The lead's four conditions hold in the code. The next plan revision must record the approved design change.
+
+### RP-SI-2 LOW — module summaries omit the own-trial exception
+
+Status: OPEN at this head.
+`xtask/src/real_proofs.rs:3-4` says that the suite never runs the transcript.
+`crates/botster-core-testkit/src/pending.rs:7-8` says that neither tier runs the transcript.
+ByOwnRealTrial runs that transcript must-pass on the real tier. These unqualified summaries describe the superseded design.
+Correct both summaries to distinguish separate named tests from an own real-tier trial. Retain the same-run JUnit requirement.
+I sent the finding to PC and the package reviewer. This is the only remaining integration source finding.
+
+### Supplied gate and separate flaky defect
+
+I read the exact-head gate header, relevant named proof lines, summaries, every raw mutant outcome, and all catcher records.
+All ten steps pass in 677.1 seconds. The wrapper exits zero after 686 seconds: one queued and 685 running.
+Default passes 1705 tests. Slow passes 550 tests. Slow coverage checks 1051 slow-only tests.
+The slow step passes the exact ad_6 own trial and checks one named proof from that run.
+The minimum remains 56/69 testkit, 46/68 real-passing, and 47/69 real-accepted. Five of 30 pending-real identifiers pass.
+Stage 1 tests 83 mutants: 78 caught, three missed, two unviable, and zero timeout.
+Stage 2 catches the three missed slow_coverage::check replacements. Its baseline passes all 550 tests.
+Each stage's raw caught identities match its catcher records exactly. Final result: 81 caught, two unviable, zero missed or timeout.
+
+Lines 5624 and 5626 report FLAKY `conf::ou_9_baseline_then_live_no_gap` under two xtask mutants.
+The gate rejects those results as catches. The known_flaky slow test independently catches both mutants.
+The lead assigns the separate defect to P3 under receipt `msg_plugin-w_1791732394_8c5683`.
+I read `shared/core-stage1/handoffs/flaky-ou_9-baseline-then-live-no-gap-c0f295ab.md`.
+Its cause and structural fix remain OPEN. The owner reports no retained raw failure artifact for this green gate.
+This review neither diagnoses the cause nor closes the defect. It approves no retry campaign, re-pend, or flaky exclusion.
+The lead permits #264 to proceed unchanged. The valid independent catches remain evidence for this PR.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-pc-real-only-proofs-c0f295ab-pool-20261011-080948-87049.log`.
+SHA256: `b3da59005323e61c69db4154ce4e8924ed383b49ab5c774b228dbe48d2dc1700`.
+The earlier red, stopped, and superseded gates retain their stated status. I do not claim execution at a future correction head.
+The published same-head package verdict remains pending. I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
+
+VERDICT: NOT CLEAN (1 open)
+
 ## Round 1
 
 - Head: `617c14228183770b4fc32264aa875728910462de`.
