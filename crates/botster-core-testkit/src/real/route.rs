@@ -264,10 +264,10 @@ impl RouteClient for RealRoute {
                     end,
                     rustix::event::PollFlags::OUT,
                 )];
-                let writable = rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO)))
-                    .map_err(|e| format!("input_blocked: poll: {e}"))?
-                    > 0
-                    && fds[0].revents().contains(rustix::event::PollFlags::OUT);
+                // One descriptor: its `revents` alone says whether the end is writable (the count adds nothing).
+                rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO)))
+                    .map_err(|e| format!("input_blocked: poll: {e}"))?;
+                let writable = fds[0].revents().contains(rustix::event::PollFlags::OUT);
                 Ok(json!({"blocked": !self.unsent.is_empty() || !writable}))
             }
             // Core OU-1, DP-4: the input that reached the PTY of the route's session.
