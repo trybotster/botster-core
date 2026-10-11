@@ -69,3 +69,15 @@ conf::tm_6_poll_room_unparks_and_wakes
 conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
 conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
 conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
+
+# The testkit route end answers pty_input since the testkit PR of plans 23aw/23bd; route_stream_holders has no real form (lead,
+# plans 23be and 23bh). P6, with the other R-47 real route controls.
+conf::ou_1_attach_hands_transport_to_worker
+conf::ou_11_transport_ownership_is_defined
+
+# The real route end does not close after route_closed{protocol_error unknown_frame} (step 17, INCONCLUSIVE, not diagnosed)
+# (lead, plan 23bh). P6, as the real route-end owner, after its route-control group.
+conf::dp_3_unknown_type_closes_route
+
+# Step 25 strict expect on r3 races the PTY echo (1/3 FAIL, seed 6) (lead, plan 23bh). P3, in the am_2 contracts PR.
+conf::ou_10_no_authorization_in_core
