@@ -868,3 +868,33 @@ The user forbids private-state assertions in every test and requires every findi
 The reviewer assumes no exception to those rules. The scope decision remains pending.
 No code change is requested while that decision is pending. No CLEAN is issued.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — lead transfer and pending correction
+
+Lead ruling: `msg_plugin-w_1791753725_87cab0`.
+RC-PASTE-DELTA-1 is TRANSFERRED to `F-283-1: program.rs tests assert private state (queued(), unread())`.
+Owner: PC, the implementer of #283. Evidence commits: `b47ca04e3ebe6e5f3c49edc25632a2783e3a636a` and `a2a78ed0764e945fce97a70fb489f8d4581fe4dd`.
+The lead states: `A transferred finding counts as closed for #284.`
+The lead directs #284 to add no correction for the imported assertions.
+The imported `waits_for_next_step` assertions remain part of the evidence in RC-PASTE-DELTA-1.
+The lead will record F-283-1 in the next plan revision. The transfer does not claim that the assertions are fixed.
+RC-PASTE-DELTA-1 is closed for #284 under this explicit scope ruling.
+
+New source head: `006b61cc454e0dce4e0063852e6f0701fef081bc`.
+Base: `23550811fb84c3c2cb066019716987575d7aecb2`.
+Implementer message: `msg_plugin-w_1791753743_4d6825`.
+The reviewer read the complete new delta and the failed gate's header and failure.
+The exact-head gate on `dfc38b478b018d63f7bb0851397b2a00a0dd4561` fails `lists` at seed 10, step 15.
+The log is `gates/botster-core-stage1-rc-paste-dfc38b47-pool-20261011-141844-22243.log` under `~/botster-sessions`.
+The new commit restores the paste ID to `core-pending.txt` and removes its real-pending entry.
+Its comment records the testkit seed-10 failure, real seed-0 failure, undiagnosed cause, and RC owner.
+The comment does not claim an all-seed testkit PASS.
+The reviewed worker files remain unchanged. The ENOSPC hunk and errno test remain correct under R-82.
+The imported kernel queue does not change the error table or the ENOSPC classification.
+The UTF-8 pending comment retains the named fence gap and P3 owner.
+No mutation exclusion changes.
+
+Open package findings: 0 under the lead's transfer ruling.
+The new exact-head gate and final PR body remain pending. No CLEAN is issued before those receipts.
+The reviewer ran no test, build, or gate.
