@@ -11564,3 +11564,83 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 165 — PR #243, package round 3 — 2026-10-11
+
+Head: `53502d5517b5cf5863fca0ae768712d0e52ab804`.
+Stacked base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240), unchanged.
+Replacement READY: msg_plugin-w_1791704364_364475.
+The reviewer verifies the exact head and base in the complete current GitHub body.
+Body record: /private/tmp/review-p3-pr243-53502d55.json.
+Previous verdict: Round 164, 3dbb9657a637dcbff591b40a9d6475bd479a6392, NOT CLEAN at 981a1a74.
+HIGH, plan 23aj, BUILD.md rule 5, and the lead's anchor rulings remain binding.
+
+### Complete correction and whole-change review
+
+The reviewer reads the complete one-commit correction: two paths, sixteen insertions and thirteen deletions.
+The correction uses legal limits throughout the fixture and corrects the zero-write readiness description.
+All other own paths retain the complete reviews in Rounds 163 and 164.
+The reviewer checks the correction against the whole route transport, descriptor transfer, allowances, and PTY budget change.
+The reviewer reads the current route transport, driver turn, PTY read guard, and pure budget decisions again.
+The driver settles each PtyOutput before another PTY read, so the removed decrement remains redundant.
+A spent budget stops ordinary and drain reads. A complete drain still reports PtyDrained.
+Route progress refreshes the budget, and ReadyState does not keep a spent-budget PTY busy.
+The source diff check passes. No product test hook, sleep, or polling loop is added.
+The mutation exclusions and whole-change evidence retain the scopes recorded in the preceding rounds.
+
+### F121 MED — CLOSED
+
+The proof sets route_queue_bytes and max_snapshot_bytes to 64 KiB.
+The test asserts CoreLimits::validate() succeeds before launch.
+This meets the pinned 9B cross-limit rule: route_queue_bytes must be at least max_snapshot_bytes.
+The Launch frame, AttachRoute applied limits, and RouteClient decoding bounds use the same CoreLimits.
+Existing callers continue to use default CoreLimits for all three parts.
+The negative observation waits on the real done marker until the existing cleanup deadline while the client reads nothing.
+Then the client reads, and the proof requires the output marker, the done marker, and all 3,000,000 payload bytes.
+The inherited process guards retain cleanup on panic. The shared deadline helper starts no helper thread.
+The named proof cites OU-3d and remains in both slow fixtures.
+Uniform output proves byte count and content; it does not distinguish reordered identical bytes.
+No source-failure claim or conformance-ID acceptance is added.
+The progressing-reader ID stays pending for its separate real route_fill form.
+
+The reviewer reads f121-legal-limits-macos.log completely.
+Its normal runs pass in both fixtures in 10.68 and 10.78 seconds.
+Its selected reversal ignores the Action::PtyReadBudget assignment.
+Both fixtures then fail because done arrives while the client reads nothing, in 0.46 and 0.64 seconds.
+The record uses a working tree based on 981a1a74 plus this correction, not a complete exact-head gate.
+This valid configuration and selected reversal close the real-process proof gap.
+
+### F122 LOW — CLOSED
+
+The corrected nonempty Ok(0) branch and readable-only event proof retain Round 164's behavior review and reversal evidence.
+The current module header and complete PR body now name nonempty zero writes as the second readiness-clear case.
+The prior-art description names the same case. The descriptions agree with write_once.
+Empty-write behavior and Interrupted retries remain unchanged.
+The remaining documentation condition closes. No observed UnixStream failure is claimed.
+
+### Supplied evidence and merge limits
+
+The reviewer reads mac-slow-53502d55.log completely.
+Its header names this exact head, 2026-10-11T07:38:39Z, and Darwin 27.0.0 after prebuild of three binaries.
+Worker passes 77 tests in 10.64 seconds, slow_cli passes 17 in 0.19 seconds, and slow_session passes 39 in 10.56 seconds.
+The budget proof has a named PASS in both fixtures. The separate-process core-sys run passes 115 tests in 0.813 seconds.
+Nine preceding individual passes add no distinct coverage.
+The pre-review gate at 5ca808f8 retains Round 163's exact-head and combined-stack limits.
+No complete gate at this correction head is claimed.
+The lead requires one final gate after both CLEAN reviews; it must cover the corrections and their mutants before merge.
+The integration review remains separate. #240 must land before this stacked PR merges.
+No conformance ID moves. R-59's unfenced AD-7 tally limit and separate GS exclusion work remain binding.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #243 is CLEAN at `53502d5517b5cf5863fca0ae768712d0e52ab804`.
+F121 MED and F122 LOW are CLOSED. No new finding appears in the correction or whole-change review.
+This completes package round 3 with CLEAN, so the NOT CLEAN escalation condition does not apply.
+The verdict applies to this exact stacked head and base, subject to the separate integration review and final gate.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
