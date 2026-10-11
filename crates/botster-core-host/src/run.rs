@@ -112,7 +112,10 @@ impl HostEngine {
         match &session.flow {
             Flow::Idle => true,
             Flow::Create(_) => false,
-            Flow::Start(f) => matches!(f.phase, StartPhase::AwaitHello | StartPhase::AwaitLaunched),
+            Flow::Start(f) => matches!(
+                f.phase,
+                StartPhase::AwaitHello | StartPhase::AwaitLaunched | StartPhase::LinkLost
+            ),
             Flow::Stop(f) => {
                 f.phase == StopPhase::AwaitExit
                     || crate::flows::finish_waits(session, &self.pending_handoffs)
