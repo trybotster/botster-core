@@ -1003,3 +1003,58 @@ GS must then merge the new `v1` into #262, supply a base-merge-check, and run on
 The current CLEAN applies only to `de819474f8f0cdf590d9d15638fb9e2a271f5a47`. I will check whether the base-merge rules permit CLEAN to carry over.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
+
+## PR #265: data-directory lock, round 1
+
+- Head: `96238f6209a2cf9587f8c78243b67bdc3336d564`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Risk: HIGH.
+- VERDICT: NOT CLEAN (2 open).
+
+I read all five changed files, the PR body, the approved design, and the LC-2 clause. I read the supplied gate and evidence logs.
+
+The product lock follows the approved design: process-owned `F_SETLK`, a table by device and inode, metadata before open, and retained racing descriptors.
+
+The drop closes the holder and retained descriptors under the table mutex. A poisoned table refuses new opens and still permits drop cleanup.
+
+I checked rustix 1.1.5 source for Linux and libc. The selected operation uses `F_SETLK`, `F_WRLCK`, offset zero, and length zero.
+
+The lead assigns the snapshot correction to P5's #257. Its stat-only handling of `lock` remains a required integration condition.
+
+### GS-DL-R1-1 MEDIUM: OPEN — the regression test polls and can run without a work bound
+
+File: `crates/botster-core-sys/tests/slow_data_dir_lock.rs`, lines 131–145.
+
+The inner loop repeatedly calls `try_exclusive` after `Held`, until a deadline expires. This polls the lock instead of failing on the first refused reopen.
+
+BUILD.md Testing rule 5 says: "No sleeps or polling." The regression needs one immediate reopen per drop; any refusal already proves its failure.
+
+The outer loop also waits by reading `spawners.spawned()` until 200 children complete. It has no overall work bound.
+
+If spawner threads panic before that count, the main thread continues successful lock cycles indefinitely. Their failed joins are reached only after that loop ends.
+
+Required change: make each reopen one attempt that fails immediately on refusal. Use bounded child work and event-based coordination, with spawner failures propagated.
+
+Preserve concurrent child starts, owned process cleanup, and the red-on-revert proof on Linux and macOS. Do not add a sleep or a polling wait.
+
+### GS-DL-R1-2 LOW: OPEN — the prior-art note overstates the old fcntl use
+
+The PR body says that the pinned old tree's `fcntl` calls only set `O_NONBLOCK`.
+
+The pinned old source also uses `F_DUPFD` in `crates/botster-core/src/runtime/plugin_process/launch.rs:75` and `F_GETFD` in worker code.
+
+Required change: limit the claim to the relevant fact: the old tree has no data-directory record-lock mechanism to reuse.
+
+### Retained evidence
+
+The exact-head full gate passes all ten steps in 261.1 seconds. Mutation results: two caught, zero missed, zero timeout, and seven unviable.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-96238f62-pool-20261011-053113-763.log`.
+
+The Mac evidence at `a76cb906` and Linux evidence at `81fff9ac` each report `id_2` passing 30 of 30 concurrent runs.
+
+Their revert checks report 95 refused reopens on Mac and 51 on Linux. These results show the old defect but do not close the test finding.
+
+The PR retains the failed `81fff9ac` gate. The current head removes the missed NotFound guard; I read that correction.
+
+I ran no gate, build, or test. All findings, LOW included, must close before CLEAN.

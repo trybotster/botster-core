@@ -2,6 +2,24 @@
 
 ## Current review result
 
+- PR: #265, data-directory lock.
+- Head: `96238f6209a2cf9587f8c78243b67bdc3336d564`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Risk: HIGH.
+- Verdict: NOT CLEAN (2 open).
+- GS-DL-R1-1 MEDIUM: the regression test polls refused opens and has no overall work bound while it waits for spawner progress.
+- GS-DL-R1-2 LOW: the prior-art note incorrectly says all old `fcntl` calls only set `O_NONBLOCK`.
+
+The product lock follows the approved process-lock design. The test must fail on its first refused reopen and use bounded child work with event-based coordination.
+
+The exact-head gate passes all ten steps. The Mac and Linux evidence each reports `id_2` passing 30 of 30 runs and a failed revert check.
+
+These results do not close the test finding. Every finding, LOW included, must close before CLEAN.
+
+P5's #257 stat-only snapshot handling of `lock` remains a required integration condition. I ran no gate, build, or test.
+
+## Previous PR #262
+
 - PR: #262, exact counts for mutation exclusions.
 - Head: `de819474f8f0cdf590d9d15638fb9e2a271f5a47`.
 - Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
@@ -142,7 +160,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #262's new head, base-merge-check, and exact-head gate after #243 merges.
+Wait for PR #265's corrections. PR #262 still waits for its new head, base-merge-check, and exact-head gate after #243 merges.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
