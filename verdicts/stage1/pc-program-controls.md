@@ -287,3 +287,81 @@ This verdict clears no additional pending ID and does not complete the PC group.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2 — 2026-10-11: permanent socket-error proof
+
+Reviewed head: `8cfdd6715c6a69c419d9819636e185bfff74bb24`.
+Reviewed base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17` (`v1`).
+The sole parent is the Round 1 head, `ec317eaedbfa29467ceb68cb61b0919b717f3a3f`.
+Risk: HIGH; the delta belongs to the shared testkit PR.
+The binding plan is 23aj at `6dbe1c43d55e31cba038cee1008098bc0ba41ef0`.
+The code still pins contracts-v0.1.27 at `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
+
+I read the complete current package delta record at `d26e3057d4909ec718de1e49ad2feb094a806e83`.
+It reports NOT CLEAN with SI-5 open. SI-1 through SI-4 remain closed.
+This round supersedes integration CLEAN `a7d8d900992deda9846573487dde2ab578d76df0` for the current PR.
+The earlier source review and its finding closures remain in this file.
+
+### SI-5 MEDIUM — The permanent socket-error guard lacked a reliable mutation proof
+
+The final gate at `ec317eae` missed the guard-to-true mutant in `send_line` during stage 2.
+The mutant retries permanent socket errors until the cleanup deadline instead of returning the socket error.
+Plan section 8 treats a missed mutant as a review finding.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-ec317eae-pool-20261010-231846-63449.log`.
+Its head and base equal the Round 1 head and this round's base.
+I read the header, reports, summary, and all 79 stage 2 outcomes.
+The identity multisets contain the same 79 unique identities in both stages.
+Stage 1 misses all 79. Stage 2 reports 58 caught, 1 missed, 20 unviable, and zero timeout.
+The sole miss replaces the WouldBlock or Interrupted guard with true at `real/program.rs:269`.
+Stage 2 takes 2377.2 seconds. The mutation step takes 2660.6 seconds.
+Eight earlier steps pass. Mutation fails. Fuzz does not run.
+The job exits 1 after 3121 seconds. The wrapper exits 1 after 3122 seconds.
+IN-5 is the sole pending-real pass in that run. It remains pending under the lead's ruling.
+
+Required closure: retain the behavior proof, its selected reversal, focused Mac evidence, and a passing corrected final Linux gate.
+**Status: OPEN. The source correction, selected reversal, and focused Mac evidence are present. The final gate is not green.**
+
+### Source correction and focused Mac evidence
+
+I read the complete delta and the surrounding writer and tests. The diff check passes.
+The delta adds one 17-line test in `crates/botster-core-testkit/src/real/program.rs`.
+The test is `a_request_write_to_a_closed_probe_fails_with_its_error_not_at_the_bound`.
+It creates a UnixStream pair, sets the harness end nonblocking, and drops the peer.
+It calls `send_line` with the existing cleanup deadline. It requires BrokenPipe or ConnectionReset and rejects TimedOut.
+The assertion observes the socket result. It reads no private queue state and imposes no elapsed-time assertion.
+Runtime code, transcript assertions, timeout values, status lists, the pin, and mutation exclusions remain unchanged.
+I find no additional source defect in this delta.
+
+I read both focused Mac logs completely:
+
+- `~/botster-sessions/gates/botster-core-pc-send-line-test-mac-8cfdd671-20261011-001400.log`.
+- `~/botster-sessions/gates/botster-core-pc-send-line-guard-reversal-8cfdd671-20261011-001419.log`.
+
+Both headers name the reviewed head and macOS 27.0.1 arm64.
+The unmodified run passes all 16 program tests, including the new proof, in 11.01 seconds; exit 0.
+The reversal log contains the complete guard-to-true diff.
+The new proof fails with TimedOut after 10.00 seconds; exit 101.
+These logs satisfy the focused Mac requirement for this delta. They do not replace the final Linux gate.
+The earlier reversal log without a head, platform header, or normal-run PASS is no longer the sole evidence.
+
+### Corrected Linux gate and remaining condition
+
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-program-controls-8cfdd671-pool-20261011-001231-18048.log`.
+I read its exact-head header, list reports, new-test PASS, AD-7 failure, suite summaries, and final summary.
+The gate base equals the reviewed base. Seven steps pass. Slow fails. Mutation and fuzz do not run.
+Default tests: 1604 passed and 484 skipped in 11.391 seconds.
+Slow tests: 444 passed, one failed, and 1976 skipped in 114.458 seconds.
+The new closed-peer proof passes on Linux in 0.003 seconds.
+AD-7 fails at seed 0, step 6: expected `alive:false`; received `alive:true`.
+This run supplies no corrected mutation result.
+The job exits 1 after 247 seconds: 73 queued and 174 running. The wrapper exits 1 after 248 seconds.
+
+The implementer reports that the lead assigned `payload_alive` to P5 and forbids another gate before that fix merges.
+Messages: `msg_plugin-w_1791703021_930d16` and package confirmation `msg_plugin-w_1791703060_bf5baa`.
+I do not treat that assignment as a waiver of SI-5 or the green final gate.
+After the fix merges, the PR needs the current base, review of any source delta, and the required final gate.
+This verdict clears no additional pending ID and does not complete the PC group.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (1 open)
