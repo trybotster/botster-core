@@ -713,6 +713,119 @@ fn a_received_route_descriptor_does_not_reach_the_payload() {
     release.release();
 }
 
+/// The client end of a real route: it reads the worker's frames by a deadline and decodes them with the bounds of
+/// `attach_route` (DP-3).
+struct RouteClient {
+    stream: UnixStream,
+    reader: botster_route_codec::prelude::StreamReader,
+    bounds: botster_route_codec::prelude::FrameBounds,
+}
+
+impl RouteClient {
+    fn new(stream: UnixStream) -> RouteClient {
+        let HostMsg::AttachRoute { limits, .. } = attach_route() else {
+            unreachable!("attach_route is an AttachRoute")
+        };
+        // timer: deadline — the limit of a wait for a real worker's route frame; not a contract value.
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        RouteClient {
+            stream,
+            reader: botster_route_codec::prelude::StreamReader::new(),
+            bounds: botster_core_link::route::frame_bounds(&limits),
+        }
+    }
+
+    /// The worker's next frame on the route.
+    fn frame(&mut self) -> botster_route_codec::prelude::ToClient {
+        use botster_route_codec::prelude::{Decoded, ToClient};
+        loop {
+            if let Some(frame) = self.reader.next_frame(&self.bounds).unwrap() {
+                match ToClient::decode(&frame, &self.bounds).unwrap() {
+                    Decoded::Frame(frame) => return frame,
+                    other => panic!("not a frame of this protocol: {other:?}"),
+                }
+            }
+            let mut buf = [0u8; 4096];
+            let n = self
+                .stream
+                .read(&mut buf)
+                .expect("a route frame before the deadline");
+            assert_ne!(n, 0, "the worker closed the route");
+            self.reader.push(&buf[..n]);
+        }
+    }
+
+    /// Reads frames up to `live`, the end of the attach (OU-9). The first one is `attached`.
+    fn read_to_live(&mut self) {
+        use botster_route_codec::prelude::{TYPE_ATTACHED, TYPE_LIVE};
+        assert_eq!(self.frame().type_byte(), TYPE_ATTACHED);
+        while self.frame().type_byte() != TYPE_LIVE {}
+    }
+
+    fn send(&mut self, frame: &botster_route_codec::prelude::ToWorker) {
+        self.stream
+            .write_all(&botster_route_codec::prelude::stream_wrap(&frame.encode()))
+            .unwrap();
+    }
+}
+
+/// DP-2, DP-5, OU-9 on the real driver (plan section 6.3 item 1): the route's stream carries `attached`, the baseline and
+/// `live`; then the client's input reaches the payload, and the payload's output reaches the client.
+#[test]
+fn a_real_route_carries_the_attach_the_input_and_the_output() {
+    use botster_route_codec::prelude::{Op, ToClient, ToWorker};
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let script = format!(
+        "IFS= read -r line; /bin/echo \"got:$line\"; exec {}",
+        hold.shell()
+    );
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let _s =
+        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    drop(worker_end);
+    let mut client = RouteClient::new(client);
+    client.read_to_live();
+    client.send(&ToWorker::Text {
+        op: Op(0),
+        text: "hi\n".into(),
+    });
+    let mut output = Vec::new();
+    while !output.windows(6).any(|w| w == b"got:hi") {
+        if let ToClient::Output { payload } = client.frame() {
+            output.extend_from_slice(&payload);
+        }
+    }
+}
+
+/// OU-5 on the real driver: the client's close of its end ends the route, and the host hears `RouteClosed{PeerClosed}`.
+#[test]
+fn a_client_close_ends_its_real_route() {
+    use std::os::fd::AsFd;
+    let root = temp_root();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let mut s = GuardedSession::launch_with_route(
+        root.path(),
+        &hold.shell(),
+        5000,
+        Some(worker_end.as_fd()),
+    );
+    drop(worker_end);
+    let mut client = RouteClient::new(client);
+    client.read_to_live();
+    drop(client);
+    loop {
+        if let WorkerMsg::RouteClosed { route, reason, .. } = s.link.report() {
+            assert_eq!((route, reason), (RouteId(1), RouteCloseReason::PeerClosed));
+            break;
+        }
+    }
+}
+
 /// The driver observer ends when its test parent dies without running Drop.
 #[test]
 fn parent_death_ends_the_driver_observer() {
