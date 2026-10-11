@@ -1519,7 +1519,7 @@ fn a_partly_written_route_input_is_refused_with_its_written_bytes() {
         bytes: client_frame(&bytes_frame(9, b"abcd")),
     });
     actions.extend(w.feed(Input::PtyWritten(Ok(2))));
-    actions.extend(w.feed(Input::PtyWritten(Err(5))));
+    actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
     actions.extend(w.feed(Input::RouteRead {
         route: RouteId(1),
         bytes: client_frame(&ToWorker::Text {
@@ -1529,7 +1529,7 @@ fn a_partly_written_route_input_is_refused_with_its_written_bytes() {
     }));
     actions.extend(w.feed(Input::PtyWritten(Ok(3))));
     actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
-    actions.extend(w.feed(Input::PtyWritten(Err(5))));
+    actions.extend(w.feed(Input::PtyWritten(Err(EIO))));
     client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
         refusals_written(&client),
@@ -1538,6 +1538,45 @@ fn a_partly_written_route_input_is_refused_with_its_written_bytes() {
             (Some(Op(10)), RefusalReason::SessionEnded, Some(3)),
         ]
     );
+}
+
+/// DP-5, steward ruling R-82: a client's write that fails because the program's side of the PTY is gone (EIO, EPIPE) is
+/// refused `session_ended`, before and after `PayloadExited`; any other errno is refused `failed`, in both orders.
+/// `written_bytes` is exact under both reasons.
+#[test]
+fn a_route_write_error_is_classified_by_what_failed_not_by_its_order() {
+    for (errno, reason) in [
+        (EIO, RefusalReason::SessionEnded),
+        (EPIPE, RefusalReason::SessionEnded),
+        (OS_WRITE_ERROR, RefusalReason::Failed),
+    ] {
+        for exit_first in [false, true] {
+            let (mut w, mut client, _) = attached(limits());
+            let mut actions = w.feed(Input::RouteRead {
+                route: RouteId(1),
+                bytes: client_frame(&bytes_frame(9, b"abcd")),
+            });
+            actions.extend(w.feed(Input::PtyWritten(Ok(2))));
+            assert_eq!(
+                pty_writes(&actions),
+                b"abcdcd",
+                "the rest of the write is out"
+            );
+            if exit_first {
+                actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
+            }
+            actions.extend(w.feed(Input::PtyWritten(Err(errno))));
+            if !exit_first {
+                actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
+            }
+            client.take_all(&mut w, RouteId(1), actions);
+            assert_eq!(
+                refusals_written(&client),
+                vec![(Some(Op(9)), reason.clone(), Some(2))],
+                "errno {errno}, PayloadExited first: {exit_first}"
+            );
+        }
+    }
 }
 
 /// DP-5 (PR3 F90): a client's input that waits behind a host write when the payload ends is refused `session_ended` with
@@ -1814,7 +1853,7 @@ fn a_route_input_that_fails_before_any_byte_is_written_is_refused_with_no_writte
         route: RouteId(1),
         bytes: client_frame(&bytes_frame(7, b"abcd")),
     });
-    actions.extend(w.feed(Input::PtyWritten(Err(5))));
+    actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
     client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
         refusals_written(&client),
@@ -1913,7 +1952,7 @@ fn a_route_input_that_fails_after_a_detach_sends_no_frame_after_route_closed() {
         route: RouteId(1),
         reason: DetachReason::Detached,
     }));
-    actions.extend(w.feed(Input::PtyWritten(Err(5))));
+    actions.extend(w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR))));
     client.take_all(&mut w, RouteId(1), actions);
     assert_eq!(
         client.frames.last(),

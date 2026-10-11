@@ -20,6 +20,18 @@ use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_route_codec::prelude::{Op, RefusalReason};
 use std::collections::VecDeque;
 
+/// The PTY write errors that mean the program's side of the PTY is gone (steward ruling R-82, by R-50). Such a write ends as
+/// the payload's end ends it (`session_ended` on a route), whatever its order against `PayloadExited`. Any other errno is an
+/// OS write error while that side still exists (`Failed`). Each entry names its platforms and its OS meaning.
+const PROGRAM_SIDE_GONE: [i32; 2] = [
+    // EIO. Linux: a write to a PTY master after every descriptor of its slave closed (the hangup). macOS, measured (R-82
+    // evidence, gates/botster-core-rc-r82-pty-errno-mac-e062de53-20261011-113602.log): after the program exited, and while the program
+    // lives with its tty closed.
+    5,
+    // EPIPE. The testkit's program edge: a write after the program ended fails as a write to a closed pipe does.
+    32,
+];
+
 /// A host write that waits for its turn at the admission point.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct HostWrite {
@@ -512,16 +524,15 @@ impl Worker {
                     self.write_more();
                 }
             }
-            Err(errno) => {
-                if self.exit.is_some() {
-                    self.finish_active(WriteOutcome::Partial, "the payload ended during the write");
-                } else {
-                    self.finish_active(
-                        WriteOutcome::Failed,
-                        &format!("the PTY write failed with errno {errno}"),
-                    );
-                }
-            }
+            // R-82: the error says what failed. Its order against `PayloadExited` decides nothing.
+            Err(errno) if PROGRAM_SIDE_GONE.contains(&errno) => self.finish_active(
+                WriteOutcome::Partial,
+                "the program's side of the PTY is gone",
+            ),
+            Err(errno) => self.finish_active(
+                WriteOutcome::Failed,
+                &format!("the PTY write failed with errno {errno}"),
+            ),
         }
     }
 
