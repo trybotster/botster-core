@@ -5,9 +5,12 @@
 //! Core out of the slot and drops it: the edges close their descriptors and the directory lock, as the kernel does at the
 //! death of a host process. Every call that reaches the slot before the crash passes through unchanged. A transcript uses
 //! no handle after its crash, so a call after it is a fault of the run, and it panics.
+//!
+//! The crash handle holds the slot weakly: when the driver drops the `Crashable` (its `drop` step), the Core goes with it, as
+//! without the slot, and releases the directory lock (LC-2).
 
 use botster_core_contract::prelude::*;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 type Slot = Arc<Mutex<Option<Box<dyn CoreApi>>>>;
@@ -17,10 +20,10 @@ pub struct Crashable {
     slot: Slot,
 }
 
-/// Empties the slot of a [`Crashable`].
+/// Empties the slot of a [`Crashable`] while the `Crashable` exists.
 #[derive(Clone)]
 pub struct CrashHandle {
-    slot: Slot,
+    slot: Weak<Mutex<Option<Box<dyn CoreApi>>>>,
 }
 
 fn lock(slot: &Slot) -> MutexGuard<'_, Option<Box<dyn CoreApi>>> {
@@ -30,12 +33,10 @@ fn lock(slot: &Slot) -> MutexGuard<'_, Option<Box<dyn CoreApi>>> {
 impl Crashable {
     pub fn new(core: Box<dyn CoreApi>) -> (Crashable, CrashHandle) {
         let slot: Slot = Arc::new(Mutex::new(Some(core)));
-        (
-            Crashable {
-                slot: Arc::clone(&slot),
-            },
-            CrashHandle { slot },
-        )
+        let crash = CrashHandle {
+            slot: Arc::downgrade(&slot),
+        };
+        (Crashable { slot }, crash)
     }
 
     fn with<R>(&self, call: impl FnOnce(&mut dyn CoreApi) -> R) -> R {
@@ -48,9 +49,13 @@ impl Crashable {
 }
 
 impl CrashHandle {
-    /// Drops the Core of the slot, outside the slot's lock. False when it was dropped already.
+    /// Drops the Core of the slot, outside the slot's lock. False when it was dropped already, by a crash or with the
+    /// `Crashable`.
     pub fn crash(&self) -> bool {
-        let core = lock(&self.slot).take();
+        let Some(slot) = self.slot.upgrade() else {
+            return false;
+        };
+        let core = lock(&slot).take();
         let crashed = core.is_some();
         drop(core);
         crashed
@@ -178,6 +183,16 @@ mod tests {
         assert!(crash.crash());
         assert_eq!(Arc::strong_count(&reached), 1, "the Core is dropped");
         assert!(!crash.crash(), "once");
+    }
+
+    /// The crash handle does not keep the Core: the drop of the `Crashable` drops it, and a crash after that does nothing.
+    #[test]
+    fn the_drop_of_the_slot_drops_the_core() {
+        let (behind, reached) = behind();
+        let (slot, crash) = Crashable::new(Box::new(behind));
+        drop(slot);
+        assert_eq!(Arc::strong_count(&reached), 1, "the Core is dropped");
+        assert!(!crash.crash());
     }
 
     /// A transcript uses no handle after its crash: a call then is a fault of the run.

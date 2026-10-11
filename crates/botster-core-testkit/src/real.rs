@@ -1866,6 +1866,8 @@ mod slow_controls {
         pump_until(core.as_mut(), |c| {
             state(c, "s0") == SessionState::Lost(LostReason::WorkerGone) && lock(&tap).quiet()
         });
+        // The test's own reference to the wake would keep its descriptors open after the crash.
+        drop(wake);
 
         let socket = Path::new(&data_dir.0).join("c");
         assert!(std::fs::symlink_metadata(&socket)
