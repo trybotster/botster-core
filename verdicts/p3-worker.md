@@ -12345,3 +12345,80 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 174 — #268 removes 28 real-pending IDs, 2026-10-11
+
+Exact head: `904bc2ea8208c1f6eb577889633d183511ba125a`.
+Exact base: `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+READY receipt: `msg_plugin-w_1791727390_2bebc6`.
+Risk tier: STANDARD. Plan revision 23a classifies removal-only pending-list changes as STANDARD because they make the gate stricter.
+The lead explicitly confirms this PR's tier in the 14:12 ruling.
+The complete verified body is `/private/tmp/review-p3-pr268-904bc2ea.json`.
+The reviewer reads the whole diff, final body, final gate records, historical failures, and the relevant pinned transcripts.
+
+### Scope and retained route-end IDs
+
+The only changed path is `conformance/core-real-pending.txt`.
+The exact diff removes 28 ID lines, adds no ID, and changes no comment or blank line.
+The real-pending count falls from 58 to 30. No source, fixture, pin, timeout, or transcript changes.
+The removed set is a subset of the 33 pending-real PASSED IDs in the reviewed #243 gate at 850bb785.
+The start set equals the 28 removed IDs plus these five retained IDs:
+
+- `conf::dp_7_revoked_reason_reaches_client_and_host`
+- `conf::ou_2b_handoff_failure_is_reported_as_handoff_failed`
+- `conf::ou_2b_healthy_reasons_send_route_closed_last`
+- `conf::ou_7_exit_after_last_frame_then_close`
+- `conf::ou_7_exit_after_tail_queued_then_close`
+
+The reviewer reads all 33 transcripts from the exact contracts source `96f48d6d`.
+The retained five are exactly the start-set transcripts with an explicit route_closed or expect_closed wait.
+No removed start-set ID has such a wait. The retained steps agree with the body's one-based step numbers.
+This follows the lead's 13:58 rule: retain every flip ID with a route-end wait while R-68 remains open, even if it passes.
+The R-68 driver fix belongs to P5. No fix or new execution is requested in this removal-only PR.
+
+The reviewer reads the two historical gate failures named in the body.
+The 77816b10 gate fails ou_7_exit_after_last_frame_then_close at seed 0, step 13, with INCONCLUSIVE step_timeout.
+The 2aee31f6 gate fails ou_2b_healthy_reasons_send_route_closed_last at seed 0, step 48, with the same classification.
+Both wrappers exit nonzero. The body records both failures and does not present them as green evidence.
+The source and lead ruling supply the R-68 classification. The reviewer claims no independent reproduction of the race.
+
+Plan revision 23as pin: `stage1-plan.12ba52e3.md`.
+Verified SHA256: `061c5db2d84709c49c09e7ed8482ca29cbf696ad2e115b1ce171eb72b60702da`.
+The pin records R-68 and its separate driver scope. The earlier removal rule remains in force.
+
+### Supplied evidence
+
+Final gate: `gates/botster-core-stage1-p3-flip-real-33-904bc2ea-pool-20261011-070033-68359.log`.
+Its header names this exact head and base and runs the full Linux gate.
+All ten steps report PASS. The default suite reports 1688 passed; the slow suite reports 543 passed.
+Each of the 28 removed IDs has exactly one PASS record in `botster-core::slow_conformance`, the real must-pass run.
+No removed ID lacks that exact-head real PASS record.
+The retained five pass in the pending-real trial in this run. Their results do not override the R-68 retention rule.
+The gate still reports 30 real-pending IDs, with five passing pending trials.
+No Rust source changes, so the mutation step reports zero mutants. The fuzz step selects no decoder harness.
+Jobq exits zero after 113 seconds; botster-gate exits zero after 114 seconds.
+
+Historical Mac evidence: `shared/core-stage1/evidence/p3-flip33/real-tier-must-pass-macos.log`.
+Its header names `02238ba03544dc13bdb885a90f6c075d90964b6c` on Darwin 27.0.0 and records a fresh worker prebuild.
+It reports 184 passed, zero failed, 506 ignored, and exit zero. All 33 start-set IDs have an ok record.
+This is the earlier 33-removal form, not this exact final head. The body states that limit.
+Read-only Git comparisons show unchanged worker main, Core real edges, and testkit real harness blobs between that head and the final head.
+The earlier stale-worker log is explicitly excluded from accepted evidence. The final exact-head Linux gate supplies the required removal result.
+The five retained IDs' Mac passes do not establish that their route-end race is fixed.
+
+The canonical minimum list is `conformance/minimum-core.txt`; the old docs path is a moved-file notice.
+Five removed IDs belong to that canonical list. The final gate reports real-passing 46/68 and real-accepted 47/69.
+Those are the gate's reported counts. This verdict does not complete Stage 1 or accept remaining pending IDs.
+The prior-art note is present and appropriate for this list-only change.
+
+### Verdict
+
+PR #268 is CLEAN at `904bc2ea8208c1f6eb577889633d183511ba125a` against `19b24d5efa9ac8e88ac17a82211eececb2c2c00f`.
+No package finding is open. STANDARD requires no integration review for this removal-only change.
+The lead owns the merge decision. A later head retains the applicable review and exact-head gate rules.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. Earlier verdict history remains preserved.
+
+VERDICT: CLEAN
