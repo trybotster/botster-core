@@ -105,3 +105,14 @@ overflow-checks = true
 opt-level = 2
 debug-assertions = true
 overflow-checks = true
+
+# The real-process tests verify each prebuilt candidate binary against its sha256 in target/candidate/manifest.json
+# (botster-core-testkit candidate.rs `Candidate::locate`) before each harness. At the dev opt-level the hash ran at about
+# 43 MB/s: 1.4 s per verification of the 60 MB debug worker, 99 % of the real conformance tier's time (GS L0 evidence,
+# 2026-10-11: ~/botster-sessions/gates/botster-core-gs-l0-trace-7e8e07d6-evidence.log). sha2 is optimized in dev and test
+# builds (lead ruling, 2026-10-11), under the conditions of the overrides above: the opt-level only, debug assertions and
+# overflow checks kept, and no Core workspace crate. sha2 is also a production dependency (botster-core-link proof.rs).
+[profile.dev.package.sha2]
+opt-level = 3
+debug-assertions = true
+overflow-checks = true
