@@ -131,3 +131,44 @@ The earlier f41e42e0 gate does not cover the new head. The implementer reports t
 This verdict accepts no unfinished gate or merge. Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open, source carry-over; final gate pending) at f291a5e6d3f31e3ad769f52e125647a292076d52
+
+## Final gate and merge: f291a5e6
+
+- Head: `f291a5e6d3f31e3ad769f52e125647a292076d52`.
+- Base: `cfd6ee364e2eafd329ce4e665100168918d383cb`.
+- Package source carry: `f6dbd460e4986b1c42c70e189a57fdc4f4d3ed6d`.
+- Package completion: `995350d85f973b6e6fa070dd8fc3d23e68274eef`, read from the local object.
+- Package receipts: `msg_plugin-w_1791716864_02b297` and correction `msg_plugin-w_1791716891_19938f`.
+
+Sol checked the exact-head log:
+`~/botster-sessions/gates/botster-core-stage1-gs-slow-coverage-f291a5e6-pool-20261011-035822-73822.log`.
+Its header names this head and base. All ten steps pass in 444.1 seconds.
+The default tier passes 1632 tests in 11.335 seconds. The slow tier passes 477 tests in 28.619 seconds.
+The check reports 1012 slow-only tests with zero violations. The observer and real-tool fixture pass.
+All 58 real-pending IDs remain pending. The gate reports no new real-pending pass.
+
+Stage 1 tests forty unique mutants in 76.8 seconds: thirty caught, eight missed, two unviable, and zero timeout.
+The unmutated stage-2 baseline passes 477 tests in 30.011 seconds. Its complete step takes 41.1 seconds.
+Stage 2 catches all eight misses in 173.7 seconds, with zero missed, unviable, or timeout.
+Sol independently compares all eight full missed identities with all eight stage-2 identities. The multisets are equal.
+Sol matches all thirty stage-1 and eight stage-2 catching-test reports to their caught identities.
+The complete mutation step takes 293.7 seconds: 38 caught, two unviable, zero missed, and zero timeout.
+
+The final ids replacement mutant records an EV-5 failure followed by a pass on its one retry.
+The gate labels that result FLAKY. EV-5 is not its catching test.
+The retained catching test is `xtask::bin/xtask slow_coverage::slow_tests::a_slow_only_test_outside_the_filter_or_an_ignored_one_not_pending_fails`.
+This gate does not remove the required EV-5 structural fix.
+Fuzz starts no trial because no changed crate has a decoder harness.
+The job and wrapper exit 0 after 467 seconds. The job queues one second and runs 466 seconds.
+
+The package reviewer confirms zero open findings and the same green gate.
+The package reviewer corrects its first publication claim: completion 995350d8 is local; its push failed on DNS.
+The previously published package source carry remains f6dbd460. Sol accepts no false publication claim.
+
+Sol fetched v1 and independently checked merge `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+Its parents are the exact base and head above. Its tree is `2388ba831a7d807aa32cae2488c8547a802d9b01`.
+That tree equals the reviewed import tree and the gated head tree.
+The supplied green gate meets section 8's exact-head condition. No repeated gate is required after CLEAN.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open; exact-head gate accepted and merge verified) at f291a5e6d3f31e3ad769f52e125647a292076d52
