@@ -787,18 +787,24 @@ fn a_worker_lost_while_stopping_ends_worker_gone() {
             rustix::process::Signal::KILL,
         )
         .unwrap();
-        // Core's reaper reaps the worker: its pid is gone, and the reaper's notifier woke the host.
-        let began = common::real_now();
-        while rustix::process::test_kill_process(pid).is_ok() {
+        // The worker ends. The test holds the worker side of the link, so the only wake left is the reaper's notifier, which
+        // wakes the host once Core's reaper has reaped the worker.
+        let ended = botster_test_process::platform::await_end(pid, Deadline::cleanup()).unwrap();
+        assert_ne!(
+            ended,
+            botster_test_process::platform::Waited::Deadline,
+            "the worker did not end"
+        );
+        let woke = core
+            .wake_handle()
             // timer: deadline — a worker that is never reaped fails the test instead of hanging it
-            assert!(
-                began.elapsed() < Duration::from_secs(10),
-                "the worker was not reaped"
-            );
-            // timer: poll interval — the reaper is Core's, not the test's to be woken by
-            std::thread::sleep(Duration::from_millis(5));
-        }
+            .wait(Duration::from_secs(10));
+        assert_eq!(woke, Wake::Woken, "the reaper never woke the host");
         pump_until(&mut core, |_| true);
+        assert!(
+            rustix::process::test_kill_process(pid).is_err(),
+            "Core's reaper reaped the worker"
+        );
         assert_eq!(
             core.get(&sid("s1")).unwrap().state,
             SessionState::Stopping,
