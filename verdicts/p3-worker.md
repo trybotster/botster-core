@@ -11317,7 +11317,10 @@ The PR changes process/PTY glue, real route transport, workspace mutation config
 The reviewer reads all ten own paths, with 878 insertions and 49 deletions, plus the required unchanged source contexts.
 The three commits are 96e60fc62baf8c2563e6088b08415a64092cd8a8, 8256b967a79635b37e837ca5dd80dd23b039c0d7, and this head.
 There is no source merge in this own delta. Its source diff check passes.
-Plan 23ai, BUILD.md, the DP-2 split ruling, and the control-first bounded-turn policy remain binding.
+Plan 23aj at 6dbe1c43d55e31cba038cee1008098bc0ba41ef0, BUILD.md, the DP-2 split ruling, and the bounded-turn policy remain binding.
+The reviewer reads the complete 23ai-to-23aj pin delta; its R-56/R-57 catch-up changes no route transport requirement.
+The 23aj pin SHA256 is 25f26484bc439817c213a1766fc6392f774b276b0bd4796eaea3bb890a5e82e9.
+This code still pins contracts .27; the separate program-controls PR owns the move to .28.
 The reviewer also reads the current lead rulings for the stacked PR, pending minimum IDs, and assigned base defects.
 
 Routes owns each bound stream after DescriptorTable::take removes it from the unbound table.
@@ -11374,6 +11377,10 @@ The proof must exercise the real PTY budget and preserve process cleanup on ever
 Do not add a product hook, sleep, or polling loop. Cover both fixtures and supply the focused Mac evidence.
 Keep the progressing-reader ID pending until its separate real route_fill form passes.
 This is a proof finding. The reviewer reports no observed source failure on the budget path.
+Every nonempty PtyOutput refreshes the budget through on_output, route_output, and send_budget before the next read.
+The decrement is therefore redundant in this loop and can be removed; an equivalent decrement reversal is not required.
+A selected reversal that ignores the actual budget must fail the new behavior proof.
+An immediate not-done check after one client frame can pass with the budget ignored; the proof must reject that schedule.
 Finding receipts: P3 msg_plugin-w_1791703485_a7f6f0; Sol msg_plugin-w_1791703485_183d8d.
 
 ### F122 LOW — OPEN: a zero-byte write retains stale write readiness
