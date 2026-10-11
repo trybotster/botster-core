@@ -64,12 +64,14 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
   the `slow:*` proofs of the pinned replacement map) that is not in `core-pending.txt` counts by its named real-process
   proofs, and the report names each proof as `<binary> <test>` (plan 23s).
 - **Named real-process proofs** (lead, 2026-10-11). `conformance/core-real-proofs.txt`, written by hand, names the slow-tier
-  tests that prove each real-only id: `conf::<id><TAB><nextest binary id><TAB><test name>`. A non-pending real-only id is an
-  ignored `[real-only]` trial on both tiers, whose reason names its proofs; its transcript never runs. A non-pending
-  real-only id with no proof line is a failing trial. A line may instead name the id's own real-tier trial
-  (`conf::<id><TAB>botster-core::slow_conformance<TAB>conf::<id>`): then the real tier runs the transcript must-pass and
-  only the testkit tier ignores it (lead, 2026-10-11, after R-55 gave `conf::ad_6_reused_pid_is_never_killed` a real-tier
-  form). The checks fail closed:
+  tests that prove each real-only id: `conf::<id><TAB><nextest binary id><TAB><test name>`. A non-pending real-only id is
+  an ignored `[real-only]` trial on the testkit tier, whose reason names its proofs. On the real tier:
+  - with separate named tests, it is the same ignored trial, and its transcript never runs;
+  - when a line names the id's own real-tier trial (`conf::<id><TAB>botster-core::slow_conformance<TAB>conf::<id>`), the
+    real tier runs the transcript must-pass (lead, 2026-10-11, after R-55 gave `conf::ad_6_reused_pid_is_never_killed` a
+    real-tier form).
+
+  A non-pending real-only id with no proof line is a failing trial. The checks fail closed:
   - `cargo xtask lists`: each non-pending real-only id has a proof line, each line names a real-only id, a line of the
     real tier's suite names the id's own trial, and the file is in byte order with no duplicate
     (`pending::real_proof_problems`);

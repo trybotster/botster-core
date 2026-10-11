@@ -5,7 +5,8 @@
 # - Each id is real-only (`core-real-only.txt`); each real-only id that is not in `core-pending.txt` has at least one line
 #   (`cargo xtask lists`).
 # - Each named test is in the slow tier, not ignored and selected by its filter (`cargo xtask slow-coverage`), and the
-#   gate's slow step runs it to PASS (its JUnit file); the suite counts the id by these tests and never runs its transcript.
+#   gate's slow step runs it to PASS (its JUnit file); the suite counts the id by these tests. With separate tests, the
+#   suite never runs the id's transcript.
 # - A line may name the id's own real-tier trial: `conf::<id><TAB>botster-core::slow_conformance<TAB>conf::<id>`. Then the
 #   real tier runs the transcript must-pass, and the testkit tier does not run it (lead, 2026-10-11, after R-55). A line of
 #   botster-core::slow_conformance names no other trial.
