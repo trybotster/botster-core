@@ -179,6 +179,25 @@ pub fn class_of(id: &str, real_only: &[RealOnly], held: &[Held]) -> Class {
     }
 }
 
+/// What a tier does with an id that is not in `core-pending.txt` (plan section 5, 4.2b).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NonPending {
+    /// Runs, and must pass.
+    MustPass,
+    /// Not run: a real-only id has no `TestkitHarness` form (plan 4.2b). It left `core-pending.txt` only with its named
+    /// real-process proof, which the real tier runs must-pass, and the minimum count counts it by that proof (plan 23s).
+    NoTestkitForm(RealOnly),
+}
+
+/// The treatment of `id`, which is not pending, on the testkit tier (`real_tier` false) or the real tier: on the testkit
+/// tier an id of `core-real-only.txt` has no trial; every other id, and every id on the real tier, must pass.
+pub fn non_pending(id: &str, real_only: &[RealOnly], real_tier: bool) -> NonPending {
+    match real_only.iter().find(|r| r.id == id) {
+        Some(entry) if !real_tier => NonPending::NoTestkitForm(entry.clone()),
+        _ => NonPending::MustPass,
+    }
+}
+
 /// The seeds at which the strict run runs a pending id of `class`: a `budget` held id at the first seed only, every other id
 /// at every seed of the set.
 pub fn seeds_of(class: &Class, seeds: &[u64]) -> Vec<u64> {
@@ -330,6 +349,35 @@ mod tests {
             class_of("conf::slow_query", &both, &held),
             Class::RealOnly(both[0].clone())
         );
+    }
+
+    /// An id that left `core-pending.txt`: a real-only one has no trial on the testkit tier and must pass on the real tier;
+    /// any other id must pass on both tiers.
+    #[test]
+    fn a_real_only_id_that_left_the_pending_list_runs_on_the_real_tier_only() {
+        let real_only = [real("conf::lock"), real("conf::reuse")];
+        assert_eq!(
+            non_pending("conf::lock", &real_only, false),
+            NonPending::NoTestkitForm(real_only[0].clone())
+        );
+        assert_eq!(
+            non_pending("conf::reuse", &real_only, false),
+            NonPending::NoTestkitForm(real_only[1].clone())
+        );
+        assert_eq!(
+            non_pending("conf::lock", &real_only, true),
+            NonPending::MustPass
+        );
+        for real_tier in [false, true] {
+            assert_eq!(
+                non_pending("conf::other", &real_only, real_tier),
+                NonPending::MustPass
+            );
+            assert_eq!(
+                non_pending("conf::other", &[], real_tier),
+                NonPending::MustPass
+            );
+        }
     }
 
     /// A `budget` held id runs at the first seed of the set only; an `unproven` or pending id runs at every seed.
