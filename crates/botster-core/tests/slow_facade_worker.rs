@@ -17,13 +17,28 @@ use botster_core_link::hello::Hello;
 use botster_core_link::launch::WorkerLaunch;
 use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, PayloadId, WorkerMsg};
 use botster_core_link::proof::token_proof;
+use botster_core_sys::fd_pass;
 use botster_test_process::{quoted, Blocker, Bounded, Deadline, Guard, OwnedChild};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::mpsc;
 use std::time::Duration;
+
+/// What the stand-in worker saw of one `AttachRoute` frame: its route, the descriptors of the read that held its start, and
+/// the number of reads that the frame took.
+#[derive(Debug, PartialEq, Eq)]
+struct Handoff {
+    route: RouteId,
+    fds: usize,
+    reads: usize,
+}
+
+/// The read size of the stand-in worker in the facade test: smaller than a frame header (`HEADER_LEN`, 5 bytes), so every
+/// frame takes more than one read, and the `AttachRoute` frame ends in a later read than the one with its descriptor.
+const SMALL_READ: usize = 3;
 
 fn sid(name: &str) -> SessionId {
     SessionId(name.into())
@@ -42,8 +57,16 @@ fn say(stream: &mut UnixStream, msg: &WorkerMsg) {
 }
 
 /// The worker side of the link: the hello with the token proof, `Launched`, and a one-page capture for each
-/// `CaptureSnapshot`. It ends when the link closes.
-fn stand_in_worker(mut stream: UnixStream, launch: WorkerLaunch) {
+/// `CaptureSnapshot`. It reads at most `read_size` bytes at a time. For each `AttachRoute`, it sends to `handed` the route,
+/// the number of descriptors of the read that held the frame's start, and the number of reads that the frame took (DP-2,
+/// plan 23ae: a read with descriptors holds the start of exactly one `AttachRoute` frame, and the descriptors belong to
+/// that frame, also when the frame ends in a later read). It ends when the link closes.
+fn stand_in_worker(
+    mut stream: UnixStream,
+    launch: WorkerLaunch,
+    read_size: usize,
+    handed: mpsc::Sender<Handoff>,
+) {
     let hello = Hello {
         protocol: 1,
         instance: launch.instance.clone(),
@@ -54,18 +77,32 @@ fn stand_in_worker(mut stream: UnixStream, launch: WorkerLaunch) {
     hello.encode(&mut payload).unwrap();
     send(&mut stream, FrameType::HELLO, &payload);
     let mut decoder = FrameDecoder::new(1 << 22);
-    let mut buf = [0u8; 4096];
+    let mut buf = vec![0u8; read_size];
+    // The descriptor count of the read that holds the start of the frame in the decoder, and the reads of that frame.
+    let mut started = (0, 0);
     loop {
-        let n = match stream.read(&mut buf) {
-            Ok(0) | Err(_) => return,
-            Ok(n) => n,
+        let read = match fd_pass::recv_with_fds(&stream, &mut buf) {
+            Ok(read) if read.len > 0 => read,
+            _ => return,
         };
-        let mut rest = &buf[..n];
+        let mut rest = &buf[..read.len];
         while !rest.is_empty() {
+            // An empty decoder means that a frame starts with this push (`push` takes no byte past a complete frame).
+            if decoder.buffered() == 0 {
+                started = (read.fds.len(), 0);
+            }
+            started.1 += 1;
             let took = decoder.push(rest);
             rest = &rest[took..];
             while let Ok(Some(frame)) = decoder.next_frame() {
                 match HostMsg::decode(&frame.payload) {
+                    Ok(HostMsg::AttachRoute { route, .. }) => {
+                        let _ = handed.send(Handoff {
+                            route,
+                            fds: started.0,
+                            reads: started.1,
+                        });
+                    }
                     Ok(HostMsg::Launch(_)) => say(
                         &mut stream,
                         &WorkerMsg::Launched {
@@ -184,8 +221,8 @@ fn capture(core: &mut Core, owner: &str) -> CaptureId {
 
 /// Core 2, ST-6, DP-7, A2-1, LC-5, AD-2: the facade's calls reach a real host with a worker on a real link. `release`
 /// frees one capture and `release_owner` frees the captures of its owner (a read of either is then `UnknownCapture`);
-/// `attach` registers a route synchronously, and the real edge, which hands no route over yet, closes it; a stop whose link
-/// breaks ends the worker process through the real signal edge.
+/// `attach` registers a route synchronously, and the real edge hands its stream to the worker on its `AttachRoute` frame
+/// (DP-2); a stop whose link breaks ends the worker process through the real signal edge.
 #[test]
 fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let tmp = tempfile::tempdir().unwrap();
@@ -241,7 +278,8 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     let parsed = WorkerLaunch::parse(&args, Some(token)).expect("a launch");
     let stream = UnixStream::connect(&parsed.control).expect("the host listens");
     let link = stream.try_clone().unwrap();
-    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed));
+    let (handed, handoffs) = mpsc::channel();
+    let peer = std::thread::spawn(move || stand_in_worker(stream, parsed, SMALL_READ, handed));
     let events = pump_until(&mut core, |e| completed(e, start).is_some());
     assert!(
         matches!(completed(&events, start), Some(OpResult::Ok(_))),
@@ -249,7 +287,7 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     );
     assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Running);
 
-    // `attach`: registered at once; the real edge hands no route over yet (P4a), so the route closes.
+    // `attach`: registered at once; the real edge sends the route's stream with its `AttachRoute` frame (DP-2).
     let (ours, _theirs) = UnixStream::pair().unwrap();
     let attached = core
         .attach(
@@ -273,10 +311,18 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
         )
         .expect("the route is registered");
     let route = attached.route;
-    pump_until(&mut core, |e| {
-        e.iter()
-            .any(|e| matches!(e, Event::RouteClosed { route: r, .. } if *r == route))
-    });
+    pump_until(&mut core, |_| true);
+    let handoff = handoffs
+        // timer: deadline — a host that never sends the route must fail the test, not hang
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the host sends the route");
+    // The frame ends in a later read than its start, which held its one descriptor (plan 23ae).
+    assert!(handoff.reads > 1, "{handoff:?}");
+    assert_eq!(
+        (handoff.route, handoff.fds),
+        (route, 1),
+        "the route's stream rides on its frame"
+    );
 
     // `release` frees one capture.
     let first = capture(&mut core, "a");
@@ -480,7 +526,7 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     {
         let parsed = parsed.clone();
         std::thread::spawn(move || {
-            stand_in_worker(stream, parsed);
+            stand_in_worker(stream, parsed, 4096, mpsc::channel().0);
             let _ = ended.send(());
         });
     }
