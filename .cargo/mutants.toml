@@ -238,11 +238,9 @@ exclude_re = [
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start( ->| with)|.* in Driver::start$)',
     # Driver::start_with_read_bound: control_and_pty_reads_retain_bytes_at_each_positive_bound uses the real constructor at all three bounds.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::start_with_read_bound( ->| with)|.* in Driver::start_with_read_bound$)',
-    # Driver::run: pty_events_resume_reads_after_would_block exercises the real poll loop after readiness clears.
-    # M2a adds no operator and no arm to run. Its PTY arm now decides readability by io_decisions::control_ready and the
-    # end of a write's wait by io_decisions::pty_writable, both tested in the default tier. The arm's write half (and so
-    # `delete match arm PTY` for writes) is proved by the parked real-PTY regression named at the M2a PTY write glue below.
-    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::run( ->| with)|.* in Driver::run$)',
+    # Driver::run has no entry: the gate runs each of its mutants. The slow tier kills the body, the signal arm's `==`
+    # (lc_5_the_worker_control_signal_ends_the_payload_and_the_worker_stays) and the route-token guard
+    # (a_new_host_whose_hello_comes_after_the_first_read_adopts_the_worker and the real-route tests).
     # Driver::settle: ev_4_a_real_exit_carries_the_code_or_the_signal requires queued machine inputs and actions to reach real edges.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::settle( ->| with)|.* in Driver::settle$)',
     # Driver::perform: lc_6_signal_reaches_the_whole_group checks signals; pty_reads_clear_readiness_and_finish_a_bounded_drain checks ReapPayload.
@@ -253,16 +251,8 @@ exclude_re = [
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::spawn( ->| with)|.* in Driver::spawn$)',
     # Driver::deregister_pty: pty_reads_clear_readiness_and_finish_a_bounded_drain checks registration flags through ReapPayload.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::deregister_pty( ->| with)|.* in Driver::deregister_pty$)',
-    # Driver::read_pty_chunk: control_and_pty_reads_retain_bytes_at_each_positive_bound checks bytes; pty_reads_clear_readiness_and_finish_a_bounded_drain checks drains.
-    # The PTY read budget (PR C, OU-3d): the size of each read is io_decisions::pty_read_bytes
-    # (a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget) and the poll's wait is ReadyState
-    # (every_ready_source_prevents_a_blocking_wait), both in the default tier.
-    # a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads proves the stop and the resume on the real
-    # driver, with a small route queue (F121). The real-tier OU-3 id for a progressing reader stays real-pending until
-    # P6's real route_fill (plan revision 23t).
-    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_pty_chunk( ->| with)|.* in Driver::read_pty_chunk$)',
-    # Driver::read_control: control_reads_require_readiness_and_report_eof_once and the positive-bound test check real socket reads.
-    'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_control( ->| with)|.* in Driver::read_control$)',
+    # Driver::read_pty_chunk and Driver::read_control have no entry: the gate runs each of their mutants, and the slow tier
+    # kills each one with a failed test, never a hang.
     # Driver::flush: partial_writes_retain_bytes_and_track_interest_and_totals checks retained bytes, totals, and write interest.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::flush( ->| with)|.* in Driver::flush$)',
     # Driver::link_lost: link_loss_clears_queued_bytes_and_close_is_idempotent checks real peer EOF and the single LinkClosed input.
@@ -424,9 +414,7 @@ exclude_re = [
     # `LinkIo::record`, `AcceptFailures::take`, `edge_diagnostics`) are pure functions tested in the default tier. Each function
     # below is caught by the slow tier (slow-tier mutation run of 2026-10-04), in real.rs `slow_tests`:
     # `the_edges_keep_rows_in_the_registry` (`write_row`, `read_rows`, `delete_row`), `the_edges_draw_random_bytes_and_fail_an_endpoint_that_cannot_ride`
-    # (`fill_random`, `poll_process_exit`, `accept_link`, and `link_send_descriptor` with an endpoint that cannot ride;
-    # DP-2 PR A: its sends are in `a_route_stream_rides_on_its_frame_and_a_gone_peer_fails_the_handoff`),
-    # `a_link_reads_writes_and_closes` (accept_link, link_recv,
+    # (`fill_random`, `poll_process_exit`, `accept_link`), `a_link_reads_writes_and_closes` (accept_link, link_recv,
     # link_send, link_close, set_read_interest, set_write_interest, LinkIo::apply), `the_socket_lives_with_the_edges`
     # (socket_path, the Drop of RealEdges), `the_wake_follows_its_flag` (PollWake signal, drain, wait, fd, consume,
     # settle_wake); and tests/slow_real_core.rs `a_worker_that_exits_before_it_connects_ends_the_start_at_once` (the reaper's
@@ -436,11 +424,13 @@ exclude_re = [
     # (the wake of set_read_interest and set_write_interest when `LinkIo::apply` returns false, the refusal in link_recv and
     # link_send, link_close) and `the_host_closes_a_link_that_the_poll_refuses_and_records_why` (the driver closes the link and
     # records why).
+    # `link_send_descriptor` has no entry: the gate runs each of its mutants. `the_edges_draw_random_bytes_and_fail_an_endpoint_that_cannot_ride`,
+    # `a_route_stream_rides_on_its_frame_and_a_gone_peer_fails_the_handoff` and `a_full_link_blocks_a_route_stream_and_gives_it_back`
+    # kill them; a body that returns `Some(Default::default())` does not build (`StreamEndpoint` has no `Default`).
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::write_row( ->| with)|.* in <impl HostEdges for RealEdges>::write_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::read_rows( ->| with)|.* in <impl HostEdges for RealEdges>::read_rows$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::delete_row( ->| with)|.* in <impl HostEdges for RealEdges>::delete_row$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::fill_random( ->| with)|.* in <impl HostEdges for RealEdges>::fill_random$)',
-    'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_send_descriptor( ->| with)|.* in <impl HostEdges for RealEdges>::link_send_descriptor$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::poll_process_exit( ->| with)|.* in <impl HostEdges for RealEdges>::poll_process_exit$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::accept_link( ->| with)|.* in <impl HostEdges for RealEdges>::accept_link$)',
     'crates/botster-core/src/real\.rs:\d+:\d+: (replace <impl HostEdges for RealEdges>::link_recv( ->| with)|.* in <impl HostEdges for RealEdges>::link_recv$)',
