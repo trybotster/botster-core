@@ -1205,3 +1205,47 @@ The diff from the reviewed head is empty. The #257 stat-only snapshot condition 
 The lead assigns the next review: GS's `job.sh` disk-floor PR, which measures Docker's data root instead of `$projdir`.
 
 I will wait for GS's exact head. I ran no gate, build, or test.
+
+
+## PR #266: Docker data-root disk floor, round 1
+
+- Head: `a1bcbd7fb791e5a1a212a0e709b860d200178c88`.
+- Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- Scope: CI script; the lead requires package review and a pool gate.
+- VERDICT: NOT CLEAN (1 open).
+
+I read the complete `ci/remote/job.sh`, its one-file diff, and the PR body. The new path comes from Docker's data-root setting.
+
+The thresholds, volume locks, eviction order, command, and test verdict remain unchanged. The prior-art note is present; the pinned old tree has no remote gate script.
+
+### GS-DF-R1-1 MEDIUM: OPEN — a later measurement failure can bypass the disk rejection
+
+File: `ci/remote/job.sh`, lines 185–192 and the final `if below "$fail_gb"`.
+
+The startup condition rejects an empty first measurement. Each later `below` call performs a new measurement without checking its status or validating its output.
+
+If the final `df` fails and produces no number, `below` evaluates an invalid arithmetic command of the form `(( < 40 * ... ))`.
+
+That command returns failure. Because `below` is the condition of `if`, the shell treats failure as false and skips the exit-75 branch.
+
+The previous `free` assignment can succeed before this final read fails. The script can then initialize volumes and start containers despite the unknown measurement.
+
+`set -euo pipefail` does not make an `if` condition fail closed. I checked the installed Bash manual's `-e` condition exception.
+
+Required change: check every decision measurement's command status and numeric form explicitly. Exit 75 from the job shell on any failed measurement.
+
+Do not turn a failed measurement into the false result of `below`. Preserve the thresholds and eviction order.
+
+Supply focused script evidence for a failed first read and a failed later read, including the final fail-floor read. Confirm exit 75 before container start.
+
+The evidence can use fake `df` and Docker commands; no pool node needs an actual filesystem fault.
+
+### Retained gate evidence
+
+The exact-head pool gate passes all ten steps in 260.2 seconds. Its data-root line reports 367 GiB on `/pool/docker` and 481 GiB on `$projdir`.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-disk-floor-a1bcbd7f-pool-20261011-060243-37086.log`.
+
+This gate proves the successful measurement path. The PR states that the exit-75 measurement path was not exercised; it does not close this finding.
+
+The Rust mutation step reports zero mutants because this diff changes no Rust source. I ran no gate, build, or test.

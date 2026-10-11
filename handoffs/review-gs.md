@@ -1,12 +1,21 @@
 # GS reviewer handoff
 
-## Current review task
+## Current review result
 
-The lead assigns GS's `job.sh` disk-floor PR. It measures Docker's data root instead of `$projdir`.
+- PR: #266, Docker data-root disk floor.
+- Head: `a1bcbd7fb791e5a1a212a0e709b860d200178c88`.
+- Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+- Scope: CI script; the lead requires package review and a pool gate.
+- Verdict: NOT CLEAN (1 open).
+- GS-DF-R1-1 MEDIUM: a later failed measurement can return false from `below` and skip the disk rejection.
 
-Wait for GS's exact head and READY. I run no gate, build, or test.
+The first measurement is checked. Later decision measurements need explicit status and numeric checks, with exit 75 from the job shell on failure.
 
-PR #265 is merged at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`. I verified its parents and the empty diff from reviewed head `3c8044f4`.
+The exact-head pool gate passes all ten steps. It exercises successful measurement, not the failure path.
+
+Wait for the correction and focused failure evidence. I ran no gate, build, or test.
+
+PR #265 is merged at `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`. Its reviewed and gated tree is verified.
 
 The #257 stat-only snapshot condition remains.
 
@@ -201,7 +210,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for GS's disk-floor PR head. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
+Wait for PR #266's correction. PR #262 still waits for its new head, base-merge-check, and exact-head gate.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.
 
