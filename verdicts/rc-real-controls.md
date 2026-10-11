@@ -1902,3 +1902,49 @@ The reviewer awaits the completed evidence and the applicable lead decision unde
 No re-gate is accepted before both reviewers accept the exact-signature evidence and the lead approves the case.
 Source and body findings remain closed. Final acceptance remains pending valid final evidence.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — integration red receipt and controlled reproduction
+
+Integration verdict: `99cb66d8d627c6de947678ee0100892602377021`, Round 5 in `verdicts/stage1/rc-oracle-encode.md`.
+Message: `msg_plugin-w_1791762517_785813`.
+The reviewer read the complete round. It preserves the red baseline, four testkit removal PASS records, and static attribution limits.
+It establishes no new oracle source defect and accepts no missing reproduction evidence.
+
+Lead direction: `msg_plugin-w_1791762533_8e2986`.
+The lead authorizes one controlled reproduction on plain `v1` and directs a new-head final gate after #294 and the .42 repair import.
+Both reviewers must accept the completed reproduction before that gate.
+Reproduction message: `msg_plugin-w_1791762548_76b6fe`.
+Plain base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`; #288 is absent.
+Evidence snapshot: `bf55aa2fb5615c58333f87990433e127224d891e`, marked `--allow-dirty`, not a merge gate.
+Contracts pin: `ddce507e2c08e740f899e97dcfec566f3d2275b8`, contracts-v0.1.39.
+Transcript blob: `81ece132501f26262d8fcac4396b09da9abec237`.
+
+Log: `gates/botster-core-detached-f6025aed-f6025aed-pool-20261011-164814-5086.log` under `~/botster-sessions`.
+Log SHA-256: `a21e40b2b2db7710acd8cc0eb3572a726cd27f3720debcdde6db0f49e7428c09`.
+Scratch diff: `gates/rc-st6-repro-scratch-f6025aed.diff` under `~/botster-sessions`.
+Diff SHA-256: `5348e52c1741df1b50ffa31fc676681db95e964507a9ae1ded72936bce7f22ca`.
+The reviewer read the complete log, complete diff, unmodified worker-loop and PTY-read context, and named repair diff.
+The pool builds the worker and test binaries. It reinstalls the pinned .39 probe before the test.
+The test runs with seed 0 and exits 101 after 1.05 seconds.
+The exact failure matches the red gate: ST-6 capture ID, step 17, `{"ne":[1,1]}` does not hold.
+The shell prints the trace and exits zero. Its wrapper zero is not a test PASS.
+
+The scratch changes only the worker driver in `crates/botster-worker/src/main.rs`.
+It delays the first exact `B` PTY read by one second, retains those bytes, and prevents another PTY read until release.
+It shortens the poll timeout while delivery waits. The control link and model requests can still proceed.
+It changes no transcript, predicate, model-revision value, or terminal bytes.
+The trace records one earlier read, the held `42` read at 1791762509598, and release at 1791762510598.
+The trace contains no timestamp for the ReadScreen answer. Its unchanged-revision failure is consistent with an answer before the delayed feed.
+The reproduction widens the existing model-feed scheduling window. The original control-first worker loop already permits that window.
+The reviewer accepts this exact-signature controlled reproduction within plan 23bl A, subject to the lead's explicit case acceptance.
+The reviewer confirms non-interference: #288 changes no worker model feed, program-control path, transcript, or model-read fence.
+The failing transcript calls no oracle control. No own change supplies the reproduction's mechanism.
+RC reports that the diagnostic is never committed to a delivery branch. The temporary evidence snapshot supplies no implementation change.
+This acceptance claims no uninstrumented plain-v1 reproduction or original-gate trace.
+
+Repair commit `72eb31ba198c39cb0a8510978749262d7863e91a` replaces both ST-6 await_quiet steps with Output Activity waits at 5000 and 5001.
+The reviewer read that contracts diff. The lead states that the repair arrives with the .42 pin and #294.
+The next Core head must import that repair and receive the applicable exact-head reviews and final gate.
+This receipt accepts no future pin import, gate result, or final body.
+The reviewer ran no test, build, gate, or diagnostic.
