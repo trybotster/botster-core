@@ -488,3 +488,46 @@ fn an_exit_taken_at_the_settle_leaves_the_drain_runnable() {
     );
     assert!(link(&rig).links[&LinkId(1)].closed_by_host);
 }
+
+/// R-78 item 4, 9B and TM-6: the pump bound delays the exit drain. Each pump that stops at the bound reports more work, and
+/// the pumps go on until the drain reads the `Exited` and closes the link.
+#[test]
+fn a_drain_delayed_by_the_pump_bound_stays_runnable() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.mandatory_events = 64;
+    }));
+    run_session(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    for _ in 0..3 {
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::Observed {
+                observation: Observation::Bell,
+            },
+        );
+    }
+    rig.worker_says(LinkId(1), exited(9));
+    worker_exits(&rig, 9);
+    let mut reports = Vec::new();
+    while !link(&rig).links[&LinkId(1)].closed_by_host {
+        let report = rig.pump();
+        rig.drain_events();
+        reports.push(report.more);
+        assert!(
+            report.more || link(&rig).links[&LinkId(1)].closed_by_host,
+            "a delayed drain is runnable: {reports:?}"
+        );
+        assert!(reports.len() < 20, "the drain never ended: {reports:?}");
+    }
+    assert!(
+        reports.len() > 1,
+        "the bound delayed the drain: {reports:?}"
+    );
+    rig.settle();
+    assert!(
+        matches!(rig.driver.get(&sid("s1")).unwrap().state, SessionState::Exited(exit) if exit.code == Some(9)),
+        "{:?}",
+        rig.driver.get(&sid("s1")).unwrap().state
+    );
+}
