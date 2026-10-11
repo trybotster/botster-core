@@ -115,3 +115,77 @@ SH-F1 is addressed in source. Replacement acceptance awaits the published READY 
 No Round 2 verdict exists at this record.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — correction and base delta, 2026-10-11
+
+- Head: `6ca56167c66facc5eb8ac3b2c9cafd6988cd5195`.
+- Tree: `1b5f378287a006670fbb9442c70369bb502d9f51`.
+- Parents: `4290034339365e4b925d43d9f5953326f5d5bd1a` and `517c22350de462256f2b5be0a9fa913a98d0e42f`.
+- Base: `517c22350de462256f2b5be0a9fa913a98d0e42f`.
+- Replacement READY: `msg_plugin-w_1791712881_2c5e09`.
+- Risk remains HIGH.
+
+SH-F1 closes. The replacement retains the reviewed test-only correction and removes every new private map-value assertion.
+The public control sequence and existing held-spawn and cleanup proofs remain.
+The exact-head mutation gate catches `keep_spawn` and both `Workers::start_held` constants without those removed assertions.
+
+SH-F2 LOW also closes. The published body initially retained the deleted assertions' description and the old current-base line.
+It also omitted the supplied conflict and replacement-gate evidence.
+Finding messages: `msg_plugin-w_1791712914_9278a5` to P5 and `msg_plugin-w_1791712914_dc4bb7` to Sol.
+P5's `msg_plugin-w_1791712937_8d8daa` corrects only the body; the head remains unchanged.
+The reviewer verified the retained worker-proof description, current base, correction, conflict disclosure, and exact-head gate link.
+No finding remains open, including LOW.
+
+### Required base delta review
+
+The retained base-merge check fails conditions 1, 2, and 3 on `real.rs`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-start-held-6ca56167-pool-20261011-025200-13460.log`.
+The ancestry and both pending-file conditions pass. The check exits one after twenty-two seconds.
+This review supplies the required package delta round; it does not treat that failed check as a waiver.
+
+The reviewer read the complete own `real.rs` delta and the overlapping control, dispatch, and registration paths.
+The conflict places `start_held` immediately before #233's `fail_handoff`.
+`start_held` equals the accepted correction's method bytes. `fail_handoff` equals the new base's method bytes.
+All twenty-nine own added lines in `real.rs` equal the correction's own additions in order.
+The new program-control dispatch names only five PTY controls. It does not intercept `start_held`.
+The shared row reader, Launch hold, release, and independent worker evidence remain intact.
+
+The other four own files equal the correction bytes exactly.
+All six nonoverlapping imported files equal the new base bytes exactly.
+The merge delta's seven-path set equals the complete base delta's set; no other import exists.
+The final own delta has five files, 105 insertions, and eighteen deletions.
+No own conformance file, dependency, exclusion, pin, timeout, or transcript changes. `git diff --check` reports no error.
+The published replacement head, base, body, parents, and tree agree with the reviewed source and gate.
+The retained Mac evidence still covers the unchanged own control and public proof; the correction removes private test assertions only.
+
+### Exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-start-held-6ca56167-pool-20261011-025228-16571.log`.
+The header names the exact head and base above. All ten steps pass, total 506.6 seconds.
+Default tests: 1615 passed, 484 skipped, 14.493 seconds.
+Slow tests: 464 passed, 1979 skipped, 35.933 seconds.
+The public control proof passes in 0.007 seconds; the real hold proof passes in 0.063 seconds.
+The actual real conformance records contain 147 distinct passes.
+Testkit conformance remains 206, with strict pending 373/394, 21 real-only, and two held.
+Real pending is 58, with zero newly passing IDs. Its nineteen removals belong to imported #233, not this PR.
+Core pending remains 464; ledger 690; deferred two; withdrawn eighteen.
+The raw minimum report prints testkit 55/69, real 40/68, and accepted 41/69.
+R-59 still excludes unfenced AD-7: counted real minimum 39/68 plus one unfenced pass.
+The control-only PR claims no additional minimum pass; the larger base counts come from #233.
+
+Stage 1 tests eighteen mutants: twelve caught, six missed, zero unviable or timeout, 71.6 seconds.
+The slow baseline passes 464 tests in 29.653 seconds; the full baseline step takes 41.4 seconds.
+Stage 2 tests exactly those six full identities once each: six caught, zero missed, unviable, or timeout, 79.5 seconds.
+The reviewer checked all twenty-four printed outcomes and the full identity counts.
+The final result is eighteen caught, zero missed, unviable, or timeout. The complete mutation step takes 195.0 seconds.
+The fuzz step passes and reports no changed crate with a decoder harness.
+The job exits zero after 514 seconds on msa1, with no queue wait. The wrapper exits zero after 515 seconds.
+
+The reviewer read integration Round 1 verdict `055d1ee8f55526791250d62cce114ea792d8ae54` in full.
+Both reviewers had the same LOW finding and accepted the correction in source.
+This package round now closes that finding with the published replacement and completed evidence.
+Sol's separate final integration verdict remains required.
+Any later head change or base import still requires the applicable review and exact-head gate.
+The reviewer changed no product code and ran no execution job.
+
+VERDICT: CLEAN
