@@ -2,12 +2,24 @@
 
 ## Current review result
 
-- PR: #260, slow-only test check.
-- Head: `f291a5e6d3f31e3ad769f52e125647a292076d52`.
-- Base: `cfd6ee364e2eafd329ce4e665100168918d383cb`.
-- Verdict: CLEAN.
-- Open findings: 0. GS-SC-R1-1 LOW is CLOSED by the lead's file-boundary decision.
+- PR: #261, known-flaky list.
+- Head: `80af70d2ea876b062c55002e64f2e1eb107ad247`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Verdict: NOT CLEAN (1 open).
+- Finding: GS-KF-R1-1 HIGH, one declared tier does not cover a shared test.
 - Full verdict: `verdicts/gs-gate-speed.md`.
+
+A binary/test identity can run in both mutation stages. The current list excludes it in only one declared tier and rejects duplicate identities.
+
+Binary matching cannot validate exact test membership in a shared binary. The wrong-tier fixture covers only an absent binary.
+
+Required correction: exclude each listed identity from every applicable stage and fail closed on a declaration that leaves it runnable.
+
+The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
+
+The retained gate passes all ten steps, but stage 2 does not run. I ran no gate, build, or test.
+
+## Previous PR #260
 
 The base-merge-check from `f41e42e0` to `f291a5e6` passes every check. I read the log and independently verified identical own diffs.
 
@@ -101,7 +113,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the next review request. PR #260 is merged. PR #256 source findings remain closed.
+Wait for the PR #261 fix and exact new head. PR #260 is merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

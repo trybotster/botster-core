@@ -664,3 +664,68 @@ Its tree is `2388ba831a7d807aa32cae2488c8547a802d9b01`, equal to the reviewed an
 The DNS failure delayed publication of package completion commit `995350d8`. A later push succeeded. That completion record is now published.
 
 PR #260 is merged with the reviewed tree. I ran no gate, build, or test. I will wait for the next review request.
+
+## PR #261: known-flaky list, round 1
+
+- Head: `80af70d2ea876b062c55002e64f2e1eb107ad247`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN (1 open).
+
+### GS-KF-R1-1 HIGH: one declared tier does not cover a shared test
+
+Status: OPEN.
+
+Evidence: `known_flaky::parse`, `tests_of`, and `stage_filter`; `ci::mutants_job` and the stage selections.
+
+`tests_of` applies an entry to only its declared tier. The parser rejects duplicate binary/test identities, even if their tiers differ.
+
+A workspace library test binary can exist in both stages. A default-feature test named `slow_flaky` can run in stage 1 and match stage 2's slow filter.
+
+For an entry with tier `default`, stage 1 excludes that test, but stage 2 can still run it. Tier `slow` leaves stage 1 able to run it.
+
+The parser cannot represent both tiers for the same identity. Nextest's binary-id check cannot detect this gap because the binary exists in both stages.
+
+A second case is a slow-feature-only test inside a shared library binary. Declaring it `default` does not produce the claimed missing-binary error.
+
+The default binary exists even though that exact test does not. The slow stage then ignores the entry and runs the known-flaky test.
+
+Thus a valid parsed entry can leave its known-flaky test able to cause a false mutant catch. This violates the guard's required fail-closed behavior.
+
+The current EV-5 entry uses a slow-only integration binary. I do not claim that this particular entry leaks into stage 1.
+
+Required change: validate exact test membership for each applicable stage, or support every stage in which the identity can run.
+
+Exclude the known-flaky identity from every applicable mutation stage. Reject a declaration that leaves the identity runnable in another stage.
+
+Add a real-tool fixture with one binary/test identity selected in both stages. Also cover a slow-only test inside a shared library binary.
+
+Correct the universal claim that a wrong tier fails through a missing binary. The current fixture proves only the absent-binary case.
+
+I read nextest-filtering's local primary source. It validates `binary_id` against binary ids; its test-name matcher does not establish tier membership.
+
+### Reviewed behavior and limits
+
+The TOML parser checks keys, field types, empty values, plain names, tier values, PR number form, and duplicate identities.
+
+The filter subtracts exact binary/test pairs. Its parenthesized union preserves the existing slow filter. An empty list preserves the existing argument vectors.
+
+The slow step and standalone stage-2 baseline remain unchanged. Mutant identity selection, per-name counts, and timeout values remain unchanged.
+
+The list contains only EV-5 and names P3 and #243. The plan requires an empty list at Stage 1 exit.
+
+This PR changes no candidate build path. The existing mutant worker binary limitation remains outside its scope.
+
+The retained exact-head gate is:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-flaky-list-80af70d2-pool-20261011-041047-3410.log`
+
+The log names the full head and base. All ten steps PASS, total 460.7 seconds. Stage 1 reports 31 mutants: 30 caught and one unviable.
+
+Stage 2 does not run. This gate does not exercise the EV-5 exclusion in the real stage-2 filter.
+
+The real-tool fixture proves exact exclusion in stage 1 and failure when the declared binary is absent. It does not cover a shared binary or both stages.
+
+The Prior art note matches the previously checked pinned old source. I ran no gate, build, or test.
+
+I will wait for a fix and the exact new head.
