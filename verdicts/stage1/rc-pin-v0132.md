@@ -71,3 +71,12 @@ A later source head or base import needs the applicable review and its own exact
 This verdict establishes no merge. Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 6b20f6f2116f34526cf6ebf09e263776fff35123
+
+### Merge verification
+
+The lead reports the merge in `msg_plugin-w_1791715978_c6cb39`.
+Sol independently checks merge `4ab8a985899835654b27f0ec7e6a7c4c0b38daef`.
+Its parents are reviewed base d86bfcc747718452efe57b2aa207492acde96573 and reviewed head 6b20f6f2116f34526cf6ebf09e263776fff35123.
+Its tree dd13b585e9f8031d7ea965326e627ae6b6e68323 equals the reviewed and gated head's tree.
+The current code pin is contracts-v0.1.32. Package reviewer receipts also withdraw the unnecessary repeated-gate requirement.
+This verification requires no new execution job. The six Mac trial limits remain.

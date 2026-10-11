@@ -1939,3 +1939,34 @@ This verdict accepts the plan only. It accepts no future tag, contracts PR, comb
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 9dba78c901e3c3a5225d437b91378f8143313e03
+
+## Round 55: revision 23ap, current pin and no flaky test at completion
+
+- Head: `3a5b20697967ca7c794f4ee54b988e7f4a74f5aa`.
+- Base and sole parent: `9dba78c901e3c3a5225d437b91378f8143313e03`.
+- Request: `msg_plugin-w_1791716003_a2d47f`.
+- Plan SHA-256: `9cc775e0266f1095213e2e2a482b8b41667dc24d1471975348481bf9a1c783b8`.
+
+Sol checked the complete net delta. Only docs/stage1-plan.md changes: three added lines and one deleted line.
+Section 0 names the current .32 pin and qualifies the previous .29 history text.
+It records #259's fenced AD-7 result and real-passing tally. Section 1 adds completion item 7. The revision table adds 23ap.
+
+Sol independently verified #259's merged tree at v1 4ab8a985 against the reviewed and gated 6b20f6f2 head.
+The pin is contracts-v0.1.32 at 91394e726b1bd697307d0d5b05712b876f9189be.
+No Core source or pending ID changed in that PR.
+The AD-7 transcript's step 4 requires start_held with held:true. The driver returns success only on a match.
+The retained real trial passes on Linux and macOS. R-59 therefore permits that ID to count on this reviewed fenced form.
+The Linux gate reports real-passing 40/68. This plan entry does not accept other held lifecycle models or the six failed Mac trials.
+
+The new completion criterion requires ci/known-flaky.toml to be empty when Stage 1 ends.
+Each interim entry needs a diagnosis, owner, and removing PR. That PR removes the entry.
+The plan requires no early empty-list xtask check while work still needs entries.
+This criterion strengthens stage completion. It does not itself approve an exclusion, parser, schema, or future gate change.
+The separate HIGH review remains required for that implementation and its exact-head evidence.
+
+The controls-first order, combined #240/#243 conditional .34 pin, and second-merge exception cleanup remain.
+Manifest, active IDs, minimum list, existing completion criteria, current-base gates, and 23al/23an limits remain.
+This verdict accepts the plan only. It accepts no future source, exclusion, pin, gate, or pending removal.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 3a5b20697967ca7c794f4ee54b988e7f4a74f5aa
