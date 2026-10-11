@@ -356,6 +356,38 @@ fn the_input_controls_refuse_what_they_cannot_do() {
     }
 }
 
+/// `program_ready` (R-60): the testkit's program edge has no terminal setup, so a session that the handle has is ready at
+/// once, before and after its start. An unknown handle or session, and an argument that it does not take, are `Bad`.
+#[test]
+fn program_ready_is_true_at_once_for_a_session_of_the_handle() {
+    let mut harness = TestkitHarness::new(0);
+    let args = json!({"session": "s1"});
+    assert!(bad(harness.control("a", "program_ready", &args)));
+    let (_core, _at) = session(&mut harness, false);
+    assert_eq!(
+        harness.control("a", "program_ready", &args),
+        Ok(json!({"ready": true})),
+        "created"
+    );
+    let mut harness = TestkitHarness::new(0);
+    let (_core, _at) = session(&mut harness, true);
+    assert_eq!(
+        harness.control("a", "program_ready", &args),
+        Ok(json!({"ready": true})),
+        "started"
+    );
+    for bad_args in [
+        json!({"session": "s9"}),
+        json!({"session": "s1", "on": true}),
+    ] {
+        assert!(
+            bad(harness.control("a", "program_ready", &bad_args)),
+            "{bad_args}"
+        );
+    }
+    assert!(bad(harness.control("b", "program_ready", &args)));
+}
+
 /// `pty_input` is the observer of the input controls: the bytes that the program edge took, in order, as hex. A `hold`
 /// program that took no input gives an empty log.
 #[test]

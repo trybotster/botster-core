@@ -38,7 +38,8 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::JoinHandle;
 
 /// The controls that this module serves.
-pub(super) const CONTROLS: [&str; 5] = [
+pub(super) const CONTROLS: [&str; 6] = [
+    "program_ready",
     "pty_output",
     "pty_input",
     "pty_blocked",
@@ -215,6 +216,11 @@ impl Programs {
                 ))
             })?;
         }
+    }
+
+    /// Whether the probe of `worker` has connected (`program_ready`, R-60). It never waits.
+    fn has_connected(&self, worker: ProcessIdentity) -> bool {
+        self.hub.lock().probes.contains_key(&worker)
     }
 
     /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
@@ -399,6 +405,8 @@ fn serve(hub: &Hub, stream: UnixStream) {
         },
     );
     hub.changed.notify_all();
+    // R-60: the connection is `program_ready`, so a wait for it must wake, as for `Input` reports.
+    hub.wake_hosts();
     loop {
         let report = lines
             .next()
@@ -520,6 +528,22 @@ impl RealCoreHarness {
         args: &Value,
     ) -> Result<Value, ControlError> {
         match op {
+            "program_ready" => {
+                // R-60: the probe connects only after its R-48 terminal setup. A read: it never waits for the connection
+                // (`await_control` does). A session whose worker Core has not recorded yet has no probe yet. A session with
+                // no row is `Bad`, as on the testkit.
+                let args: Session = parse(args)?;
+                let dir = self.data_dir_of(handle).ok_or_else(|| {
+                    ControlError::Bad(format!("the handle '{handle}' is not open"))
+                })?;
+                let processes = self.session_processes(&dir, &args.session).ok_or_else(|| {
+                    ControlError::Bad(format!("the session {} has no row", args.session.0))
+                })?;
+                let ready = processes
+                    .worker
+                    .is_some_and(|worker| self.programs.has_connected(worker));
+                Ok(json!({ "ready": ready }))
+            }
             "pty_output" => {
                 let args: PtyOutput = parse(args)?;
                 let bytes = hex_decode(&args.bytes_hex)
@@ -742,7 +766,29 @@ mod slow_tests {
             control.join().unwrap().unwrap();
         });
         assert_eq!(programs.input(me).unwrap(), b"abc");
-        assert_eq!(wake.signals.load(Ordering::SeqCst), 2);
+        // The hello wakes the hosts once (R-60), and each read once.
+        assert_eq!(wake.signals.load(Ordering::SeqCst), 3);
+    }
+
+    /// R-60: the probe's connection is `program_ready`. Before the hello the probe of `worker` has not connected; the hello
+    /// records it and wakes every open handle's host once, so a wait for `program_ready` ends.
+    #[test]
+    fn the_hello_records_the_probe_and_wakes_the_hosts() {
+        let (_root, programs) = programs();
+        let wake = Arc::new(CountingWake::default());
+        programs.watch(&(Arc::clone(&wake) as Arc<dyn HostWake>));
+        let me = identity(std::process::id());
+        assert!(!programs.has_connected(me));
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        // The reader wakes the hosts before it reads the next report, so the acknowledged request fences the wake.
+        std::thread::scope(|s| {
+            let control = s.spawn(|| programs.request(me, &Request::Chunk(1)));
+            assert_eq!(probe.next_request(), Request::Chunk(1));
+            probe.report(&Report::Ack {});
+            control.join().unwrap().unwrap();
+        });
+        assert!(programs.has_connected(me));
+        assert_eq!(wake.signals.load(Ordering::SeqCst), 1);
     }
 
     /// A probe may stay silent for longer than the cleanup bound, even inside a line: the reader re-arms its bound, keeps the
@@ -888,6 +934,11 @@ mod slow_tests {
         let me = identity(std::process::id());
         let mut probe = FakeProbe::connect(&programs, me.pid);
         programs.connected(me).map(drop).unwrap();
+        // The hello wakes the hosts once (R-60): take that signal, so the next one is the report's.
+        signals
+            // timer: deadline — a hello that never wakes the hosts fails the test instead of stalling it
+            .recv_timeout(CLEANUP)
+            .expect("the hello woke the hosts");
         // More bytes than a socket holds on either OS, so the write waits until the probe reads.
         let big = "61".repeat(1 << 19);
         std::thread::scope(|s| {
@@ -956,6 +1007,7 @@ mod slow_tests {
         );
         // With valid arguments, every control is served, and the handle is the next check.
         for (op, args) in [
+            ("program_ready", json!({"session": "s1"})),
             ("pty_output", json!({"session": "s1", "bytes_hex": "61"})),
             ("pty_input", json!({"session": "s1"})),
             ("pty_blocked", json!({"session": "s1"})),
