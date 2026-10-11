@@ -539,9 +539,10 @@ mod tests {
         );
     }
 
-    /// R-47 item 3: `route_fill` writes N = C + F bytes of the pattern at the session's program edge. C is the bytes that the
-    /// stream takes from the worker now (0 while gated, the `route_accept` limit, or the free room of the queue); F is the
-    /// route's applied `max_frame_bytes`. The client reads the pattern, k from 0 for each fill, as output.
+    /// R-47 item 3: `route_fill` writes N = C + F bytes of the pattern at the session's program edge. C is the bytes
+    /// that the stream takes from the worker now (0 while gated with no accept limit, the `route_accept` limit, or the
+    /// free room of the queue); F is the route's applied `max_frame_bytes`. The client reads the pattern, k from 0 for
+    /// each fill, as output.
     #[test]
     fn route_fill_writes_the_room_and_one_frame_of_the_pattern() {
         use botster_route_codec::prelude::TYPE_OUTPUT;
