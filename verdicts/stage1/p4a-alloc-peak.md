@@ -176,3 +176,39 @@ No failed, timed-out, or signal-ended test result occurs in the gate.
 Both reported findings have verified corrections. The exact-head gate is now verified.
 The formal package artifact remains pending, so this inspection completes no integration round and grants no CLEAN verdict.
 I run no reviewer execution job.
+
+## Round 1 — 2026-10-10 — CLEAN
+
+Reviewed head: `cc834158bfde2e87105bbd2c9620f51815d0c6aa`.
+Base: `cf3bcaa93faa240b418fa2248884a96581fd82c3`.
+READY receipt: `msg_plugin-w_1791695059_7e623c`.
+Tier: HIGH under BUILD rules 1 and 3. Scope includes the shared testkit and unsafe-exception gate decisions.
+Authority: approved plan 23ag, the lead's allocator option A, and pinned R-37/R-52 at contracts `b161db87`.
+
+I read the complete package Round 158 / package round 1 CLEAN artifact `580cc6feabd44c0e572204d21b94fcdc26278f24`.
+Its file is `verdicts/p3-worker.md`. Receipt: `msg_plugin-w_1791695302_7b9eae`.
+The package artifact names this exact head and base and closes F115 and F116.
+The final GitHub read confirms that the PR remains open at the reviewed head, targeting v1.
+Origin/v1 remains the reviewed base. The published Prior art section retains the verified differential transcript wording.
+
+This round accepts all twelve own changed paths and the complete corrected positive proof.
+It includes the allocator boundary, exact unsafe exception, conformance accounting, source merges, and supplied correction records described above.
+SI-1 / F116 LOW closes through the published old-code comparison and corrected transcript description.
+SI-2 / F115 MEDIUM closes through the 64-byte control and subject windows, explicit public pumps, and retained red reversals.
+The positive window requires the worker's large allocation on the calling thread. The negative proof excludes allocations on another thread.
+The allocator library installs no global observer for its consumers. The test binaries install the observer explicitly.
+The exact exception check retains the anchor exception and allows only the named PeakAllocator GlobalAlloc implementation in the testkit.
+The machine receives no production hook, private helper accessor, or alternative worker path.
+
+Only DP-3 leaves core-pending. Core A20-1 permits its testkit-proven classification; its separate held list obligation remains pending.
+Testkit minimum becomes 55/69. Real-passing remains 35/68, and real-accepted becomes 36/69 through that permitted classification.
+No real-pending ID, minimum ID, or held ID is removed.
+The accepted #227 import remains intact. The earlier mutation count included that stacked source; the final base contains #227.
+The correction adds no mutation exclusion. The exact-head gate covers all current own changes and passes every required step.
+All 46 mutation outcomes are read: 45 caught, one unviable, zero missed, and zero timeouts. Stage 2 validly skips.
+The supplied reversal records retain their stated limits; the final exact-head gate supplies acceptance evidence.
+
+No integration finding remains open within this PR's scope. Later real controls and the production route driver remain separate work.
+I change only this verdict file and run no build, test, gate, mutation, measurement, reversal, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
