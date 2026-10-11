@@ -1690,7 +1690,6 @@ pub(crate) mod tests {
         assert!(!script.is_empty());
     }
 
-    /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.
     /// R-87: after each call that it passes on, the layer records the sessions that the Core behind it reports as
     /// `parked_work` in its `diagnostics`, and `parked` answers from that record at once.
     #[test]
@@ -1716,6 +1715,7 @@ pub(crate) mod tests {
         assert!(!parked.parked(&s1), "the poll's report names no session");
     }
 
+    /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.
     #[test]
     fn every_call_without_a_row_passes_through_with_its_result() {
         let (mut layer, handle, reached) = layer();
