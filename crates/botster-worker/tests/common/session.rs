@@ -177,17 +177,6 @@ struct Session {
 impl Session {
     /// Starts a worker, proves the hello both ways (AD-6), and launches `sh -c script` (AD-7 step 4).
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> Session {
-        Session::launch_with_route(root, script, stop_grace_ms, None)
-    }
-
-    /// As [`Session::launch`]; with `route`, the `Launch` frame and an `AttachRoute` frame go in one send with the route's
-    /// stream (DP-2), so the worker holds the descriptor when it spawns the payload.
-    fn launch_with_route(
-        root: &Path,
-        script: &str,
-        stop_grace_ms: u64,
-        route: Option<std::os::fd::BorrowedFd<'_>>,
-    ) -> Session {
         let payload_guard = PayloadGuard::new(root);
         let script = format!("{}{script}", payload_guard.prefix());
         let socket = root.join("c");
@@ -232,7 +221,7 @@ impl Session {
             &launch,
             vec!["/bin/sh".into(), "-c".into(), script],
             stop_grace_ms,
-            route,
+            None,
         );
         assert!(payload.pid > 0);
         Session { worker, link }
@@ -660,52 +649,47 @@ fn a_panic_after_worker_sigkill_ends_the_payload_group() {
 }
 
 /// DP-2, plan 23ae condition 2: a route descriptor that the worker receives is close-on-exec, so the payload holds no copy.
-/// The worker holds the route's stream when it spawns the payload. The worker then dies by `SIGKILL` while the payload lives,
-/// and the client end of the route reads the end of file: no process holds the worker's end. The proof is by identity (the
-/// end of file), not by a list of the payload's descriptors.
+/// The worker holds the route's stream when it spawns the payload. The worker then dies by `SIGKILL`, and the client end of
+/// the route reads the end of file: no process holds the worker's end. The payload ignores the hang-up and is still alive
+/// after the end of file: it answers the release with its marker. The proof is by identity (the end of file), not by a
+/// list of the payload's descriptors.
 #[test]
 fn a_received_route_descriptor_does_not_reach_the_payload() {
     use std::os::fd::AsFd;
     let root = temp_root();
-    let held = fifo(root.path(), "f");
+    let mut ready = marker_fifo(root.path(), "ready");
+    let mut alive = marker_fifo(root.path(), "alive");
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let hold = Blocker::new(root.path(), "hold").unwrap();
     let script = format!(
-        "trap '' HUP TERM; exec 3> {}; /bin/echo up >&3; exec sleep 30",
-        held.display()
+        "trap '' HUP TERM; /bin/echo ready > {}; /usr/bin/head -c 1 {} > /dev/null; /bin/echo alive > {}; exec {}",
+        quoted(&root.path().join("ready")),
+        quoted(release.path()),
+        quoted(&root.path().join("alive")),
+        hold.shell(),
     );
-    let (mut client, worker_end) = UnixStream::pair().unwrap();
-    // The deadline is set now: macOS refuses the option (`EINVAL`) on a socket whose peer has closed.
-    // timer: deadline — the limit of a wait for the end of file after the worker died; not a contract value.
-    client
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .unwrap();
-    let mut session =
-        Session::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
+    let (client, worker_end) = UnixStream::pair().unwrap();
+    let mut s =
+        GuardedSession::launch_with_route(root.path(), &script, 5000, Some(worker_end.as_fd()));
     drop(worker_end);
-    let (reader, line) = first_line(&held);
-    assert_eq!(line, "up\n");
-    session.signal_worker(rustix::process::Signal::KILL);
-    session.worker.worker.wait().unwrap();
-    let mut fds = [rustix::event::PollFd::new(
-        reader.get_ref(),
-        rustix::event::PollFlags::IN,
-    )];
     assert_eq!(
-        rustix::event::poll(
-            &mut fds,
-            Some(&rustix::event::Timespec {
-                tv_sec: 0,
-                tv_nsec: 0
-            })
-        )
-        .unwrap(),
-        0,
-        "the payload lives after the worker died"
+        ready.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("ready\n")
     );
-    let mut rest = Vec::new();
-    client
-        .read_to_end(&mut rest)
+    // SIGKILL: the worker runs no cleanup, and the kernel closes its descriptors.
+    s.worker.kill().unwrap();
+    s.worker.status_by(Deadline::cleanup());
+    Bounded::new(client)
+        .to_eof(Deadline::cleanup())
         .expect("the end of file: no process holds the worker's end of the route");
-    drop(session);
+    // The test holds both ends of the FIFO, so the byte waits in it even when `head` has not opened it yet.
+    release.send(b"x").unwrap();
+    assert_eq!(
+        alive.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("alive\n"),
+        "the payload lived through the end of file"
+    );
+    release.release();
 }
 
 /// The driver observer ends when its test parent dies without running Drop.
@@ -791,6 +775,17 @@ impl GuardedSession {
     /// Starts a worker and launches `sh -c script`, each through the guard's wrapper. Before this returns, one anchor
     /// reports the worker as its group's leader, and one the payload.
     fn launch(root: &Path, script: &str, stop_grace_ms: u64) -> GuardedSession {
+        GuardedSession::launch_with_route(root, script, stop_grace_ms, None)
+    }
+
+    /// As [`GuardedSession::launch`]; with `route`, the `Launch` frame and an `AttachRoute` frame go in one send with the
+    /// route's stream (DP-2), so the worker holds the descriptor when it spawns the payload.
+    fn launch_with_route(
+        root: &Path,
+        script: &str,
+        stop_grace_ms: u64,
+        route: Option<std::os::fd::BorrowedFd<'_>>,
+    ) -> GuardedSession {
         let mut guard = Guard::new(root)
             .unwrap()
             .grace(Duration::from_millis(stop_grace_ms));
@@ -867,7 +862,7 @@ impl GuardedSession {
             &launch,
             vec![wrapper.display().to_string()],
             stop_grace_ms,
-            None,
+            route,
         );
         let reports = guard.anchors(2, Deadline::cleanup()).unwrap();
         assert_eq!(
