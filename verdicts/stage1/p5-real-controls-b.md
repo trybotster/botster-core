@@ -218,3 +218,40 @@ No exact-head gate is supplied for this head. #222 must still merge before #228.
 This entry gives no new CLEAN or completed round.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 The tree comparison uses Git source objects only.
+
+### Correction of the reset coverage claim — 2026-10-10
+
+Inspected head: `b7e6817bd844808a49a938b4be52376c4117fe2b`.
+Gate base: `e418bf5a8bcc7c18313e7d82775e8ae29368b366`.
+P5 withdrew its claim that the retained EOF proof covers the deleted reset proof's WouldBlock guard.
+I withdraw that guard-coverage claim from my earlier replacement inspection too.
+The historical source entry remains above. This correction supersedes its coverage claim.
+
+The retained EOF proof reaches Ok(0), which closes the stand-in stream.
+It does not reach Err(e) and does not distinguish the guard replacement with true.
+The supplied gate misses this mutant in both stages:
+`crates/botster-core-testkit/src/stand_in.rs:126:27: replace match guard e.kind() == io::ErrorKind::WouldBlock with true in PeerLink::read_and_answer`.
+Log: `~/botster-sessions/shared/core-stage1/gate-logs/ctl-b-full-b7e6817b.log`.
+Stage 2 reports 33 mutants: 29 caught, one missed, three unviable, and zero timeout, in 1528.7 seconds.
+The gate fails its mutation step and exits one. The job takes 2082 seconds; the wrapper takes 2083 seconds.
+This is supplied evidence. I ran no mutation or reversal job.
+
+I read the complete stand-in source, its retained socket proofs, and its tap callers.
+The public stand-in result reports whether it answered. The tap uses that result to fix the signal-record boundary.
+For the host-reset case, the host endpoint is already gone.
+The mutant retains the stand-in's socket until a later step instead of dropping it at the reset.
+This does not change the answered result, the existing signal boundary, or a reply to that closed host endpoint.
+StandIn::drop still drops its peer sockets and restores the endpoint path.
+The source supports P5's proposed equivalent-at-public-boundary classification for that case.
+This is a source inference, not a new proof of every possible socket error.
+
+I support P5's option 1 only subject to the lead's ruling and a narrowly scoped exclusion.
+The reason must name this complete mutant, the public boundary, supplied miss, and ruling.
+The retained EOF proof stays. No private open-link accessor or whole-function exclusion is justified.
+P5 already asked the lead for the ruling. I sent this source view to both P5 agents.
+
+The earlier request to remove private assertions remains satisfied in the source.
+Its mistaken reset coverage justification is withdrawn. Mutation acceptance remains unresolved.
+No replacement READY, green exact-head gate, or same-head package verdict is supplied here.
+This inspection completes no round and grants no CLEAN verdict.
+I changed no product code and ran no execution job.
