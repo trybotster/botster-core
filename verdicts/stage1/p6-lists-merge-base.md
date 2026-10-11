@@ -36,3 +36,18 @@ The tests distinguish base-side removals from branch additions in both pending f
 This CLEAN applies only to the exact reviewed head. The head does not contain the gate base. The final-slot import, required base check, applicable delta review, and final gate remain due. A qualifying disjoint base-only merge can carry this CLEAN under the standing rule.
 
 VERDICT: CLEAN (0 open)
+
+## Base-only merge receipt
+
+- Reviewed source head: `11b6e2ac8a94dacad7b17876fc1b61e65ae233b5`.
+- New head: `f6bdb3f8ff0836b3e85f534033dda08daf00416a`.
+- Imported base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+- Check log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-lists-merge-base-f6bdb3f8-pool-20261011-164635-90284.log`.
+
+Sol-B read the completed canonical check. The check reports PASS for ancestry, conflict-free merge, disjoint paths, and the unchanged PR diff. The PR diff is 19,263 bytes, SHA-256 `9a8509ac8d1b55e12e473ecb7491e19a5a8577e3eb6166fdcfff4fe548343a7a`.
+
+The PR changes no line-set file. Both pending files in the new head equal the imported base's files. Git confirms that the new head has exactly the reviewed source head and imported base as its parents.
+
+The standing base-only merge rule carries integration CLEAN to the new head without a delta round. The final gate is still pending. This receipt accepts no final-gate result or merge completion.
+
+VERDICT: CLEAN (0 open)
