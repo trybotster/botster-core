@@ -74,6 +74,16 @@ fn after_write(result: io::Result<usize>, unsent: &mut Vec<u8>) -> bool {
     }
 }
 
+/// Writes `unsent` to `end` while it takes bytes: until nothing is left or the stream is full (`after_write`).
+fn flush_into(end: &mut impl Write, unsent: &mut Vec<u8>) {
+    while !unsent.is_empty() {
+        let result = end.write(unsent);
+        if !after_write(result, unsent) {
+            return;
+        }
+    }
+}
+
 /// The poll timeout of a wait.
 fn timespec_of(wait: Duration) -> rustix::event::Timespec {
     rustix::event::Timespec {
@@ -115,12 +125,7 @@ impl RealRoute {
             self.unsent.clear();
             return;
         };
-        while !self.unsent.is_empty() {
-            let result = end.write(&self.unsent);
-            if !after_write(result, &mut self.unsent) {
-                return;
-            }
-        }
+        flush_into(end, &mut self.unsent);
     }
 
     /// One read of at most `max` bytes: a wait of `wait` for the first byte, or no wait. The stream stays nonblocking: the
@@ -258,6 +263,47 @@ mod slow_tests {
         assert!(after_write(failed(io::ErrorKind::Interrupted), &mut unsent));
         assert_eq!(unsent, b"d");
         assert!(after_write(failed(io::ErrorKind::BrokenPipe), &mut unsent));
+        assert!(unsent.is_empty());
+    }
+
+    /// A stream that takes `chunk` bytes per write until `room` is used, then is full (`WouldBlock`).
+    struct Chunky {
+        taken: Vec<u8>,
+        room: usize,
+        chunk: usize,
+    }
+
+    impl Write for Chunky {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.room == 0 {
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
+            let n = buf.len().min(self.chunk).min(self.room);
+            self.taken.extend_from_slice(&buf[..n]);
+            self.room -= n;
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A flush writes until the stream is full, over several partial writes, and keeps the rest for the next flush.
+    #[test]
+    fn a_flush_writes_until_the_stream_is_full_and_keeps_the_rest() {
+        let mut end = Chunky {
+            taken: Vec::new(),
+            room: 4,
+            chunk: 2,
+        };
+        let mut unsent = b"abcdef".to_vec();
+        flush_into(&mut end, &mut unsent);
+        assert_eq!(end.taken, b"abcd");
+        assert_eq!(unsent, b"ef");
+        end.room = 2;
+        flush_into(&mut end, &mut unsent);
+        assert_eq!(end.taken, b"abcdef");
         assert!(unsent.is_empty());
     }
 
