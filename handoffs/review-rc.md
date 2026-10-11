@@ -1369,3 +1369,15 @@ The reviewer read that contracts diff. The lead states that the repair arrives w
 The next Core head must import that repair and receive the applicable exact-head reviews and final gate.
 This receipt accepts no future pin import, gate result, or final body.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — lead accepts ST-6 reproduction and assigns repair import
+
+Lead decision: `msg_plugin-w_1791762655_ac8cbb`.
+The lead accepts the completed controlled ST-6 reproduction for this case and records package receipt `843604d707cfb4a6a9049e54da46fba2ff4a001d`.
+The integration reviewer's acceptance remains due.
+The lead reports #294 merged at `v1` `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+The lead assigns the slot to #288 and directs RC to import that `v1` once and post the canonical base-merge-check.
+The final gate may start only after the integration reviewer also accepts the reproduction.
+The future import requires its applicable delta review. This receipt accepts no imported source or future gate result.
+The reviewer ran no test, build, gate, or diagnostic.
