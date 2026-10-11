@@ -1,5 +1,35 @@
 # PR #269 — R-62 resume oracle
 
+## Source delta after #271 — 2026-10-11
+
+Head: `c2dd1fbfe801f3b9e43256071b01081eb75a0592`.
+Base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Parents: source-CLEAN `1efe84734e6297e1b5c79f123e2161f923dc233d` and the base.
+Tree: `91087a9b527bcd242804ea1db106b9928a9dd9b8`.
+Package source CLEAN: `324ed659694487d942309c1cc728bc8add48f42a`, `verdicts/rc-real-controls.md`. I read the complete delta round.
+
+I read the complete failed base check and every imported line in the two overlapping files, lib.rs and real.rs.
+The check passes both ancestry conditions and condition 1. Conditions 2 and 3 fail on the shared files and index line.
+Both pending-file checks pass. The failed result remains failed. This round supplies the required manual delta review.
+Independent comparisons confirm that each overlapping file's imported added and deleted lines equal the base patch.
+The other eight reviewed own blobs remain byte-identical. Both pending files and mutation configuration equal the new base.
+The static merge produces the exact new tree without a conflict. I run no executable base check.
+
+The import adds the already-reviewed route_reports module, argument, control, capability, dispatch arm, and public control assertions.
+The control observes reports consumed at the link edge. It changes no returned link byte and holds no Core event.
+The import leaves oracle_resume dispatch and the capture layer construction unchanged.
+It does not replace the resume control's begin, pump without clock advance, foreign-event refusal, page reads, or release.
+The existing public cleanup and isolation assertions remain unchanged. All three source findings stay closed.
+No new source finding appears. The code pin remains .36, and no pending identifier leaves through this review.
+
+Check: `~/botster-sessions/gates/botster-core-rc-r69-base-merge-check-c2dd1fbf-20261011-082659.log`.
+The owner reports a green final gate at earlier head `1efe8473`. I have not independently matched all of that gate's outcomes.
+That earlier gate cannot supply execution at this new head. The final exact-head gate and final body remain pending.
+Historical Mac and transcript-fence proof limits remain as recorded below. This source verdict accepts no future gate or import.
+I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; source delta complete; final exact-head gate pending)
+
 ## Round 1 — 2026-10-11
 
 Head: `2a0c4922e93f3bb29234a90fe79fc57db0f7b48d`.

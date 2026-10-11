@@ -80,3 +80,40 @@ This verdict completes source review with zero open findings. It accepts no futu
 I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; source review complete; final exact-head gate pending)
+
+## Round 2 — shared-file import and final gate, 2026-10-11
+
+Head: `61211358870fccaebc064424134f82e1d82c55d6`.
+Base: `e4b6cdf54a7453af182b9e3e44fc08b5f58c7b47`.
+Parents: `7e899c88bddc985ce8ac9b0fe5b943cff96beed7` and the base.
+Tree: `cdc886baf9810003ffeb6b1282b6f2a46ec4c2c1`.
+Package source CLEAN: `f78a09735c318f284af55b43d81eda9bf3e32f66`, `verdicts/p6-short-root.md`, Round 3. I read the complete round.
+
+I read the full failed base check, shared-file import, current own delta, and every body change.
+Both ancestry checks and condition 1 pass. Conditions 2 and 3 fail on shared real.rs and its changed index line.
+Both pending-file checks pass. The failed result remains failed; this round performs the required delta review.
+The import adds only the reviewed route_reports argument, implementation, capability, dispatch arm, and control assertions.
+It changes no short-root helper, construction call, ownership, or root assertion. The imported tests use the same make path.
+Both complete own patches match after removal of index lines and normalization of hunk positions.
+The static merge produces the exact new tree. Cargo.lock, mutation configuration, and both pending files equal the new base.
+No finding remains. SR-R1-1 stays closed.
+
+The base is the #271 merge. Its exact parents are `010f2a49952f9b77581f304dbaa41006b115d40b` and `eda6efc927d3b53471c7693e6e73f802301e1dd3`.
+Its tree `4b07c85a40098941ad1cfdb597e3b4c0f985c925` equals the accepted #271 tree.
+
+I read the final exact-head Linux gate header, summaries, both stage-1 raw outcomes, and both stage-2 raw outcomes.
+All ten stages pass in 206.1 seconds. Default passes 1700 tests; slow passes 549 tests.
+Stage 1 misses both slow-only mutants. The stage-2 baseline passes 549 tests, and stage 2 finds both mutants unviable.
+Final result: two unviable, zero caught, zero missed, and zero timeout mutants. This supplies no viable mutation catch.
+No FLAKY record appears. The wrapper exits zero after 214 seconds; jobq exits zero after 213 seconds.
+The final body identifies this exact head and gate. It records the failed base check and preserves earlier head evidence as history.
+The minimum remains 46/68 real-passing and 47/69 real-accepted. Four of 30 pending-real identifiers pass; none leaves its list.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p6-short-root-61211358-pool-20261011-082558-36579.log`.
+SHA256: `5a663bc70b7df5c6951728aeda3fa5a590c9e1d9dde77b516079e7e0677e05c5`.
+Base check: `~/botster-sessions/gates/botster-core-stage1-p6-short-root-61211358-pool-20261011-082534-35425.log`.
+The unchanged Mac implementation and assertions retain the parent-head proof limits from Round 1.
+GitHub identifies this exact head and base. I accept no future source import or pending removal.
+I ran no build, test, gate, mutant, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; source, final body, and supplied exact-head gate accepted)
