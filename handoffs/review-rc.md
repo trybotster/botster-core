@@ -23,7 +23,10 @@ The hello test checks only its observable wake signal.
 The integration reviewer reports CLEAN at the same head, with 0 open findings.
 Integration verdict: `0efa400e`, `verdicts/stage1/rc-program-ready.md`, round 2.
 Message: `msg_plugin-w_1791714268_35bab6`.
-The final exact-head gate remains required before merge.
+The reviewer checked the final exact-head gate receipt. Every step passed; all 7 mutants were caught, including 5 in stage 2.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-program-ready-15633946-pool-20261011-032441-61505.log`.
+The gate names base `5ac94fabf41909a733267a62b692c1a4ee72bf62` and ends with exit 0.
+A merge receipt has not arrived in this session.
 The earlier integration NOT CLEAN verdict was `25a1ca56597ed6ee463e715ab2983b297de873c2`.
 The retained Mac failure reproduces on plain v1 and remains explicit in the verdict.
 The remaining RC controls have no submitted head or verdict in this session.
