@@ -10,7 +10,6 @@
 
 use crate::entropy::SeededEntropy;
 use crate::net::LinkEnd;
-use crate::route_reports::RouteReports;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -184,7 +183,7 @@ pub struct SimEdges {
     next_link: u64,
     link_capacity: usize,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66).
-    reports: Arc<Mutex<RouteReports>>,
+    reports: Arc<Mutex<crate::route_reports::RouteReports>>,
 }
 
 impl SimEdges {
@@ -429,7 +428,7 @@ pub struct Opened {
     pub driver: HostDriver<SimEdges>,
     pub faults: Arc<Mutex<Faults>>,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66).
-    pub reports: Arc<Mutex<RouteReports>>,
+    pub reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The testkit's `Core` also signals it for its in-process workers.
     pub wake: Arc<dyn HostWake>,
 }
@@ -518,7 +517,7 @@ impl Directories {
             epoch
         };
         let faults = Arc::new(Mutex::new(Faults::default()));
-        let reports = Arc::new(Mutex::new(RouteReports::default()));
+        let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
