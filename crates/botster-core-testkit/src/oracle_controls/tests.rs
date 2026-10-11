@@ -120,27 +120,66 @@ fn changed() -> Result<Value, ControlError> {
     Err(ControlError::UnsupportedFor(SIZE_OR_PROFILE_CHANGED.into()))
 }
 
+/// The cursor position report request (CPR, `CSI 6 n`): a stimulus whose reply depends on the terminal's width.
+const CPR: &[u8] = b"\x1b[6n";
+
+/// The expected reply, from an independent libghostty terminal of `size` that applied `prefix` and then `request` (R-7,
+/// BUILD.md architecture rule 2: never a hand-written terminal byte).
+pub(crate) fn shadow(size: &Size, prefix: &[u8], request: &[u8]) -> Value {
+    let mut terminal = Terminal::new(size, History::Off).unwrap();
+    terminal.vt_write(prefix);
+    terminal.drain_events();
+    let reply = terminal
+        .vt_write_until_query(request)
+        .unwrap()
+        .query
+        .map(|query| query.shadow_reply)
+        .unwrap_or_default();
+    if reply.is_empty() {
+        json!({"answerable": false})
+    } else {
+        json!({"answerable": true, "reply_hex": hex_encode(&reply)})
+    }
+}
+
 /// EV-8: the reply comes from a fresh terminal of the session's size after the prefix. Twelve bytes wrap at ten columns, so
-/// the cursor position report (CPR, `CSI 6 n`) answers row 2, column 3, and only a terminal of the session's width gives it.
+/// the expected CPR differs from the one of a wider terminal: only a terminal of the session's width gives it.
 #[test]
 fn the_query_reply_comes_from_a_fresh_terminal_of_the_sessions_size() {
     let mut harness = TestkitHarness::new(0);
     let (mut core, at) = running(&mut harness);
     // The session's own output never reaches the shadow: the fresh terminal sees only the prefix.
     output(&mut harness, core.as_mut(), at, b"session output");
-    let query = |prefix: &[u8]| json!({"session": "s1", "request_hex": "1b5b366e", "prefix_hex": hex_encode(prefix)});
+    let prefix = b"xxxxxxxxxxxx";
+    let wide = Size {
+        cols: SIZE.cols + 10,
+        ..SIZE
+    };
+    let expected = shadow(&SIZE, prefix, CPR);
+    assert_eq!(expected["answerable"], json!(true), "{expected}");
+    assert_ne!(
+        expected,
+        shadow(&wide, prefix, CPR),
+        "the width decides the reply"
+    );
+    assert_ne!(
+        expected,
+        shadow(&SIZE, b"", CPR),
+        "the prefix decides the reply"
+    );
+    let query = |prefix: &[u8]| json!({"session": "s1", "request_hex": hex_encode(CPR), "prefix_hex": hex_encode(prefix)});
     assert_eq!(
-        harness.control("a", "oracle_query_reply", &query(b"xxxxxxxxxxxx")),
-        Ok(json!({"answerable": true, "reply_hex": hex_encode(b"\x1b[2;3R")}))
+        harness.control("a", "oracle_query_reply", &query(prefix)),
+        Ok(expected)
     );
     assert_eq!(
         harness.control(
             "a",
             "oracle_query_reply",
-            &json!({"session": "s1", "request_hex": "1b5b366e"})
+            &json!({"session": "s1", "request_hex": hex_encode(CPR)})
         ),
-        Ok(json!({"answerable": true, "reply_hex": hex_encode(b"\x1b[1;1R")})),
-        "no prefix: a fresh terminal's cursor is at the origin"
+        Ok(shadow(&SIZE, b"", CPR)),
+        "no prefix"
     );
     assert_eq!(
         harness.control(
@@ -274,7 +313,7 @@ fn after_a_resize_or_a_profile_change_the_history_controls_refuse() {
                 .control(
                     "a",
                     "oracle_query_reply",
-                    &json!({"session": "s1", "request_hex": "1b5b366e"})
+                    &json!({"session": "s1", "request_hex": hex_encode(CPR)})
                 )
                 .is_ok(),
             "{change:?}"
