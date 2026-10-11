@@ -129,3 +129,100 @@ RC-C-F2 remains open on this exact head.
 The reviewer changed only this verdict file and ran no builds, tests, gates, mutation jobs, measurements, or base-merge checks.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-10
+
+Head: `a96679e9b2df48b3d3918b6149d16060846a430f`.
+Tree: `d38e7b9c4763e41163c5bff0c9faba3d54856b78`.
+Parents: `c6f6c9b120899cd81433b3a65a55cb28849a54e3` and `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+PR and gate base: `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`, contained in the head.
+READY: `msg_plugin-w_1791697326_62da2d`.
+The published PR head, base, body, and gate agree.
+Authority remains approved plan 23ag, BUILD.md at `56bd0a5`, and R-49 at contracts `b161db87ca82873b4f6b21d8433a69f086abb7cf`.
+The reviewer rechecked the plan hash recorded in Round 1.
+Risk remains HIGH under rule 3.
+
+### Findings and source correction
+
+RC-C-F1 LOW remains closed: the body states HIGH and the deciding rule.
+Integration SI-1 LOW remains closed: the body retains the Prior art comparison and correct decoder-copy description.
+The reviewer read the published Round 1 explanation and updated proof.
+
+**RC-C-F2 MEDIUM — CLOSED.**
+The reviewer read the complete two-file correction at `c6f6c9b120899cd81433b3a65a55cb28849a54e3`.
+Those exact bytes remain in the final head.
+The outbound observation decoder now uses `OUTBOUND_BOUND = u32::MAX`.
+Core caps its encoder bound at `u32::MAX / 2`, so the tap accepts every frame that Core can send.
+Core buffers complete frames before flushing them, with sends limited at descriptor marks.
+The tap can inspect the complete Launch before it gives the inner edge its first byte.
+
+`sendable` holds the armed link on a decoder error instead of forwarding the bytes.
+`sent` retains a decoder's failed state instead of disabling that decoder.
+The inbound observation decoder remains unchanged.
+
+The new proof, `a_launch_above_the_default_payload_bound_is_held_whole`, constructs seventeen 64 KiB argv strings.
+It verifies that the payload exceeds 1 MiB and fits Core's bound with default limits.
+The proof checks that a preceding frame passes and that no Launch byte passes before release.
+After release, it requires every byte in its original order and without change.
+The proof observes public edge behavior and adds no product test hook.
+The obsolete malformed-header passthrough check is removed.
+The retained unheld-link check still observes that a later hold does not block a link whose inspection already ended.
+
+The worker's initial decoder still has its own 1 MiB bound.
+This edge proof establishes the hold obligation, independently of later worker acceptance or successful payload exec.
+The existing real proof separately establishes no live payload before release and a live payload after release for its normal Launch.
+
+### Merge and scope checks
+
+The final own delta still has six files: 626 insertions and 43 deletions.
+All six files equal the accepted correction's bytes.
+The twelve imported files from #230 equal the current base bytes exactly.
+Their file set equals the base delta from `cf3bcaa93faa240b418fa2248884a96581fd82c3` to `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+The accepted #230 import changes no file in this PR's own delta.
+The host, worker-core, and link sources used by the hold retain their reviewed bytes.
+The reviewer checked the imported allocation control registration and allocator use for shared-harness effects.
+The allocator forwards allocations to `System`; its control availability check preserves all other controls.
+
+The lead records #230 as merged with package and integration CLEAN reviews.
+The new base accounts for the additional testkit-proven minimum ID.
+This PR adds no mutation exclusion, dependency change, or platform-only source.
+`git diff --check` passes.
+
+### Exact-head evidence and lists
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-c-a96679e9-pool-20261010-221334-86497.log`.
+The command is the plain Linux gate with `CARGO_BUILD_JOBS=4` and `NEXTEST_TEST_THREADS=4`.
+All ten stages pass in 1370.0 seconds.
+Default: 1603 passed, 484 skipped, in 16.574 seconds.
+Slow: 412 passed, 1991 skipped, in 116.999 seconds.
+The new large-frame proof passes in 0.048 seconds.
+The real start-control proof passes in 1.372 seconds.
+Testkit conformance reports 206 passes and zero failures.
+The reviewer counted 125 distinct actual real-tier PASS records.
+
+Real pending remains 83 to 80, with the same three removals listed in Round 1 and no additions.
+Every removed ID has an actual real-tier PASS at this final head.
+Their pass times are 3.156, 3.036, and 2.865 seconds, respectively, in Round 1 list order.
+Every other conformance file equals the current base bytes.
+Minimum results: testkit 55 / 69, real-passing 36 / 68, real-accepted 37 / 69.
+Pending-real reports 80 IDs and zero newly passing IDs.
+The strict run executes 373 of 394 pending transcripts, with 21 real-only IDs and two held IDs.
+Ledger: 690; Core pending: 464, including 70 IDs without transcripts; deferred: two; withdrawn: 18.
+The additional accepted minimum result comes from #230's testkit-proven allocation ID.
+
+Stage 1 tests 57 mutants: 36 caught, 19 missed, two unviable, zero timeout, in 262.9 seconds.
+The unmutated slow baseline passes 412 tests in 150.138 seconds; its full baseline step takes 163.3 seconds.
+Stage 2 tests exactly the 19 stage-1 miss identities once each.
+It catches 16 and finds three unviable, with zero missed or timeout, in 706.5 seconds.
+The reviewer parsed every printed outcome and compared the complete identity counts between stages.
+Final result: 52 caught, five unviable, zero missed or timeout.
+The mutation step takes 1135.5 seconds.
+The job and gate exit zero after 1678 seconds on msa1: 295 queued seconds and 1383 running seconds.
+The probe uses the unchanged exact contracts tag and pin; its per-tag cache remains valid under the lead's #235 ruling.
+
+All findings close, including LOW.
+No new source finding remains.
+The reviewer changed only this verdict file and ran no builds, tests, gates, mutation jobs, measurements, or base-merge checks.
+Sol integration must publish its separate final verdict after it reads this package verdict.
+
+VERDICT: CLEAN
