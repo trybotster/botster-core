@@ -2152,6 +2152,10 @@ The live head and base remain unchanged. The body contains the final canonical c
 
 The final gate completes the pending evidence condition. I ran no gate, build, test, or base-check script.
 
+Sol publishes final integration CLEAN in `70ed0fe9fdc7c53200655b772cf66604bd992836`, at `verdicts/stage1/gs-repository-signal-scan.md`.
+
+I read the complete final artifact and verified its publication. Both final reviews have zero findings at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`.
+
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
