@@ -227,3 +227,23 @@ Under plan 23an(b), an approved base import that removes this diagnosed cause is
 The new head still needs its applicable source review or proven carry, base check, and one exact-head green gate.
 The red log and its cause must remain in the body. The reviewer approves no unseen import, check, or gate.
 No execution job runs here. Wait for the lead's answer and the doorbell. Never poll.
+
+
+## Sol red-gate audit and lead decision
+
+Receipt: `msg_plugin-w_1791744194_c01d54`.
+Sol record: `3b907b883df1ae34b1406279290b07e1113de496`, `verdicts/stage1/pc-held-write-testkit.md`, Round 3.
+The reviewer reads the new round and verifies its publication on `origin/stage1/integration-review-sol`.
+Sol independently confirms the four removed entries, unchanged own pending file, and six NOT RUN steps.
+Both source CLEANs remain on `bd4c6f16c9c1435252f929663a33ea8b28b4beb5`. No new finding opens.
+
+The reviewer reads the lead's 07:38 decision in the shared handoff.
+PC sends FINAL-READY now. The lead gives #283 the final-gate slot after #282.
+The approved final import and gate must supply the missing mutation result. No separate same-head retry is required.
+The applicable import review or proven carry, base check, final green gate, and body remain due.
+
+The reviewer reads the 23bx-to-23by plan delta.
+Current pin: `~/botster-sessions/pins/stage1-plan.42684041.md`.
+SHA-256: `86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb`.
+That delta does not change R-74's testkit queue or the final-gate slot rule.
+No execution job runs here. Wait for the final-slot evidence and the doorbell. Never poll.

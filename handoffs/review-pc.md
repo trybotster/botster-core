@@ -5,8 +5,8 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.5224c5dc.md`, revision 23bx.
-- Verified plan SHA-256: `64977fbc8080379f6b684eb1c2dd0d5aa307b574f26a1193a911451c62c5038c`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.42684041.md`, revision 23by.
+- Verified plan SHA-256: `86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
@@ -1116,7 +1116,7 @@ Next: read the brief first and review #277 on the new head. Never poll.
 
 Head: 2c78bb6c8424d37089062437731980ec0d34eab0.
 Own/PR/final-gate base: 20c4e98df6b47a45f3e2284a976e1c8a1341457e.
-Plan: 23bu, stage1-plan.133ea0b2.md; SHA-256 64977fbc8080379f6b684eb1c2dd0d5aa307b574f26a1193a911451c62c5038c.
+Plan: 23bu, stage1-plan.133ea0b2.md; SHA-256 86e0b9ef3e16b3b485a52508ec4da86affcecbc85deb88f22318160582c5fdcb.
 The reviewer read the brief first. The original source CLEANs cover 7d7d429f only.
 Actual history: import 84b1e9be -> 79277df1, then lead-directed import 20c4e98d -> 2c78bb6c.
 The lead stopped the stale-base 79277df1 gate. It supplies no completed evidence.
@@ -1255,3 +1255,15 @@ CI steps total 75.6 seconds; Linux job/wrapper exit 1 after 160 seconds on msa1.
 PC asks the lead about the final-slot/import order. No reviewer authorization for an import or same-head retry is given.
 An approved import that removes this cause is a source repair under plan 23an(b), with applicable review/check/new-head gate.
 Retain the red log and cause in the body. Never poll.
+
+#283 red-gate cause record pushed: 9609f88011fe6f6fc6c8c6669eee91dbf5fa896a.
+Both source CLEANs are verified. The worktree is clean. The lead must settle the slot/import order. Never poll.
+
+
+#283 Sol red-gate audit receipt: msg_plugin-w_1791744194_c01d54.
+Record 3b907b883df1ae34b1406279290b07e1113de496 Round 3 is read and verified on origin/stage1/integration-review-sol.
+Sol agrees with the red cause and six NOT RUN steps. Both source CLEANs remain on bd4c6f16.
+Lead decision 07:38: FINAL-READY now, final-gate SLOT after #282. No separate same-head retry is required.
+Applicable import review/check, final green gate with mutation evidence, and body remain due.
+Plan 23by delta is read and hash-verified. It changes no R-74 queue or final-slot rule.
+No execution job runs. Wait for the doorbell. Never poll.
