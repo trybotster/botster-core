@@ -2645,3 +2645,42 @@ BL-SI-1 is the only open finding. Earlier findings remain closed. The active Cor
 Sol ran no execution job. This review approves no future PR, gate, pin, pending removal, or diagnostic change.
 
 VERDICT: NOT CLEAN (1 open: BL-SI-1, LOW) at ddc8da8182014676b5ace1a4807d655a9fcc2427
+
+## Round 74 — revisions 23bm and 23bn, 2026-10-11
+
+Head: `8476eb8780136420a6ae108a202790ff7a331923`.
+Parent: `cf9f3945277fa7e4546b3c04c72acdb2a197aec0` (23bm).
+Prior reviewed head: `ddc8da8182014676b5ace1a4807d655a9fcc2427` (23bl).
+Pin: `stage1-plan.8476eb87.md`, mode 0444.
+SHA256: `a60e28324e9e819630a0bb43afa01df72accc8ef935dee677c44939cfee3f683`.
+Lead receipts: `msg_plugin-w_1791737746_061d88` and `msg_plugin-w_1791737784_669b37`.
+Sol verifies the full parent chain, pin mode, hash, and exact committed bytes.
+Sol read every changed term in both sequential deltas. All other terms equal the reviewed 23bl text.
+
+### BL-SI-1 closes
+
+Amendment A now permits a scratch-only diagnostic that is never committed and changes only timing.
+It names the actual worker-file patch used for #276.
+The diagnostic cannot supply missing behavior or change the result under test. It can only widen an existing timing window.
+The same identifier, step, and symptom remain required. The lead must accept the substitution in writing for each case.
+The reviewer must still confirm that the PR does not change the cause. Amendment B retains its first-READY and first-round limits.
+The one-re-gate limit, every-step green result, exact-head gate, structural repair owner, and both source reviews remain required.
+These corrections define the diagnostic boundary accurately. BL-SI-1 closes.
+Sol accepts the lead's explicit #276 evidence substitution, with the absence of an unmodified plain-v1 failure retained on the record.
+This ruling does not establish such a failure or approve another diagnostic job.
+
+### Route-input owner and design requirement
+
+RC owns the route input work after #275. The plan requires a design note before implementation.
+Sol read Route::decide at 42d7056e. Its Bytes and Text variants retain their existing admission path.
+Its Input, PasteChunk, and FileChunk variants return Unsupported. This agrees with the new diagnosis's stated variants.
+Sol read the two named barrier steps at the active Contracts pin. They require input_refused with reason refused after paste_commit.
+Sol treats the reported failure steps as RC's execution evidence, not an execution result independently read in this plan review.
+The design must cover DP-5, IN-8, AM-2, markers, the admission point, reuse candidates, affected identifiers, and the PR split.
+The plan prohibits terminal encoding outside libghostty. Both HIGH reviews remain required.
+This owner assignment approves no future implementation, input behavior, transcript change, or pending removal.
+
+Zero plan findings remain. The active Core pin remains .36. Historical review and gate limits remain unchanged.
+Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at 8476eb8780136420a6ae108a202790ff7a331923

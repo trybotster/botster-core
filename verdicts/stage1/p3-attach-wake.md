@@ -40,3 +40,44 @@ Package finding F133 is closed by the body correction to plan 23bd. Sol adds no 
 Sol changed no product code. Sol ran no builds, tests, gates, mutants, measurements, or reversal jobs.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2 — final import, gate, and merge, 2026-10-11
+
+Head: `035baf2c1609526c2388d921a3d8742126e7d67a`.
+Base: `42d7056e99ed0aaf2967c5ecc7609cb3c65e970f`.
+Tree: `900db43c0cd5e2618c34cd5e2b830fd1a30dc699`.
+Package completion: `c4492a4cad52b3195d6dc575257c333af836dfba`, Round 180, read in full.
+Owner receipt: `msg_plugin-w_1791737408_ee59c3`.
+Package receipt: `msg_plugin-w_1791737617_deabdc`.
+
+Sol read the complete retained base check and final GitHub body.
+The head has exact parents 0eba8683 and the base above. Both ancestry checks and all four conditions pass.
+The base leaves both pending files unchanged. The new head preserves the reviewed line-set changes.
+Sol independently verifies all six own blobs and all 20 imported blobs. The paths are disjoint.
+The complete own diff is byte-identical before and after import: 7639 bytes.
+SHA256: `4160ec6f09538322e8b5dc4ee8667586ef5259de083a98145668581551403a70`.
+The retained check separately hashes the own diff outside the line-set files: 6299 bytes, accf2c8140309d0d94bfa47e2e9851e239b9b2ebdf5450ae683adac1aef1f7b4.
+The static Git merge tree equals the head tree above. Q7 carries the accepted source verdict to this exact head.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p3-attach-wake-035baf2c-pool-20261011-094156-56422.log`.
+SHA256: `9140eb7d57589e600c1e31e0789239fc271fe256cabcc2e5fa4c6bf4a4c86531`.
+Sol read the exact-head and base headers, stage summaries, changed tests, all six raw mutant outcomes, and all five catcher records.
+All ten steps pass in 138.1 seconds. Default passes 1729 tests, with 480 skipped, in 11.394 seconds.
+Slow passes 553 tests, with 2022 skipped, in 41.903 seconds.
+All three new driver tests and the named testkit TM-6 transcript pass.
+All five unique raw caught identities match the five catcher records. The forwarded-write cancel test catches each mutant.
+One cancel-body mutant is unviable. Zero mutants are missed or time out. Stage 2 does not run.
+No FLAKY record appears. Fuzz reports no changed crate with a decoder harness.
+Job exit zero follows 469 seconds, with 318 queued and 151 running. Wrapper exit zero follows 470 seconds.
+
+The body records the completed final gate and links the passing base check. It labels the earlier gate Earlier.
+Package F133 and F134 remain closed. Sol finds no body or source finding.
+The one-id move retains its testkit-only scope. This gate proves no real-tier TM-6 transcript PASS on .36.
+The historical Mac reversals retain their original heads. Future transcript pins and the parked-work defect remain separate.
+
+Merge: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+GitHub reports MERGED. Git objects show exact parents 42d7056e and 035baf2c and the accepted tree above.
+Sol independently verifies that merge. Zero findings remain. No future import, gate, pin, or pending removal is accepted.
+Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at 035baf2c1609526c2388d921a3d8742126e7d67a
