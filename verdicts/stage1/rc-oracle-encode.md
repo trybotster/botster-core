@@ -160,3 +160,44 @@ Zero source or body finding conditions remain open. Formal new-head CLEAN remain
 The earlier head's green gate does not prove this correction. Contracts #60 remains a separate docs review.
 Final SLOT, current-v1 import, applicable check and delta review, final exact-head gate, and final body remain due.
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+
+## Round 3 — completed corrected source gate, 2026-10-11
+
+Source head: `41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56`.
+Tree: `3ea547a1dc11cd38ce7a9185d8015eea2ee04441`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+The complete source correction and four reversal records remain as reviewed in Round 2.
+Sol reads package CLEAN `044e6e8e213afb214b907280568381ec780513df`, which covers this exact head and base.
+Both integration findings and both package findings are closed, including LOW.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-41c1f7e2-pool-20261011-133549-59239.log`.
+SHA-256: `6e1fc8f6d1fef8f60c9e0aa52a446556892e48b0476afef3b319ef48e808115c`.
+Sol reads the complete header, raw mutation results, catcher lines, suite summaries, step summary, and final exits.
+The Linux pool header names this exact source head and base and four build and test CPUs.
+All ten steps PASS. Step total: 409.7 seconds. Job and wrapper exit zero after 418 seconds on msa1.
+The job queues one second and runs 417 seconds.
+Default: 1770 PASS, 463 skipped, 11.859 seconds. Slow: 561 PASS, 2040 skipped, 40.701 seconds.
+The strict testkit run records 227 PASS and zero failures. Lists records 690 ledger ids, 440 pending, and 230 to run.
+Real minimum: 49/68 passing and 50/69 accepted. Eleven of 45 pending-real trials pass in this job.
+Those pending-real results cause no extra removal through this verdict.
+
+Stage 1: 32 mutants, 18 caught, twelve missed, two unviable, no timeout, 79.1 seconds.
+Stage-2 baseline: 561 PASS, 2730 skipped, 41.504 seconds; baseline duration 47.6 seconds.
+Stage 2 retests the same twelve missed identities: eleven caught and one unviable, no miss or timeout, 163.5 seconds.
+Combined: 32 mutants, 29 caught, three unviable, no miss or timeout.
+Sol independently parses all 29 raw catches and all 29 citations. Each set has 29 unique identities, and the sets agree.
+Each cited test has a normal PASS in this gate. No FLAKY record exists in the gate log.
+The catches cover fresh modes, partial mode merging, event state, history reads, and real control dispatch.
+
+The live body retains this exact source head and reviewed base.
+Body SHA-256: `0ef5d475a624f050dc453f2d7e882279c07242722998a0ddbee84d4a45776f5c`.
+Sol reads its delta from the corrected body: only the queued-gate paragraph becomes the completed exact-head result.
+The body preserves earlier red and stopped gates, their causes, source corrections, list limits, and reversal limits.
+
+This CLEAN covers the source head and reviewed base above. It does not accept final-slot completion.
+The implementer must obtain SLOT, import current v1, provide the applicable canonical check and delta reviews, and run the final exact-head gate.
+The final body must name that final head, base, and gate. Contracts #60 remains a separate docs review.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: CLEAN (0 open) at 41c1f7e25b04f2174f4ec6a9b3838f1aeeb3ab56 against reviewed base 926dfb62f3f7168990b2a48741946932d84b2fbb

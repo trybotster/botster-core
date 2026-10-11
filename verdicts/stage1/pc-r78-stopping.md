@@ -108,3 +108,37 @@ No new timer, new limit, out-of-budget drain, adopted-worker change, or implemen
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (1 MEDIUM design finding: R78-SI-2) against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+
+## Round 3 — corrected design, 2026-10-11
+
+Design revision 3 SHA-256: `52b9ada3f73a1fdf77c9f05b04775f2fffb4b6b5385f72149db77c6f99462885`.
+Reviewed base: `670e5fc799a25794910a1847fc41b3e089bf03f4`. Plan 23cm governs.
+Sol reads the complete design and verifies its hash.
+Sol reads package revision-2 addition `f0f491cce365bcac825772a2de065d83493badc5` and revision-3 CLEAN `a661545657a37bc4a1f68bfab15da7c1a5c41154`.
+The package CLEAN covers the same design hash and base.
+
+R78-SI-2 closes at design level.
+The ordered priority rule retains a readable link after worker.gone or an Absent/Reused probe answer confirms death.
+StopGrace and LinkWriteFailed do not classify that session or fail its in-flight requests before the drain.
+A new request that cannot be sent can fail immediately. A request already in flight retains its chance to receive Done.
+The live Matches branch still ends Stop as WorkerUnreachable at the existing grace, without EOF.
+Tests 16 and 17 cover both exit-report/write-failure orders with delayed Exited and Done and grace before EOF.
+Unsent descriptors leave with HandoffLost. Sent descriptors remain owned until RouteReceived or final close.
+The design requires one loss per descriptor and no retained ownership after final close.
+
+The revised note makes the macOS SZOMB guard mandatory after successful proc_pidinfo.
+The current refusal path and its real zombie proof remain separate from that guard path.
+The proposed Linux Z/X check and macOS guard do not reap. The production reaper retains child.wait ownership.
+No implementation or mutation exclusion is accepted by this design review.
+
+The socket-order premise remains explicitly unverified on both OSes.
+PC must establish it with the named both-OS socket proof before the dependent driver repair relies on it.
+The source review must check the priority before Kill effects, classification, or request failure.
+It must check complete-message handling, bounded sends, descriptor ownership, close-on-exec, EOF ownership, and all AD-6 callers.
+Start retains R-72. Adopted-worker changes remain A21. Pump bounds and existing limits remain unchanged.
+The exact source, both source reviews, reversal proofs, A5-4 table, both-OS evidence, and gates remain due.
+Sol accepts no local source edit, reported build or test result, PR, source head, or merge readiness here.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: CLEAN (0 open design findings) for design revision 3 against base 670e5fc799a25794910a1847fc41b3e089bf03f4

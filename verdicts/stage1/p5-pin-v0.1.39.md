@@ -157,3 +157,107 @@ If that final gate fails only on the same IN-9 signature, the lead's plan 23al o
 This is a narrow retry condition, not permission to repeat until green.
 Sol accepts no future import, gate, pin, removal, or merge readiness.
 Sol ran no build, test, gate, measurement, mutation, reversal, or executable base check.
+
+
+## Round 2 — final-slot import delta and red gate, 2026-10-11
+
+Head: `017f01277f7e903154b85ba2d9316c97aa50f42a`.
+Tree: `d05c852b0f5afd926adbbd2d61b8699b310c51b8`.
+New reviewed base: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Prior reviewed head: `2866d5928f66954cf57e0a4959db2e587a543080`, against `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+Sol reads the prior complete integration verdict and the three new commits.
+Package delta receipts report no source finding but retain body and canonical-check obligations.
+No completed package CLEAN at this new head is accepted here.
+
+### Explicit import review
+
+`48c3d64d287330d571f18437713f77596099baa9` imports base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Its parents are the prior reviewed head and that base. It resolves one conflict in core-real-pending.txt.
+`f46d69b8dfcb0704d811616fb5e8d9aa22148431` adds one twelve-line test in xtask/src/lists.rs.
+`017f0127` imports `670e5fc7` without conflict. Its parents are f46d69b8 and that base.
+
+Sol compares every tree entry at each import against its two inputs.
+No unexpected path changes. The first import overlaps three own paths: core-real-pending.txt, real.rs, and real/route.rs.
+Sol reads the complete imported source hunks in both real adapter files and their interaction with the wake/readiness additions.
+Sol independently compares the own added/deleted line sequences before and after the first import.
+All three overlap sequences remain exact. The adapter retains the reviewed wake descriptor and route readiness behavior.
+The imported route input stores the session identity and reads the existing input log through the weak tap.
+The pending conflict applies exactly the base's additions and removals to the reviewed set.
+It retains all thirteen own removals and both held ids, tm_6_begin_and_attach and a2_2_missing_op.
+The final own pending diff has thirteen removals and zero additions.
+The testkit pending file equals the current base.
+The second import changes only #283's three exact base blobs. None overlaps this PR's own paths.
+The mutation configuration equals the prior reviewed configuration.
+The job-common copy remains unchanged, SHA-256 `ab191b18e47e04d05b7f3946bfe4c02c1e645a27117fb2766711693f184ecaaf`.
+No source composition finding remains.
+
+Sol reads the complete canonical check record without executing it.
+Path: `shared/core-stage1/evidence/p5-r68/delta-017f0127/xtask-base-merge-check.log`.
+SHA-256: `97fc4b39922346bc225a359a0e982a8abee18adf63ca44492d892f2618e3ff6a`.
+The command names the exact prior and current heads and current base. It exits one.
+Ancestry checks PASS. Conditions 1, 2, 3, and pending-file condition 4 FAIL.
+The failures name the pending conflict, two source overlaps, changed full-index blob ids, and a removed blank line.
+The explicit review above covers those failures. No automatic Q7 carryover is claimed.
+The manual Git record remains separate, SHA-256 `9ad38782913ec7146265e0ca9a9d46d47129e7a9f519953fecde8be2cf7d8038`.
+Its publication alone did not satisfy the canonical-script requirement. The later canonical record supplies that requirement.
+
+### New test and retained local evidence
+
+Sol reads the complete test and the complete fsutil::metadata implementation.
+The test resolves the pinned checkout through cargo metadata --locked, using Cargo.lock and the Cargo home.
+It reads the checked-in copy independently, requires nonempty content, and compares pinned_job_common with that copy.
+It needs no Git command. The assertion catches empty and xyzzy replacements of pinned_job_common.
+The test changes no production pin reader or mutation exclusion.
+
+Sol reads the complete reversal-and-nogit.log.
+SHA-256: `f211ae1d25c4d88ff9318e92956c0429703b32cdcbff0130fb74ac5d840f63ad`.
+The record names a copy of this exact head without .git and a new private target used only by that copy.
+The compilation lines name the copied xtask path. The unmutated test passes.
+Both replacements recompile xtask and fail the equality assertion with the stated empty or xyzzy value.
+The record contains filtered compilation and failure lines, not complete command output or explicit exit codes.
+Sol accepts the behavior failures with that retained B13 provenance and those output limits.
+Sol claims no independent filesystem or clean verification of the private target.
+The body corrects the commit message's unsupported claim that both stages missed these two mutants.
+The first gate stopped at its stage-2 baseline, so only stage-1 misses exist in that gate.
+
+### Completed final gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.39-017f0127-pool-20261011-135043-383.log`.
+SHA-256: `0531b245266545b310924efd699a629a069273b3d8e09004a19927042faf3e21`.
+Sol reads the complete header, raw EV-5 failure, suite summaries, step summary, and final exits.
+The Linux pool header names this exact head, base 670e5fc7, four CPUs, and the .39 dependency commit.
+Seven steps PASS. Slow FAILS. Mutants and fuzz are NOT RUN. Step total is 260.5 seconds.
+Default: 1756 PASS, 474 skipped, 11.256 seconds. Slow: 573 PASS, one failure, 2026 skipped, 41.539 seconds.
+The new lists test, wake descriptor proof, and route readiness proof PASS in their applicable tiers.
+Twelve own removed ids PASS in the real tier. ev_5_poll_wakes_pending_work FAILS.
+Its testkit trial PASS does not replace the real-tier failure.
+The job and wrapper exit one after 339 seconds on msa1; queue one second, run 338 seconds.
+No two-stage mutation or fuzz acceptance follows from this gate.
+
+### P282-SI-1 — MEDIUM, open: final gate fails an own pending removal
+
+The real trial conf::ev_5_poll_wakes_pending_work fails at seed 0, step 13.
+Expected: Woken. Received: TimedOut. The raw trial duration is 0.157 seconds.
+This PR removes that id from core-real-pending.txt. Earlier gate and N-run passes do not establish this final gate as green.
+The cause is not established by this record. Sol claims no causal attribution to the pin, imports, adapter, or transcript.
+P5 must diagnose the failure and provide an accepted repair and evidence path before completion.
+The completed revised source and applicable exact-head gate must receive review.
+The prior lead retry condition names IN-9 only. It does not cover this EV-5 failure.
+Sol authorizes no unchanged retry, pending removal beyond the reviewed set, or bypass of the failure.
+
+### P282-SI-2 — LOW, open: imported pending group count in the body
+
+Body SHA-256: `322db8e32efb2020a0da5dc4d85c09fbac5a487467ecf79edf791f2acd9bbaf8`.
+Sol reads the complete body delta from the retained import body.
+The body now labels the A5-4 head as historical and lists both imports, the conflict, and the new test.
+It publishes the canonical failures, local evidence limits, and final red gate.
+Those changes satisfy the substantive R282-D1 correction conditions.
+The Slot delta paragraph says the four imported ids join two new groups.
+The resolved file has three comment groups: ou_1/ou_11, dp_3, and ou_10.
+Change two to three, or remove the group count. This correction needs no execution.
+
+Both reviewers' completed new-head records remain due. Final completion remains blocked by the red gate and the open body detail.
+The earlier ST-6 structural follow-up remains separate and open. This delta does not close it.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: NOT CLEAN (2 open: P282-SI-1 MEDIUM, P282-SI-2 LOW) at 017f01277f7e903154b85ba2d9316c97aa50f42a against base 670e5fc799a25794910a1847fc41b3e089bf03f4
