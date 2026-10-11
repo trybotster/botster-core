@@ -299,13 +299,12 @@ impl HostEngine {
                 RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
                 _ => self.route_close(route, reason),
             },
-            // The driver closed the host's copy of the stream (DP-2, R-65); the route's state does not change.
-            WorkerMsg::RouteReceived { .. } => {}
             WorkerMsg::RouteStalled { route } => self.route_event(route, true),
             WorkerMsg::RouteResumed { route } => self.route_event(route, false),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
-            // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
+            // `RouteReceived` changes no state here: the driver closed the host's copy of the stream when it fed the
+            // report (DP-2, R-65). The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
         }
     }
