@@ -340,6 +340,7 @@ impl HostEngine {
             phase: StopPhase::SendStop,
             deadline: None,
             end: None,
+            probing: false,
         });
     }
 
