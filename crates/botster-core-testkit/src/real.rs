@@ -849,13 +849,16 @@ impl RealCoreHarness {
     }
 
     /// A bystander for `worker` (R-55 (2) condition 4): a `cat` of the harness's FIFO in its own group, whose pid is not in
-    /// `recorded` and whose start time is not the worker's. At most three tries.
+    /// `recorded` and whose start time is not the worker's. A process that fails a check ends with its drop, and the harness
+    /// makes a new one, until the cleanup deadline. On Linux a start time counts clock ticks since boot (10 ms at 100 Hz),
+    /// and a worker can start, run and end within one tick, so the first new processes can share its start time.
     fn bystander(&mut self, worker: ProcessIdentity, recorded: &[u32]) -> io::Result<Bystander> {
         if self.hold.is_none() {
             self.hold = Some(Blocker::new(self.root.path(), "bystander")?);
         }
         let hold = self.hold.as_ref().expect("made above");
-        for _ in 0..3 {
+        let deadline = Deadline::cleanup();
+        while !deadline.expired() {
             let child = OwnedChild::spawn_group(&mut hold.command())?;
             let pid = child.id();
             let started = start_time(pid).filter(|t| *t != worker.start_time);
