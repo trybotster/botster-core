@@ -1857,3 +1857,65 @@ These comparison commands report known failures and still exit zero. Their exit 
 Sol must complete the HIGH integration review. A later base merge requires its own review under the lead's current-base rule.
 
 The passing gate does not close GS-R43-1. I ran no gate, build, test, or executable probe.
+
+## Contracts PR #50: R-43(5), round 2
+
+- Head: `2bec33c8b5d8fa45d1e2bdc5f152084f7bc64dee`.
+- Source comparison: reviewed head `9bb6fd56e88514de82ecbc4d93c920372a3e0736`.
+- Gate base: `5ff1b52be672bc107e80cd0d911110034745eda4`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN.
+- Open findings: 1 HIGH, GS-R43-1.
+
+The repair closes the original unused `data_dir` plus `ack` example. Its new scope test retains the seeded wake and applies no control.
+
+The runner and scanner now share `order_kind`. Direct waits share `wait_wake_spec`, and Core dispatches those waits before other operations.
+
+The moved wait body remains unchanged. The thread test checks both the owner thread and a separate waiting thread.
+
+`run_script_events` now scans only direct steps. It retains the common control application and error mapping.
+
+### GS-R43-1 remains OPEN: an empty set never executes its acknowledgement
+
+The new scan still assumes that every recognized `expect_set` executes its `ack`. An empty `expect_set` does not execute any acknowledgement.
+
+In `crates/botster-conformance/src/order.rs`, `expect_set` calls `ack_item` only inside its loop over the matchers. The empty set passes without a driver call.
+
+The following steps contain no executed strict wait:
+
+```json
+[
+  {"expect_set": [], "ack": {"wait_wake": {}, "expect": "Woken"}},
+  {"wait_wake": {"timeout_ms": 0}, "expect": "TimedOut"}
+]
+```
+
+The scanner reports a strict wait and disables seeded wakes. With the existing seeded harness, the final wait can pass after that control.
+
+Without the control, the seeded wake makes the final wait fail. The example therefore retains the false-pass risk outside the authorized scope.
+
+This is a source proof. I did not execute the example. Add a negative scope test that retains the wake and applies no control.
+
+The scan also uses recursive runner classification for both `ack` and `barrier`. The runner executes these fields through different paths.
+
+`ack_item` passes the prepared acknowledgement directly to `driver.exec` at line 327. `expect_quiet_until` passes its barrier to `run_step` at line 440.
+
+Required repair: scan an executed acknowledgement with the direct-step predicate. Scan a barrier with the recursive runner predicate.
+
+Do not scan an acknowledgement when an empty set cannot execute it. Keep the shared `order_kind` predicate and the direct dispatch agreement.
+
+### Evidence
+
+I read the exact-head gate header and summary. All ten steps pass in 371.9 seconds. The mutation step reports 18 caught and 2 unviable mutants.
+
+Gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-2bec33c8-pool-20261011-091059-3335.log`.
+
+The body retains the failed `3d3802d4` gate. I verified its missed `other_thread` comparison mutant and the mutation-step failure.
+
+The new test supplies the source repair for that failure. This gate does not constitute an unchanged-head retry.
+
+The transcript files remain unchanged from round 1. The supplied Core comparison evidence still describes those files and their direct wait forms.
+
+I read the updated live body and plan revision 23bd. Neither the passing gate nor the revised body closes GS-R43-1.
+
+I ran no gate, build, test, or executable probe. Sol owns the HIGH integration review.

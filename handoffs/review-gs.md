@@ -331,6 +331,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 Contracts #50 is NOT CLEAN at `9bb6fd56e88514de82ecbc4d93c920372a3e0736`. GS-R43-1 HIGH remains open.
 
+Round 2 at `2bec33c8b5d8fa45d1e2bdc5f152084f7bc64dee` remains NOT CLEAN. The original example is repaired.
+
+An empty `expect_set` never executes `ack`, but its strict acknowledgement still disables seeded wakes. The scan also treats acknowledgements as recursive runner steps.
+
+The runner sends acknowledgements directly to `exec`. Only barriers use `run_step`. The round 2 record states both required repairs.
+
 The strict-wake scan treats unused `ack` and `barrier` fields as executable steps. It can disable seeded wakes outside the authorized scope.
 
 The full finding and the static false-pass example are in `verdicts/gs-gate-speed.md`. The implementer must repair the scan and provide a negative scope proof.
