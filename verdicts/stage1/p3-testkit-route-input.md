@@ -1,5 +1,37 @@
 # Core #279 — route PTY input log
 
+## Round 2 — 2026-10-11 — comment correction
+
+Verdict: source CLEAN (0 open) at `abcbf16451e7faa0eca84bca8f3b7ee474ffd880`.
+Parent: `6161c5c2122e43b4721497ad787814b108f22169`. Reviewed base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Risk: HIGH. READY: `msg_plugin-w_1791740717_ac3280`.
+Package CLEAN: `c3710e4ca08ab6e3c152b7d2ff89608b5b6cf7eb`, Round 184.
+Sol read complete package Rounds 183 and 184, the complete source delta, and the complete live body.
+Package Round 183 at `0dd3717f39488ed1c8527e0afc536cf64805ac0d` adopts RI-SI-1 as F138.
+That round supersedes Round 182's package CLEAN at the parent. It preserves all other source and evidence conclusions.
+
+RI-SI-1 / F138 LOW closes. Only two comments in tests/route_pty_log.rs change.
+The first states that pinned OU-1 step 9 sends bytes 78 with op "1". It states that step 12 reads the log.
+It distinguishes unknown log attribution from a frame without an operation identifier.
+The second explains that a null-op segment would falsely match written_without_op. The non-null label prevents that match.
+These comments match the pinned transcript and matcher facts verified in Round 1. No executable statement or assertion changes.
+The body now makes the same distinction. F135, F136, and F137 remain closed.
+
+Package F139 LOW closes. The body labels 23bs as the review input and names the lead's 23bt pin separately.
+Sol verifies the unchanged GitHub head and both pin hashes.
+23bs SHA-256: `1209ec1cb4b5c38070266fa31d143a9f9ad01986b0de0fa6a5b1fdf865a0a538`.
+23bt SHA-256: `a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca`.
+Sol reads the complete difference between those pins. It changes the R-74 lint count, related note, and history row.
+Those terms concern Contracts #52. They do not alter this route-log correction. Full plan review remains separate and queued.
+
+The owner reports two focused Mac tests passing. No raw focused-test log accompanies this READY; Sol records no independent test result.
+The complete source behavior, pending accounting, import review, and evidence limits from Round 1 remain unchanged.
+The 6161c5c2 gate stays historical evidence at that head. It is not a gate at this new head.
+The ST-6 FLAKY result supplies no mutation catch. Its cause remains unknown, and P5 owns its separate structural diagnosis.
+This verdict accepts no later import, gate, flake repair, or pending removal.
+Both source delta CLEANs now exist. P3 must import current v1 once, supply the applicable base check, and run one final exact-head gate.
+Sol ran no execution job. Wait for the doorbell. Never poll.
+
 ## Round 1 — 2026-10-11
 
 Head: `6161c5c2122e43b4721497ad787814b108f22169`.
