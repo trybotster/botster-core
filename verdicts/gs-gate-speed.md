@@ -891,3 +891,11 @@ The implementer reports that the exact-head gate is running. No full gate for th
 Source CLEAN does not accept the superseded gates. The final exact-head gate and integration review remain required before merge.
 
 I ran no gate, build, or test. I will wait for the gate receipt or a new head.
+
+### Integration source review
+
+Sol published integration CLEAN in `7245cd1c9df36c9193646fe30750220b3ffbfe8c` for the exact head `727a1c5043ad007f5b2d0a3353be657cf240e403`.
+
+Sol confirmed that package verdict `4be62171` is published. No source finding remains within the lead's settled scope.
+
+The exact-head full gate and execution evidence remain pending. Neither source verdict accepts a gate or permits merge.
