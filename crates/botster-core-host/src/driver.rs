@@ -163,9 +163,6 @@ struct LinkState {
     /// The worker process ended (R-78 item 4, `Action::LinkPeerEnded`): the link is read without waiting, and the first
     /// would-block closes it. No end of file is awaited.
     peer_ended: bool,
-    /// The process ended and the drain has not read the link since: runnable input is known to wait (TM-6). The first
-    /// read clears it; after that the link waits like any other (budget, or mandatory room for a held frame).
-    drain_due: bool,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -359,7 +356,6 @@ impl<E: HostEdges> HostDriver<E> {
             Action::LinkPeerEnded { link } => {
                 if let Some(state) = self.links.get_mut(&link) {
                     state.peer_ended = true;
-                    state.drain_due = true;
                 }
             }
             Action::ConnectWorker { ticket, instance } => {
@@ -569,7 +565,6 @@ impl<E: HostEdges> HostDriver<E> {
                 sent: BTreeMap::new(),
                 write_closed: false,
                 peer_ended: false,
-                drain_due: false,
             },
         );
     }
@@ -589,11 +584,14 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
-    /// A link whose worker ended after this pump last read it is runnable work, unless a held frame blocks it: the next
-    /// pump starts its drain (R-78 item 4, TM-6). A drain that has read waits like any link: for budget (`more_input`), or for
-    /// mandatory room (a held frame, not runnable work: the poll that frees room restores the link, EV-5d).
+    /// An open link of an ended worker with no held frame is runnable work (R-78 item 4, TM-6: `more` only for input that is
+    /// known to wait). Its drain has not read since the end, or it stopped at the pump's budget; every other read either
+    /// closes the link or holds a frame. A held frame waits for mandatory room and is not runnable work: the poll that frees
+    /// room restores the link (EV-5d).
     fn draining(&self) -> bool {
-        self.links.values().any(|s| s.drain_due && s.held.is_none())
+        self.links
+            .values()
+            .any(|s| s.peer_ended && s.held.is_none())
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
@@ -631,9 +629,6 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn read_link(&mut self, link: LinkId, budget: &mut Budget) {
-        if let Some(state) = self.links.get_mut(&link) {
-            state.drain_due = false;
-        }
         let mut buf = vec![0u8; READ_CHUNK];
         loop {
             let Some(state) = self.links.get_mut(&link) else {
