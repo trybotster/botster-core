@@ -18,6 +18,12 @@ These results do not close the test finding. Every finding, LOW included, must c
 
 P5's #257 stat-only snapshot handling of `lock` remains a required integration condition. I ran no gate, build, or test.
 
+Preliminary delta `2bac0641` removes polling and bounds work. R1-1 remains open: an early failed join detaches the remaining spawners.
+
+The implementer must join all threads before reporting failure. R1-2 remains open because the live PR body still has the old sentence.
+
+I asked for accurate test and probability descriptions. New evidence and formal READY remain pending.
+
 ## Previous PR #262
 
 - PR: #262, exact counts for mutation exclusions.

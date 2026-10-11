@@ -1058,3 +1058,21 @@ Their revert checks report 95 refused reopens on Mac and 51 on Linux. These resu
 The PR retains the failed `81fff9ac` gate. The current head removes the missed NotFound guard; I read that correction.
 
 I ran no gate, build, or test. All findings, LOW included, must close before CLEAN.
+
+### Preliminary correction inspection
+
+I read the source delta at `2bac0641e98678053a3e2ce6a0b3adfcaef361f7`. The implementer has not sent READY with its new evidence.
+
+The test now makes one reopen attempt per fixed cycle. A channel event starts the cycles, and each spawner has a work bound.
+
+GS-DL-R1-1 remains OPEN pending cleanup. `Spawners::drop` calls `joined.expect` inside the join loop.
+
+If an early thread fails, that call panics before the remaining joins. Their handles drop and detach while their children can still run.
+
+Required change: join every spawner, retain failures, then report failure after all joins. Preserve cleanup when the main test already panics.
+
+I also asked the implementer to qualify the numerical probability claim with its independent-cycle assumption and correct the test description.
+
+GS-DL-R1-2 remains OPEN. The live PR body still contains the old prior-art sentence when I read it.
+
+This inspection is preliminary. The formal reviewed head remains `96238f62`, NOT CLEAN (2 open). I ran no gate, build, or test.
