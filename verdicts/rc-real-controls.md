@@ -1547,3 +1547,46 @@ The lead received the completed integration CLEAN and controls the merge.
 The merge must preserve gated tree `5b13e06270096dfad3b73ea8cf87136c26da0261`.
 This receipt accepts no different merge tree or later source change.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — final-slot delta review
+
+VERDICT: NOT CLEAN (1 open).
+Exact source head: `3cf460714016af6683ea6c60f1753dfc0055c660`.
+Reviewed source before the import: `6363d55936ff193c2c1164943b80a3f1adc90ada`.
+New base: `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+Message: `msg_plugin-w_1791754855_5e0047`.
+
+The reviewer read the canonical check, source composition, new list change, supplied local records, and live PR body.
+The canonical check fails all four conditions. The pending-file merge has a conflict; three control paths overlap.
+Log: `gates/botster-core-rc-testkit-base-merge-check-3cf46071-20261011-143954.log` under `~/botster-sessions`.
+Both explicit delta reviews are required. No automatic Q7 carry applies.
+The reviewer compared all added and deleted lines in the five own code files against the old and new bases.
+Those lines remain identical to the reviewed control implementation and tests.
+The shared `PtyOutput` parser, real `input_blocked` poll, and testkit stream check preserve their reviewed behavior.
+The imported route readiness method and `input_blocked` method remain separate.
+The merged test helper retains every pump event for #283's held-write tests.
+The conflict resolution retains the own `in_8` group and both imported paste groups.
+The five earlier both-tier removals and the earlier `in_8` real-pending entry remain intact.
+The only new ID move is `dp_5_bytes_and_text_reach_the_pty_exactly` from testkit pending to real pending.
+The reviewer verified its step-13 R-60 exception at contracts-v0.1.39.
+The new comment preserves the fence gap and P3 owner despite the single local real-tier PASS.
+No new private-state assertion is added by the own delta. F-283-1 remains the lead's separate follow-up for imported assertions.
+Every mutation exclusion remains unchanged.
+
+RC-TK-DELTA-1 — LOW — The body retains a superseded all-seed PASS claim.
+The section `The Stop item of PR A's table` says the partial-paste session-ended ID passes at every seed with the .39 driver and R-82.
+The retained scratch log `botster-core-rc-r82-session-ended-v039-mac-b4626b84-20261011-114024.log` reports one test PASS without a seed range.
+Core #284's final-slot gate at `dfc38b478b018d63f7bb0851397b2a00a0dd4561` fails that ID at seed 10, step 15.
+That failure remains pending in the imported base. The body also says the ID stays pending until #282 pins .39, although that pin is now imported.
+Required change: label the scratch result with its actual evidence limit. Add the current seed-10 failure, undiagnosed cause, pending status, and RC owner.
+Remove or correct the statement that the future pin alone ends the pending status.
+No additional comparison run is requested.
+
+The local strict record reports 230 passes and zero failures with the uncommitted list edit at the merge head.
+The local real record reports one PASS for the new ID move and states the slow tier's default seeds.
+The local check reports 397 testkit passes and 192 worker passes after the reported target clean.
+RC reports only this worktree built in the target after the clean. The reviewer claims no independent raw clean verification.
+The B13 section retains the same-pin wrong-result reproduction and its different-pin negative control.
+The new exact-head gate remains pending. The reviewer accepts no future gate result.
+The reviewer ran no test, build, or gate.
