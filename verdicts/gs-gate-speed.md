@@ -923,3 +923,63 @@ EV-5 passes in the unchanged slow step and the standalone stage-2 baseline. The 
 Package CLEAN remains valid on this exact head, with zero open findings. This receipt replaces no failed gate evidence.
 
 Integration execution review remains pending. The lead owns the merge decision and current-base check. I ran no gate, build, or test.
+
+### PR #261 merge verification
+
+The lead's handoff records merge `0c5ac80e512f986edd2ec1455012552a41c7f855` and integration completion `33be0d49`.
+
+I verified that the merge parents are the reviewed base and exact reviewed head. The merge tree equals the reviewed head's tree.
+
+## PR #262: exact counts for mutation exclusions
+
+- Head: `de819474f8f0cdf590d9d15638fb9e2a271f5a47`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Risk: HIGH.
+- VERDICT: CLEAN.
+- Open findings: 0.
+
+I read all four changed files and the PR body. The PR adds a check to `mutants-stale`; it does not remove a check.
+
+Each configured `exclude_re` entry now states a count. An entry without a count note requires one match.
+
+`count_of` accepts only ASCII digits, with no leading zero or sign, and a value of at least two. Invalid notes fail parsing.
+
+The existing TOML validation in `gate_decisions::inputs` remains. The new trailing comments do not enter the exclusion pattern or reason.
+
+`stale` preserves the zero-match failure. It also fails when a counted entry matches too few or too many mutants.
+
+The count violation lists all matched names. Invalid regexes and failed list commands still fail the check.
+
+`OFF_MACOS_EXCLUSIONS` keeps its previous nonzero-match rule. The PR adds no exclusion to that code list.
+
+I compared both TOML documents with the standard TOML reader. All parsed values are identical, including every exclusion pattern.
+
+Removing the 85 new count comments makes the file byte-identical to the base file. No pattern, reason, timeout, or configuration value changes.
+
+The mutation stages, test selection, binary builds, and verdict rules remain unchanged. This additive check cannot accept an input that the previous check rejected.
+
+The count check detects count changes. It does not prove that matched identities stay identical when one identity replaces another without a count change.
+
+The prior-art note is present. The pinned old tree has no `.cargo` or `xtask` files and no corresponding mutation check to reuse.
+
+### Gate evidence
+
+I read the exact-head Linux gate log, with the exact base above:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-exact-count-de819474-pool-20261011-045219-1794.log`.
+
+All ten steps PASS in 161.6 seconds. The check reports 208 exclusions against 6201 workspace mutants.
+
+The new parser and count tests pass. The mutation step reports 18 mutants: 16 caught, zero missed, zero timeout, and two unviable.
+
+All 16 raw catch identities match their catching-test reports. Stage 2 does not run because stage 1 misses no mutant.
+
+The PR retains the failed first-head gate:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-exact-count-2c7bf039-pool-20261011-042105-29851.log`.
+
+That gate missed `replace || with && in count_of` in both stages. Commit `d57dbe99` adds the rejected `# +3 mutants` case.
+
+The current gate catches that exact operator mutant. The failed evidence remains visible; the change repairs the missing test before the new gate.
+
+Integration review remains required for this HIGH PR. The lead owns the merge decision and current-base check. I ran no gate, build, or test.

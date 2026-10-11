@@ -2,44 +2,41 @@
 
 ## Current review result
 
-- PR: #261, known-flaky list.
-- Head: `727a1c5043ad007f5b2d0a3353be657cf240e403`.
-- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
-- Verdict: CLEAN, round four under the lead's settled scope.
-- Open findings: 0. GS-KF-R1-1 HIGH and GS-KF-R2-2 MEDIUM are CLOSED.
+- PR: #262, exact counts for mutation exclusions.
+- Head: `de819474f8f0cdf590d9d15638fb9e2a271f5a47`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Risk: HIGH.
+- Verdict: CLEAN.
+- Open findings: 0.
 - Full verdict: `verdicts/gs-gate-speed.md`.
 
-The verdict rule now uses only the first final failure. A listed first failure becomes MISSED, and later failures receive no catch credit.
+The check preserves the zero-match failure and requires each configured exclusion to match exactly its stated count.
 
-The code moves caught counts and names to missed, preserves tested identities, and changes successful exit code 0 to 2 when misses remain.
+No note means one match. A count note requires ASCII digits, no sign or leading zero, and a value of at least two.
 
-The fixture checks listed-first plus cancellation as MISSED and unlisted-first as a catch. It checks stage-1 handoff and stage-2 refusal of a remaining miss.
+All TOML values stay identical. Removing the 85 added comments makes the file byte-identical to the base file.
 
-GS-KF-R2-2 is source-fixed and CLOSED. The fixture now selects the slow-only shared-binary identity and asserts before/after execution.
+The mutation stages, selection, binary builds, and verdict remain unchanged. The check detects count changes, not identity changes with equal counts.
 
-I asked the lead to settle the first-failure rule or replan before round four. The final exact-head gate now passes all ten steps.
+The exact-head Linux gate passes all ten steps in 161.6 seconds. It checks 208 exclusions against 6201 workspace mutants.
 
-The lead settles the rule: only the first final failure can catch. A listed first failure is MISSED; no later cancelled-run failure receives credit.
+Mutants: 16 caught, zero missed, zero timeout, and two unviable. All 16 catch identities match their reports.
 
-Round four covers that rule and two fixture cases: listed-first plus cancellation gives MISSED; unlisted-first gives a catch.
+The first gate failed on a signed-count parser mutant. The PR retains that log. The added `# +3 mutants` case catches that mutant.
 
-Other new findings go to follow-up PRs unless HIGH, under the lead's direction.
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-exact-count-de819474-pool-20261011-045219-1794.log`.
 
-The current EV-5 integration binary is slow-only. The finding concerns the general accepted rule, not a demonstrated leak of EV-5 today.
+Integration review remains required. The lead owns the merge decision and current-base check. I ran no gate, build, or test.
 
-I read the final gate log at this exact head and base. All ten steps PASS in 446.3 seconds.
+## Previous PR #261
 
-Stage 1 has 46 caught, seven missed, and 13 unviable mutants. Stage 2 catches all seven missed identities after its baseline passes.
+PR #261 is merged at `0c5ac80e512f986edd2ec1455012552a41c7f855`. I verified its parents and tree against the exact reviewed head `727a1c50`.
+
+Package CLEAN: `4be62171`. Gate evidence: `994ca99b`. Integration source CLEAN: `7245cd1c`; the lead records integration completion `33be0d49`.
+
+Its final gate passes all ten steps in 446.3 seconds. Stage 2 catches the exact seven stage-1 misses.
 
 The final result has 53 caught, zero missed, zero timeout, and 13 unviable mutants. All 53 catch report identities match the raw catches.
-
-The required unit and real-tool fixtures pass. EV-5 runs in the unchanged slow step and stage-2 baseline. The mutation-stage exclusion is reported.
-
-Log: `~/botster-sessions/gates/botster-core-stage1-gs-flaky-list-727a1c50-pool-20261011-044118-44498.log`.
-
-Integration source CLEAN is published in `7245cd1c9df36c9193646fe30750220b3ffbfe8c`. Integration execution review remains pending.
-
-The lead owns the merge decision and current-base check. I ran no gate, build, or test.
 
 ## Previous PR #260
 
@@ -135,7 +132,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for PR #261's integration execution review, merge receipt, or new head. PR #260 is merged. PR #256 source findings remain closed.
+Wait for PR #262's integration review, merge receipt, or new head. PR #260 is merged. PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 
