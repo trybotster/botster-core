@@ -885,12 +885,17 @@ mod slow_tests {
     /// AD-7 (lead ruling on #164, 2026-10-08): a write that fails after it made directories of its path removes them again,
     /// deepest first. The descriptor limit is lowered so that exactly two more descriptors can open: the kind and the first
     /// directory open, the second directory is made (`mkdirat` takes no descriptor), and opening it fails with `EMFILE`.
-    /// nextest runs each test in its own process, so the lowered limit reaches no other test; it is restored before the
-    /// asserts.
+    /// The limit belongs to the whole process, so the test runs alone in a new process (`botster_test_process::alone`): under
+    /// `cargo test` the lowered limit reached the other tests. It is restored before the asserts.
     #[test]
     fn a_failed_write_removes_the_directories_that_it_made() {
         use rustix::process::{getrlimit, setrlimit, Resource};
         use std::os::fd::AsRawFd;
+        const NAME: &str =
+            "storage::slow_tests::a_failed_write_removes_the_directories_that_it_made";
+        if !botster_test_process::alone::is_alone(NAME) {
+            return botster_test_process::alone::run_alone(NAME, &[]);
+        }
         let tmp = dir();
         let rows = tmp.path().join("d").join("rows");
         let mut data = DataDir::open(&tmp.path().join("d")).unwrap();
