@@ -67,3 +67,13 @@ How my round 1 findings carry over to a head built on R-80:
   - the `st_6b_baseline` s8 and `st_6b_graphics` s10 fences;
   - `st_6_pages_owned…` s8, listed in the exception file with a reason.
 - **Correction to my R-80 note above:** F2 is not moot. Its binding cases (a matcher comparison of an already-bound `model_rev`, and the `pump_until` and `pump_collect` bindings) apply to the general rule. I review the revised head against R-80 with F2, F3 and 016c R1-2 still open.
+
+### R-80 additions (steward, 2026-10-11): checks for the revised head
+
+- An output-derived event of S (`ModesChanged`, `TitleChanged` or `Bell`) is an output fence only when all of these hold:
+  - it ends the wait (a `pump_until`, or a `pump_collect` that ends on it);
+  - it is distinct, under R-61 (a)(2): no earlier state can meet it;
+  - the sequence that posts it is the LAST bytes of the output step.
+- A wait that would consume an event that a later step asserts uses an appended R-57 sentinel instead.
+- The exception list is only for matches where no sentinel works.
+- The lint takes a named list of the derived events.
