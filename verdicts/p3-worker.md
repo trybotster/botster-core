@@ -9941,3 +9941,211 @@ The reviewer changes no product code and runs no tests, builds, gates, measureme
 All earlier exact-head verdicts, findings, and closures remain preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 153 — PR #234, DP-2 real handoff send, package round 1 — 2026-10-10
+
+Exact head: `bd800194a0ce3da217409ce334183589c5f0763d`.
+Exact base: `e418bf5a8bcc7c18313e7d82775e8ae29368b366`.
+Authority: plan 23ae, pin ~/botster-sessions/pins/stage1-plan.b895ad49.md, and plan 23ac's signal proof ruling.
+The reviewer reads the full thirteen-path diff, source callers, full PR body, completed gate, and focused macOS evidence.
+The tier is correctly HIGH: shared crate and package changes under BUILD rule 3, and process/PTY paths under rule 5.
+The mutation exclusion file also changes under BUILD rule 1.
+All findings, LOW included, must close before CLEAN.
+This is the first package review round on #234.
+
+### F108 — LOW — OPEN — Documentation retains replaced framing and signal premises
+
+Locations: fd_pass.rs:106-107; fd_pass/tests.rs:250-251; host DESIGN.md's A49 row; PR condition 6.
+Received says its descriptors came with the first byte of the read.
+Plan 23ae and the Linux boundary proof establish that preceding plain bytes can share that descriptor-bearing read.
+The descriptor belongs to the one AttachRoute frame that starts in the read, not necessarily its first byte.
+The gone-reader test comment and PR condition 6 still describe a default-disposition signal proof.
+The current proof installs a recording handler and uses a raw control write, as plan 23ac requires.
+DESIGN.md cites the older plan item that still required the default disposition.
+
+Required: describe the accepted frame-start association and the actual recording-handler proof consistently.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently identifies these documentation defects.
+
+### F109 — LOW — OPEN — A new test busy-polls the socket
+
+Location: fd_pass/tests.rs:172-177.
+After the synchronous successful descriptor send, the test retries recv_with_fds on WouldBlock without waiting for an event.
+The loop has neither readiness wait nor deadline.
+BUILD Testing rule 5 forbids polling.
+The completed send already gives this local socket test its read boundary.
+
+Required: use one immediate read, or wait for actual readiness with a marked deadline.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently confirms the polling defect.
+
+### F110 — MED — OPEN — The facade proof associates descriptors at frame completion
+
+Locations: slow_facade_worker.rs:71-79.
+The test receiver resets fds from each recv_with_fds result.
+It consumes that count when FrameDecoder returns a complete AttachRoute.
+FrameDecoder retains a partial header and payload across reads and returns no frame until completion.
+
+A permitted descriptor-bearing read can end inside AttachRoute.
+Its count disappears when the next read resets fds.
+That next read can complete the correct handoff with no descriptors and report route with count zero.
+If a later descriptor segment arrives in the completing read, the old frame can consume the later frame's count instead.
+The new facade assertion can therefore reject a valid partial handoff or report the wrong association.
+Plan 23ae associates descriptors with the frame start and requires that association to survive partial frames.
+The receiver's comment claims that rule, but its implementation uses completion.
+
+Required: retain the starting read's descriptor association until its frame completes.
+Add a deterministic small-read proof that splits AttachRoute and still reports its one descriptor at the socket boundary.
+This finding concerns the test receiver. PR B's production receive implementation remains outside PR A.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently confirms the source path and its proof gap.
+
+### F111 — MED — OPEN — The new fd handoff path lacks HIGH-path coverage
+
+Locations: ci/high-tier-paths.txt; new crates/botster-core-sys/src/fd_pass.rs.
+BUILD risk rule 5 requires the checked-in list to cover fd handoff.
+No listed path or glob covers fd_pass.rs.
+The new file implements sendmsg, recvmsg, close-on-exec, truncated control handling, and signal suppression.
+The current PR is HIGH through other changed paths.
+A later isolated change to this file would lack the required rule-5 classification.
+
+Required: add fd_pass.rs to the HIGH-path list with its fd-handoff and signal rationale.
+The list change is gate-decision code and remains HIGH.
+The reviewer sends this finding directly to P3 and integration.
+Integration independently confirms the missing HIGH-path coverage.
+
+### F112 — LOW — OPEN — The feature's required prior-art note is missing
+
+Location: the full PR description and supplied design changes.
+BUILD Starting fresh rule 0 requires a feature prior-art note in its design note or PR description.
+The note must identify existing work at pinned revisions and record reuse and rejection decisions.
+The body records rustix adoption and its dependency defect, but does not record that prior-art comparison.
+The new module documentation and changed A49 row also do not supply it.
+The lead log records design approval, but does not contain the required comparison.
+
+Required: add the note to the PR body or provide the existing feature design note.
+The reviewer asks P3 to locate any existing note before filing this finding.
+Integration also requires #234's own prior-art note.
+No prior-art note has been supplied when this section is written.
+
+### Product source review and accepted limits
+
+RealEdges accepts a UnixStream or OwnedFd and preserves that type when it returns a blocked or failed endpoint.
+A successful send drops the host's copy after the kernel has accepted the descriptor-bearing prefix.
+WouldBlock and Interrupted return Blocked. Other errors return Failed with the endpoint.
+The existing host flush sends earlier bytes before the marked AttachRoute start.
+It sends no following frame with that descriptor and sends the remaining prefix bytes without another descriptor.
+A blocked send restores the mark. A failed send drops the unsent frame and closes the returned endpoint.
+This preserves the host half of the plan 23ae framing rule and DP-2 ownership.
+The new real-edge proof exercises UnixStream and OwnedFd, the same received stream, and a gone peer's failed handoff.
+
+send_with_fd requires a nonempty payload and uses rustix ancillary construction.
+It sends at most the socket's SO_SNDBUF bytes. A macOS EMSGSIZE waits only when that message fits the buffer.
+The macOS-only match arm and decision keep Linux-equivalent mutations out of the Linux selection.
+The real full-buffer, oversized-frame, and exact-buffer-size proofs cover the supported send behavior.
+The explicit oversized decision proof follows the lead's accepted plan 23ac ruling.
+Linux sends MSG_NOSIGNAL. macOS checks SO_NOSIGPIPE before sending.
+The accepted Mio listener supplies that flag; the real-edge proof asserts it on an accepted link.
+
+recv_with_fds returns OwnedFd values with CLOEXEC set before return.
+Linux requests CMSG_CLOEXEC. The function also applies fcntl before returning on both platforms.
+A later fcntl or excessive-count error drops the collected OwnedFd values.
+The 4096-byte ancillary space exceeds the accepted descriptor count on both measured kernels.
+The tests cover exactly MAX_FDS, excessive counts, the kernel's cap, and forced control truncation.
+The receiver does not parse a CTRUNC buffer: it forgets the ancillary wrapper and returns an error.
+The lead explicitly accepts that rustix 1.1.5 mitigation and its documented descriptor leak until process exit.
+The reviewer retains that exception and does not claim no-leak behavior for the CTRUNC defence branch.
+The local pinned rustix source confirms that both drain and Drop use the cmsg's own length.
+PR B must still close received descriptors for its ordinary framing mismatch cases.
+
+The per-OS boundary proofs show Linux preceding plain bytes with the descriptor segment and macOS following plain bytes with it.
+The two-send proof retains one descriptor segment per read on both platforms.
+These facts support frame-start association. They do not close F110 in the test receiver.
+The new Received documentation still needs F108's correction.
+
+The worker records LoopThread when it makes its driver.
+Payload::spawn returns typed NotLoopThread before directory checks, PTY creation, or the process spawn.
+The off-thread proof reaches that refusal; the on-thread call reaches the subsequent CwdMissing check.
+The driver maps that unreachable mismatch without spawning a process.
+The exit-watch thread still only waits and reports. Its documentation forbids forks and execs from that callback.
+The slow payload caller changes only to pass its current loop token.
+Existing Worker slow proofs exercise the updated production spawn path.
+No product guard or anchor decision changes.
+
+The no_sigpipe target owns one test and installs a recording signal handler.
+libtest-mimic runs it on the calling main thread with one test thread.
+In each of one hundred rounds, a raw write proves signal delivery and the descriptor send produces BrokenPipe without a signal.
+The reviewer reads the pinned libtest-mimic 0.8.2 and Mio 1.2.3 source for those stated behaviors.
+The target supports nextest listing and runs in the gate.
+The earlier setter on accepted links is absent because its reversal remained green: Mio already supplies the flag.
+
+The product worker does not receive route descriptors in this PR.
+The route socket edge, PTY read budget, worker mismatch handling, and end-to-end payload descriptor exclusion belong to PR B.
+The lead explicitly assigns the child descriptor proof to PR B on both operating systems.
+This verdict accepts no completed real route or minimum-id flip.
+The own diff changes no pending list, contract pin, public facade, or C ABI.
+The mutation exclusion changes only proof names and explanations for the existing real-edge I/O shell.
+No new exclusion pattern is added.
+
+### Source merge review
+
+The PR merges v1 e418bf5a at bd800194 after the macOS decision correction.
+The direct final merge changes only the accepted xtask mutation-progress code.
+All thirteen own-path diffs are identical before and after that merge after excluding index lines and hunk coordinates.
+The base already includes #235's per-tag probe build, #232's PTY test fix, #236's identity exclusions, and #222's real controls.
+The reviewer runs no merge-check job and does not replace those accepted base reviews.
+The current gate's lower testkit count than stacked #227 reflects #234's separate base, which does not include #227.
+No own pending id is restored or removed here.
+The lead retired the old probe compilation-line check after #235. Its absence does not block this head.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-real-handoff-send-bd800194-pool-20261010-175432-24012.log.
+The header identifies this exact head and e418bf5a base. All ten CI steps PASS on gaming.
+Default: 1524 passed in 12.965 seconds. Slow: 396 passed in 139.442 seconds.
+Both testkit reports: 193 passed, zero failed, 497 ignored. Minimum testkit: 50/69.
+Strict pending: 386 of 407 ids run, 21 real-only ids not run, two held. Real-pending: 81.
+Real minimum: 31/68 passing and 31/69 accepted.
+Stage 1: seventeen mutants, nine caught, eight unviable, zero missed, zero timeouts, in 94.6 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 336.2 seconds. Queue: zero seconds. Job and wrapper exit zero after 348 seconds.
+The real-edge handoff proof and updated facade proof have exact-head PASS lines.
+A passing facade test at the current read size does not cover F110's partial-frame counterexample.
+
+Focused macOS evidence: shared/core-stage1/evidence/p3-handoff-send/mac-run-bd800194.log.
+Its header identifies this exact head and macOS 27.0.1 arm64.
+Core-sys default: forty pass, including both macOS-only tests, per-OS boundaries, close-on-exec, and the thread refusal.
+The separate signal target passes and records all one hundred control signals with no descriptor-send signal.
+Core slow selections pass: twenty library tests, seventeen facade tests, and twenty-five real-core tests.
+Worker slow selections report fifty-seven, seventeen, and thirty-four passing tests.
+The retained log does not name each target for those three result summaries.
+The retained focused log includes result summaries for additional filtered Worker subprocess cases.
+The reviewer does not claim a full macOS gate or coverage of unrelated pre-existing storage failures.
+The lead's condition 8 requests this focused macOS run.
+
+The reviewer reads all retained correction evidence without executing it.
+no-sigpipe-revert-macos.log records the signal assertion failing on the main thread when suppression is removed, then the restored proof passing.
+facade-handoff-revert-macos.log records a plain send replacing send_with_fd and the exact route/count assertion failing: zero instead of one.
+emsgsize-macos-only-reverts-macos.log records three macOS corrections failing their named proofs.
+Changing <= to > fails the decision proof and full-socket proof.
+Changing <= to < fails the equality-boundary decision proof.
+Replacing the match guard with false fails the full-socket proof.
+The retained file names assertion sites and result counts, but does not preserve full failure output for every mutation.
+link-nosigpipe-revert-macos.log records both the setter reversal and restored case passing.
+That evidence supports removal of the redundant setter and retention of the inherited-flag assertion.
+The earlier Linux boundary failure led to plan 23ae's reviewed framing correction; it is not a passing implementation receipt.
+
+### Verdict
+
+PR #234 is NOT CLEAN at `bd800194a0ce3da217409ce334183589c5f0763d`.
+F108, F109, and F112 are LOW and OPEN. F110 and F111 are MED and OPEN.
+This is the first package NOT CLEAN round on #234. No round-limit decision is due.
+Findings and the published artifact go directly to P3 and current Sol integration.
+The lead receives no ordinary NOT CLEAN report.
+#227 remains NOT CLEAN at d1d8742a with F103 and F107 open until its authorized replacement review.
+F39 and F61/F62 retain their prior scopes. The non-minimum P3 queue remains parked.
+The reviewer changes no product code and runs no tests, builds, gates, measurements, mutants, or merge-check job.
+All earlier exact-head verdicts, findings, and closures remain preserved.
+
+VERDICT: NOT CLEAN
