@@ -1,5 +1,19 @@
 # GS reviewer handoff
 
+## Current Core PR #293 result
+
+PR #293 is NOT CLEAN at `2c0488b8d8f55e3ad05992f97b4de5ca95b9b9c3`, reviewed base `5e953398925351c12e463a7b0a946b79d9841edc`.
+
+Two HIGH findings remain: prebuild can stamp another root's artifacts, and the coverage check accepts an unregistered or commented-out test.
+
+One LOW finding remains: the evidence counts only `Compiling botster-core` lines but labels the count all workspace crates.
+
+Sol-B independently confirms both HIGH findings in `0540b54ce71284651476e1f4e4a265ae17f3163b`. The full package record is in `verdicts/gs-gate-speed.md`.
+
+Sol-B: `sess-1791760169-0182-7a5ca22a6e65a307e8f0b2a8fd1ef2d5`.
+
+Wait for repairs and the doorbell. Never poll. I ran no execution job.
+
 ## Current Core PR #286 result
 
 PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.

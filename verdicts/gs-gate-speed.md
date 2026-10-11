@@ -2374,3 +2374,96 @@ Sol retains the invalid first lists result.
 Both source and evidence reviews have zero findings at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, against base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 
 The final slot, current-base import, required check, and exact-head final gate remain due. This receipt accepts no later head or merge.
+
+### Core PR #293: B13 build-root check, round 1
+
+- Head: `2c0488b8d8f55e3ad05992f97b4de5ca95b9b9c3`.
+- Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN (3 open: 2 HIGH, 1 LOW).
+
+**GS-B13-R1-1 HIGH: prebuild can label another worktree's artifacts with the current root.**
+
+`xtask/src/prebuild.rs:151` converts every record-read error to `None`. `other_source_root` accepts `None`. Line 161 writes the current root before the builds.
+
+A normal worker build in worktree A creates no candidate root record. Worktree B can then run prebuild against the same target directory.
+
+Cargo can reuse A's worker. Prebuild copies that worker, records B as its root, and hashes the copied bytes.
+
+`Candidate::locate` accepts the B record and those hashes. Neither establishes that B supplied the worker's source. This path remains a B13 false-result risk.
+
+This is a static source finding. I did not execute this case. The supplied evidence shows Cargo reusing artifacts across worktrees, but tests only an existing A record for prebuild.
+
+Required change: establish the binaries' build roots before accepting or writing the candidate root. Refuse unknown origin in a populated target directory.
+
+Do not treat an unreadable record as a safe first build. Preserve the lead's rule against an automatic clean.
+
+Required evidence: build the worker in A without prebuild. Then run prebuild in B with the same target directory and lockfile.
+
+Show refusal or verified B artifacts. Show that candidate validation cannot accept A's worker as B's. Preserve a valid first build in an empty target directory.
+
+**GS-B13-R1-2 HIGH: the coverage check accepts a root-check function that no test runner executes.**
+
+`xtask/src/built_in.rs:99` accepts the root when two raw substrings occur: `TEST_FN` and `TEST_CALL`.
+
+Removing `#[test]` leaves both substrings present. Commenting out the function also leaves both substrings present. The coverage check still reports a test.
+
+The same check does not reject an ignored test or a test excluded from its required tier. Thus, the mechanical guard can pass without the required build-root proof.
+
+Required change: validate a registered test that the required tier selects. Validate that this test calls the root check. Reject unsupported source forms.
+
+Required evidence: negative fixtures for a missing `#[test]`, a commented-out function, and a test excluded from its required tier.
+
+Preserve the valid library and binary forms. Each negative fixture must fail the coverage check.
+
+**GS-B13-R1-3 LOW: the evidence overstates the compilation count.**
+
+The evidence script's `show` function counts `Compiling botster-core` lines. Its label and the PR body call that count all workspace crates.
+
+That pattern does not count `botster-worker-core`, `botster-test-process`, or `botster-terminal-ghostty`. The displayed zero therefore does not prove zero compilations for every workspace crate.
+
+Required change: narrow the label and body claim to the measured names, or supply a complete compilation record and count every workspace package.
+
+The existing result still supports reuse of the matching Core crates. This finding does not invalidate the observed conformance refusal.
+
+I read all 27 changed files, the approved design, the lead's approval, and the current pair rules.
+
+The conformance entry point checks itself and nine linked libraries before argument parsing. Both conformance binaries take this entry point, including their list operation.
+
+The root comparison has one implementation in `botster-test-process`. It resolves symbolic links before comparison. A missing runtime manifest variable causes refusal.
+
+Each current library exports its build-root constant. Each current crate has the added unit test. The dependency additions are dev-dependencies, except the testkit's now-required test-process dependency.
+
+The new taint command checks package source and the transitive linked list. It reads the current workspace layout. The two HIGH findings prevent acceptance of its safety claim.
+
+No timeout, seed, budget, or mutation-stage selection changes. Both mutation stages retain their in-place builds. This PR adds no mutation exclusion.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-2c0488b8-pool-20261011-155212-66916.log`.
+
+All ten steps pass in 731.1 seconds. The job runs for 808 seconds and exits zero after 809 seconds. The outer wrapper exits zero after 810 seconds.
+
+The default tier passes 1820 tests. The slow tier passes 584 tests. Mutation testing reports 44 mutants: 41 caught and three unviable.
+
+No missed mutant requires stage 2. The public API check passes. The taint output reports 12 crates and nine linked libraries.
+
+B13 evidence: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-2c0488b8-pool-20261011-161823-85653.log`.
+
+At the base, B on A's target passes 230 tests and exits zero. B's own build fails the un-pended a11_1 id and exits 101.
+
+At the head, the reused conformance binary refuses and exits 101. Prebuild in B refuses an existing A root record and exits 1.
+
+The evidence script prints these statuses. Its final cleanup makes the wrapper exit zero. The step statuses establish the negative outcomes.
+
+The body retains two earlier failed evidence attempts and excludes them from its proof. I accept no result from those attempts.
+
+The prior-art check reads old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`, including `script/prebuild-worker`.
+
+That script records source revision and binary hashes. It supplies no build-root check for shared artifacts. The current prebuild replacement method was already present in the base.
+
+Sol-B independently confirms both HIGH gaps in `0540b54ce71284651476e1f4e4a265ae17f3163b`, at `verdicts/stage1/gs-b13-built-in.md`.
+
+I read the complete integration artifact. Its two findings agree with GS-B13-R1-1 and GS-B13-R1-2.
+
+The live head remains unchanged. The live base has advanced to `f6025aed4cdf7da836e835e0040fc128b7e8f32f`. This review covers only the stated reviewed base.
+
+Every finding must close before CLEAN. I ran no gate, build, test, base-check script, or executable probe.
