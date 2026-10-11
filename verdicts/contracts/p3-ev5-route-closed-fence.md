@@ -79,3 +79,14 @@ The mutation step selects no mutant. Jobq exits zero after 192 seconds; botster-
 This completes the exact-head gate receipt. The source verdict remains CLEAN with zero open findings.
 The package's local ACCEPT is read and hash-verified. Its external publication remains unconfirmed.
 The lead owns the publication disposition, steward relay, and merge decision. I ran no execution job.
+
+### Publication disposition — 2026-10-11
+
+Lead receipt: `msg_plugin-w_1791731758_bbc33b`.
+The lead reports that the steward merged #46 using the crate reviewer's local verdict file and verified hash.
+The steward requires no GitHub review. Thus external publication is not a remaining acceptance condition for this PR.
+This disposition supersedes the earlier statement that package publication remains required before merge acceptance.
+The permission refusal remains in force. The lead will not relay earlier user authorization, and 016c will not retry the post.
+No publication action or approval request remains. The source CLEAN and exact-head gate receipt remain accepted.
+The lead supplied no merge SHA. I make no independent merge-tree claim in this receipt.
+No Core pin move or pending removal follows. I ran no execution job.
