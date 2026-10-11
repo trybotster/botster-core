@@ -1413,7 +1413,7 @@ The imported tests directly assert that accessor at lines 680, 687, 689, 722, 72
 `ScriptedProgram::unread` returns the internal output length at line 418.
 The imported script test asserts that length at lines 706 and 708.
 The imported chunk test also asserts `waits_for_next_step` at lines 1252 through 1276.
-That accessor returns the stored `step_refused` flag at line 163.
+That accessor returns the stored `step_refused` flag at line 158.
 These accessors expose private state. The user forbids private-state assertions in every test.
 The tests in `pty_controls/tests.rs` that call the defined `pty_queued` control observe public control behavior and remain allowed.
 Required change: replace the new direct state assertions with public control results, program reads and writes, or public Core behavior.
