@@ -87,3 +87,9 @@ VERDICT: NOT CLEAN (3 open).
 - Header: head `c26e8ad152c521d6c249d757fb9acda549a53dfc`, base `e026efb2b7214206068e4e7858c6f2c6e8be46e6` (BOTSTER_CI_BASE_REF), Linux pool. The PR's merge base is `63128469ce1d57cbef00f2b6549f699a27d058fc`.
 - Result (read by me): all 10 steps PASS, with the corpus test and the new self-test; mutants: none to test (see F2); `botster-gate: exit 0 after 539 s on linux`.
 - Main is now `138173e410b0281a9b481669ffce7cfebab9f374`. It adds only `docs/steward-rulings.md` (R-83, R-84) after the gate base, and `git merge-tree` of the head with it is clean. The fixes of F1 to F3 change the lint, so the next head needs its own gate.
+
+### 016c's REJECT on the same head (package scope; recorded, not repeated)
+
+- 016c item 1 (MEDIUM) is my F3. 016c's example uses two sessions: r1 on s1 sends a 1-byte paste, and r2 on s2 sends a 5-byte paste, both with op 1. The valid `await_pty` of 1 on s1 then gets a 6-byte finding. One fix closes both. I check it on the next head as 016c asks: open pastes keyed by route and op, a safe floor for the read's session, and a regression test.
+- 016c item 2 (MEDIUM): `least > 0` also skips a non-empty sequence whose floor is 0, for example `[{"var": "$e"}]` after a key send, with no `await_pty`. R-83 exempts only an empty sequence. A `var` part counts 0 toward the floor, but the read still needs a fence of its session. My round 1 missed it. I check the fix on the next head: the empty-sequence test is separate from the floor, a non-empty sequence with a floor of 0 needs a valid fence of its session, and a regression test covers it.
+- 016c item 3 (LOW): the module comment of `fence_lint.rs` (line 23) still allows exceptions for three rules only, and it does not name R-83.
