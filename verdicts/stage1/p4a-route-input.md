@@ -648,6 +648,30 @@ One MEDIUM admission-parity finding remains open. The exact-head package verdict
 I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
 The source merge comparison uses Git objects only.
 
+## Round 5 — 2026-10-10
+
+Reviewed head: `d1e00be37ea9b7830041e043186659f682e985a9`.
+Reviewed base: `15791ea336c5f3d0fbd9483a1e190ec01743351e`.
+The Round 5 inspection above records the complete authorized correction, admission-parity review, source merge, and supplied evidence.
+
+I read package Round 156 at verdict commit `04bd3bb3afdac789f926f4add5ba9e1f1a84bc8c`, `verdicts/p3-worker.md`.
+It reports NOT CLEAN on this exact head and base. Both reviewers agree on the closure and remaining finding.
+
+R4-1 / F113 MEDIUM is CLOSED for its reported nonempty route-input counterexample.
+R5-1 / F114 MEDIUM remains OPEN at this reviewed head: empty bytes and text bypass session admission.
+All earlier specific closures remain. The complete route admission unit remains unaccepted.
+The passing gate covers the nonempty correction and R-54 reply exception, but does not cover F114.
+
+This is the fifth NOT CLEAN integration round for PR #227.
+The lead authorizes Round 6 in `msg_plugin-w_1791688865_193452` for F114 and the complete return/early-exit audit.
+The rule requires admission before each outcome, refusal, or no-op. If Round 6 is not CLEAN, the lead will split or replan.
+The lead permits no Round 7. Replacement READY, the required audit, completed gate, and same-head package artifact remain pending.
+The following inspection records only the reported F114 source correction at the newer head.
+
+I changed no product code and ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: NOT CLEAN (1 open: R5-1 / F114 MEDIUM).
+
 ### F114 correction source inspection — 2026-10-10 — Gate and READY pending
 
 Inspected head: `4ede303f8b41adb703bafab683120cbc25a582d7`.
