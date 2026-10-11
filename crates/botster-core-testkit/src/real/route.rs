@@ -8,15 +8,20 @@
 //! the only thread that pumps Core.
 
 use super::holders::{self, Socket};
-use super::program::Requests;
+use super::program::{Inputs, Requests};
+use crate::edge_tap::Tap;
 use botster_conformance::Deadline;
+use botster_core::RealEdges;
 use botster_core_conformance::RouteClient;
+use botster_core_contract::prelude::{InstanceId, SessionId};
 use botster_core_edges::edges::ProcessIdentity;
+use botster_core_host::session::{row_key, Row};
 use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
+use std::sync::{Mutex, Weak};
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
@@ -81,7 +86,6 @@ fn fill_size(
 }
 
 /// The client end of one route.
-#[derive(Debug)]
 pub(super) struct RealRoute {
     /// The client's end of the stream, always nonblocking; `None` after `client_close` or `drop_transport`.
     end: Option<UnixStream>,
@@ -103,6 +107,8 @@ pub(super) struct RealRoute {
     /// The bytes that the client's end read from the stream, and the unread bytes that a close of that end lost
     /// (`route_stream_written`).
     received: u64,
+    /// The input log of the route's session (`pty_input`); `None` on the plain harness, which has no controls.
+    input: Option<SessionInput>,
 }
 
 /// The bytes that the stream holds for the client's end and that the client has not read (`FIONREAD`). On Linux and macOS,
@@ -110,6 +116,43 @@ pub(super) struct RealRoute {
 /// that the kernel accepted from the worker and the client has not read.
 fn unread(end: &UnixStream) -> io::Result<u64> {
     rustix::io::ioctl_fionread(end).map_err(io::Error::from)
+}
+
+/// What `pty_input` on a route reads: the tap of the route's handle (its stored rows), the route's session and the session's
+/// instance at the attach, and the probes' input logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
+pub(super) struct SessionInput {
+    /// Weak, as the harness's handle holds it: a route that outlives its host must not keep the host's edges, and with them its
+    /// claim of the data directory (Core LC-2, LC-12).
+    pub(super) tap: Weak<Mutex<Tap<RealEdges>>>,
+    pub(super) session: SessionId,
+    /// The session's instance when the route attached (`None`: the session had no stored row then).
+    pub(super) instance: Option<InstanceId>,
+    pub(super) inputs: Inputs,
+}
+
+impl SessionInput {
+    /// The worker of the route's session instance, as its stored row names it now, and the input that its probe read. A
+    /// session that was removed, or created again with a new instance, is no longer the route's: the route has no input log
+    /// then. The record of the session's processes outlives `Remove`, so the stored row decides.
+    fn log(&self) -> Result<Value, String> {
+        let tap = self
+            .tap
+            .upgrade()
+            .ok_or_else(|| format!("the host of the route of {} is gone", self.session.0))?;
+        let row = tap
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .stored_row(&row_key(&self.session))
+            .and_then(|bytes| Row::decode(&self.session, &bytes))
+            .filter(|row| Some(&row.instance) == self.instance.as_ref())
+            .ok_or_else(|| format!("the route's session instance of {} is gone", self.session.0))?;
+        let worker = row
+            .worker
+            .map(|worker| worker.identity())
+            .ok_or_else(|| format!("the session {} has no worker process yet", self.session.0))?;
+        let input = self.inputs.input(worker).map_err(|e| format!("{e:?}"))?;
+        Ok(crate::route_client::route_pty_log(input))
+    }
 }
 
 /// How long a read waits for bytes: only after the handoff, and only under a deadline that has time left. With no
@@ -209,6 +252,7 @@ impl RealRoute {
             taken: Vec::new(),
             handed: false,
             received: 0,
+            input: None,
         })
     }
 
@@ -300,6 +344,13 @@ impl RealRoute {
         self.unsent.clear();
         self.taken.clear();
         self.accept = None;
+    }
+
+    /// The route answers `pty_input` from `input` (Core OU-1, DP-4: the conformance driver reads `route_expect_pty`'s log
+    /// through the route).
+    pub(super) fn with_input(mut self, input: SessionInput) -> RealRoute {
+        self.input = Some(input);
+        self
     }
 
     /// Writes the unsent bytes while the stream takes them. A failed write loses the stream's bytes, as with a lost
@@ -426,12 +477,17 @@ impl RouteClient for RealRoute {
                 };
                 Ok(json!({ "bytes": self.received + held }))
             }
+            // Core OU-1, DP-4: the input that reached the PTY of the route's session.
+            "pty_input" => match &self.input {
+                Some(input) => input.log(),
+                None => Err(format!("unsupported_control: {op}")),
+            },
             _ => Err(format!("unsupported_control: {op}")),
         }
     }
 
     fn has_control(&self, op: &str) -> bool {
-        CONTROLS.contains(&op)
+        CONTROLS.contains(&op) || (op == "pty_input" && self.input.is_some())
     }
 }
 
@@ -833,6 +889,12 @@ mod slow_tests {
         assert_eq!(
             route.control("fail_writes", &json!({})),
             Err("unsupported_control: fail_writes".to_string())
+        );
+        // A route with no input log of its session (the plain harness) has no `pty_input`.
+        assert!(!route.has_control("pty_input"));
+        assert_eq!(
+            route.control("pty_input", &json!({})),
+            Err("unsupported_control: pty_input".to_string())
         );
     }
 

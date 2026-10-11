@@ -553,9 +553,12 @@ fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
             .any(|e| matches!(e, Event::Completed { op, result: OpResult::Ok(_) } if *op == start)),
         "the start completed: {events:?}"
     );
-    // The link closes before the launch: the start fails `Exited`; a worker exit while that failure waits for room does not
-    // turn it into `Lost`.
-    let mut w = World::new(limits(|l| l.mandatory_events = 2));
+    // The link closes before the launch and the worker lives on: at the startup deadline the start fails `Exited` (R-72); a
+    // worker exit while that failure waits for room does not turn it into `Lost`.
+    let mut w = World::new(limits(|l| {
+        l.mandatory_events = 2;
+        l.startup = Duration::from_secs(2);
+    }));
     w.autopilot = Autopilot::Silent;
     w.ok(create("s1"));
     w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
@@ -564,6 +567,8 @@ fn a_closed_link_after_the_launch_and_an_exit_after_a_failure_change_nothing() {
     w.engine.begin(create("x")).unwrap();
     w.pump();
     w.feed(Input::LinkClosed { link });
+    w.pump();
+    w.advance(Duration::from_secs(2));
     w.pump();
     w.exited("s1");
     for _ in 0..10 {
