@@ -195,3 +195,19 @@ Both testkit-to-real pending moves pass on the testkit.
 Both CLEAN verdicts now cover the supplied green gate's exact head and base.
 Q8 requires no repeat for this unchanged head. A later import requires the applicable review record and exact-head gate.
 Historical Mac and retry limits remain explicit. The reviewer ran no test, build, or gate.
+
+
+### Core #275 — Q7 source CLEAN carryover
+
+Source head: `ad1a38098a474f3ca9770bdbc828be7be92e4783`.
+New base: `b6fd4b98e5f95aba4a6a1dc13efb609036be36f2`.
+The reviewer read the complete base-merge-check PASS:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-oracle-bmc-ad1a3809-20261011-103813.log`.
+The reviewer independently checked both parents and all three base paths.
+Outside the pending files, no base path overlaps the PR, and the complete own diff is byte-identical.
+The testkit pending file combines the two reviewed removals with the base's separate `lc_2_data_dir_is_exclusive` removal.
+The reviewer checked that the merged file equals exactly those combined removals.
+The real pending file retains the reviewed blob.
+Under Q7's line-set rule, source CLEAN carries to this exact head and base. Both findings remain closed.
+The final exact-head gate receipt remains required. The reviewer accepts no future gate result.
+The reviewer ran no test, build, or gate.
