@@ -3266,3 +3266,24 @@ Sol accepts no implementation, execution evidence, pending removal, later pin, f
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: NOT CLEAN (2 open: PF-SI-3, PF-SI-4) at 2cd9a93e512c22ea1b71f17b97ffbd964992220d
+
+## Round 87 — revision 23cl, 2026-10-11
+
+Head: `c130201627159e9810ff705912d5cd376e989839`.
+Prior reviewed head: `2cd9a93e512c22ea1b71f17b97ffbd964992220d`.
+Sol reads the complete correction and added history row. Only docs/stage1-plan.md changes.
+Pin: stage1-plan.65d20db2.md, SHA-256 `65d20db2d168a2c41139df5fc0933266a786aac4118e90602740cd31fbf383f4`.
+The pin equals the committed bytes and has mode 0444.
+The correction names <gate log>.out/flaky/<mutant>.log as the standing path.
+It names compute-pool f7e3d4c as installed and separates the historical manual recovery at <gate log>.flaky/.
+This matches the source and P6 confirmation in Round 86. PF-SI-4 closes.
+
+PF-SI-3 remains LOW and open. The unchanged result paragraph states 45 R-56 entries.
+The cited object has 43 R-56 entries and two R-60 entries for the two named identifiers.
+Correct the count or name both reasons. No execution or product change is needed.
+All other terms and review limits from Round 86 remain applicable.
+Sections 5, 6.3, and 8 remain unchanged. The correction accepts no implementation or artifact-retention proof.
+Sol accepts no pending removal, later pin, final import, or PR completion.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: NOT CLEAN (1 open: PF-SI-3) at c130201627159e9810ff705912d5cd376e989839
