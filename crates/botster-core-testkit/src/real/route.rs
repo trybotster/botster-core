@@ -499,9 +499,10 @@ impl RouteClient for RealRoute {
 
     /// The client's end of the stream itself, so the driver waits on it and on the host's wake together (steward ruling
     /// R-68). `None` while gated: a gated end reads nothing on purpose. `None` after `client_close`: a read gives the end
-    /// at once.
+    /// at once. `None` while `taken` holds bytes: a read gives them at once, but they left the stream, so the end is not
+    /// readable for them (after `route_gate` with `on: false`), and a driver that waited on it would wait to its deadline.
     fn readiness(&self) -> Option<BorrowedFd<'_>> {
-        if self.gated {
+        if self.gated || !self.taken.is_empty() {
             return None;
         }
         self.end.as_ref().map(AsFd::as_fd)
@@ -934,6 +935,51 @@ mod slow_tests {
         assert!(
             route.readiness().is_none(),
             "a closed end gives its end at once"
+        );
+    }
+
+    /// The R-68 wait with the bytes that `route_accept` took (#282 with this PR): whenever `readiness()` gives a descriptor
+    /// while a read would give bytes, that descriptor is readable, so the driver's wait ends at once and never at the step
+    /// deadline. After `route_gate` with `on: false`, the taken bytes are out of the stream: the end gives no descriptor
+    /// until a read has given them.
+    #[test]
+    fn a_driver_that_waits_on_the_readiness_is_woken_while_taken_bytes_wait() {
+        // One poll that does not wait: a driver's wait on `readiness()` ends at once, or no descriptor makes it read at once.
+        let wakes_at_once = |route: &RealRoute| {
+            route.readiness().is_none_or(|fd| {
+                let mut fds = [rustix::event::PollFd::new(
+                    &fd,
+                    rustix::event::PollFlags::IN,
+                )];
+                rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO))).unwrap() > 0
+            })
+        };
+        let (mut route, mut worker) = pair();
+        worker.write_all(b"abcd").unwrap();
+        route.control("route_accept", &json!({"bytes": 2})).unwrap();
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        assert!(wakes_at_once(&route), "2 taken bytes and 2 in the stream");
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"ab".to_vec())
+        );
+        assert!(wakes_at_once(&route), "2 bytes in the stream");
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"cd".to_vec())
+        );
+        assert!(
+            route.readiness().is_some(),
+            "an open end with nothing taken"
+        );
+        // The case of the fix: taken bytes and an empty stream.
+        worker.write_all(b"ef").unwrap();
+        route.control("route_accept", &json!({"bytes": 2})).unwrap();
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        assert!(wakes_at_once(&route), "2 taken bytes and an empty stream");
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"ef".to_vec())
         );
     }
 
