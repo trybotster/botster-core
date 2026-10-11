@@ -256,10 +256,13 @@ fn identity(pid: u32) -> Option<ProcessIdentity> {
 }
 
 /// Writes `line` by `deadline` to a non-blocking socket: a write that finds no room waits in `poll` until the socket takes
-/// bytes, and never blocks.
+/// bytes, and never blocks. No write starts after the deadline.
 fn send_line(stream: &UnixStream, line: &[u8], deadline: Deadline) -> io::Result<()> {
     let mut at = 0;
     while at < line.len() {
+        if deadline.expired() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
         match (&*stream).write(&line[at..]) {
             Ok(n) => at += n,
             Err(e)
@@ -268,9 +271,6 @@ fn send_line(stream: &UnixStream, line: &[u8], deadline: Deadline) -> io::Result
                     io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
                 ) =>
             {
-                if deadline.expired() {
-                    return Err(io::ErrorKind::TimedOut.into());
-                }
                 let mut ready = [PollFd::new(stream, PollFlags::OUT)];
                 let left = Timespec::try_from(deadline.remaining()).map_err(io::Error::other)?;
                 // timer: deadline — bounds the wait for room in the request socket
@@ -583,6 +583,18 @@ mod slow_tests {
             self.stream.write_all(&line).unwrap();
         }
 
+        /// Waits until bytes of a request are readable, and reads none: the harness has started to write it.
+        fn request_started(&self) {
+            let mut ready = [PollFd::new(&self.stream, PollFlags::IN)];
+            let left = Timespec::try_from(CLEANUP).unwrap();
+            // timer: deadline — a request that never starts fails the test instead of stalling it
+            assert_eq!(
+                poll(&mut ready, Some(&left)).unwrap(),
+                1,
+                "no request started"
+            );
+        }
+
         fn next_request(&mut self) -> Request {
             let line = self
                 .lines
@@ -794,6 +806,8 @@ mod slow_tests {
         let big = "61".repeat(1 << 19);
         std::thread::scope(|s| {
             let control = s.spawn(|| programs.request(me, &Request::Output(big.clone())));
+            // The write has started, and the probe reads none of it: the rest waits for room until the report is taken.
+            probe.request_started();
             probe.report(&Report::Input("78".into()));
             // The reader took the report, and woke the hosts, although the request is not written yet.
             signals
@@ -805,6 +819,21 @@ mod slow_tests {
             probe.report(&Report::Ack {});
             control.join().unwrap().unwrap();
         });
+    }
+
+    /// A probe that never reads its requests gives `Bad` at the cleanup bound: the write never blocks the control.
+    #[test]
+    fn a_request_that_the_probe_never_reads_gives_bad_at_the_bound() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let _probe = FakeProbe::connect(&programs, me.pid);
+        programs.connected(me).map(drop).unwrap();
+        let big = "61".repeat(1 << 19);
+        let result = programs.request(me, &Request::Output(big));
+        assert!(
+            matches!(&result, Err(ControlError::Bad(why)) if why.contains("was not written within")),
+            "{result:?}"
+        );
     }
 
     /// The drop ends the accept thread and every reader, and removes the socket.
