@@ -10909,6 +10909,17 @@ The proof must not depend on later Input::LinkClosed, adoption, or worker exit f
 Package receipt to P3: msg_plugin-w_1791697856_4a9006.
 Integration receipt: msg_plugin-w_1791697856_0f69f4.
 
+Integration confirms this path and extends F117 to a descriptor already bound in the same read.
+Receipt: msg_plugin-w_1791698157_50aa9d.
+A descriptor-bearing read contains a complete AttachRoute followed by an oversized header.
+The first frame binds the stream. The next header takes the same decoder error return.
+The route remains open, and no HandoffFailed report or RouteClose action ends it.
+The lead's Q1 ruling requires the bound route to end once after that later error.
+F117 therefore includes both the unbound and bound cases.
+Audit every return after link_read_begins, including the return after a frame changes the link state.
+The corrected proofs must observe descriptor closure or RouteClose, plus the required HandoffFailed report, without a later LinkClosed input.
+The package reviewer verifies the bound path from the already reviewed source and runs no execution job.
+
 ### F118 MED — OPEN: the condition-2 proof races hello acceptance
 
 Location: crates/botster-worker/tests/common/session.rs, hello_and_launch, the HELLO send followed by send_with_fd.
