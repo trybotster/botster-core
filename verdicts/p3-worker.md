@@ -11297,3 +11297,158 @@ F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays par
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 163 — PR #243, package round 1 — 2026-10-11
+
+Head: `5ca808f82967f25f476988439a74b5bb9893e7f6`.
+Stacked base: `e493ff5f6d8622f64feb1805fe1def887f69adad`, branch stage1/p4a-real-handoff-recv (#240).
+READY: msg_plugin-w_1791703307_8778ca.
+The reviewer verifies this exact head and base in the complete GitHub body.
+Body record: /private/tmp/review-p3-pr243-5ca808f8.json.
+The lead's 02:20 PT ruling permits PR C to stack on #240 while that PR waits for the separate ad_7 fix.
+The package and integration reviews of #240 are CLEAN; its final gate remains blocked by the accepted base defect.
+Retargeting #243 after #240 lands still requires the supplied base-merge record or a source delta review, as applicable.
+
+### Tier, authority, and complete source review
+
+HIGH is correct under BUILD rules 1, 3, and 5.
+The PR changes process/PTY glue, real route transport, workspace mutation configuration, and the HIGH-path list.
+The reviewer reads all ten own paths, with 878 insertions and 49 deletions, plus the required unchanged source contexts.
+The three commits are 96e60fc62baf8c2563e6088b08415a64092cd8a8, 8256b967a79635b37e837ca5dd80dd23b039c0d7, and this head.
+There is no source merge in this own delta. Its source diff check passes.
+Plan 23ai, BUILD.md, the DP-2 split ruling, and the control-first bounded-turn policy remain binding.
+The reviewer also reads the current lead rulings for the stacked PR, pending minimum IDs, and assigned base defects.
+
+Routes owns each bound stream after DescriptorTable::take removes it from the unbound table.
+The driver sets nonblocking mode and registers SourceFd for both directions under a distinct route token.
+A registration failure drops the stream and supplies RouteEnded, which ends the machine's route.
+RouteClose removes the stream, deregisters it, and lets its owner close it.
+The descriptor ownership proofs retain one transfer and one close, including unknown IDs and the adoption fence.
+Worker-core product logic is unchanged. Its existing actions enforce one pending write per route.
+
+Routes retains edge readiness until WouldBlock and processes at most one write and one bounded read per route per turn.
+A read takes the minimum of READ_CHUNK and its current allowance, then reports the bytes and spends that allowance.
+The worker lowers its own allowance on RouteRead before it compares and sends the next allowance.
+This retains transport backpressure even when a complete input frame leaves no held bytes.
+Interrupted I/O retains work for the next turn. Read EOF and terminal read errors supply RouteEnded once.
+A terminal write error supplies RouteWritten with errno; successful writes report the bytes taken.
+The zero-byte write event path has the separate finding F122 below.
+Stale events after RouteClose produce no input. Route tokens do not decode as candidate tokens.
+The control and candidate inputs enter the input queue before route inputs. The driver settles them before PTY I/O.
+
+PtyReadBudget assigns the driver's current allowance for PTY reads.
+pty_read_bytes bounds the actual read by the chunk, drain, and budget; a zero budget reads nothing.
+Successful reads spend both the drain and budget, and supply PtyOutput to the worker before the next turn.
+A complete drain reports PtyDrained without requiring budget. An incomplete drain waits when its budget is zero.
+ReadyState includes route work and excludes spent-budget PTY work from the reason for an immediate poll.
+The pure decision tests cover 8192 readiness states and positive, absent, exhausted, and drain-limited budgets.
+The real budget path still lacks the required proof, as F121 records.
+
+The new route_io tests use an injected scripted stream and observe inputs, I/O buffers, and stream ownership.
+They do not inspect the private route map. The read-bound proof uses 65536, 1088, and 1.
+The real tests use the existing GuardedSession, Blocker, deadlines, and process cleanup for both fixtures.
+RouteClient retains one StreamReader across reads and preserves coalesced frames.
+The three real proofs cover attach/input/output, client close, and delivery after socket write backpressure.
+The large-output proof checks a three-million-byte uniform payload, its length, and its marker.
+Its uniform payload does not independently distinguish reordered identical bytes.
+The source and existing machine proofs retain ordered writes; the new test's distinct evidence is socket backpressure and complete delivery.
+No sleep, polling loop, product test hook, new mutation regex, pin move, or conformance-list change is added.
+The existing READ_CHUNK exclusion has a stale location; the lead assigns the exclusion-match check to GS outside this PR.
+The existing read_pty_chunk exclusion now documents the unproven budget path; that comment does not close F121.
+
+### F121 MED — OPEN: the real PTY budget has no named behavior proof
+
+Locations: main.rs, Action::PtyReadBudget and Driver::read_pty_chunk; .cargo/mutants.toml, its read_pty_chunk entry.
+The body and exclusion state that no real-process test covers the budget decrement.
+The current real output proof sends 3,000,000 bytes, below the default 32 MiB route queue.
+It fills the socket but does not establish a spent queue budget, source backpressure, and later resumption.
+The pure helper proofs do not execute the real action assignment or the real PTY read path.
+BUILD's HIGH rule requires named real-process proof for real-process behavior before merge.
+The later real route_fill control and its pending conformance ID do not supply that proof now.
+Sol identifies the same gap in msg_plugin-w_1791703435_64878e.
+
+Required correction: add a guarded real-worker proof that fills a legal route queue while its client makes no progress.
+Observe source backpressure through events and deadlines, then permit client progress and prove resumed, complete output.
+The proof must exercise the real PTY budget and preserve process cleanup on every exit path.
+Do not add a product hook, sleep, or polling loop. Cover both fixtures and supply the focused Mac evidence.
+Keep the progressing-reader ID pending until its separate real route_fill form passes.
+This is a proof finding. The reviewer reports no observed source failure on the budget path.
+Finding receipts: P3 msg_plugin-w_1791703485_a7f6f0; Sol msg_plugin-w_1791703485_183d8d.
+
+### F122 LOW — OPEN: a zero-byte write retains stale write readiness
+
+Locations: route_io.rs, write_once and Routes::event.
+For a nonempty write that returns Ok(0), write_once sets wait_writable but leaves writable true.
+Only the WouldBlock branch clears writable.
+Routes::event tests the retained writable flag, so a readable-only event can incorrectly produce RouteWritable.
+Concrete public sequence: bind a scripted stream whose write returns Ok(0); write b"a"; call turn; supply event(token,true,false,false,false).
+The turn reports RouteWritten with Ok(0). The later event incorrectly reports RouteWritable despite no new write readiness.
+The worker's Input contract and this module's stated rule require waiting until the transport is writable again.
+
+Required correction: consume write readiness when a nonempty write returns Ok(0).
+Add the readable-only event assertion to that branch's behavior proof.
+Preserve empty-write behavior and the Interrupted retry.
+This finding covers the accepted generic stream result and event decision. It claims no observed UnixStream failure.
+HIGH requires this LOW finding to close before CLEAN.
+Finding receipts: P3 msg_plugin-w_1791703530_9a8d41; Sol msg_plugin-w_1791703530_80fb38.
+
+### Prior art and supplied evidence
+
+The reviewer reads both cited vault notes completely: one-shot ingress wakes and retained decoded socket frames.
+The new edge readiness and persistent RouteClient reader apply those lessons.
+The reviewer reads the old worker's flush at 72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c.
+That queue flushes until WouldBlock and treats Ok(0) as WriteZero.
+The new driver retains the sans-IO queue and per-turn bound; no old implementation or test is copied.
+mio and the route codec are existing workspace dependencies. The codec is added only as a worker test dependency.
+
+The reviewer reads the complete driver-revert, writable-revert, manual-mutant, final Mac, and pending-ID records.
+The driver reversal fails both selected attach and peer-close proofs by the frame deadline.
+The writable reversal fails the large-output proof in three recorded runs.
+Those repetitions add no distinct coverage. The selected failures establish the missing-writable path, not budget exhaustion.
+Seventeen selected hand mutants fail; their records are not complete exact-head gates.
+The exact-head Mac log names Darwin 27.0.0 and prebuild of three worker binaries.
+It reports 76 worker tests in 5.50 seconds, 17 slow_cli in 0.24 seconds, and 38 slow_session in 5.35 seconds.
+The separate-process core-sys run passes 115 tests in 1.599 seconds.
+Its nine preceding individual passes add no distinct coverage.
+
+The pending-ID record uses an unpushed local merge of earlier PR C 8256b967 and #238 8474e449, on scratch e967a5f5.
+It reports lc_12 and ou_1 passing; the comparison without PR C times out at the first route frame.
+Three other minimum IDs fail and thirteen lack controls, as the lead's assigned work records.
+Those logs are selected evidence on scratch trees, not exact-head ID acceptance. No ID moves in this PR.
+R-58 and R-59 work remains separate. The lead's R-59 tally counts ad_7 as unfenced until its new control proves held:true.
+
+### Gate record and limits
+
+The supplied Linux gate names this exact head and CI base v1 7e8e07d6221603e8cb602bb25daed4cb6dd04c17.
+Thus its mutation delta includes stacked PR B as well as PR C; the review's own delta uses e493ff5f.
+The reviewer reads its header, named proof results, conformance reports, both stage summaries, every individual mutation outcome, and exit record.
+All ten CI steps PASS. Default: 1638 passed, 484 skipped, 11.061 seconds.
+Slow: 420 passed, 2010 skipped, 117.155 seconds.
+Both testkit conformance reports: 206 passed, zero failed, minimum 55/69.
+The six new real-proof executions pass in both fixtures, with the large-output runs at 0.148 and 0.149 seconds.
+The log reports real minimum 36/68 and accepted 37/69, with 80 real-pending IDs and zero passing there.
+The later R-59 ruling removes the unfenced ad_7 from the counted real minimum; the log is not evidence of fenced acceptance.
+
+Mutation stage 1: 153 mutants, 135 caught, seventeen unviable, one missed, zero timeout, 235.0 seconds.
+The missed bind_route deletion is caught by stage 2 after its passing slow baseline.
+Stage 2: one caught, zero missed, timeout, or unviable, 105.3 seconds; its baseline takes 114.2 seconds.
+Final total: 136 caught, seventeen unviable, zero missed or timeout.
+Full CI takes 653.2 seconds. The job exits zero on msa1 after 870 seconds, with 209 queued and 661 running.
+The earlier 8256b967 gate fails only the route-local read-constant arithmetic mutant in stage 2.
+This head removes that constant and uses the shared read bound, with an independent injected-bound proof.
+The reviewer reads that earlier header, failure record, and summary without claiming a complete review of its old mutation outcomes.
+A passing gate does not close F121 or F122.
+The reviewer runs no test, build, gate, measurement, mutant, reversal, or executable merge-check job.
+The reviewer changes no product code.
+
+### Verdict
+
+PR #243 is NOT CLEAN at `5ca808f82967f25f476988439a74b5bb9893e7f6`.
+F121 MED and F122 LOW remain OPEN. Both must close before CLEAN on this HIGH PR.
+This completes #243 package round 1. The next package round is within the normal limit.
+The artifact goes directly to P3 and Sol integration. No ordinary NOT CLEAN report goes to the lead.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
