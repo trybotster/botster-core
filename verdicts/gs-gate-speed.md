@@ -2136,6 +2136,22 @@ The canonical check carries package and integration source CLEAN. The implemente
 
 This record accepts the source carry-over only. The final exact-head gate remains required. I ran no gate, build, test, or base-check script.
 
+### Core PR #278: final gate completion
+
+VERDICT: CLEAN at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`, base `f49f74302526a28b6aced1595f74c7d0a1d22836`. Open findings: 0.
+
+I read the final gate header, summaries, signal-test records, and final exits. All ten steps pass in 135.9 seconds.
+
+The production signal scan checks 232 Rust files. All ten signal tests pass in at most 0.003 seconds.
+
+The default tier passes 1748 tests. The slow tier passes 559 tests. The test-only own diff lists no mutant and changes no decoder crate.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-repo-scan-4b277224-pool-20261011-111756-34635.log`.
+
+The live head and base remain unchanged. The body contains the final canonical check and gate. The lead owns merge approval.
+
+The final gate completes the pending evidence condition. I ran no gate, build, test, or base-check script.
+
 The lead requires a current-base merge after both CLEANs. This verdict applies only to the exact head above; it does not accept a future gate.
 
 I ran no gate, build, test, or executable probe.
