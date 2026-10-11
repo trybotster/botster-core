@@ -207,3 +207,105 @@ P6 stops the eec41d21 gate during the slow step and starts a full gate for the n
 The stopped gate supplies no acceptance verdict for the replacement head.
 Replacement READY, the retained 89eeb2db gate, and the exact-head package Round 2 artifact remain pending.
 This inspection completes no replacement round and grants no CLEAN verdict. I run no reviewer execution job.
+
+## Round 2 — 2026-10-11: corrections and the #239 import
+
+Exact head: `fd627c55cb888fde6225d9a8a964ce65183ee8a8`.
+Base: `11a5246a669de9e8ae6b7ca1ed7763192a099781`.
+Parents: `89eeb2db28793674ef4c2739d17b790ffddf5151` and the base.
+Tree: `5779c52dab8cc0d3f51ea3e3b0dc0f0309abb41e`.
+READY: `msg_plugin-w_1791698420_dc6fff`.
+Package Round 2 CLEAN: `dce16a9ba158aa5b1cea2be00209345945a63d47`, `verdicts/p6-real-route.md`.
+I read that complete package round on the same head.
+Authority: plan 23ai at `c7cbc474d2528b4d4b83b9e8a0ebcc647b27db4d`, contracts .27, and BUILD.md at `56bd0a5`.
+The published PR still states HIGH. GitHub names this exact head and base at the final check.
+
+### Finding closure
+
+**SI-4 / RR-R1-1 HIGH — CLOSED.**
+The corrections at `96116a19251b3b86912fe6a88748fd5260c79fd6` and `eec41d21bd7752363ff264dd26ead4905ea0ae64` remain intact.
+`after_write` keeps pending bytes and stops on `Ok(0)`, `WouldBlock`, or `Interrupted`.
+A positive write removes bytes from a finite buffer. Another error clears that buffer and stops.
+Each flush iteration therefore makes progress or returns. The read can reach its deadline check and bounded poll.
+The controlled writer limits its call count. A no-progress regression fails instead of blocking the proof.
+The full proof covers interruptions, zero-byte writes, partial writes, pressure, and later ordered delivery.
+
+**SI-3 / RR-R1-2 LOW — CLOSED.**
+The private `route.unsent` assertion is removed. Peer EOF, the late write, and route EOF remain.
+The controlled writer and pure decisions expose their results through their interfaces.
+
+**SI-1 / RR-R1-3 LOW — CLOSED.**
+The published Prior art note compares old Core at `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c`.
+It covers stream pairs, timeout reads, descriptor polls, interrupted retries, and scripted `WouldBlock` pressure.
+It states the reused forms and the reasons for the rejected forms.
+It names rustix, the shared Bounded reader, and the current flag parser.
+I checked the cited old source through Git objects. The correction copies no old source or tests.
+
+**SI-2 / RR-R1-4 LOW — CLOSED.**
+The description states #234's implemented descriptor send and the remaining worker-side PR B work.
+It labels the older Failed and HandoffFailed evidence as historical.
+It assigns the 80-ID report to the gated head and the 77-ID list to this final head.
+
+### Base merge and package boundary
+
+The lead's pool rule requires one pre-review gate, source review of base imports, and a final gate after both CLEAN verdicts.
+I read `~/botster-sessions/gates/botster-core-stage1-p6-real-route-fd627c55-pool-20261010-225925-73587.log` completely.
+It exits 1 after nine seconds. Both ancestry checks and the conflict check pass.
+The shared-path check fails on `real.rs` and `core-real-pending.txt`. The diff check fails on changed index lines.
+The Core pending check passes. This failed check requires the following source review.
+
+I compared the merge through Git objects. Its tree equals the automatic merge tree named above.
+The own delta remains six paths, with 539 insertions and 19 deletions.
+All 558 added and removed source lines equal the pre-import line multiset.
+The route source equals the gated correction. The final diff check passes.
+
+The merge preserves #239's start controls, registry control, and RefusalLayer.
+The layer's attach method returns a refusal with the original transport or forwards that transport to its inner CoreApi.
+The harness passes one socket endpoint to that CoreApi. It keeps no duplicate endpoint.
+A refusal drops the returned transport and the local client endpoint.
+Both the plain and tapped harnesses keep the same route implementation.
+
+The two PRs remove disjoint ID sets. #239's three removals remain absent.
+This PR removes only `a7_1_screen_cap_below_snapshot_plus_one_is_invalid_input`, `ev_8_attach_requires_a_positive_query_deadline`, and `ev_5_repeated_attach_detach_without_polling_stays_bounded`.
+The final real-pending list has 77 IDs; the base has 80.
+The own delta changes no Core pending ID, transcript, pin, dependency, native setting, or mutation exclusion.
+The merge preserves the accepted process ownership and route admission rules.
+
+### Retained Linux evidence
+
+Gate head: `89eeb2db28793674ef4c2739d17b790ffddf5151`.
+Gate base: `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-89eeb2db-pool-20261010-221028-80389.log`.
+I read its header, reports, summary, and all 30 outcomes in each mutation stage.
+All ten stages pass in 2661.2 seconds.
+Default: 1596 passed, 484 skipped, in 18.599 seconds.
+Slow: 423 passed, 1984 skipped, in 137.861 seconds.
+Testkit: 206 passed; minimum 55 / 69. Strict pending runs 373 / 394 transcripts, with 21 real-only IDs and two held IDs.
+Real minimum: 35 / 68 passed and 36 / 69 accepted. Pending-real reports zero newly passing IDs among 80.
+These counts belong to the gate head before #239. All twelve route tests and all three P6 removals pass there.
+
+Stage 1 misses all 30 mutants because the route source compiles only with the slow feature. It takes 130.1 seconds.
+The unmutated slow baseline passes in 134.5 seconds.
+Stage 2 catches 25 mutants and finds five unviable. It misses none and times out none, in 2138.0 seconds.
+The stage-2 identity multiset equals the 30 stage-1 misses, with no duplicate identity.
+The five unviable replacements require unavailable default values.
+The mutation step takes 2405.2 seconds. The job exits zero after 2842 seconds: 171 queued and 2671 running.
+The wrapper exits zero after 2843 seconds.
+
+### Focused Mac evidence
+
+I read `~/botster-sessions/gates/botster-core-stage1-p6-real-route-fd627c55-pool-20261010-230450-11929.log` completely.
+Its exact head and base match this round. It sets `TMPDIR=/tmp`.
+Prebuild passes. All twelve route tests and each of the three removed IDs pass.
+The job exits zero after 52 seconds. The wrapper exits zero after 53 seconds.
+
+I also read the failure in `~/botster-sessions/gates/botster-core-stage1-p6-real-route-fd627c55-pool-20261010-230059-80924.log`.
+Its route tests pass. With the default Mac temporary directory, the first ID fails at Core start because the socket path exceeds SUN_LEN.
+The root comes from the base's unchanged `tempfile::tempdir()` call.
+P6 records that harness-root issue as its follow-up. The short-root run proves this PR's route behavior on Mac.
+
+All four findings close, including LOW. The exact final head has no open integration finding.
+The final Linux gate remains the implementer's step after both CLEAN verdicts, under the lead's pool rule.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
