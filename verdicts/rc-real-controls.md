@@ -980,3 +980,50 @@ All three trials fail at the same unfenced PTY-log read with an empty log.
 This confirms the recorded Mac limit. The invalid-UTF8 ID remains real-pending.
 The source CLEAN verdict and pending final-gate requirements do not change.
 The reviewer ran no test, build, or gate.
+
+
+### Core #285 — testkit controls, round 1
+
+VERDICT: NOT CLEAN (1 open)
+Source head: `b5ca83e2825dc9404a3c6634fd97d755cf8f5d37`.
+Gate comparison base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Branch ancestor: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tier: HIGH, because the PR changes the shared testkit crate.
+The reviewer read every own path, the difference from the gate base, R-76, the control definitions, and the current PR body.
+
+RC-TK-1 — MEDIUM — The new `scripted` test asserts private state.
+Evidence: `crates/botster-core-testkit/src/pty_controls/tests.rs`, lines 179, 188, and 190.
+`pty_output_ignores_scripted_and_refuses_any_other_unknown_field` asserts `unread(&harness)` as 0, 1, and 0.
+The helper locates the stored worker row and calls `ProgramControl::output_unread`.
+That accessor returns `self.lock().unread` directly from the program's private record.
+These assertions do not observe public Core behavior. An accessor does not change the state into public behavior.
+The binding review rule permits no private-state assertions.
+Required change: replace these three assertions with observations through the Core API or the route frames.
+Prove that the refused unknown field has zero output effect and that the accepted `scripted` request delivers its bytes.
+Keep the public terminal-mode check, which proves that `scripted` changes no mode.
+Do not add another accessor or expose the counter as the replacement check.
+
+### Other checks for Core #285
+
+The parser names only `scripted` as ignored and retains `deny_unknown_fields`, as R-76 requires.
+Both tiers use the same argument parser. The mode script does not set terminal modes.
+The testkit `input_blocked` runs ready work and reads stream room.
+The real form reads unsent bytes and socket write readiness. It adds no model of worker queue admission.
+The real socket test checks blocking, release, byte order, and the closed-end error.
+The mutation configuration is unchanged. There is no new exclusion for either control.
+The branch predates the two imported xtask test fixes on the gate base; those differences are explicit in this review.
+A later import requires the applicable review or check.
+
+Exact-head gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-testkit-controls-b5ca83e2-pool-20261011-121951-73258.log`.
+The header names the exact source and comparison base above. All ten steps pass, and the gate exits 0.
+It reports six mutants, all caught: two in the default tier and four in stage 2, with no miss or timeout.
+The stage-2 baseline passes. The real `input_blocked` arm is caught by its socket behavior test.
+The five removed IDs pass on both tiers. `in_8_no_recheck_after_start` stays real-pending with its recorded Mac timeout.
+The minimum bytes-and-text ID stays pending because its barrier needs #284.
+The reviewer read the replacement Mac evidence and its parser reversals.
+The withdrawn `114153` evidence is not accepted as proof.
+The earlier list and mutation gate failures remain explicit in the PR body.
+
+One MEDIUM finding remains open. Every finding must close before CLEAN.
+The reviewer ran no test, build, or gate.
