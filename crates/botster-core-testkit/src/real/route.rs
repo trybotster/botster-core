@@ -568,10 +568,23 @@ mod slow_tests {
         worker.set_nonblocking(true).unwrap();
         let mut got = Vec::new();
         let mut buf = vec![0u8; 64 * 1024];
+        // A `WouldBlock` read means the worker's end is empty; `input_blocked` then sends the waiting bytes, and a Unix stream
+        // makes written bytes readable at once. So a second `WouldBlock` in a row is a route that makes no progress.
+        let mut empty_before = false;
         while got.len() < VOLUME {
             match worker.read(&mut buf) {
-                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Ok(0) => panic!("the stream ended after {} of {VOLUME} bytes", got.len()),
+                Ok(n) => {
+                    got.extend_from_slice(&buf[..n]);
+                    empty_before = false;
+                }
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    assert!(
+                        !empty_before,
+                        "no progress after {} of {VOLUME} bytes",
+                        got.len()
+                    );
+                    empty_before = true;
                     route.control("input_blocked", &json!({})).unwrap();
                 }
                 Err(e) => panic!("{e}"),
