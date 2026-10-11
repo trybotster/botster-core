@@ -16,6 +16,9 @@
 //!   ignored with its outcome, never as passed and never as failed; the report names each one that passed, for removal;
 //! - on the real tier only, an id of `TESTKIT_PROVEN` (Core A20-1: its proof observes the worker's own allocator) is an
 //!   ignored trial of kind `testkit-proven`. It is not run and it is not a failure; the report lists it with its reason;
+//! - on the testkit tier only, a non-pending id of `conformance/core-real-only.txt` is an ignored trial of kind
+//!   `real-only`: it has no `TestkitHarness` form (plan 4.2b). It left `core-pending.txt` only with its named real-process
+//!   proof; the real tier runs it must-pass, and the minimum count counts it by that proof (plan 23s);
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
@@ -35,7 +38,7 @@ use botster_conformance::{load_dir, run_transcript, Outcome, SeedSet, Selection,
 use botster_core_conformance::{
     driver_for, CoreHarness, CoreSchemas, CORE_TRANSCRIPTS, TESTKIT_PROVEN,
 };
-use botster_core_testkit::pending::{self, Class};
+use botster_core_testkit::pending::{self, Class, NonPending};
 use botster_core_testkit::status::{parse_deferred as parse_status_deferred, parse_withdrawn};
 use libtest_mimic::{Arguments, Completion, Failed, Trial};
 use std::collections::BTreeSet;
@@ -328,6 +331,17 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
                     "testkit-proven",
                     "testkit-proven (Core A20-1): its proof observes the worker's own allocator; not run on the real tier"
                         .to_string(),
+                ));
+            } else if let NonPending::NoTestkitForm(entry) =
+                pending::non_pending(id, &real_only, plain.is_some())
+            {
+                trials.push(never_passes(
+                    id,
+                    "real-only",
+                    format!(
+                        "real-only ({}): no TestkitHarness form (plan 4.2b); the real tier runs it must-pass",
+                        entry.proof
+                    ),
                 ));
             } else if selection.selects(transcript) && real_pending.contains(id) {
                 real_pending_count += 1;
