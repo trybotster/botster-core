@@ -1,12 +1,12 @@
 # PC package review: PR #245
 
-VERDICT: NOT CLEAN (2 open)
+VERDICT: NOT CLEAN (1 open)
 
-- Reviewed head: `df991fdf57122c7b59b06069ab7da01c992ca175`.
-- Reviewed base: `f6778ad85c01266ac49e2ededd97487da689e920` (`v1`).
+- Reviewed head: `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`.
+- Reviewed base: `5c480db457797fa7ebecb33835a52e26a5a8490d` (`v1`).
 - Branch: `stage1/pc-pin-v0.1.29`.
 - Risk tier: HIGH. BUILD.md rule 4 applies to the contracts pin move.
-- Open findings: 2.
+- Open findings: 1.
 - Scope: the four changed files and the effects of the contracts dependency changes.
 - READY: `msg_plugin-w_1791706164_dd4bfa`.
 
@@ -15,6 +15,32 @@ The reviewer verified SHA-256 `db7ba8e5c0748aa53257fb53a5e6f8923a9549c6c9871127a
 Plan section 0 requires contracts-v0.1.29 at `65f76ab9829d7a0fda2835c10abc7ffae2c35215`.
 This plan requirement supersedes the brief's older .28 tag line.
 The reviewer used BUILD.md and the relevant R-56 through R-59 conditions.
+
+## Delta review
+
+This verdict supersedes package NOT CLEAN (2 open) commit `f774f13238d3499e9af5ae45811ff8488435ebeb`.
+Previous reviewed head: `df991fdf57122c7b59b06069ab7da01c992ca175`, base `f6778ad85c01266ac49e2ededd97487da689e920`.
+Delta message: `msg_plugin-w_1791706585_c829c9`.
+The new head merges #247 from the current base, then corrects the ruling-range comment.
+
+The reviewer read the full base-merge check:
+`~/botster-sessions/gates/botster-core-pc-base-merge-check-df991fdf-c57ec826-20261011.log`.
+The ancestry checks and automatic merge pass. Conditions 2 and 3 fail because both sides change Cargo.toml.
+Both line-set conditions pass. The reviewer does not treat the failed check as automatic approval.
+The reviewer read the complete source delta and checked the merged manifest values.
+The new base adds a sha2 override: opt-level 3, with debug assertions and overflow checks enabled.
+The reviewed head preserves that profile exactly. Its own dependency values still change only the seven contracts tags.
+Cargo.lock and the other two own files are byte-identical to the previous reviewed head.
+All status lists retain the current base's entries. No ID flips.
+The source diff has no whitespace error. No additional source finding exists in this delta.
+
+The previous green Linux gate covers df991fdf. It does not establish CI on c57ec826.
+The implementer plans one final gate after both reviewers report CLEAN, under the lead's pool rule.
+PC-PIN-1 remains open before that stage.
+The implementer reports 13 failures in 30 trace runs, all at step 21. The reviewer has not received those retained logs.
+The lead requested equal-load comparisons on the same base profile: old pin at 5c480db4 and new pin at c57ec826.
+The implementer reports that comparison job is running. The reviewer did not read or poll the running job.
+The earlier Mac evidence predates #247's sha2 optimization. The comparison must account for that changed build profile.
 
 ## PC-PIN-1 MEDIUM — An active EV-5 test fails on the real Mac tier
 
@@ -40,7 +66,7 @@ Required closure: determine the cause and record the evidence.
 Resolve the failed contract check through the correct owner and retain evidence under the conditions that produced the failure.
 If the resolution needs a transcript change, obtain the lead and steward instruction first.
 Do not change an expectation or treat the isolated passes as proof that the failure is resolved.
-Status: OPEN. PIN-SI-1 below records the separate description defect.
+Status: OPEN. PIN-SI-1 below is closed after the description correction.
 
 ## PIN-SI-1 LOW — The pin description omits R-59
 
@@ -53,7 +79,10 @@ Sol identified it in `msg_plugin-w_1791706439_09d0d5` and asked the implementer 
 Required change: correct the ruling range to R-54 through R-59 in the new Cargo.toml comment and PR summary.
 Keep the new start_held control and transcript fences identified as later work.
 Keep the R-59 limit on unfenced AD-7 minimum progress in force.
-Status: OPEN. This is a description correction. No runtime-code change is required.
+Status: CLOSED on `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`.
+The reviewer checked the new Cargo.toml comment and current PR summary. Both now name R-54 through R-59.
+Both descriptions keep the control and fences in a later tag. The PR retains the unfenced AD-7 tally limit.
+This correction changes no runtime code.
 Every LOW finding must close before CLEAN on this HIGH PR.
 
 ## Pin and list checks
@@ -95,18 +124,19 @@ The Mac evidence uses the same dependency pin as the reviewed head.
 The reviewer read the merge paths from f5bb74ce to df991fdf.
 They change xtask base-merge code and tests, real-pending comments, and manifest comments.
 They change no Core runtime, harness, driver dependency, or transcript relevant to the Mac failure.
-The Linux gate runs on the final reviewed head, so it covers those base changes.
+The previous Linux gate runs on df991fdf and covers its earlier base changes.
+The new #247 base merge still requires the final gate described above.
 
 ## Linux gate
 
 Log: `~/botster-sessions/gates/botster-core-stage1-pc-pin-v0.1.29-df991fdf-pool-20261011-010434-15999.log`.
-The gate header names the reviewed head and base.
+The gate header names the previous reviewed head and base.
 It runs `env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask ci` on the Linux pool.
 All ten steps pass. The diff has no mutant and changes no crate with a decoder harness.
 The gate exits with code 0 after 254 seconds. The CI summary reports 191.4 seconds.
 The pending-real report lists 77 IDs and zero passes. This gate supports no pending-ID removal.
 The reviewer read the header, EV-5 PASS records on both tiers, mutation result, and complete final summary.
-The reviewer also checked the PR's exact head, base, body, and source diff.
+The reviewer also checked the current PR head, base, body, and source diff.
 
 The reviewer ran no build, test, gate, mutation, reversal, or executable merge-check job.
 The integration reviewer must review this HIGH PR. This verdict grants no merge approval.

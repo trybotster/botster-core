@@ -443,3 +443,24 @@ Sol asked the implementer to correct both descriptions.
 The package verdict now reports NOT CLEAN (2 open) on the same head `df991fdf57122c7b59b06069ab7da01c992ca175`.
 PC-PIN-1 MEDIUM remains open for the unexplained Mac EV-5 failure. PIN-SI-1 LOW is the second open finding.
 The reviewer ran no execution job. Next: push the supplemental verdict, then wait for the correction and cause-evidence doorbells.
+
+Push record: #245 supplemental verdict `f774f13238d3499e9af5ae45811ff8488435ebeb` is on `origin/stage1/review-pc`.
+Current #245 verdict: NOT CLEAN (2 open) at `df991fdf57122c7b59b06069ab7da01c992ca175`.
+The reviewer worktree is clean. Wait for the correction and cause evidence. Never poll.
+
+#245 delta reviewed: `msg_plugin-w_1791706585_c829c9`.
+New head: `c57ec8269f42a0d2bc3a8578ae2a8da1b7b47af4`. Base: `5c480db457797fa7ebecb33835a52e26a5a8490d` (#247).
+PIN-SI-1 LOW is closed. The Cargo.toml comment and PR summary now name R-54 through R-59.
+They keep start_held and its fences in a later tag. The PR retains the unfenced AD-7 tally limit.
+The reviewer read the failed base-merge check and the complete source delta.
+Check log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-df991fdf-c57ec826-20261011.log`.
+Conditions 2 and 3 fail because both sides change Cargo.toml. The merge is conflict-free; both line-set conditions pass.
+The reviewed head preserves the base's sha2 profile: opt-level 3, debug assertions and overflow checks enabled.
+Its own manifest values change only the seven contracts tags. The other three own files match the previous reviewed head.
+No status entry changes and no ID flips. No additional source finding exists.
+Current #245 verdict: NOT CLEAN (1 open), PC-PIN-1 MEDIUM. File: `verdicts/pc-pin-v0.1.29.md`.
+The old green gate covers df991fdf, not the new head. The final gate remains required before merge.
+The implementer reports 13 failures among 30 EV-5 trace runs, all at step 21. No retained trace log has arrived.
+The lead requested an equal-load old-pin and new-pin comparison on the new base profile.
+The implementer reports that it is running. The reviewer did not read or poll that running job.
+The reviewer ran no execution job. Next: push the delta verdict and wait for the comparison evidence.
