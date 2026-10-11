@@ -160,6 +160,20 @@ fn pty_output_bytes_are_read_by_the_worker() {
     }
 }
 
+/// The visible text of `s1`'s model, through Core's `ReadScreen`.
+fn screen_text(core: &mut dyn CoreApi, mut at: Instant) -> String {
+    let read = core
+        .begin(Op::ReadScreen {
+            session: sid("s1"),
+            history: false,
+        })
+        .unwrap();
+    match complete(core, &mut at, read) {
+        OpResult::Ok(OpOutput::Screen(screen)) => screen.text,
+        other => panic!("ReadScreen: {other:?}"),
+    }
+}
+
 /// Steward ruling R-76: `pty_output` ignores `scripted`, the fake's mode script, as Core ignores a `Create` request's `fake`.
 /// The bytes are written, and the modes come from the bytes alone: a script that claims bracketed paste changes no mode. Any
 /// other unknown field is still `Bad`, with zero effect: no byte reaches the program's output.
@@ -176,7 +190,11 @@ fn pty_output_ignores_scripted_and_refuses_any_other_unknown_field() {
         "pty_output",
         &json!({"session": "s1", "bytes_hex": "78", "script": scripted})
     )));
-    assert_eq!(unread(&harness), 0, "a refused control writes nothing");
+    settle(core.as_mut(), at);
+    assert!(
+        !screen_text(core.as_mut(), at).contains('x'),
+        "a refused control writes nothing"
+    );
     assert_eq!(
         harness.control(
             "a",
@@ -185,9 +203,11 @@ fn pty_output_ignores_scripted_and_refuses_any_other_unknown_field() {
         ),
         Ok(Value::Null)
     );
-    assert_eq!(unread(&harness), 1, "the byte waits for the worker");
     settle(core.as_mut(), at);
-    assert_eq!(unread(&harness), 0);
+    assert!(
+        screen_text(core.as_mut(), at).contains('x'),
+        "the accepted byte reaches the session's model"
+    );
     assert_eq!(core.terminal_state(&sid("s1")).unwrap().modes, modes);
 }
 

@@ -93,5 +93,5 @@ conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
 
 # R-76 (`scripted` ignored; RC testkit PR) makes it pass on the testkit. On the real tier it is INCONCLUSIVE at step 9
-# (step_timeout, 2 of 2 runs on macOS): after pty_chunk 1, the host paste never completes. Not diagnosed further.
+# (step_timeout, 3 of 3 logged runs on macOS): after pty_chunk 1, the host paste never completes. Not diagnosed further.
 conf::in_8_no_recheck_after_start
