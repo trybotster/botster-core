@@ -62,7 +62,19 @@ The real tier's trials (`tests/suite/mod.rs`, plan 23l and 23q):
   `core-pending.txt`. The real tier's report run is `--ignored`, after the nextest run of the same job passed every
   trial that must pass, so it counts those trials. On both tiers, a real-only minimum id (`conformance/core-real-only.txt`,
   the `slow:*` proofs of the pinned replacement map) that is not in `core-pending.txt` counts by its named real-process
-  proof, and the report names the proof (plan 23s).
+  proofs, and the report names each proof as `<binary> <test>` (plan 23s).
+- **Named real-process proofs** (lead, 2026-10-11). `conformance/core-real-proofs.txt`, written by hand, names the slow-tier
+  tests that prove each real-only id: `conf::<id><TAB><nextest binary id><TAB><test name>`. A non-pending real-only id is an
+  ignored `[real-only]` trial on both tiers, whose reason names its proofs; its transcript never runs. A non-pending
+  real-only id with no proof line is a failing trial. The checks fail closed:
+  - `cargo xtask lists`: each non-pending real-only id has a proof line, each line names a real-only id, and the file is in
+    byte order with no duplicate (`pending::real_proof_problems`);
+  - `cargo xtask slow-coverage`: each named test is in the slow list, is not ignored and is selected by the slow filter, and
+    an ignored `[real-only]` trial of the real tier is accepted only for an id with a proof line;
+  - the slow step (`real_proofs::check_slow_run`): each named test has a passing test case in the slow tier's own JUnit file, which
+    `test_budget` deletes before the run (a report that cannot be deleted fails the run).
+
+  The doc comment of each named test cites its `conf::<id>` and its clause; the reviewers check it by reading.
 
 Prior art: none copied. The scripted inner edges of `edge_tap/tests.rs` are new.
 

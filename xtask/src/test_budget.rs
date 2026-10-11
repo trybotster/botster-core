@@ -504,6 +504,25 @@ fn read_times(path: &Path) -> Result<BTreeMap<String, f64>> {
         .with_context(|| format!("{} has no \"tests\" map", path.display()))
 }
 
+/// The JUnit file of a nextest run in `profile` (`.config/nextest.toml`: every profile writes `junit.xml`).
+pub fn junit_path(target_dir: &Path, profile: &str) -> std::path::PathBuf {
+    target_dir.join("nextest").join(profile).join("junit.xml")
+}
+
+/// Removes the report of an earlier run. A file that is absent is fine; any other error fails, so a stale report can never
+/// stand for this run (the package reviewer, 2026-10-11).
+///
+/// # Errors
+/// The file exists and cannot be removed.
+fn remove_stale(path: &Path) -> Result<()> {
+    match std::fs::remove_file(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            Err(error).with_context(|| format!("remove the earlier report {}", path.display()))
+        }
+        _ => Ok(()),
+    }
+}
+
 pub fn command(root: &Path, args: &[String]) -> Result<()> {
     caps::require()?;
     let options = parse_options(args)?;
@@ -543,12 +562,9 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         bail!("the test build failed");
     }
 
-    let junit = meta
-        .target_dir
-        .join("nextest")
-        .join(profile)
-        .join("junit.xml");
-    let _ = std::fs::remove_file(&junit);
+    let junit = junit_path(&meta.target_dir, profile);
+    // A report of an earlier run must never count for this one (the named proofs read it after the slow tier).
+    remove_stale(&junit)?;
 
     let deadline = if options.slow {
         options.deadline.unwrap_or(SLOW_DEADLINE)
@@ -733,6 +749,27 @@ mod tests {
         assert!(parse_options(&args(&["--deadline", "5m"])).is_err());
         let o = parse_options(&args(&["--slow", "--deadline", "5m"])).unwrap();
         assert_eq!(o.deadline, Some(Duration::from_secs(300)));
+    }
+
+    /// An earlier report is removed, an absent one is fine, and a report that cannot be removed fails the run, so it never
+    /// stands for this one.
+    #[test]
+    fn an_earlier_report_is_removed_or_the_run_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let junit = junit_path(dir.path(), "slow");
+        assert_eq!(junit, dir.path().join("nextest/slow/junit.xml"));
+        assert!(remove_stale(&junit).is_ok());
+        std::fs::create_dir_all(junit.parent().unwrap()).unwrap();
+        std::fs::write(&junit, "<testsuites/>").unwrap();
+        assert!(remove_stale(&junit).is_ok());
+        assert!(!junit.exists());
+        // A directory in the report's place cannot be removed as a file.
+        std::fs::create_dir(&junit).unwrap();
+        let error = remove_stale(&junit).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("remove the earlier report"),
+            "{error:#}"
+        );
     }
 
     #[test]
