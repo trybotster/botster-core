@@ -135,3 +135,28 @@ Commits since round 1: `72eb31b` (R-80: the rule, addition (1), the fences, the 
 ### 016c's round 2 finding on the same head (package scope; recorded, not repeated)
 
 - MEDIUM: `output_fences` (`activities`) recurses through `$one_of`, so it takes an `Activity{S, Output}` in any alternative as a fence. `pump_until {"$one_of": [Activity{s1, Output}, Bell{s1}]}` can end on `Bell` with no output applied, and the lint clears s1. Alternatives that name s1 and s2 clear both. My round 2 missed it. I check the fix on the next head: an alternative of `$one_of` (or any matcher that can end the wait without it) is not a fence, with regression cases.
+
+## Round 3: NOT CLEAN (2 LOW) on 50fd7f4cc1693520d97361d3a8102b9642cd4976
+
+Base main `71f01c8812132fa979b8584f12a92ba2efde071e`. The head fast-forwards main. Merge `65582cd` (main `71f01c88`) is automatic: the recomputed tree `9d68d11dba98e63928dc13f74696db618868df2d` equals the commit's tree. Own delta against `381e4bb8843063e47929e197be87b0efa4144115`: `conformance/core-fence-exceptions.txt`, `conf::st_6_pages_owned_last_flag_and_range.json`, `fence_lint.rs`.
+
+Gate: `~/botster-sessions/gates/botster-contracts-stage1-p5-in9-guard-fence-50fd7f4c-pool-20261011-143020-65365.log` (sha256 `8c7e9ae15b1e52067c50e478444aeb1b36589a9408f99ccf83a902888e5a7bfd`). The header names head `50fd7f4c...` and base `71f01c88...`. Allocation `5cd9f52d`, Linux. manifest, frozen, taint, ledger, rust, slow, codegen, ts, fuzz, mutants: all PASS. Exit 0.
+
+### Closed
+
+- **F4 closed.** `ends_with_a_mode_sequence`: a final `u` counts only when the first parameter byte is `=`, `>` or `<` (kitty set, push, pop). `CSI u` (SCORC) and `CSI ? u` (query) are non-fence cases in the self-test (`421b5b75`, `421b5b3f75`). The `h`/`l` rule is unchanged.
+- **F5 closed.** The file header and the body both say five reasons.
+- **F6 closed.** Step 6 writes `41` + `OSC 2 ; r80-st6-pages ST` (`1b5d323b7238302d7374362d70616765731b5c`). The OSC is the last bytes. New step 7 `await_title {s1, "r80-st6-pages"}`. The title is distinct: no other step of the id sets or expects a title. No later step asserts a `TitleChanged` or an empty event queue: the later steps are `await_quiet`, the capture's `Completed`, a `let` and four `read_page` calls. The title changes no page content, so the `read_page` expectations do not change. The R-80 exception entry and its comment are gone.
+- **016c R2-1 closed.** `required()` gives the sessions that every match requires. A `$one_of` gives the intersection of its alternatives. Other `$` keys give nothing (the conservative side: a missed fence is a finding, never a false clear). `ignore` and `forbid` give nothing. `derived()` reads `/<Event>/id` directly on the event, so a derived event inside a `$one_of` is not a fence either. Tests: a `$one_of` of two s1 Activities is a fence; `Activity|Bell`, `s1|s2` and `$not` are non-fences.
+
+### Open
+
+- **F7 LOW (evidence; 016c raised the same item at LOW; my round 1 F3 requires it):** the Core tier table has no row for `conf::st_6_pages_owned_last_flag_and_range`. `core-tiers-mac.log` runs the contracts tree at `72eb31b`, before `5d0ee7f` changed this transcript. Required: the before/after result of this id on both Core tiers (testkit and real), with the log path and its sha256, in the body.
+- **F8 LOW (self-test):** only the `=` form of a kitty `u` is a positive case (`421b5b3d33313b3175`). No self-test has `CSI > ... u` or `CSI < u` as a fence. If `"3e"` or `"3c"` leaves the list, every test stays green. (The gate's mutants do not mutate test files.) Add one positive case for each, and state red on revert.
+
+A delta re-review follows on the next head. If the next head changes only the body and the self-test, the gate on `50fd7f4c` does not carry: the gate must run on the new head.
+
+### 016c's round 3 on the same head (package scope; recorded, not repeated)
+
+- REJECT, one LOW: the same evidence gap as F7. 016c also requires a correction of the body's claim that the fake tier runs every changed transcript: `st_6_pages` is `fake: structural`, so the gate does not execute it. That is why F7 needs the Core tier runs.
+- 016c sent the round-limit QUESTION to the steward: an evidence-only review on this head. F8 needs a self-test change, so it needs a new head. The steward rules whether F8 goes into this PR or into a follow-up.
