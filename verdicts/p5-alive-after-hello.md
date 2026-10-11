@@ -209,3 +209,44 @@ The lead and integration reviewer must assess that trace evidence against the re
 This reviewer runs no gate and grants no exception beyond this source confirmation.
 
 VERDICT: CLEAN
+
+## Round 3 — final evidence, 2026-10-11
+
+- Head: `0309469729459788da3a369bcab3443debc7a359`.
+- Tree: `97bc42fce1cd3dc8d2cd84cb9b4fd789c49a4555`.
+- Base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
+- Implementation unchanged since Round 2. No source finding remains open, including LOW.
+- Integration completion: `ef88d1a2c80147ac7b856fa3e2af2c9342b92dbc`, received in `msg_plugin-w_1791708707_f35602`.
+
+The reviewer read Sol's committed completion section, the exact-head gate header, test results, mutation results, and complete final summary.
+Final log: `~/botster-sessions/gates/botster-core-stage1-p5-alive-after-hello-03094697-pool-20261011-013626-2040.log`.
+The header names this exact head and base. All ten steps pass, total 295.9 seconds.
+The job exits zero after 303 seconds on msa1, with no queue wait. The gate wrapper exits zero after 304 seconds.
+Default tests: 1611 passed, 484 skipped, 10.446 seconds.
+Slow tests: 428 passed, 1994 skipped, 28.664 seconds.
+EV-5 passes on the testkit and real tiers and in the unmutated slow baseline.
+Testkit minimum remains 55/69. Real pending remains 77, with zero newly passing IDs.
+The printed real 36/68 and accepted 37/69 remain historical raw counts; R-59's exclusion still applies to unfenced AD-7.
+
+Stage 1 tests 15 mutants: eight caught, six missed, one unviable, zero timeout, 106.5 seconds.
+The slow baseline passes all 428 tests in 29.155 seconds; the full baseline step takes 39.9 seconds.
+Stage 2 tests exactly the six missed identities once each: four caught, two unviable, zero missed or timeout, 56.4 seconds.
+The reviewer checked all 21 printed outcomes and the full identity counts.
+The final result is twelve caught, three unviable, zero missed or timeout. The complete mutation step takes 204.8 seconds.
+The fuzz step passes and reports no changed crate with a decoder harness.
+
+Approved plan 23al is pinned at `~/botster-sessions/pins/stage1-plan.1555a98b.md`.
+The pin and the approved source have matching SHA-256 `a3965b731b7b00fbe56e28581d298f38fe4d1b2836ff322f33d4c988cc5183ab`.
+The lead handoff explicitly classifies the failure as the retry Detach's failed success expectation at the same step.
+The lead connects four pending operations and zero queued events to P3's descriptor diagnosis and the R-63 recovery race.
+The plain-v1 trace returns UnknownRoute; the first final gate returns PendingLimit.
+This review preserves that distinction and claims no exact PendingLimit reproduction on plain v1.
+Sol accepts the lead's explicit classification with that limit. This package record retains its qualified source confirmation.
+The one authorized re-gate is now green on every step. This record grants no second re-gate.
+
+The lead merged #249 at `b7c97b42b8e559053153f8a8202ee32dbde0a93a`.
+The reviewer checked both parents: the exact base and reviewed head. The merge tree equals the reviewed and gated tree.
+EV-5's R-63 fence and the R-64/A21 item remain open. This completion closes no separate gate or finding for another PR.
+The reviewer changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
+
+VERDICT: CLEAN
