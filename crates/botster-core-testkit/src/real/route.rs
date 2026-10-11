@@ -23,7 +23,7 @@ use std::sync::{Mutex, Weak};
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
-pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate"];
+pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate", "input_blocked"];
 
 /// The client end of one route.
 pub(super) struct RealRoute {
@@ -249,6 +249,26 @@ impl RouteClient for RealRoute {
             "route_gate" => {
                 self.gated = crate::route_client::flag(args, "on")?;
                 Ok(json!({}))
+            }
+            // Core DP-5: whether the stream takes no more bytes from the client now (the worker has stopped reading the
+            // route): client bytes still wait for room, or the kernel reports the client's end not writable. The worker
+            // process reads on its own, so this is the stream boundary at the moment of the call, and nothing about the
+            // clause.
+            "input_blocked" => {
+                self.flush();
+                let end = self
+                    .end
+                    .as_ref()
+                    .ok_or("input_blocked: the client's end is closed")?;
+                let mut fds = [rustix::event::PollFd::new(
+                    end,
+                    rustix::event::PollFlags::OUT,
+                )];
+                let writable = rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO)))
+                    .map_err(|e| format!("input_blocked: poll: {e}"))?
+                    > 0
+                    && fds[0].revents().contains(rustix::event::PollFlags::OUT);
+                Ok(json!({"blocked": !self.unsent.is_empty() || !writable}))
             }
             // Core OU-1, DP-4: the input that reached the PTY of the route's session.
             "pty_input" => match &self.input {
@@ -532,6 +552,37 @@ mod slow_tests {
     }
 
     /// The route serves only its own controls; any other is `unsupported_control`.
+    /// `input_blocked` (Core DP-5): while the worker's end reads nothing, the client's bytes fill the stream, and the route
+    /// reports blocked. When the worker's end reads everything, the route sends the waiting bytes first and reports not
+    /// blocked. No byte is lost. A closed client end is an error.
+    #[test]
+    fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
+        /// Far more than a Unix stream's socket buffers on macOS and Linux.
+        const VOLUME: usize = 4 * 1024 * 1024;
+        let (mut route, mut worker) = pair();
+        let blocked = |route: &mut RealRoute| route.control("input_blocked", &json!({}));
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+        let sent: Vec<u8> = (0..VOLUME).map(|i| (i % 251) as u8).collect();
+        route.write(&sent);
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": true})));
+        worker.set_nonblocking(true).unwrap();
+        let mut got = Vec::new();
+        let mut buf = vec![0u8; 64 * 1024];
+        while got.len() < VOLUME {
+            match worker.read(&mut buf) {
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    route.control("input_blocked", &json!({})).unwrap();
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert_eq!(got, sent, "every byte, in order");
+        assert_eq!(blocked(&mut route), Ok(json!({"blocked": false})));
+        route.control("client_close", &json!({})).unwrap();
+        assert!(blocked(&mut route).is_err());
+    }
+
     #[test]
     fn the_route_serves_only_its_own_controls() {
         let (mut route, _worker) = pair();
