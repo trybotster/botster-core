@@ -1,7 +1,6 @@
-# Contracts (PR number and branch pending): integration review (R-88 lint, P3)
+# Contracts #73 (`p3/r88-lint`): integration review (R-88 lint and R-80 list growth, P3)
 
 Reviewer: contracts integration reviewer (017f). Implementer: P3 (`sess-1791517264-0164-de59be35e09a9d1858798a29a4f8e2b1`). Package reviewer: 016c. Ruling: R-88 "The sweep rulings" (pending: item 5 of `~/botster-sessions/shared/steward/drafts/pending-rulings-edits.md`; it governs now). Tier: HIGH.
-When the PR's branch is known, this file moves to `verdicts/contracts/<branch>.md`.
 
 ## Checks for the READY head
 
@@ -60,3 +59,38 @@ I check this on the READY head.
 - MEDIUM: `pty_queued` suspends every input cause with no proving expectation and no held-write context (prototype line 249).
 - MEDIUM: `Completed` and `op_posted` clear a cause by the text of the op variable, with no handle and no binding generation (lines 153 and 258). 016c asks for negative tests: `bytes: 0`, an unrelated later op, and a `$w` reused across handles.
 - Distinctness: `activity_before_close` stays true once set. So an earlier `route_reports` with `activity_before_close: true` does not fence a later `route_send` on the same route. A fence for the later send needs a distinct proof. (In #69, r2 has one send before its fence, so #69 is not affected.)
+
+## Round 1: NOT CLEAN (2 LOW) on 39cc39ddfe775e2eabdd88bab3f680d0ed9e654a
+
+There are two commits on main `17f8a6e94cf3fff61c4eb2aff4a02f1e5dfd4b3e`: `7e83ea5` (the R-80 list growth, the one-byte rule, the `dp_3` sentinel) and `39cc39d` (R-88, `tests/fence_lint/report.rs`). Four files change: `core-fence-exceptions.txt`, `dp_3_screen…json`, `fence_lint.rs` and `fence_lint/report.rs` (+1987/-44).
+
+Gate: `~/botster-sessions/gates/botster-contracts-p3-r88-lint-39cc39dd-pool-20261011-162459-27871.log` (sha256 `62989cfff5a121041da2c9890920a6f4d8a5c71edb65d682e2d2cfb92d13e349`, recomputed). The header names head `39cc39dd...` and base `17f8a6e9`. msa1. Ten steps PASS. Exit 0.
+
+### My design points: in the code
+
+- R-80's `output_fences` and `output_fence_covers` are reused, with the last-bytes test and the `$one_of` intersection (`report.rs` `output_fence`, line 495).
+- A control fences only with a proving expectation: `parked: true`, `held: true`, `count >= 1`, `bytes >= 1`, `posted: true`, `activity_before_close: true` or `closed: true` (`control_fence`, line 567).
+- An ordered event `expect` or `expect_set` goes through the same wait function. `ignore` and `forbid` never fence.
+- A route-frame `expect_quiet_until` is no read, and the module doc gives the reason.
+- Identity: `Completed` and `op_posted` match the current binding on the op's handle (`self.current(v)`, `.filter(|op| op.handle == h)`). `route_reports` `activity_before_close` clears only the first client send on its route (`first_on_route`). `pty_queued` counts only in R-74's form (a blocked PTY, a filler write, a lower bound of at least 1).
+- The ownership of both commits (main R-88 "Owners") is cited.
+
+### Findings
+
+- **F1 LOW (the debt notes prescribe a fence that #71 proved wrong).** The debt notes of the three `e3_1` ids (lines 337-350) tell the owner to add `await_control parked_work {s1} {parked: true}`. #71's per-seed probe (`e31-whose-parked-probe.log`) shows that for `carried_transition`, an s1 fence is INCONCLUSIVE in 32 of 32 seeds, and s2's work is parked in 32 of 32. Main's R-88 says "The parked session is not assumed". For `eventless_effect` and `runnable_silent`, main's R-88 (line 39) says the fence is added and proved in the PR that un-pends each id. Required:
+  - `carried_transition`: the note names `{s2}`, or the line goes when #71 merges (see the merge order below);
+  - the other two: the note says that the session is proved per seed at the un-pend, not s1.
+- **F2 LOW (`parked_work` clears more than it proves).** `control_fence` clears every armed `Life` cause of S on the handle when `parked_work {S}` is true (line 579). `parked: true` proves that at least one report of S waits for room. The worker link is ordered, so the parked frame is the first unconsumed report. A later life cause of S (for example a `Remove` after a `Stop`) may have no report written yet. After the poll that frees room, a read that depends on that later cause races, but the lint has cleared it. Required, one of:
+  - (a) clear only the earliest armed `Life` cause of S, with a self-test of two pending life causes;
+  - (b) show that no corpus id has two armed life causes of one session at a `parked_work` fence, and add a self-test that pins the chosen behavior, with the reason in the module doc.
+
+### Merge order with #71 and #69 (coordination; no finding against this head)
+
+The corpus test requires the exception list to equal the findings. #73 lists R-88 debt for ids that #71 fences (`ev_5_full_queue`, `ev_5_stop_kills`, `tm_6_more_means`, `tm_6_parked_work`, the three `e3_1`) and for `ev_5_route_closed` s28/s29, which #69 fences.
+- Whichever PR merges second must merge main and reconcile the list against the lint's findings on the merged tree.
+- Not every line will go. In `e3_1_carried_transition`, the ruled fence is after the last `more: false` pump, so the pump reads before it stay matches unless the lint judges them insensitive. They then need `exception:` lines with reasons.
+- I check the reconciliation, as a delta review, on the merged head of whichever PR is second.
+
+### Notes (no finding)
+
+- `event_fence` has a branch for `Activity` with `source` the string `"Client"`. `ActivitySource::Client` carries a `RouteId` (`botster-core-contract/src/event.rs` line 90), so no transcript can match that branch. It is dead code, not a gap.
