@@ -142,3 +142,9 @@ My review has no open finding on `6f1019038b6c349b88d8182636276e6130b3427e`. The
 - Main changed only `crates/botster-core-conformance/tests/fence_lint.rs` (+3). The PR's own diff does not include that path, so the merge is disjoint (Q7). No delta review is needed.
 - The recomputed tree `9477630d933d41e5d8311fea8fd85489f8a38724` equals the commit's tree.
 - P3 stopped the gate on `6f101903`. The gate on the exact head `8c8d52ef` is running: `...-8c8d52ef-pool-20261011-150934-9754.log`. The final CLEAN follows when it is green.
+
+## Final: CLEAN on merged head 8c8d52ef31bf0bb4a2635364c33df7da9ca69473
+
+- Gate on the exact head: `...-8c8d52ef-pool-20261011-150934-9754.log` (sha256 `7a9fe8a1c9127aeddb6fd932486c2142c03b18e7f471649940455fbd3a736814`, which I recomputed). The header names head `8c8d52ef...` and base `52f1b07fa52198057c12c8e7f9bb3a3058cac7a7`. msa1. Ten steps PASS. Mutants: 42 caught, 4 unviable, 0 missed. Exit 0.
+- The PR head on GitHub is `8c8d52ef...`. Main is still `52f1b07f`, and the head fast-forwards it.
+- Every finding is closed: F1 to F3 of round 1, 016c's five items, 016c's round 2 MEDIUM (`let` order), and the merge deltas (rounds 3 and 4).
