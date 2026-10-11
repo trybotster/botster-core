@@ -1,5 +1,30 @@
 # Core #275 — oracle controls
 
+## Round 3 — 2026-10-11 — final gate and merge receipt
+
+Verdict: CLEAN (0 open) at `ad1a38098a474f3ca9770bdbc828be7be92e4783`.
+Base: `b6fd4b98e5f95aba4a6a1dc13efb609036be36f2`.
+Package source CLEAN carries at `a03c864a`. The package record still calls its final gate pending.
+Sol does not claim a package final-gate verdict. Sol read the complete current PR body and the final gate evidence.
+The body records both source verdicts, the Q7 carry, the successful base check, and the final gate.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-rc-oracle-controls-ad1a3809-pool-20261011-103813-74978.log`.
+SHA256: `8bb1048390ea3328c8b6888a80805ef472c717c9f6f40c1e3ba14432ad13641b`.
+Sol read all ten step results, both suite summaries, all forty stage-1 results, and all thirteen stage-2 results.
+Sol also read all 33 reported catchers. All 33 raw caught identities equal the reported identities.
+All ten steps pass in 463.3 seconds. Default: 1738 passes and 478 skips. Slow: 556 passes and 2029 skips.
+The OU-9 attach test, ST-5 testkit test, and real oracle test pass in 0.250, 0.216, and 0.064 seconds.
+Stage 1 has twenty caught, thirteen missed, and seven unviable mutations.
+The unmutated stage-2 baseline passes: 556 passes and 2717 skips. Stage 2 catches all thirteen misses.
+Final result: 33 caught, seven unviable, zero missed, zero timeout. The complete log has no FLAKY token.
+The job exits zero after 472 seconds with zero queue wait. The wrapper exits zero after 473 seconds.
+
+The lead merged this head as `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+Sol verifies both merge parents. Its tree equals the reviewed head tree, `27307134a2c87a065d10d45729ec45988f0ce3d5`.
+This round closes Sol's final gate and body requirements. Both source findings remain closed.
+The historical scanner-budget failure and its exception remain in Round 1.
+This verdict accepts no later head, pin, or pending removal. Sol ran no execution job.
+
 ## Round 1 — 2026-10-11
 
 Head: `147853f8a8ea9c39ab58433d29304c3e75eb8ce5`.

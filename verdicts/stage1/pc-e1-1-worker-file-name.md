@@ -1,5 +1,32 @@
 # Core #276 — host-supplied worker file name
 
+## Round 3 — 2026-10-11 — final gate and merge receipt
+
+Verdict: CLEAN (0 open) at `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
+Base: `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+Package final CLEAN: `994a79ead842dbe904d06cf9d616e7b202049c4e`, received in `msg_plugin-w_1791741418_04a7c5`.
+Sol read the complete package final section and the complete corrected PR body.
+The body records both source rounds, the failed import check, both delta verdicts, and the final gate.
+The body now records the fuzz step as PASS because no decoder crate changed.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-pc-e1-1-worker-file-name-300eccec-pool-20261011-104914-15924.log`.
+SHA256: `4acad31348c3a2f422e4e8af36672b3451a5a8fbffa146be86d1127997128bf0`.
+Sol read all ten step results, the suite summaries, the four named proofs, and all mutation results.
+All ten steps pass in 211.4 seconds. Default: 1738 passes and 478 skips. Slow: 557 passes and 2028 skips.
+The E1-1 test passes in 0.144 seconds. Its baseline takes 0.165 seconds.
+The proof totals meet the minimums of 60 and 69: real 48/68; accepted 49/69.
+Stage 1 misses both mutations. The unmutated stage-2 baseline passes: 557 passes and 2716 skips.
+Stage 2 catches both mutations. Both raw caught identities equal both reported catcher identities.
+Final result: two caught, zero missed, zero unviable, zero timeout. The complete log has no FLAKY token.
+The job exits zero after 222 seconds with zero queue wait. The wrapper exits zero after 223 seconds.
+
+The lead merged this head as `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+Sol verifies both merge parents and the tree, `ca4b8722aebb4e0a737b902aa4776c4681a8d966`.
+The merge tree equals the reviewed head tree. This round closes the final gate and body requirements.
+The original red gate and the narrow retry exception remain in Round 1. They do not establish a general retry rule.
+The future Contracts pin and its structural requirements remain separate. This verdict accepts no later pin or pending removal.
+Sol ran no execution job.
+
 ## Round 2 — 2026-10-11 — overlapping base import
 
 Verdict: source CLEAN (0 open) at `300eccec3f9c2929e137ee33eb2e8cbe45bf66a8`.
