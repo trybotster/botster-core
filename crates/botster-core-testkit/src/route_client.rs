@@ -69,6 +69,7 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "drop_transport",
     "route_stream_written",
     "route_fill",
+    "input_blocked",
 ];
 
 /// The op of the one segment of a route's `pty_input` log (plan 23bd). The harness does not know which op wrote which bytes,
@@ -103,7 +104,7 @@ pub(crate) fn flag(args: &Value, key: &str) -> Result<bool, String> {
 }
 
 /// The byte `k` of a `route_fill` is 0x61 + (k mod 26), with `k` from 0 for each fill (R-47 item 3).
-fn fill_pattern(bytes: usize) -> Vec<u8> {
+pub(crate) fn fill_pattern(bytes: usize) -> Vec<u8> {
     const ALPHABET: &[u8; 26] = b"abcdefghijklmnopqrstuvwxyz";
     // Whole copies of the alphabet, cut to length: no loop condition, so no mutant of one can hang the fill.
     let mut pattern = ALPHABET.repeat(bytes.div_ceil(ALPHABET.len()));
@@ -321,6 +322,14 @@ impl RouteClient for TestkitRoute {
                     self.worker_end().clear_write_failure();
                 }
                 Ok(json!({}))
+            }
+            // Core DP-5: after the workers' ready work, whether the stream takes no more bytes from the client (the worker
+            // has stopped reading the route). It reports the stream boundary and nothing about the clause.
+            "input_blocked" => {
+                self.flush();
+                self.workers.run_ready();
+                self.flush();
+                Ok(json!({"blocked": self.end.end().control().room() == 0}))
             }
             // Core OU-5: the stream is reset with no close handshake.
             "drop_transport" => {
