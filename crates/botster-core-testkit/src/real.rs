@@ -124,7 +124,7 @@ struct Handle {
     data_dir: PathBuf,
     tap: Weak<Mutex<Tap<RealEdges>>>,
     /// The records of the handle's capture layer (`oracle_resume`).
-    resume: Weak<Mutex<resume::Shared>>,
+    resume: Weak<Mutex<crate::capture_layer::Shared>>,
     /// The crash slot of the handle's Core (`host_crash`, R-55 (1)).
     crash: CrashHandle,
 }
@@ -987,8 +987,10 @@ impl CoreHarness for RealCoreHarness {
             }
             let driver = HostDriver::open(cfg, edges)?;
             // The crash slot holds the capture layer, so a `host_crash` drops the layer with the driver.
-            let (layer, resume) =
-                resume::CaptureLayer::new(Box::new(driver), self.programs.marks());
+            let (layer, resume) = crate::capture_layer::CaptureLayer::new(Box::new(driver), {
+                let marks = self.programs.marks();
+                Box::new(move || marks.next())
+            });
             let (slot, crash) = Crashable::new(Box::new(layer));
             self.handles.insert(
                 spec.handle.clone(),
