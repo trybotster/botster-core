@@ -192,3 +192,44 @@ No own mutation exclusion or native configuration changes.
 All reported findings have verified source or documentation corrections, and the exact-head gate is verified.
 The formal package Round 2 artifact remains pending. This inspection completes no replacement round and grants no CLEAN verdict.
 I run no reviewer execution job.
+
+## Round 2 — 2026-10-10 — CLEAN
+
+Reviewed head: `a96679e9b2df48b3d3918b6149d16060846a430f`.
+Base: `08ee8f2c6e343ff47966f12fcb80fe7cd35d0a83`.
+READY receipt: `msg_plugin-w_1791697326_e8a951`.
+Tier: HIGH under BUILD.md rule 3 at `56bd0a5`.
+Authority remains approved plan 23ag, the accepted P5 controls plan, and pinned R-49 Q2/Q3 at contracts `b161db87`.
+Round delta: the complete two-file c6f6c9b1 correction and the exact automatic merge of accepted #230 through v1 08ee8f2c.
+
+I read the complete package Round 2 CLEAN artifact `8be317a6ba82359cb77c6a992480b7bed9f34f2d`.
+Its file is `verdicts/p5-real-controls-c.md`. Receipt: `msg_plugin-w_1791697516_b4c921`.
+The package artifact names this exact head and base and closes every finding, including LOW.
+The final GitHub read confirms the unchanged published head, open PR, v1 target, Prior art section, and correction description.
+Origin/v1 remains the reviewed base.
+
+SI-2 / RC-C-F2 MEDIUM closes. The observation decoder covers Core's full encoder range and never releases an armed hold after decoder failure.
+The new large-frame edge proof establishes zero Launch bytes before release and exact ordered bytes afterward.
+Core retains the held bytes in its ordinary outbound buffer. The tap keeps observation copies and no later-send buffer.
+The real proof separately checks durable identity and payload liveness before and after release for its normal Launch.
+The proof adds no production hook or private queue assertion.
+SI-1 LOW and RC-C-F1 LOW remain closed through the verified body corrections.
+
+The synchronous refusal layer returns the permitted scripted code before real Core admits the call.
+The shared argument and result helpers retain parity between the testkit and real tiers.
+Both source and real transcripts establish the required control behavior through the accepted package interfaces.
+All prior ownership, descriptor, process guard, and reaping checks remain valid.
+The accepted #230 import preserves the allocator registration and every existing harness control.
+No new production behavior, mutation exclusion, dependency, contract pin, or native configuration change appears in the own delta.
+
+All three own real-pending removals pass at this head; every other conformance file equals the base.
+Real-pending changes from 83 to 80, with zero passing pending IDs. Core-pending remains the base's 464 IDs.
+Testkit minimum is 55/69; real-passing is 36/68; real-accepted is 37/69, including #230's permitted testkit-proven DP-3 ID.
+The exact-head gate passes all ten steps. I read every mutation outcome and verify exact stage-2 selection from the 19 stage-1 misses.
+The final mutation result is 52 caught and five unviable, with zero misses and timeouts.
+The source merge and diff checks pass. The published verdicts and gate refer to the same head and base.
+
+No integration finding remains open within this PR's scope.
+I change only this verdict file and run no build, test, gate, mutation, measurement, reversal, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
