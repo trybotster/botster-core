@@ -3,9 +3,11 @@
 //! the client sees the worker's own writes, its close and the kernel's backpressure, and nothing else.
 //!
 //! A read waits on the stream only after the handoff. Core hands the transport off in a pump, and the conformance driver
-//! pumps once at the first read of a route that finds nothing ("one pump per route"). So the first empty read returns at
-//! once, and every later read waits for bytes until the step deadline. A read that waited before the handoff would hold
-//! the only thread that pumps Core.
+//! pumps after a read of a route that finds nothing. So the first empty read returns at once, and a later read waits for
+//! bytes until its deadline. A read that waited before the handoff would hold the only thread that pumps Core. The
+//! driver's route wait (steward ruling R-68) reads with a deadline that has passed, which is one attempt that does not
+//! wait, and it waits itself on [`RouteClient::readiness`] (this stream) and the host's wake together, so that a pump
+//! runs when the host has work: the end of a route reaches the client only after a host pump (R-65).
 
 use super::program::Inputs;
 use crate::edge_tap::Tap;
@@ -18,6 +20,7 @@ use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
+use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixStream;
 use std::sync::{Mutex, Weak};
 use std::time::Duration;
@@ -261,6 +264,16 @@ impl RouteClient for RealRoute {
 
     fn has_control(&self, op: &str) -> bool {
         CONTROLS.contains(&op) || (op == "pty_input" && self.input.is_some())
+    }
+
+    /// The client's end of the stream itself, so the driver waits on it and on the host's wake together (steward ruling
+    /// R-68). `None` while gated: a gated end reads nothing on purpose. `None` after `client_close`: a read gives the end
+    /// at once.
+    fn readiness(&self) -> Option<BorrowedFd<'_>> {
+        if self.gated {
+            return None;
+        }
+        self.end.as_ref().map(AsFd::as_fd)
     }
 }
 
@@ -529,6 +542,48 @@ mod slow_tests {
         worker.write_all(b"more").unwrap();
         assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
         assert!(route.control("route_gate", &json!({"on": 1})).is_err());
+    }
+
+    /// Steward ruling R-68: the readiness descriptor is the client's end itself, so a write of the worker makes it
+    /// readable. A gated end and a closed end give none. After the handoff, a read with a deadline that has passed is one
+    /// attempt that does not wait.
+    #[test]
+    fn the_readiness_is_the_clients_end_and_a_read_with_a_passed_deadline_does_not_wait() {
+        let readable = |route: &RealRoute| {
+            let fd = route.readiness().expect("an open end that is not gated");
+            let mut fds = [rustix::event::PollFd::new(
+                &fd,
+                rustix::event::PollFlags::IN,
+            )];
+            rustix::event::poll(&mut fds, Some(&timespec_of(Duration::ZERO))).unwrap() > 0
+        };
+        let (mut route, mut worker) = pair();
+        // The first empty read is the handoff: later reads with time left wait.
+        assert_eq!(route.read(64, &deadline(Duration::ZERO)), RouteRead::Empty);
+        assert!(!readable(&route));
+        let started = Instant::now();
+        assert_eq!(route.read(64, &deadline(Duration::ZERO)), RouteRead::Empty);
+        assert!(started.elapsed() < LONG / 2, "{:?}", started.elapsed());
+        worker.write_all(b"x").unwrap();
+        assert!(readable(&route));
+        assert_eq!(route.control("route_gate", &json!({})), Ok(json!({})));
+        assert!(
+            route.readiness().is_none(),
+            "a gated end reads nothing on purpose"
+        );
+        assert_eq!(
+            route.control("route_gate", &json!({"on": false})),
+            Ok(json!({}))
+        );
+        assert_eq!(
+            route.read(64, &deadline(Duration::ZERO)),
+            RouteRead::Bytes(b"x".to_vec())
+        );
+        assert_eq!(route.control("client_close", &json!({})), Ok(json!({})));
+        assert!(
+            route.readiness().is_none(),
+            "a closed end gives its end at once"
+        );
     }
 
     /// The route serves only its own controls; any other is `unsupported_control`.
