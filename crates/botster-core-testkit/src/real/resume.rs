@@ -41,7 +41,7 @@ struct Resume {
 
 /// Condition 1: the program writes only its `pty_output` bytes. The driver puts the script in `argv[1]`
 /// (`{"program": [...], "fake": {...}}`); only `hold` steps and no `fake` qualify.
-fn known_output_history(request: &SpawnRequest) -> bool {
+pub(super) fn known_output_history(request: &SpawnRequest) -> bool {
     let Some(script) = request
         .argv
         .get(1)
@@ -337,7 +337,9 @@ mod slow_tests {
         .unwrap();
         assert_eq!(
             resume(&mut harness, "s1", capture),
-            Err(ControlError::Unsupported)
+            Err(ControlError::UnsupportedFor(
+                "size_or_profile_changed".into()
+            ))
         );
 
         let print = json!({ "program": [{ "print": "x" }, { "hold": {} }] }).to_string();
