@@ -34,3 +34,4 @@ VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration rev
 - Header: head `7df311e282260b29fadc143fdd0a97c1645bf1e8`, base `e2c0ad9c842046454be6da7f5015f1d5b8a7dbb1` (BOTSTER_CI_BASE_REF), Linux pool.
 - Result (read by me): all 10 steps PASS, with both vocabulary tests; `botster-gate: exit 0 after 379 s on msa1`.
 - `git merge-base --is-ancestor` of main `e2c0ad9c842046454be6da7f5015f1d5b8a7dbb1` and the head is true, and the gate base is the main tip, so the head fast-forwards main.
+- 016c: source review clean on the same head; its description-only LOW finding was fixed in the PR body.
