@@ -10269,3 +10269,161 @@ Integration review remains separately required for this HIGH PR.
 The non-minimum P3 queue remains parked. All earlier exact-head records remain preserved.
 
 VERDICT: CLEAN
+
+## Round 155 — PR #227 route input, authorized full replacement review, package round 4 — 2026-10-10
+
+Exact head: `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+Exact base: `0a564513e50930ce25f2e4a175f45cffbef7119d`.
+Previous reviewed head: `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+Previous package verdict: `fa9d05caa236b029a92cbd5bdbd5902875651527`, round 152.
+Tier: HIGH under BUILD rules 3 and 5: shared testkit changes and the real Worker driver path.
+Plan 23ad authorizes this fourth review after the lead's root-cause replan.
+Authority: stage1-plan.5b335476.md, section 8; plan commit 5b335476838e3872c9c8cb2b016ad6e6d1d1a030.
+The reviewer reads all twelve own-path changes, the complete current PR body, completed evidence, and source merges.
+F103 and F107 close. New F113 prevents CLEAN.
+
+### F103 — LOW — CLOSED
+
+The replacement removes route_pressure and all assertions through that private-state accessor.
+The quiet-batch and guard proofs now observe RouteReadAllowance, PtyWrite, reports, and decoded client frames.
+The quiet-batch proof checks allowance zero while work waits and the full input bound after every write completes.
+The guard proof checks all fifty client revisions at receipt and no second receipt during later refusal delivery.
+The pressure proofs obtain the encoded unread suffix through Client::take_after_room after the first positive allowance.
+At that point, settlement has applied all received frames; the remaining refusals represent the outgoing queue.
+They check the encoded size against route_queue_bytes and preserve operation order and outcome counts.
+The new healthy-close proof observes the initial refused suffix before later application can replace it.
+It checks the encoded refusal bound, fewer refusals than received inputs, and route_closed as the last frame.
+No new test accessor exposes private queue state.
+These proofs satisfy plan 23ad's test-shape condition through actions, decoded frames, and transport progress.
+
+### F107 — MED — CLOSED
+
+Route::decide makes readiness, role, and validity decisions when receive_route decodes each complete frame.
+Received holds Input(op, bytes), Refused(op, reason), or the ordered Bad marker. It holds no raw ToWorker frame.
+A bytes or text frame received before the Worker's live transition retains NotReady while refusal delivery waits.
+apply_route does not read readiness or role again. It waits for outgoing refusal room before using the stored decision.
+Complete input frames still advance the session's client revision and report their route on receipt.
+Ignored extensions do not count as input. A malformed frame ends receipt and remains ordered after earlier frames.
+
+The required input_received_before_live_stays_not_ready_when_it_waits_for_room proof sends fifty complete early frames in one permitted read.
+The baseline remains unread. The small outgoing queue stops application and produces allowance zero.
+The client then reads the baseline through live and all refusals.
+Every early op is NotReady, in order, and no PtyWrite occurs.
+The named proof passes in the exact-head gate.
+The supplied readiness-decision reversal fails this proof. The unreverted selection passes.
+This closes F107's DP-5/R-51 counterexample without changing the accepted transport-delivery boundary.
+
+### F113 — MED — OPEN — Route input starts while the payload is stopping
+
+Locations: worker/input.rs:253-262 and 329-330; compare start_checks at 351-363.
+The new Pending::Route branch calls payload_takes_input before start_unowned.
+payload_takes_input checks only PayloadState::Live and exit.is_none().
+HostMsg::Stop sets termed through signal(SIGTERM). HostMsg::Kill sets killed through signal(SIGKILL).
+Neither signal immediately changes the payload to an exited state.
+A complete route bytes or text frame received after either signal therefore reaches PtyWrite before payload exit.
+A route input queued behind an active transaction can also start in that interval when its turn arrives.
+The host path rejects that same interval as NotWritten(Stopping), through termed, killed, or an active grace.
+DP-5 maps NotWritten(Stopping) to input_refused{session_ended}. IN-2 requires the certain-zero outcome for a write that starts while stopping.
+The route branch bypasses this admission check and can write bytes that it must refuse.
+
+The reviewer sends the concrete source case to P3 and integration before filing it.
+P3 confirms the defect and reports no contrary lead or steward ruling: msg_plugin-w_1791683580_244130.
+Integration also reports no contrary ruling: msg_plugin-w_1791683607_654f86.
+The Hub's stopping lifecycle class permits the Hub to send input on a live route; it does not remove Core's admission refusal.
+
+Required: enforce the stop condition when route input starts at the admission point.
+Keep receipt-time route decisions and the later session/write outcome rules distinct.
+P3 proposes one shared stop predicate for host and route admission. Model query replies retain their existing EV-8 scope.
+Prove both Stop and Kill before payload exit, with the exact route op, SessionEnded refusal, and zero written bytes.
+Assert that no route PtyWrite occurs. Include queued route input that reaches its turn after the stop.
+Supply correction evidence and an exact-head gate for the replacement.
+The reviewer runs no test to prove this source finding.
+
+### Whole-change and source merge review
+
+The read allowance retains the accepted R-53 bound: max(route_input_queue_bytes, max_frame_bytes + 4).
+It accounts for incomplete bytes, queued route payload, and the unwritten rest of that route's active transaction.
+The binding spends the allowance on every read and reads nothing before its first allowance or while it is zero.
+The Worker lowers its cached allowance by each reported read, so a refused complete read does not exhaust the driver's allowance silently.
+The binding retries Interrupted, leaves WouldBlock open, and reports each terminal read result once.
+The new scripted read-fault control affects only the in-memory edge.
+
+Each admitted route input reserves one refusal bound. The PTY output budget excludes those reservations.
+Settlement applies waiting decisions before sending budgets and allowances.
+Nested settlement requests another pass. Each such change consumes a frame, closes a route, or removes a route.
+Successful route-write completion and partial progress still release held capacity and settle waiting work.
+The quiet-batch proof preserves order through successful writes without further client traffic or outgoing frames.
+The malformed marker, first healthy close reason, and route_closed-last behavior retain their previous corrections.
+A healthy close clears the received queue. A closing route discards later client bytes.
+The existing suppression of later refusals preserves the last-frame guarantee when an active input fails after detach.
+
+Route and op remain attached to queued and active input.
+Partial failures report known written bytes; payload end refuses queued input at its turn.
+Adoption removes old host requests only. Route input and model replies retain their admission positions.
+These ownership corrections retain their prior review, but F113 prevents acceptance of the complete route admission unit.
+F99, F100, F101, F102, F104, F105, and F106 retain their specific closures.
+F86's first-reason and F87's complete-receipt corrections remain satisfied.
+F88 and F90 retain their whole-unit scopes until the remaining route admission finding closes.
+
+The own diff removes the same twelve testkit-passing ids from core-pending and adds them to core-real-pending.
+The real controls remain incomplete. The exact-head gate reports no pass for those pending-real ids.
+The corrected merged group comments count twenty-nine route-control ids and thirty-eight program-control ids.
+This PR claims no completed real route or real minimum-id flip.
+The real Worker driver only accepts the new RouteReadAllowance action in its existing no-op route group.
+Production route receipt remains DP-2 PR B scope. The approved #234 send changes are in the base.
+No contract pin, public facade, C ABI, or mutation exclusion pattern changes in the own diff.
+
+The final merge 27e1dae6 brings v1 0a564513, which contains approved #234, into f28103b2 without a conflict.
+Read-only comparison shows all twelve own-path diffs identical before and after that merge, excluding index lines and hunk coordinates.
+Earlier merges bring #235, #232, #236, #222, and #237 into the base.
+The only reported earlier conflict is in core-real-pending comments. The final own list delta preserves both notes and their correct counts.
+The reviewer runs no executable merge-check job.
+
+The feature Prior art note was initially absent from the current PR body.
+P3 adds it during review without changing the exact head: msg_plugin-w_1791683467_89a1bf.
+The reviewer reads the updated full body and verifies the unchanged head and base.
+The note covers receipt, refusal reservations, allowances, and settlement. It records reuse/rejection and the reason for Core's glue.
+Both cited vault notes match the split-frame and coalesced-frame lessons.
+Pinned old client_worker.rs at 72b2e33 confirms the fixed input caps, intake decisions, rejection cap of sixteen, and tick counters.
+The note rejects the old overflow-and-discard mechanism and records that no code is stolen.
+The parity audits contain no route-input backpressure/refusal row.
+The existing M2a prior art note covers the admission point separately. No prior-art finding remains open.
+
+### Completed evidence and limits
+
+Gate: ~/botster-sessions/gates/botster-core-stage1-p4a-route-input-27e1dae6-pool-20261010-183554-22780.log.
+The header identifies this exact head and 0a564513 base. All ten CI steps PASS on gaming.
+Default: 1568 passed in 20.055 seconds. Slow: 396 passed in 159.119 seconds.
+Both testkit reports: 205 passed, zero failed, 485 ignored. Minimum testkit: 54/69.
+Strict pending: 374 of 395 ids run, 21 real-only ids not run, two held.
+Real minimum: 31/68 passing and 31/69 accepted. Pending-real: 93, with zero passing ids in that list.
+Stage 1: 118 mutants, 115 caught, three unviable, zero missed, zero timeouts, in 235.2 seconds.
+Stage 2 skips because stage 1 misses none.
+Full CI: 540.4 seconds. Queue: 94 seconds. Job runs 557 seconds and exits zero after 651 seconds.
+The wrapper exits zero after 652 seconds. Queue time is not a blocker.
+The named early-batch, healthy-close, quiet-batch, and guard proofs pass.
+Those proofs do not cover F113's Stop/Kill admission path.
+
+Supplied corrections: shared/core-stage1/evidence/p3-pr3/pr3-round152-reverts.log and pr3-5a41-mutants-reverts.log.
+The first file records F105, F106, F107, F100, and root reversals failing their named behavior proofs.
+Its unreverted selection reports 144 passing tests. It is a correction record, not an exact-head full gate.
+The second records the refusal-room + to * mutant exceeding the 1000-byte bound with 1027 bytes.
+The apply_route || to && mutant exceeds it with 1841 bytes. Both fail the healthy-close proof.
+Removing received.clear remains green because apply_route already rejects closing routes.
+The PR records that limitation. The behavioral proof covers discard from application, not immediate memory release.
+The reviewer does not require a private-state assertion to test that redundant release.
+No new exclusion hides the two corrected decision mutants.
+The reviewer reads completed evidence only and runs no tests, builds, gates, measurements, mutants, or merge-check job.
+
+### Verdict
+
+PR #227 is NOT CLEAN at `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+F103 and F107 are CLOSED. F113 is MED and OPEN.
+This is the fourth package NOT CLEAN round on #227, under the lead's explicit round-four authorization.
+The reviewer reports BLOCKED to the lead with this artifact and requests a decision before a fifth review.
+Findings and the artifact go directly to P3 and current Sol integration.
+#234 remains CLEAN at eded8086 with both completed verdicts. PR B remains future work.
+#230 awaits direct READY. F39 and F61/F62 retain their prior scopes. The non-minimum P3 queue stays parked.
+All earlier exact-head verdicts and finding histories remain preserved.
+
+VERDICT: NOT CLEAN
