@@ -13170,3 +13170,78 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: CLEAN
+
+
+## Round 185 — #279 overlapping final base import, 2026-10-11
+
+Exact head: `74bcde21d3ff2f61645bfe4e4954f55bebfeea9b`.
+Exact PR base: `84b1e9be2c58044b27958ed39fe1fffa2a0eb907`.
+Parents: reviewed `abcbf16451e7faa0eca84bca8f3b7ee474ffd880` and the exact base above.
+Import READY: `msg_plugin-w_1791741140_badf8e`. Owner correction: `msg_plugin-w_1791741148_116c48`.
+Risk: HIGH under BUILD rule 3, unchanged. This is an import source delta review before the final gate.
+Package source verdict: pushed `c3710e4ca08ab6e3c152b7d2ff89608b5b6cf7eb`, Round 184 CLEAN at abcbf164.
+Integration source verdict: `d6f69ee125ab457101c73c0bde79ea7421842540`, Round 2 CLEAN at abcbf164.
+Complete current PR record: /private/tmp/review-p3-pr279-74bcde21-import.json.
+
+### Supplied check and import review
+
+The reviewer reads the complete supplied base-merge-check-abcbf164-74bcde21.log.
+The check verifies both ancestry conditions and the core-pending line-set condition.
+Condition (1) FAILs on the core-real-pending conflict. Condition (2) FAILs on real.rs overlap.
+Condition (3) FAILs because the own diff differs. The real-pending line-set condition also FAILs because the own change adds lines.
+The result requires delta rounds from both reviewers. This verdict supplies the package delta review.
+It does not claim a fully passing Q7 transfer. No executable merge-check job runs.
+
+The reviewer reads all import changes in the three overlapping paths: core-pending.txt, core-real-pending.txt, and real.rs.
+Read-only comparisons verify six unchanged own blobs outside those paths.
+All twelve changed base blobs outside the own paths equal the imported base exactly.
+The imported head has the recorded parents. Its merge base equals the exact PR base above.
+The final PR still has the same nine own paths.
+
+In real.rs, exactly nine added lines come from the base. The added and removed line content matches the base delta exactly.
+These lines declare the oracle module, advertise three oracle controls, dispatch those controls, and extend existing control tests.
+The control names are oracle_query_reply, oracle_screen, and oracle_screen_payload.
+The new branches retain the tapped-harness condition. They do not change pty_input or its program-control branch.
+The reviewer reads the imported control list and resulting real control dispatch.
+The complete own added and removed line content in real.rs also matches its previously reviewed content exactly.
+The import preserves the session instance lookup, weak tap ownership, input log, and named route test.
+No own logic is lost or duplicated in the automatic merge.
+
+### Pending-file conflict resolution
+
+The reviewer reads the complete conflicting blocks and their resolved placement.
+core-real-pending.txt retains the own ou_1/ou_11, dp_3_unknown_type, and ou_10 blocks first.
+It then retains the base's oracle block for ou_9_attach_is_sync_baseline_in_pump and st_5_reads_after_exit.
+One blank line separates the blocks. All comments and identifiers remain intact.
+Read-only comparison proves the resolved file equals the old own file plus the exact base append.
+It contains 37 identifiers and 37 unique identifiers. No duplicate identifier or conflict marker appears.
+The actual own change against the new base still adds exactly the same four real-pending identifiers.
+The imported ou_9 and st_5 identifiers belong to the base change, not to a new package pending removal.
+
+core-pending.txt contains both removal sets. The base removes lc_2_data_dir_is_exclusive, ou_9_attach_is_sync_baseline_in_pump, and st_5_reads_after_exit.
+The own change still removes exactly dp_3_unknown_type_closes_route, ou_10_no_authorization_in_core,
+ou_11_transport_ownership_is_defined, and ou_1_attach_hands_transport_to_worker.
+The two removal sets have no shared identifier. No identifier is added.
+Against the new base, core pending changes from 456 to 452; real pending changes from 33 to 37.
+minimum-core.txt retains the previously reviewed blob and the same 69 identifiers.
+The eighteen relation identifiers, am_2, and a2_1 retain their prior pending scope.
+No additional real-tier transcript PASS is accepted.
+
+### Evidence and remaining gate
+
+The owner reports lists PASS, clean fmt, zero clippy errors at 74bcde21, and 2/2 focused route_pty_log tests passing.
+The correction withdraws the unmeasured claim that v1 has zero clippy errors.
+No raw local-check log accompanies this receipt. The reviewer records only the corrected owner reports.
+The live PR body is unchanged from the corrected abcbf164 body. Its completed gate remains the historical 6161 gate.
+The final pool gate is planned after the owner's R-73 contracts gate. No final gate record is supplied yet.
+The final PR record must include the applicable complete base check and the completed exact-head gate.
+This verdict is source CLEAN only. It accepts no future gate, head, pin, or merge.
+Formal integration acceptance at this imported head remains separate. The lead owns the merge decision after the final gate.
+
+F135 through F139 remain CLOSED. No package finding arises from this import delta.
+The separate ST-6 FLAKY supplies no catch. P5 owns its diagnosis; the failure cause remains unknown.
+F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
