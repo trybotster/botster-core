@@ -53,8 +53,9 @@ fn pump(core: &mut Core) -> Vec<Event> {
     }
 }
 
-/// Core LC-2: a second `open` of one directory is refused while the first is open, with the real `flock`; the lock ends with
-/// the handle (LC-12: nothing else ends).
+/// Core LC-2 (`conf::lc_2_data_dir_is_exclusive`, real-only `slow:data-dir-lock`, with the test below): a second `open` of
+/// one directory is refused while the first is open, with the real lock; the lock ends with the handle (LC-12: nothing else
+/// ends).
 #[test]
 fn a_second_open_is_refused_until_the_first_is_dropped() {
     let tmp = tempfile::tempdir().unwrap();
@@ -65,6 +66,70 @@ fn a_second_open_is_refused_until_the_first_is_dropped() {
     );
     drop(first);
     assert!(Core::open(config(tmp.path())).is_ok());
+}
+
+/// The variable that makes [`slow_lock_holder_entry`] hold a `Core` open on the data directory under the directory it names.
+const LOCK_HOLDER: &str = "BOTSTER_CORE_LOCK_HOLDER";
+
+/// The child entry of [`an_open_held_by_another_process_is_refused_until_that_process_dies`]: without `LOCK_HOLDER` it
+/// does nothing. With it, it opens a `Core` on the data directory, prints `held`, and keeps the handle until its stdin ends,
+/// so it also ends when the test that started it dies.
+#[test]
+fn slow_lock_holder_entry() {
+    use std::io::Write;
+    let Some(dir) = std::env::var_os(LOCK_HOLDER) else {
+        return;
+    };
+    let core = Core::open(config(std::path::Path::new(&dir))).expect("the holder opens");
+    let mut out = std::io::stdout();
+    out.write_all(b"held\n").unwrap();
+    out.flush().unwrap();
+    // The test kills the holder long before the cleanup bound; the bound only ends a holder whose test hangs. Either
+    // outcome of the read ends the hold.
+    let _ = botster_test_process::Bounded::new(std::io::stdin())
+        .to_eof(botster_test_process::Deadline::cleanup());
+    drop(core);
+}
+
+/// Core LC-2 (`conf::lc_2_data_dir_is_exclusive`, real-only `slow:data-dir-lock`, with the test above): the lock is the
+/// process's. While another process holds a `Core` open on the directory, this process's `open`
+/// is refused `DataDirInUse`; once that process dies (`KILL`, so no drop runs) and its end is observed, the `open` succeeds.
+#[test]
+fn an_open_held_by_another_process_is_refused_until_that_process_dies() {
+    use botster_test_process::{first_line, Deadline, OwnedChild};
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::{Command, Stdio};
+    let tmp = tempfile::tempdir().unwrap();
+    let mut command = Command::new(std::env::current_exe().unwrap());
+    command
+        .args(["--exact", "slow_lock_holder_entry", "--nocapture"])
+        .env(LOCK_HOLDER, tmp.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut holder = OwnedChild::spawn(&mut command).unwrap();
+    let _stdin = holder.take_stdin();
+    // The test harness of the child prints its own lines first; `held` follows them.
+    let (mut rest, mut line) = first_line(holder.take_stdout().unwrap());
+    while line != "held\n" {
+        line = rest
+            .line(Deadline::cleanup())
+            .unwrap()
+            .expect("the holder prints held");
+    }
+    assert_eq!(
+        Core::open(config(tmp.path()))
+            .err()
+            .expect("held by the other process")
+            .code,
+        ErrorCode::DataDirInUse
+    );
+    holder.kill().unwrap();
+    assert_eq!(holder.status().signal(), Some(9), "the holder died by KILL");
+    assert!(
+        Core::open(config(tmp.path())).is_ok(),
+        "the lock ended with the process"
+    );
 }
 
 /// Core LC-1, 9B: no worker path, a zero limit and a data directory whose control socket cannot be bound are refused before
