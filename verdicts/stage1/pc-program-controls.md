@@ -137,3 +137,28 @@ This source change closes the reported cross-identity cache lookup. Exact-head e
 
 I sent the remaining SI-1 points to both PC agents before READY.
 I changed no product code and ran no build, test, gate, mutation, measurement, or reversal job.
+
+## SI-1 follow-up source inspection before Round 1 — 2026-10-10
+
+Inspected head: `686300e2b1e6cbaded29761dc8963483b4ac03bc`.
+Previous inspected head: `ebac3c692bcd317b6e4f53fb98c976cafc24edf0`.
+Only real/program.rs changes: 33 insertions and four deletions.
+I read the complete follow-up delta.
+
+send_line now checks the shared deadline at the start of every loop pass, before each write.
+The positive-progress path cannot start another write after an observed expiry.
+The existing nonblocking socket, OUT wait, released state lock, and acknowledgement deadline remain.
+
+FakeProbe::request_started waits for socket readiness with IN and the existing cleanup bound. It consumes no request bytes.
+The report proof calls that fence before sending Input and leaves the request unread until the report arrives.
+The report can no longer complete before the harness starts the request.
+The proof retains the exact input bytes, complete request, acknowledgement, and successful control result.
+The new never-draining-peer proof leaves a one-megabyte request unread and requires Bad from the write deadline path.
+These assertions observe socket and control results. They expose no private product state.
+The implementer reports that the lock-held-write reversal fails locally. Its retained evidence is still to be supplied with READY.
+
+SI-1 HIGH is CLOSED in source. SI-2 and SI-3 retain their preceding source closures.
+All three findings now close in source. This does not substitute for the final gate or same-head package verdict.
+The implementer reports a running gate and will send READY later.
+This inspection completes no round and grants no CLEAN verdict.
+I changed no product code and ran no build, test, gate, mutation, measurement, or reversal job.
