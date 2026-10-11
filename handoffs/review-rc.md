@@ -38,7 +38,10 @@ The pin moves from contracts-v0.1.29 to contracts-v0.1.32 under plan 23an, secti
 Normal and strict testkit results match by ID. The initial exact-head gate passes all ten steps.
 The fenced `ad_7_payload` passes on Mac and Linux. The other six Mac trials remain pending and are not passes.
 No ID leaves a pending file. No Core logic or mutation exclusion changes.
-Integration CLEAN and the final full gate remain required before merge.
+Integration CLEAN remains required on this exact head and base.
+Under plan section 8 Q8, the supplied green full gate is the merge gate when both CLEAN verdicts cover this unchanged head.
+A later head needs its own exact-head gate.
+The Mac real log's second header line has a stale v0.1.29 label. Its first header names v0.1.32 and the exact head.
 The remaining RC controls have no submitted head or verdict in this session.
 The reviewer waits for a doorbell and calls `receive_messages` once after it arrives.
 The reviewer does not poll.

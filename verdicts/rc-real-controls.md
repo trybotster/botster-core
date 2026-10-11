@@ -314,6 +314,8 @@ The raw line order differs because test completion order differs.
 The reviewer read the retained Mac real-tier log:
 `/Users/jasonconigliari/botster-sessions/gates/botster-core-rc-pin32-real-mac-6b20f6f2-20261011-033646.log`.
 Its header names the exact head and a local removal of six real-pending entries for this trial.
+The next header line still names `contracts-v0.1.29`. That stale label limits the header's consistency.
+The first header names `contracts-v0.1.32` and the exact source head. The six failed trials remain failures.
 `ad_7_payload_launches_after_durable_identity` passes in the R-59 fenced form.
 The three route cases are INCONCLUSIVE at steps 5, 5 and 4.
 The three ST-6b cases report `UNSUPPORTED_CONTROL` for `oracle_resume`.
@@ -325,6 +327,8 @@ Its header names the exact head and base. All ten steps pass, and the final exit
 The diff has no mutant. The real slow tier reports the fenced `ad_7_payload` PASS.
 The real-pending count is 58, with 0 passed. The gate reports real-passing 40/68 and real-accepted 41/69.
 
-Integration CLEAN remains required. The final full gate remains required after source CLEAN on the final head before merge.
+Integration CLEAN remains required on this exact head and base.
+Plan section 8 Q8 accepts the supplied green full gate as the merge gate when both CLEAN verdicts cover this exact head.
+A second gate is not required for this unchanged head. A later head needs its own exact-head gate.
 Any later implementation change requires a delta review, subject to the plan's base-merge rule.
 The reviewer ran no test or gate.
