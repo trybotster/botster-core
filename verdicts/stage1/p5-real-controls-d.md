@@ -183,3 +183,97 @@ This round accepts no final gate, merge, pending removal, or later changed head.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open) at 29b769b1e1549f8aaf7d3055c372e2cefa6592b3
+
+## Round 3: correction and exact-head gate acceptance
+
+- Head: `5e6b15184bf4ab9d4bb1e572925b201409ea3d20`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Parent: `e2b11b172ed5b968f9444eddfe8b0465ece67a02`.
+- Tree: `1740aeb6a3a6222531a510532721a6cbf772c156`.
+- READY: `msg_plugin-w_1791721536_fca438`.
+- Published package CLEAN: `7c5a20c82f8516fe757fda4d25e8781d0ac60eec`, verdicts/p5-real-controls-d.md.
+- Package receipt: `msg_plugin-w_1791721803_fc26d8`.
+- Risk: HIGH. Plan 23ar remains applicable.
+
+Sol reads the complete package Round 3 addition and verifies publication on fetched stage1/review-p5.
+Sol reads both complete own deltas, the affected crash proofs, complete snapshot source, current lock/storage paths, and complete PR body.
+The body names this exact head and records both corrected proofs and supplied gate results.
+The preceding Prior art checks remain applicable. These corrections reuse the snapshot, public harness controls, OwnedChild, and existing deadline helpers.
+No dependency, exclusion, timeout, pin, transcript, or pending-list delta occurs in this correction.
+
+### Findings and lock comparison limit
+
+D-F6 is CLOSED. The unread-exit refusal proof now runs in its own nextest test process.
+It retains Bad while the exit is unread and success after Core consumes the exit.
+The count and wake proof starts only s1 and s2. No earlier ended worker can supply its retiring reaper or competing notification.
+The proof retains the two live reapers, lost tap, stale socket, one reap notification, surviving worker, and fixed descriptor count.
+The named production reaper and owned-thread join proofs remain unchanged. All previous findings remain CLOSED.
+
+The lead's 09:15 and 09:20 clock entries in handoffs/core-lead.md require stat-only inspection of the top-level lock file.
+Sol reads those instructions. They prepare for the separate LC-2 correction from flock to a POSIX record lock.
+The current reviewed base still uses flock. This review accepts no future lock implementation.
+The snapshot records a regular top-level lock file as Node::Lock with mode and length, without opening it.
+It still records the root's kind and mode, does not follow links, and reads every other regular file by bytes.
+The deliberate limit excludes lock contents. Current Core creates that file without truncation and stores its epoch under rows.
+The inspected Core paths do not write bytes to the lock file. The lead explicitly authorizes this comparison limit.
+
+The new proof holds a real record lock and uses an owned child to probe it from another process.
+The child reports held before and after snapshot, then free after the holder closes the file.
+The proof checks Node::Lock and byte comparisons for another top-level file and rows/lock.
+OwnedChild owns and reaps each child. The helper returns without its specific environment variable.
+Both OS logs name this proof as PASS. Linux catches both lock-name replacements through this proof.
+Sol does not independently verify the body's local red-on-revert claim and runs no reversal.
+
+### Import check
+
+Merge e2b11b17 has parents 404c845d11ad79fa69a01e237a64e541a9bf7f0e and the exact reviewed base above.
+Sol's independent static merge-tree result is 01d7f8aeaeec4cbc45d1e45ca678779050afeef6, exactly the recorded merge tree.
+The import has no conflict. All thirteen imported paths retain exact base blobs.
+The thirteen own paths outside real.rs and real/snapshot.rs retain exact Round 2 blobs.
+The static diff check passes. The reviewed base is an ancestor of this head.
+The retained prior source conclusions apply to the unchanged source within their recorded limits.
+
+### Exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-5e6b1518-pool-20261011-050825-89519.log`.
+SHA256: `43a27754d89d1ac9ff3bae3960fbf0c85c7b0cef52aad28273278beb7e42f4af`.
+
+Sol reads the exact header, check results, relevant named proofs, tier summaries, baseline, every raw mutation identity, catch reports, and final exit.
+All ten steps pass in 908.1 seconds. Jobq and the wrapper exit zero after 920 seconds.
+Default reports 1644 PASS, 484 skipped, and 12.033 seconds. Slow reports 494 PASS, 1998 skipped, and 31.747 seconds.
+Slow coverage checks 1028 slow-only tests. Both crash proofs, both reaper proofs, root-mode, two-directory, and lock proofs report PASS.
+The real conformance selection reports 148 distinct PASS identities. AD-6 reports PASS in 0.157 seconds.
+The gate reports testkit-passing 56/69, real-passing 41/68, real-accepted 42/69, and pending-real 58 with zero passed.
+
+Stage 1 reports 122 distinct identities: 31 caught, 62 missed, 29 unviable, zero timeout, in 133.8 seconds.
+The stage-2 baseline passes 494 tests, six slow, with 2662 skipped. Its complete step takes 38.9 seconds.
+Stage 2 reports 62 distinct identities: 57 caught, five unviable, zero missed or timeout, in 631.2 seconds.
+Sol independently parses all 184 raw records and matches all 62 stage-2 identities to the stage-1 miss multiset.
+Sol independently matches all 31 stage-1 and 57 stage-2 catches to their named catch reports.
+The final result is 88 caught and 34 unviable, with zero missed or timeout. The mutation step takes 807.1 seconds.
+Fuzz passes because the diff changes no crate with a decoder harness.
+
+### Exact-head Mac evidence
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-real-controls-d-5e6b1518-pool-20261011-052405-65143.log`.
+SHA256: `1fafb463717485a0eb58b1b3e8b5ce0854400b6fe354fe6d1949b7a1ecbe951c`.
+
+Sol reads the exact header, selections, clippy result, named proof results, mutation diff, baseline, both identities, and final exit.
+Worker prebuild and clippy pass. Clippy covers all targets and features of testkit, test-process, and core-sys.
+The focused suite passes 113 tests, with 484 skipped, in 2.665 seconds.
+Both crash proofs, both reaper proofs, the lock proof, and retained corrected proofs report PASS.
+The separate AD-6 selection passes one test, with 1442 skipped, in 2.351 seconds.
+The in-diff Mac baseline passes. Both threads replacements, Ok(0) and Ok(1), are caught.
+The result is two caught, zero missed, zero timeout, and zero unviable.
+The platform:: selection retains the accepted Round 2 scope for the only new Mac function.
+MAC_EXIT is zero. Jobq exits zero after 56 seconds. The wrapper exits zero after 57 seconds.
+
+### Verdict scope
+
+Zero integration findings remain open. This CLEAN covers this exact head, base, and supplied gate evidence.
+Section 8 requires no repeat gate for an unchanged head with both applicable CLEANs.
+The lead holds merge order for #243. This verdict authorizes no later base import or future LC-2 source.
+A changed head must satisfy the applicable import and delta-review rules with its required exact-head gate.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 5e6b15184bf4ab9d4bb1e572925b201409ea3d20
