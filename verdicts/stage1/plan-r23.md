@@ -3040,3 +3040,49 @@ This verdict does not resolve the future implementation's clause comparison or a
 Zero plan findings remain. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open) at f17f24db1421ab9f7dd88870561f14fad01307e7
+
+## Round 83 — revision 23cf, 2026-10-11
+
+Head: `0bbbb264c4640042aac7d3aa7a172ebd0e4b70fc`.
+Prior reviewed head: `f17f24db1421ab9f7dd88870561f14fad01307e7`.
+Only docs/stage1-plan.md changes. Sol reads the complete replacement text and the added history row.
+Sections 5, 6.3, and 8 are byte-identical to the prior reviewed plan.
+The pin equals the committed bytes and has mode 0444.
+Pin: `~/botster-sessions/pins/stage1-plan.6aa88d44.md`.
+Pin SHA-256: `6aa88d4412f43b2765d8313c467a9483898010878c1e4d5629301a66b6bd4b58`.
+
+Sol applies orchestrate-delivery because the revision replaces an architectural premise.
+Sol reads complete R-84 at Contracts `138173e410b0281a9b481669ffce7cfebab9f374` and the frozen ST-4 and EV-7 rows.
+Steward receipt `msg_plugin-w_1791747583_0204a1` identifies that exact published ruling.
+The superseded shared-projection draft never landed on Contracts main, by steward report.
+Sol reads the relevant production and oracle paths at verified Core v1 `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+
+CoreApi::terminal_state delegates through the driver to the host engine, which returns its stored TerminalState.
+Host inbound.rs:465–483 stores title and cwd observations as Some(value) and posts their events.
+Worker model.rs:168–177 collects the last title and cwd events; lines 238–242 retain those values.
+The fresh worker model starts both fields at None. An empty observed string remains Some("").
+The binding callbacks create TerminalEvent::Title and TerminalEvent::Cwd from the library values.
+The binding getters return a String and cannot distinguish unset from explicitly empty.
+The .40 TerminalState type uses Option<String> with absent serialization for None.
+These reads prove the event-sourced premise. They identify no Core projection function to share on the affected paths.
+Rounds 81 and 82 did not prove that the proposed shared projection existed. This trace corrects that omission.
+
+The replacement matches R-84 form A.
+O_raw drains its own library events and retains its own last title and cwd values.
+Some(last) includes an empty string; absence means no event set a value.
+Only the contract type's Option shape is shared. Core and the testkit retain separate last-event implementations.
+The plan rejects empty-string-to-absence mapping and extraction of a nonexistent shared Core function.
+The steward reads ST-4 as the last value the program set, including an empty string, absent only when the program set none.
+EV-7's transparency rule supports retaining the observation. This is a ruling, not a clause amendment.
+RC must test whether the binding posts an event for an empty OSC 2 and state the result in the PR body.
+This plan verdict does not claim that the binding test ran or passed.
+
+Sol reads the current O_raw replay and its testkit and real callers.
+The future oracle_state must use that independent source, not Core's cached state or a second retained model.
+The existing known-output and size/profile limits remain named and pending.
+The future implementation review must check replay event handling and those limits on both tiers.
+The control row and 016c review remain required. No new scope, slot, input count, or active Core pin changes.
+Sol accepts no implementation, execution evidence, pending removal, or later import in this plan verdict.
+Zero plan findings remain. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open) at 0bbbb264c4640042aac7d3aa7a172ebd0e4b70fc
