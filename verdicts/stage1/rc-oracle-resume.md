@@ -109,3 +109,66 @@ A correction or current-base import needs its own exact-head gate. This round ac
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: NOT CLEAN (3 open) at 2a0c4922e93f3bb29234a90fe79fc57db0f7b48d
+
+## Round 2 — R-69 correction, 2026-10-11
+
+Head: `eba028f6ec2b4f50dae9c1a3bd73d53b72e15077`.
+Base: `c942593697e856017572977af0405b17de0124e2`.
+I read the complete control and test correction, the R-69 draft, and the live body.
+I read package Round 2 in `48e76c5f94550a77ea98809d3c157c9f0718f48e`.
+
+**OR-SI-1 / RC-OR-1 HIGH — CLOSED within the agreed control-only scope.**
+The second capture begins, pumps with the last supplied Now, and polls. It adds no clock step.
+Any event other than its own completion returns `UnsupportedFor("events_pending")`. The control holds and re-injects no event.
+On success, the control reads every page and releases the capture. A page error also releases the completed capture.
+The real negative test sends output, pumps without polling, and requires the refusal.
+The real success test compares public captures, pending operations, queued events, and next_deadline before and after two controls.
+The three ST-6b identifiers remain pending. Both pending files equal the reviewed base.
+The contracts fences, five Mac passes per identifier, and later pin gate remain separate work under plan 23at/23au.
+
+**OR-SI-2 / RC-OR-2 MEDIUM — OPEN narrowly.**
+The correction removes direct capture-map, changed-set, program-history, and ModelLog private-state assertions.
+The real test obtains its capture identifier from Completed and proves history and cut behavior through the public equal result.
+Two assertions still compare `Resumed { mark: 4, ... }`. Shared::resume copies the stored private mark into that value unchanged.
+The result still exposes a private record for an assertion. Both reviewers require removal of those two mark assertions.
+Page, error, forwarding, and release checks can remain. The real public result must retain the cut and session-isolation proof.
+
+**OR-SI-3 / RC-OR-3 LOW — CLOSED.**
+The body compares existing snapshot, terminal-library, formatter, wrapper, page-read, and output-observation facilities.
+It gives reasons for the independent comparator, acknowledged output history, and final R-69 capture wrapper.
+It retains no justification for the rejected held-event form.
+
+I read the complete supplied Mac reversal record at `884fde19` without executing it.
+The earlier cut reversal survives at `1700fa88`. That result remains a failure of the earlier proof.
+The later sequence reports five failed reversals, including cut exclusion and every mark zero, through the real public control test.
+Record: `~/botster-sessions/gates/botster-core-rc-r69-reversals-mac-884fde19-20261011-074628.log`.
+This record is not an exact-head full Mac pass at eba028f6.
+The eba028f6 gate summary reports all ten steps PASS in 833.7 seconds, with 86 caught and 34 unviable mutants.
+It reports zero missed or timeout. I have not independently matched every outcome and catch report.
+This source round accepts no final gate, transcript removal, or future base import.
+
+VERDICT: NOT CLEAN (1 open)
+
+## Round 3 — private-mark correction, 2026-10-11
+
+Head: `c3713dba91e38785eeadeb36444a86f51963a622`.
+Base: `c942593697e856017572977af0405b17de0124e2`.
+Parent: `eba028f6ec2b4f50dae9c1a3bd73d53b72e15077`.
+Tree: `e84837003946c67df36ad39f517000e39f11d7db`.
+Package source CLEAN: `48e76c5f94550a77ea98809d3c157c9f0718f48e`. I read its complete Round 3.
+
+I read the complete one-file correction: 13 additions and 19 deletions in capture_layer.rs tests.
+Both stored-mark assertions are removed. The helper keeps only returned pages and propagates errors.
+The real public equal result retains the cut and session-isolation proof. OR-SI-2 / RC-OR-2 closes.
+OR-SI-1 / RC-OR-1 and OR-SI-3 / RC-OR-3 remain closed. Zero source findings remain.
+
+Independent comparisons confirm the six other own blobs equal the prior full source review.
+Cargo.lock, mutation configuration, and both pending files equal this reviewed base.
+The inherited #262 import adds its accepted enforcement and notes. This PR changes no exclusion or excluded mutant set.
+
+This verdict completes source review at this exact head and base. It does not establish a gate result for c3713dba.
+The exact-head gate, any current-base import review, and the lead's merge decision remain pending.
+The earlier gate remains earlier-head evidence. No pending identifier leaves through this verdict.
+I ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
