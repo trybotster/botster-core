@@ -187,3 +187,30 @@ This source review accepts no future import, pending removal, unfinished job, or
 I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN
+
+## Round 3 — 2026-10-11: quiet retry correction
+
+Exact head: `2645bfc1c216cea54cd61577cae25e834e66133c`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `a733adc62438eb1b07d7ca795596a261f60f3ab2`.
+Parent: `cc4a1a40c4c4a3cc3120cb55154f25b5f3e72af0`.
+I read the complete two-file correction delta. The head has the exact parent above.
+
+RC-R2-1 closes in the source. Tap::quiet now makes one read attempt per link, with no inner retry loop.
+WouldBlock proceeds to the next link without changing the quiet result.
+Interrupted leaves the link and buffered bytes intact, makes the result non-quiet, and causes the wake to signal.
+The next call can retry. Successful reads and terminal errors retain their earlier behavior.
+The new finite fake-edge test supplies two Interrupted results, then one byte.
+Each interrupted call returns non-quiet, consumes one attempt, and signals one wake.
+The final public link_recv result gives the byte. The test does not wait for a timer to detect a retry defect.
+
+RC-R1-1, RC-R1-2, and RC-R1-3 remain closed. No source finding remains.
+RC-R1-4 remains open: the required Mac evidence has not arrived.
+P6 reports that the prior-head jobs stopped and new Linux and Mac jobs run on this head.
+This review accepts no completed result from those unfinished jobs.
+The final body and exact-head evidence remain pending. The Round 1 Linux gate retains only its parent-head scope.
+
+One finding remains open: RC-R1-4. This round accepts no later import or pending removal.
+I changed no product code and ran no execution job.
+
+VERDICT: NOT CLEAN
