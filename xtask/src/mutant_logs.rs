@@ -366,6 +366,9 @@ mod tests {
         );
     }
 
+    /// One case of an error report: the outcomes, the logs by path, and a part of the expected error.
+    type Case = (String, Vec<(&'static str, &'static str)>, &'static str);
+
     /// A catch that names no test, a miss that names a failed test, a retry in the unmutated baseline, an unreadable log
     /// and an outcome without a log path are errors.
     #[test]
@@ -373,7 +376,7 @@ mod tests {
         let pass = "        PASS [   0.010s] w t::a\n";
         let retried =
             "        TRY 1 FAIL [   0.100s] w t::a\n       FLAKY 2/2 [   0.100s] w t::a\n";
-        let cases: [(String, Vec<(&'static str, &'static str)>, &str); 4] = [
+        let cases: [Case; 4] = [
             (
                 outcomes(&[("l", "CaughtMutant", Some("m"))]),
                 vec![("l", pass)],
