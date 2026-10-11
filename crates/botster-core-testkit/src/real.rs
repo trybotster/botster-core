@@ -177,6 +177,20 @@ pub struct RealCoreHarness {
     root: tempfile::TempDir,
 }
 
+/// The parent of every harness root. Core refuses a data directory whose sockets do not fit a Unix socket address
+/// (`check_socket_path`: the longest worker endpoint is `<data_dir>/w/<u64>-<u64>`, and `sun_path` holds 104 bytes on
+/// macOS). The harness does not use the inherited `TMPDIR`: macOS's default (`/var/folders/<..>/T/`) is about 50 bytes
+/// long, and with it Core refused each data directory of the real tier (`InvalidConfig { field: "data_dir" }`).
+const SHORT_ROOT: &str = "/tmp";
+
+/// A new root directory of a harness under [`SHORT_ROOT`], owner-only (`tempfile` makes it with mode `0700`). It is
+/// removed when the harness drops.
+fn short_root() -> io::Result<tempfile::TempDir> {
+    tempfile::Builder::new()
+        .prefix("bc-")
+        .tempdir_in(SHORT_ROOT)
+}
+
 /// Locks a tap or a row table. A panic while it was held leaves plain data behind, so a poisoned lock is still usable.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
@@ -223,7 +237,7 @@ impl RealCoreHarness {
             armed: BTreeMap::new(),
             refusals: BTreeMap::new(),
             stand_ins: 0,
-            root: tempfile::tempdir()?,
+            root: short_root()?,
         };
         // `Core::open` creates the data directory itself, not its parent.
         std::fs::create_dir(harness.root.path().join("d"))?;
@@ -1428,6 +1442,33 @@ mod slow_controls {
 #[cfg(test)]
 mod slow_tests {
     use super::*;
+
+    /// The harness's root is a new owner-only directory under `/tmp`, not under the inherited `TMPDIR`. The longest
+    /// worker endpoint of a data directory with a 16-byte name fits a Unix socket address. The root is removed when the
+    /// harness drops.
+    #[test]
+    fn the_root_is_short_owner_only_and_removed_on_drop() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        let root = harness.root().to_path_buf();
+        assert_eq!(
+            root.parent(),
+            Some(Path::new(SHORT_ROOT)),
+            "{}",
+            root.display()
+        );
+        let mode = std::fs::metadata(&root).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700, "{mode:o}");
+        let longest = InstanceId(format!("{}-{}", u64::MAX, u64::MAX));
+        let data_dir = PathBuf::from(harness.data_dir(&"x".repeat(16)).0);
+        let endpoint = endpoint_path(&data_dir, &longest);
+        std::os::unix::net::SocketAddr::from_pathname(&endpoint)
+            .unwrap_or_else(|error| panic!("{}: {error}", endpoint.display()));
+        let other = RealCoreHarness::new(nonexistent()).unwrap();
+        assert_ne!(other.root(), root, "each harness has its own root");
+        drop(harness);
+        assert!(!root.exists(), "{}", root.display());
+    }
 
     /// Binaries that do not exist: enough for a harness that starts no process.
     fn nonexistent() -> Candidate {
