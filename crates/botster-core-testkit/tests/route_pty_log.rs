@@ -10,7 +10,8 @@ use botster_core_conformance::{driver_for, CoreSchemas, CORE_TRANSCRIPTS};
 use botster_core_testkit::TestkitHarness;
 use serde_json::json;
 
-/// `ou_1_attach_hands_transport_to_worker` sends `78` on its route without an op, and step 12 reads the route's log.
+/// `ou_1_attach_hands_transport_to_worker` sends `78` on its route as `bytes` with op "1" (step 9), and step 12 reads the
+/// route's log. The testkit does not know which op wrote the log's bytes, so the log has no known attribution.
 const ID: &str = "conf::ou_1_attach_hands_transport_to_worker";
 const READ: usize = 12;
 
@@ -47,7 +48,8 @@ fn a_literal_part_passes_on_the_route_log() {
 
 #[test]
 fn a_relation_part_never_passes_on_the_unattributed_op() {
-    // An op-less segment would pass this: the route's byte had no op. The label is no op, so it fails.
+    // The log has no known attribution, which is not "written without an op". A segment with a null op would falsely
+    // match `written_without_op`, because the route sent the byte with op "1". The label is not a null op, so it fails.
     let failure = run_with(json!([{"written_without_op": true}])).unwrap_err();
     assert!(failure.contains("testkit:unattributed"), "{failure}");
     let failure = run_with(json!([{"written_by_op": "1"}])).unwrap_err();
