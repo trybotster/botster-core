@@ -300,10 +300,7 @@ impl Impostor {
                                 continue;
                             }
                             if let Ok(hello) = Hello::decode(&frame.payload) {
-                                let mut answer = impostor_hello(plan, &hello);
-                                for scripted in &plan.script {
-                                    answer.extend(script_frame(*scripted));
-                                }
+                                let answer = impostor_answer(plan, &hello);
                                 let sent = link.end.send(&answer).ok();
                                 assert_eq!(
                                     sent,
@@ -322,6 +319,16 @@ impl Impostor {
             }
         }
     }
+}
+
+/// The whole answer of an impostor to the host's hello `host`: its wrong hello, then its scripted frames (Core A10-1,
+/// A11-1). The real tier's stand-in at the endpoint path writes the same bytes (steward ruling R-49).
+pub(crate) fn impostor_answer(plan: &ImpostorPlan, host: &Hello) -> Vec<u8> {
+    let mut answer = impostor_hello(plan, host);
+    for scripted in &plan.script {
+        answer.extend(script_frame(*scripted));
+    }
+    answer
 }
 
 /// The impostor's hello to the host's hello `host`: the instance of the endpoint and a proof from another token, or another
@@ -688,6 +695,13 @@ impl Workers {
             .and_then(|(cell, _)| lock(cell).worker.clone())
             .expect("a worker machine");
         lock(&worker.0).handle(now, Input::PtyOutput(bytes.to_vec()));
+    }
+
+    /// `worker_alive`: the worker process `identity` of this run has not ended. A read; it sends nothing.
+    pub(crate) fn worker_alive(&self, identity: ProcessIdentity) -> bool {
+        lock(&self.run_processes)
+            .get(&identity)
+            .is_some_and(|(cell, _)| !lock(cell).ended)
     }
 
     /// True while the payload of the worker process `identity` runs (`payload_alive`). The payload is in the worker's process
