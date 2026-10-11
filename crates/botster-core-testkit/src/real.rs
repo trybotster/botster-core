@@ -126,7 +126,8 @@ struct Handle {
 /// The unrelated process of a `reuse_pid` (R-55 (2), (3)): the harness's own child, the leader of its own group, unreaped
 /// until the harness's teardown.
 struct Bystander {
-    child: OwnedChild,
+    /// Held only for its drop, which ends the bystander's group and reaps it.
+    _child: OwnedChild,
     identity: ProcessIdentity,
 }
 
@@ -863,7 +864,10 @@ impl RealCoreHarness {
                     pid,
                     start_time: started,
                 };
-                return Ok(Bystander { child, identity });
+                return Ok(Bystander {
+                    _child: child,
+                    identity,
+                });
             }
         }
         Err(io::Error::other(
