@@ -200,3 +200,79 @@ This source CLEAN accepts no later head, pending removal, pin, final import, or 
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: CLEAN (0 open; source and supplied evidence before final import) at 27cb2cc48562334612d2d227aff8d8bb88a30d52
+
+## Round 4 — final-slot source delta, 2026-10-11
+
+Exact head: `fdd942db5f3d0aea71c37c33ea993179f42b4f19`.
+Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `ab1ed6f110d7629f9f865baa1719ac1d5bfed624`.
+Owner receipt: `msg_plugin-w_1791757547_80f1fb`.
+The completed canonical check, final gate, and matching final package verdict remain due.
+Sol reads no running gate output and runs no executable check.
+
+### Import and source composition
+
+The merge `90efe15c9747023be0b18252f64cd68a6d5414be` has parents 27cb2cc4 and the exact base above.
+The old source base remains `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+The import changes 26 base paths against ten own paths. Four paths overlap: real.rs, real/program.rs, real/route.rs, and route_client.rs.
+Sol independently checks all 338 nonoverlap tree entries; each equals the applicable own source or new base entry.
+Nine own files retain their exact added and removed lines against the respective bases.
+The remaining route.rs delta preserves the union of controls, including imported `input_blocked`.
+Its changed diff alignment moves two closing lines between adjacent hunks; the resolved match retains both complete arms.
+Sol reads the complete merge message, both conflicting file deltas, relevant resolved source, and all three post-merge commits.
+Both imports and both test sets remain. No reviewed control or imported R-68 test is removed.
+The imported real program uses the shared `PtyOutput` parser. The imported testkit `input_blocked` arm remains unchanged.
+
+Commit `75f0fd0dfcff45979dccbe03aec62e4463b9a8c2` supplies the new Handle wake field to the existing test literal.
+It uses the same socket-end form as the imported base test. It changes no production path.
+Commit `134ad99c06b7aa0eff6e05a93be081a6c6b9a4aa` changes readiness and adds its raw-route test.
+Commit fdd942db removes exactly five real-pending identifiers and changes no other file.
+The five identifiers are OU-1 attach, OU-11 ownership, OU-12 output order, OU-3 progressing reader, and OU-5 peer fault.
+All other pending bytes equal the imported base. This review accepts no pending removal before the required final PASS.
+The base is the #285 merge. Its tree equals #285's accepted gated tree `886ac9ddad72fc5b92a0c66646aa964965a1b00c`.
+
+### RG-SI-2 — MEDIUM, open: buffered readiness disables the host wake for the rest of a route step
+
+Source: `crates/botster-core-testkit/src/real/route.rs`, readiness at line 504 and read at lines 383–405.
+The new readiness condition returns `None` while `taken` holds bytes, including after `route_gate {on: false}`.
+The pinned .39 driver calls `install_waits(None)` once before `routes.exec` and clears those waits only after that step returns.
+In `crates/botster-core-conformance/src/driver.rs`, lines 2017–2030, `install_waits` stores no host wake when readiness returns `None`.
+In the same driver, lines 451–460 and 289–291, that stored wake determines whether every read uses a passed deadline.
+When the stored wake is absent, `route_pass` instead gives the end the live step deadline.
+
+A route step can start with buffered bytes, an ungated route, and `handed == true` from an earlier empty read.
+The first read consumes `taken`. A later read in the same step can find the stream empty.
+RealRoute then calls `read_stream` with the remaining step time. That poll waits on the route alone before the host pump runs.
+The driver's stored wake stays absent even though readiness now supplies the route descriptor.
+A tail or route close that requires a host pump can therefore wait until the step deadline despite a readable host wake.
+The hub route driver supports this sequence: a partial frame produces `Pump::Progress`, then `next_until_received` reads again within the same step.
+Its source is `crates/botster-hub-conformance/src/route/driver.rs`, lines 317–351, 414–447, and 603–618 at the same pin.
+
+The new test polls raw readiness and then calls raw read. It does not call `install_waits` or run this buffered-to-empty driver transition.
+Its reported red-on-revert result cannot prove preservation of the host wake across that transition.
+The pinned driver also reads the end before `wait_route`; the new test does not establish the body’s claimed original driver failure.
+Sol establishes this source path by static reading. Sol claims no executed reproduction or gate failure for it.
+
+Required change: preserve the host wake and nonblocking read behavior throughout a real route step after buffered bytes are consumed.
+Add a driver-level regression for an ungated route with buffered bytes followed by a host-dependent tail or close in the same step.
+The regression must observe the driver outcome and retain the existing deadline and ownership rules.
+If the repair needs a contracts driver change, the lead must assign its scope and pin order.
+Do not use a longer timeout or the raw readiness test as a substitute for that interaction proof.
+Sol sends this path to both P6 agents before this verdict. The package's initial static message reports no new source finding.
+The package has not supplied a completed response to this integration path in this round.
+
+### RG-SI-3 — LOW, open: final body still says no pending-list change
+
+Body SHA-256: `73ce303e3b0eba56db7b21d72f9a1f2455ab78e06f071980124586018f138dd1`.
+GitHub MCP fails. The GitHub CLI fallback confirms the exact final head and base and supplies the complete body delta.
+The updated body records the four final commits, current plan pin, readiness interaction, R-86 relation, and five pending removals.
+Its Risk tier paragraph still says `No transcript, pending list or timeout changes.`
+The final head removes five identifiers from `core-real-pending.txt`, as its later paragraph correctly states.
+Required change: make that opening scope statement agree with the final pending-list delta.
+The completed canonical-check output, final gate result, and exact final evidence body remain due separately.
+
+The earlier source CLEAN remains limited to 27cb2cc4. It does not carry across this behavior change or these pending removals.
+RG-SI-1 stays closed. The separate sys flake and its assigned structural follow-up remain open outside this PR.
+Sol runs no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job. Never poll.
+
+VERDICT: NOT CLEAN (2 open: RG-SI-2 MEDIUM and RG-SI-3 LOW) at fdd942db5f3d0aea71c37c33ea993179f42b4f19 against base 5e953398925351c12e463a7b0a946b79d9841edc
