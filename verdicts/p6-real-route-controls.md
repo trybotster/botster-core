@@ -556,3 +556,90 @@ I accept no result from a stopped or running job, no later head, and no PR compl
 I changed no product code and ran no execution job.
 
 VERDICT: NOT CLEAN
+
+## Round 10 — 2026-10-11: completed final acceptance
+
+Exact head: `95840fd637cd535e4d6d6a5a3b8833b09e8070bd`.
+Imported and gate base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+Tree: `652a92af93e885f1670be80a53048e7c275b8359`.
+The head and tree remain unchanged from Round 9. That source and import review remains valid.
+The source findings, readiness withdrawal, and fence-disposition correction retain their recorded closure.
+
+### Completed final gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-95840fd6-pool-20261011-153740-74638.log`.
+SHA256: `89fb3ee5e4442912c862e6ff1c21fdee22094c0ae831f8d9aed092e1235baefa`.
+I read the exact-head/base headers, stage records, tier summaries, relevant outcomes, mutation identities, named catches, and final exits.
+The job runs on MS-A1 with four CPUs. Its contracts pin is ddce507e, contracts-v0.1.39.
+All ten stages pass in 1963.5 seconds. The job and wrapper exit zero after 1971 seconds: one queued and 1970 running.
+Default passes 1796 tests, with 460 skipped, in 12.104 seconds.
+Slow passes 597 tests, with 2025 skipped, in 42.448 seconds.
+Strict runs 349 of 367 pending ids, with 18 real-only not run and three held.
+The gate reports real minimum 57 / 68 passing and 58 / 69 accepted, and 12 passing pending-real trials out of 26.
+Those printed trial counts approve no removal of a fence-excepted identifier. The three disputed identifiers remain real-pending.
+Fuzz reports no changed crate with a decoder harness.
+
+A static parser checks every raw mutation identity and both stages' named catch records.
+Stage 1 has 164 unique identities: 67 caught, 93 missed, four unviable, and zero timeout, in 378.0 seconds.
+Stage 2's 93 unique identities exactly match stage 1's missed identities.
+The slow baseline passes in 54.4 seconds. Stage 2 catches 73, misses none, and reports 20 unviable and zero timeout, in 1307.8 seconds.
+Each stage's raw caught identities exactly match its unique named catch records.
+All 140 named catch records refer to catchers selected and passing in the normal gate tiers; there are 40 distinct catchers.
+Final result: 140 caught, zero missed, zero timeout, and 24 unviable. Unviable results supply no catch evidence.
+
+OU-5 peer fault and OU-12 output order both pass normally in conformance and slow_conformance.
+Both also pass in the unmutated stage-2 slow baseline. Their ordinary PASS records are independent of mutation failures or retries.
+Combined with the retained named three-run results on each OS, these records satisfy the lead's removal condition.
+Neither identifier has a .39 fence-exception entry. I accept exactly these two real-pending removals at this head.
+Their unchanged public contract assertions retain the Round 9 review. No private-state assertion replaces them.
+Required Mac holder and written-count evidence retains its unchanged-implementation scope. This round claims no new Mac gate.
+
+### Canonical check and manual delta review
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-95840fd6-pool-20261011-161043-48882.log`.
+SHA256: `38e23f3fb0721b8b3742a563aa8b5a6b6d9d2490148d45a91c2dd0b2ffff7660`.
+I read the decoded command, complete check records, source identities, and exits.
+The check compares reviewed head 27cb2cc4 with this exact head against base 5e953398.
+Both ancestry conditions pass. The check returns FAIL and requires delta rounds from both reviewers.
+It identifies merge conflicts in real.rs and real/route.rs, the four source overlaps, the changed own diff, and the real-pending file delta.
+The unchanged testkit pending file passes its check.
+The job exits one after 200 seconds: 191 queued and nine running. The wrapper exits one after 201 seconds.
+This is a completed failed mechanical check, not a passed check or an execution failure hidden by a script.
+
+Rounds 7–9 review each identified source and pending delta manually. They do not use automatic carryover from 27cb2cc4.
+The merge retains both control and test sets; the compile correction supplies the new wake field only in a test literal.
+The readiness behavior change is completely withdrawn. The final source equals the reviewed merge plus compile fix.
+The only later effective file delta is two real-pending removals and four explanatory comment lines.
+The three fence-excepted identifiers remain in the base's pending groups. Other pending files and workspace pin entries equal the imported base.
+The failed mechanical check therefore leaves no unreviewed package delta at this exact head.
+
+### Final flake record and body
+
+The final gate reports one FLAKY result at line 6296 for `conf::ev_5_route_closed_retires_route_keyed_events`.
+Its first attempt fails and its one mutation-profile retry passes under deletion of the client_close control arm.
+That result supplies no catch. OU-5 independently catches the same mutation at line 6297.
+The main log retains no failed-attempt output, so this review establishes no failing step or exact cause for that attempt.
+The EV-5 transcript uses Detach and route_reports, without a client_close control call.
+
+Lead receipt `msg_plugin-w_1791760644_671de3` explicitly permits #287 closure and merge with this flake recorded.
+The lead identifies its existing structural fix: the R-66 follow-up fence in contracts #69, owner RC, then the Core .42 pin.
+The fence is step-26 await_control route_reports with activity_before_close=true and closed=false.
+The lead cites accepted 23bl(A) reproduction on v1 f68f26a7 and reviews 017e 1ad1761f and Sol acd9d7f5.
+I record that lead disposition; I do not claim an independent review of that separate fix or closure of its future Core pin work.
+No reproduction campaign, additional run, retry change, or timeout change is requested or accepted here.
+
+I read the complete final body delta, including the added raw flake lines, independent catcher, owner, and future pin obligation.
+At 23:18:50Z, GitHub names this exact head and base. The body matches the completed gate and canonical-check records.
+Raw body SHA256: `8deb0c68f1bec5956d753d5f2364e564d6542017a81e5c969364da672b9e4840`.
+The CLI form with its extra trailing newline has SHA256 `0711eefc0dcea3ea72ac2c973f9583c7f0411cd8c9842596eff181d0da2b9a2f`.
+That CLI hash matches P6's completed-body receipt `msg_plugin-w_1791760738_b29d80`.
+The body keeps the failed and stopped earlier jobs explicit, withdraws the prep proof, and reports the precise two-removal/four-comment delta.
+It retains the prior-art note, Mac evidence limits, and open R-71 transcript conditions.
+
+No package finding or required acceptance record remains open for this exact head.
+The source, final imported delta, completed mechanical check, final gate, final body, and two permitted pending removals are reviewed.
+The separate sys flake fix, EV-5 .42 pin work, and P3 R-71 transcript follow-up remain outside this PR's closure.
+This verdict accepts no later head, contracts pin, or change after the reviewed tree.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
