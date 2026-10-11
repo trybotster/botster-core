@@ -216,10 +216,11 @@ exclude_re = [
     # NonZeroUsize enforces positivity in all builds; a zero default fails const evaluation.
     # control_and_pty_reads_retain_bytes_at_each_positive_bound proves control-frame and program-byte retention
     # and readiness clearing at 65536, 1088, and 1 through the same Driver constructor and read functions.
+    # Route stream reads take the same bound: a_read_takes_at_most_one_chunk proves the bound of each read at those values.
     # The exact-head slow baseline also proves the shared Worker's launch, signal, exit, and removal through Driver.
     # Changed chunking can change the schedule without changing these contract results.
     # This entry covers only the constant arithmetic. Read decisions in io_decisions remain mutation-tested.
-    'crates/botster-worker/src/main\.rs:53:55: replace \* with \+$',
+    'crates/botster-worker/src/main\.rs:58:55: replace \* with \+$',
     # P3 main: process glue only. It reads arguments/token, calls command_line::execute with the real Driver,
     # prints its diagnostic, and returns its status. WorkerLaunch owns parsing; execute owns status decisions.
     # Default execute tests catch all three generated mutations and prove refusal, identity, success, and driver failure.
@@ -253,6 +254,12 @@ exclude_re = [
     # Driver::deregister_pty: pty_reads_clear_readiness_and_finish_a_bounded_drain checks registration flags through ReapPayload.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::deregister_pty( ->| with)|.* in Driver::deregister_pty$)',
     # Driver::read_pty_chunk: control_and_pty_reads_retain_bytes_at_each_positive_bound checks bytes; pty_reads_clear_readiness_and_finish_a_bounded_drain checks drains.
+    # The PTY read budget (PR C, OU-3d): the size of each read is io_decisions::pty_read_bytes
+    # (a_pty_read_is_bounded_by_the_chunk_the_drain_and_the_budget) and the poll's wait is ReadyState
+    # (every_ready_source_prevents_a_blocking_wait), both in the default tier.
+    # a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads proves the stop and the resume on the real
+    # driver, with a small route queue (F121). The real-tier OU-3 id for a progressing reader stays real-pending until
+    # P6's real route_fill (plan revision 23t).
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_pty_chunk( ->| with)|.* in Driver::read_pty_chunk$)',
     # Driver::read_control: control_reads_require_readiness_and_report_eof_once and the positive-bound test check real socket reads.
     'crates/botster-worker/src/main\.rs:\d+:\d+: (replace Driver::read_control( ->| with)|.* in Driver::read_control$)',
