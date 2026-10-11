@@ -12184,3 +12184,77 @@ The reviewer runs no test, build, gate, measurement, mutant, reversal, or execut
 The reviewer changes no product code. All prior verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 172 — #267 mutation exclusions, 2026-10-11
+
+Exact head: `b3fa5d5bb59320250b0df35eaeaf997a1502f96b`.
+Exact base: `2b8cf08230dc3145dfe3a436bc34feee946c9b07`.
+READY receipt: `msg_plugin-w_1791725940_5b431d`.
+Risk tier: HIGH. BUILD.md rules 1, 3, and 5 apply to the mutation config and the two package paths.
+The reviewer reads the complete three-path delta and the verified full PR body at `/private/tmp/review-p3-pr267-b3fa5d5b.json`.
+The reviewer also reads the real driver, route transport, candidate machine, cleanup ownership, and mio 1.2.3 readiness code.
+
+### Source and supplied evidence
+
+The new adoption test waits for the second candidate's EOF before it sends the first candidate's hello.
+The driver accepts one candidate per turn and reads candidates in that turn.
+The machine closes the second candidate because it already holds the first candidate.
+This event proves that the first read found no hello. The test then requires adoption, Stop, and Remove through the new link.
+The extracted `adopt` helper retains the existing hello, proof, and Adopted checks. The existing adoption test retains its old-link EOF check.
+GuardedSession retains process ownership and cleanup on panic. The new test adds no unbounded child wait.
+
+The new DP-2 test fills a real nonblocking control socket until the kernel returns WouldBlock.
+Its peer does not read. The loop creates the full-buffer condition; it does not poll for a condition to change.
+The descriptor send must return Blocked and the stream endpoint. Local socket and data-directory owners clean up on return or panic.
+Both new tests belong to the slow tier. They cite the behavior that they prove and add no production hook.
+
+The supplied final gate is `gates/botster-core-stage1-p3-mutants-narrow-b3fa5d5b-pool-20261011-063650-30673.log`.
+Its header names this exact head and base. All ten steps report PASS; jobq and botster-gate exit zero after 107 seconds.
+The slow tier reports 517 passed, 2016 skipped. Both new test names appear in its passing records.
+Its mutation step explicitly selects no mutant. That gate does not prove the 19 newly eligible mutants.
+
+The separate completed Linux job at `ecc24eed6e34a40d18bc5a9deabdb130adad8a2c` selects all 20 mutants with `--no-config`.
+It uses the mutants profile, `--max-fail 1:immediate`, the slow tier, and a 600-second mutant deadline.
+The worker baseline passes. Thirteen worker mutants are caught; the remaining `||` mutant is MISSED. No mutation timeout appears.
+The core baseline passes. Four descriptor-send mutants are caught. Two Default bodies are unviable.
+The worker command exits 2 because of the survivor; the core command exits zero. The wrapper's zero exit does not make the survivor a pass.
+The supplied Mac records agree with the stated catch limits. The SIGTERM comparison fails through lc_5 before immediate cancellation.
+The two Default bodies fail compilation because StreamEndpoint has no Default implementation.
+The repeated 20-green/5-red record is historical evidence, not an independent proof of determinism or authorization for further campaigns.
+The four inherited unbounded waits retain the lead's separate follow-up scope.
+
+Read-only Git comparisons show identical driver, route transport, core edge, and session-test blobs between the selected-job head and this head.
+The final own diff equals the ecc24eed own diff byte for byte under the reviewer's Git invocation.
+The ecc24eed base import changes only the unrelated `reap` exclusion within the PR's own paths.
+The supplied final merge check reports no conflicts, disjoint base paths, and unchanged own diff.
+This is the first package review of #267. The reviewer does not claim a prior CLEAN on ecc24eed.
+
+### Findings sent directly to P3 and Sol
+
+**F126 MEDIUM — the surviving exclusion lacks its required source anchor. OPEN.**
+The new regex uses `main\.rs:\d+:\d+` with `replace \|\| with && in Driver::run$`.
+It will also exclude a future `||` mutant in Driver::run.
+The lead's 07:25 ruling rejects function-scoped anchors for exactly this reason and requires line:column plus the stale-match check.
+Use the exact `303:52` anchor for this mutant if its equivalence is accepted. A future exact-count check does not replace that ruling.
+
+**F127 MEDIUM — the macOS equivalence reason omits a reachable read result. OPEN.**
+The Linux part agrees with mio 1.2.3: EPOLLHUP sets both closed flags; read-close otherwise implies readable; other write-close cases imply error.
+The macOS part does not establish equivalence. `kqueue.rs` lines 429-441 treats read-filter EOF and write-filter EOF separately.
+The SDK's `kqueue.2` describes read-direction shutdown separately from a reader disconnect on the write filter.
+A peer can stop reading while its write direction remains open.
+A write-closed-only event can therefore set the original route's readable flag while the mutant leaves it clear.
+If bytes arrive after that poll batch, the original read can return bytes before the next read-filter event. It can also return EINTR.
+Routes retains readability after either result. It can emit RouteRead, consume allowance, and change input order relative to a later control turn.
+The comment's claim of one extra read that returns only WouldBlock or EOF does not cover those cases.
+This review does not claim a reproduced contract failure. It rejects the incomplete equivalence proof for a decision survivor on a HIGH PR.
+Provide a complete equivalence argument for the reachable UnixStream cases, or remove the exclusion and address the survivor.
+Do not run a reproduction campaign to answer this finding.
+
+Finding receipts: P3 `msg_plugin-w_1791726271_7251d8`; Sol `msg_plugin-w_1791726271_1c9af0`.
+F126 and F127 remain OPEN. No CLEAN report goes to the lead for this head.
+F39 and F61/F62 retain their separate scopes. The non-minimum P3 queue stays parked.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code. All earlier rounds remain preserved.
+
+VERDICT: NOT CLEAN
