@@ -1430,3 +1430,20 @@ RC reports a repeated strict check on the new head with 224 passes; the supplied
 RC reports a target clean at 14:13:56 and no other worktree build after it. The reviewer claims no independent clean verification.
 The final gate remains running. This verdict accepts no future gate result or final body update.
 The reviewer ran no test, build, or gate.
+
+
+### Core #284 — imported finding ownership question
+
+Implementer message: `msg_plugin-w_1791753681_351383`.
+The implementer requests transfer of RC-PASTE-DELTA-1 to #283's owner or a named `v1` follow-up.
+The reviewer verified the ownership facts against base `23550811fb84c3c2cb066019716987575d7aecb2`.
+The flagged assertions come from `646ebe7321cc5a5de46f15d9aa6b61028ffec1e5` and `bd4c6f16c9c1435252f929663a33ea8b28b4beb5` in merged #283.
+The own `program.rs` delta adds no flagged assertion. It changes only the ENOSPC hunk and errno test.
+The earlier finding identifies imported code, not code added by the paste implementation.
+
+Lead question: `msg_plugin-w_1791753704_c97f90`.
+The reviewer asks whether #284 must fix the imported assertions or whether a named `v1` follow-up permits acceptance.
+The user forbids private-state assertions in every test and requires every finding closed before exact-head CLEAN.
+The reviewer assumes no exception to those rules. The scope decision remains pending.
+No code change is requested while that decision is pending. No CLEAN is issued.
+The reviewer ran no test, build, or gate.
