@@ -440,3 +440,22 @@ Current v1 has advanced to 0c5ac80e by merging #261. This head still records b3c
 A later current-base import needs its applicable review and its own exact-head gate.
 This inspection approves no merge, gate, pin implementation, or pending removal.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+### Round 4 continuation: API snapshot and release condition
+
+Sol reads the complete one-line delta at `27d7e821f69c89f97b1476fd56e5f71e04556798`.
+The API snapshot now states the already inspected link_send_descriptor result, including the optional host copy.
+No executable source changes in that commit.
+Sol reads the bbc83015 gate's exact head/base header, API error, final summary, and exit record.
+fmt, clippy, taint, and lists pass. public-api fails at this snapshot line.
+All five later steps report NOT RUN. The wrapper exits one. This failed gate supplies no execution approval.
+
+Sol reads the complete lead confirmation at https://github.com/trybotster/botster-core/pull/243#issuecomment-6108744687.
+The lead confirms that no released Core worker speaks protocol 1.
+The comment records no repository releases or tags, publish=false, and the worker's inherited publishing setting.
+The R-65 protocol-1 release condition is CLOSED. The lead receipt is `msg_plugin-w_1791719661_514ce9`.
+
+The lead assigns one new round head containing the API correction, current v1 0c5ac80e, and the EV-5 flaky-entry removal.
+That head needs its applicable delta review, focused Mac receipt, complete before/after table, and full exact-head gate.
+The package reviewer reports no runtime finding at 27d7e821, but has not committed the formal composition round.
+Round 4 remains active. This continuation supplies no formal source CLEAN or merge approval.

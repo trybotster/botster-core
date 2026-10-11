@@ -41,3 +41,12 @@ Its decision checks remain subject to mutation review. This design review suppli
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN design (0 open) at SHA-256 3a88498a9b39d49d110e8cec106670251890da92a2a97a5edee0818927d64811
+
+## Package design record
+
+Sol reads the complete package design verdict `3e5046b99845e24adca9db6f528d3c4f46c4da22`.
+The fetched stage1/review-pc branch contains that commit. Sol independently confirms its publication.
+The file is verdicts/pc-real-only-proofs-design.md. Its design hash equals this review's exact hash.
+Both design verdicts are CLEAN with zero open findings.
+The package verdict preserves same-run selection and PASS checks, freshness, strict result parsing, and every required proof line.
+No implementation is READY. These design verdicts supply no implementation, gate, pending-removal, or merge approval.
