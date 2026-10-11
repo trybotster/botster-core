@@ -617,9 +617,14 @@ fn a_real_merge_of_two_disjoint_flips_passes() {
 }
 
 /// The set file is left out of condition 3 only by its own rule: an unreviewed change to it after the merge fails (4), and
-/// an unreviewed change to another path still fails (3), also with `GIT_LITERAL_PATHSPECS` set.
+/// an unreviewed change to another path still fails (3), also with `GIT_LITERAL_PATHSPECS` set. The variable belongs to the
+/// whole process, so the test runs alone in a new process that has it (`botster_test_process::alone`).
 #[test]
 fn an_unreviewed_change_after_the_merge_still_fails() {
+    const NAME: &str = "base_merge::tests::an_unreviewed_change_after_the_merge_still_fails";
+    if !botster_test_process::alone::is_alone(NAME) {
+        return botster_test_process::alone::run_alone(NAME, &[("GIT_LITERAL_PATHSPECS", "1")]);
+    }
     let (repo, reviewed, _) = two_flips("conf::b", "conf::d");
     repo.stage(PENDING, "# comment\nconf::a\n");
     let new = repo.commit("an unreviewed removal");
@@ -630,12 +635,10 @@ fn an_unreviewed_change_after_the_merge_still_fails() {
     let (repo, reviewed, _) = two_flips("conf::b", "conf::d");
     repo.stage("a.txt", "a3\n");
     let new = repo.commit("an unreviewed change");
-    // The gate's nextest runs each test in its own process, so the variable reaches only this test's git (as in fsutil).
-    std::env::set_var("GIT_LITERAL_PATHSPECS", "1");
+    assert_eq!(std::env::var("GIT_LITERAL_PATHSPECS").as_deref(), Ok("1"));
     let report = check(repo.0.path(), &reviewed, &new, "v1")
         .unwrap_err()
         .to_string();
-    std::env::remove_var("GIT_LITERAL_PATHSPECS");
     assert!(
         report.contains("FAIL (3) the pull request's own diff differs"),
         "{report}"
