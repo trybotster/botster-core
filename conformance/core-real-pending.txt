@@ -75,8 +75,11 @@ conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
 conf::ou_1_attach_hands_transport_to_worker
 conf::ou_11_transport_ownership_is_defined
 
-# The real route end does not close after route_closed{protocol_error unknown_frame} (step 17, INCONCLUSIVE, not diagnosed)
-# (lead, plan 23bh). P6, as the real route-end owner, after its route-control group.
+# Real tier, macOS 3/3 on b0db80ec: INCONCLUSIVE at step 17 (expect_closed on r2, step_timeout) (lead, plan 23bh). Cause (P6, lead
+# handoff 2026-10-12 00:00 PT): under the #47 driver the real tier has no RouteClient::readiness and no CoreHarness::wake_fd, so
+# the route pass's first read takes the full deadline; Core's R-65 close is correct. With both adopted, step 17 passes 3/3 and
+# the id stops at step 22 (route_expect_pty; P6's run had no real route pty_input). Follow-up: the adoption in P5's .39 pin
+# PR, then P6, as the real route-end owner.
 conf::dp_3_unknown_type_closes_route
 
 # Step 25 strict expect on r3 races the PTY echo (1/3 FAIL, seed 6) (lead, plan 23bh). P3, in the am_2 contracts PR.
