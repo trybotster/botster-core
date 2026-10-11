@@ -25,7 +25,6 @@
 
 # the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (with ids from P4a PR3: attach_stream, client_close, route_gate).
 conf::a2_2_missing_op_is_bad_frame_not_refused
-conf::a2_3_lost_session_closes_routes_session_lost
 conf::dp_7_revoked_reason_reaches_client_and_host
 conf::ev_5_route_closed_retires_route_keyed_events
 conf::ou_2b_healthy_reasons_send_route_closed_last
