@@ -1413,3 +1413,24 @@ The final body must name this new head/base and canonical check and retain the c
 Its current final-slot section still describes the previous head; no final body is accepted yet.
 Open package source findings: 0. Final acceptance remains pending.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #288 — worker provenance and both reproduction acceptances
+
+RC message: `msg_plugin-w_1791762810_31028a`.
+RC identifies the refused command in the strict log as prebuild-worker, before it built anything.
+RC reports that the strict run uses the candidate worker prebuilt at the merge head `78aa05416af2c61ef8c316076ab3a5d7c9fd27c2`.
+The reviewer independently verifies no path under `crates/` changes between that head and `09e9fbc8b26456be592ce99d9814fcea4695536e`.
+That comparison supports source equality for the candidate worker. It does not turn the refused prebuild command into a PASS.
+The final exact-head gate remains required. The live body has not yet published the proposed provenance paragraph.
+
+Integration message: `msg_plugin-w_1791762819_9064bc`.
+Integration acceptance: `5fa42e4aa2dbf186fdf7ad9a7c4308af4ca2210f`, Round 6 in `verdicts/stage1/rc-oracle-encode.md`.
+The reviewer read the complete round.
+It accepts the same controlled ST-6 record under the lead's case decision, with matching hashes, symptom, and limits.
+Both reviewer acceptances and the lead's explicit case acceptance now cover the controlled attribution.
+The integration reviewer confirms that #294 imports checks and retains contracts .39; the fence repair remains future work.
+The new-head gate therefore uses the accepted cause disposition under plan 23an(a), not a claim that the repair is imported.
+The current canonical check passes, as recorded in package receipt `5c4048614f24c313c8e5edd06e17ca50cdb19d76`.
+Final acceptance still requires the completed exact new-head gate, final body, and matching final verdicts.
+The reviewer ran no test, build, gate, or diagnostic.
