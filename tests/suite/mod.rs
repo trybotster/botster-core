@@ -20,7 +20,10 @@
 //!   names its real-process proofs (`conformance/core-real-proofs.txt`). Its transcript never runs: it has no
 //!   `TestkitHarness` form (plan 4.2b), and the real tier is exempt from the duplicate trial once the proof passes in the
 //!   gate (plan section 5). The gate's slow step runs each named test must-pass, and the minimum count includes the id
-//!   by those tests (plan 23s). A non-pending real-only id with no proof line is a failing trial (fail closed);
+//!   by those tests (plan 23s). A non-pending real-only id with no proof line is a failing trial (fail closed). When a
+//!   proof line names the id's own real-tier trial (`botster-core::slow_conformance conf::<id>`), the real tier runs the
+//!   transcript must-pass instead, and only the testkit tier has the ignored `real-only` trial (lead, 2026-10-11, after
+//!   R-55);
 //! - every other id runs `run_transcript` over the seed set and passes only on `Outcome::Passed`. On the real tier it then
 //!   runs again on a plain `Core::open` (the pass-through test of plan 23l): it must pass there too, unless it needs a
 //!   control, which only the wrapped composition serves (`unsupported_control` on the plain harness).
@@ -106,7 +109,9 @@ fn named_proofs(
         .filter(|entry| !pending.contains(&entry.id))
         .filter_map(
             |entry| match pending::non_pending(&entry.id, real_only, proofs) {
-                NonPending::ByNamedProof(_, named) => Some((entry.id.clone(), proof_names(&named))),
+                NonPending::ByNamedProof(_, named) | NonPending::ByOwnRealTrial(_, named) => {
+                    Some((entry.id.clone(), proof_names(&named)))
+                }
                 _ => None,
             },
         )
@@ -327,6 +332,16 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
         } else if let Some((_, authority, start)) = deferred.iter().find(|(d, _, _)| d == id) {
             let reason = format!("deferred by {authority}; starts when {start}");
             trials.push(never_passes(id, "deferred", reason));
+        } else if let (NonPending::ByOwnRealTrial(entry, named), None) = (&treatment, plain) {
+            trials.push(never_passes(
+                id,
+                "real-only",
+                format!(
+                    "real-only ({}): passes by its own real-tier trial {} in the gate's slow step (plan 23s); no TestkitHarness form (plan 4.2b)",
+                    entry.proof,
+                    proof_names(named)
+                ),
+            ));
         } else if let NonPending::ByNamedProof(entry, named) = &treatment {
             trials.push(never_passes(
                 id,

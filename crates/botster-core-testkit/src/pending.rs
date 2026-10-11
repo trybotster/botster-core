@@ -44,6 +44,18 @@ pub struct RealProof {
     pub test: String,
 }
 
+/// The nextest binary id of the real tier's conformance suite (`tests/slow_conformance.rs`), whose trial of an id is named
+/// after the id.
+pub const REAL_TIER_SUITE: &str = "botster-core::slow_conformance";
+
+impl RealProof {
+    /// The proof is the id's own trial on the real tier: `conf::<id><TAB>botster-core::slow_conformance<TAB>conf::<id>`
+    /// (lead, 2026-10-11, after R-55 gave `conf::ad_6_reused_pid_is_never_killed` a real-tier form).
+    pub fn is_own_real_trial(&self) -> bool {
+        self.binary == REAL_TIER_SUITE && self.test == self.id
+    }
+}
+
 /// The reason class of a held id. `real-only` is not a class of the held file: those ids come from the replacement map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeldReason {
@@ -116,8 +128,9 @@ pub fn parse_real_proofs(text: &str) -> Result<Vec<RealProof>, String> {
 }
 
 /// The problems of `core-real-proofs.txt` against the real-only and pending ids. Empty means the file is valid: its lines are
-/// in byte order, once each; each names a real-only id; and each real-only id that is not pending has at least one line (it
-/// left `core-pending.txt` only with its named proof, plan section 5).
+/// in byte order, once each; each names a real-only id; a line of the real tier's suite names the id's own trial; and each
+/// real-only id that is not pending has at least one line (it left `core-pending.txt` only with its named proof, plan
+/// section 5).
 pub fn real_proof_problems(
     proofs: &[RealProof],
     real_only: &[RealOnly],
@@ -141,6 +154,12 @@ pub fn real_proof_problems(
             problems.push(format!(
                 "core-real-proofs.txt: {} is not real-only in the replacement map; only a real-only id has a named proof",
                 proof.id
+            ));
+        }
+        if proof.binary == REAL_TIER_SUITE && !proof.is_own_real_trial() {
+            problems.push(format!(
+                "core-real-proofs.txt: {} names the real-tier trial {}; a line of {REAL_TIER_SUITE} names the id's own trial",
+                proof.id, proof.test
             ));
         }
     }
@@ -259,7 +278,7 @@ pub fn class_of(id: &str, real_only: &[RealOnly], held: &[Held]) -> Class {
     }
 }
 
-/// What a tier does with an id that is not in `core-pending.txt` (plan section 5, 4.2b), the same on both tiers.
+/// What a tier does with an id that is not in `core-pending.txt` (plan section 5, 4.2b).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NonPending {
     /// Its transcript runs, and must pass.
@@ -268,13 +287,18 @@ pub enum NonPending {
     /// does not run on either tier: it has no `TestkitHarness` form (plan 4.2b), and the real tier is exempt from the
     /// duplicate trial once the proof passes in the gate (plan section 5). The minimum count counts it by its proofs (23s).
     ByNamedProof(RealOnly, Vec<RealProof>),
+    /// A real-only id that one of its named proofs names by its own real-tier trial (`RealProof::is_own_real_trial`): the
+    /// testkit tier does not run its transcript (no `TestkitHarness` form, plan 4.2b); the real tier runs it must-pass, and
+    /// the gate's slow step checks that this trial passed. The minimum count counts it by its proofs (23s). (Lead,
+    /// 2026-10-11, after R-55.)
+    ByOwnRealTrial(RealOnly, Vec<RealProof>),
     /// A real-only id with no named proof: it must not have left `core-pending.txt`. Its trial fails (fail closed; the
     /// `lists` step reports it too).
     NoNamedProof(RealOnly),
 }
 
-/// The treatment of `id`, which is not pending: a real-only id passes by its named proofs, or fails without one; every other
-/// id must pass.
+/// The treatment of `id`, which is not pending: a real-only id passes by its named proofs (its own real-tier trial among
+/// them, or not), or fails without one; every other id must pass.
 pub fn non_pending(id: &str, real_only: &[RealOnly], proofs: &[RealProof]) -> NonPending {
     let Some(entry) = real_only.iter().find(|r| r.id == id) else {
         return NonPending::MustPass;
@@ -282,6 +306,8 @@ pub fn non_pending(id: &str, real_only: &[RealOnly], proofs: &[RealProof]) -> No
     let named: Vec<RealProof> = proofs.iter().filter(|p| p.id == id).cloned().collect();
     if named.is_empty() {
         NonPending::NoNamedProof(entry.clone())
+    } else if named.iter().any(RealProof::is_own_real_trial) {
+        NonPending::ByOwnRealTrial(entry.clone(), named)
     } else {
         NonPending::ByNamedProof(entry.clone(), named)
     }
@@ -502,10 +528,29 @@ mod tests {
             .contains("conf::lock botster-core::slow_lock b is out of byte order"));
         let other = [proof("conf::lock", "a"), proof("conf::other", "a")];
         assert!(one(&other, &pending).contains("conf::other is not real-only"));
+        // A line of the real tier's suite names the id's own trial: of a real-only id, and not of another id.
+        let own = |id: &str, test: &str| RealProof {
+            id: id.into(),
+            binary: REAL_TIER_SUITE.into(),
+            test: test.into(),
+        };
+        assert!(
+            real_proof_problems(&[own("conf::lock", "conf::lock")], &real_only, &pending)
+                .is_empty()
+        );
+        let own_other = [
+            own("conf::lock", "conf::lock"),
+            own("conf::other", "conf::other"),
+        ];
+        assert!(one(&own_other, &pending).contains("conf::other is not real-only"));
+        let not_own = [own("conf::lock", "conf::reuse")];
+        assert!(one(&not_own, &pending).contains(
+            "conf::lock names the real-tier trial conf::reuse; a line of botster-core::slow_conformance names the id's own trial"
+        ));
     }
 
-    /// An id that left `core-pending.txt`, on either tier: a real-only one passes by its named proofs, or fails without one;
-    /// any other id runs its transcript and must pass.
+    /// An id that left `core-pending.txt`: a real-only one passes by its named proofs, by its own real-tier trial when a line
+    /// names it, or fails without one; any other id runs its transcript and must pass.
     #[test]
     fn a_real_only_id_that_left_the_pending_list_passes_by_its_named_proofs() {
         let real_only = [real("conf::lock"), real("conf::reuse")];
@@ -527,6 +572,39 @@ mod tests {
             NonPending::MustPass
         );
         assert_eq!(non_pending("conf::other", &[], &[]), NonPending::MustPass);
+        // The own real-tier trial, alone or with a separate test.
+        let own = RealProof {
+            id: "conf::reuse".into(),
+            binary: REAL_TIER_SUITE.into(),
+            test: "conf::reuse".into(),
+        };
+        assert!(own.is_own_real_trial());
+        for named in [
+            vec![own.clone()],
+            vec![proof("conf::reuse", "a"), own.clone()],
+        ] {
+            assert_eq!(
+                non_pending("conf::reuse", &real_only, &named),
+                NonPending::ByOwnRealTrial(real_only[1].clone(), named.clone())
+            );
+        }
+        // The real tier's suite with another test, or another binary with the id's name, is not the own trial.
+        for not_own in [
+            RealProof {
+                test: "conf::lock".into(),
+                ..own.clone()
+            },
+            RealProof {
+                binary: "botster-core::slow_lock".into(),
+                ..own.clone()
+            },
+        ] {
+            assert!(!not_own.is_own_real_trial(), "{not_own:?}");
+            assert_eq!(
+                non_pending("conf::reuse", &real_only, &[not_own.clone()]),
+                NonPending::ByNamedProof(real_only[1].clone(), vec![not_own])
+            );
+        }
     }
 
     /// A `budget` held id runs at the first seed of the set only; an `unproven` or pending id runs at every seed.
