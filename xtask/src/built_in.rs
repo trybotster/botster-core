@@ -2,11 +2,14 @@
 //! design `design-gs-b13-stale-binary.md`, Core lead 2026-10-11: "today showed that review misses mechanical rules").
 //!
 //! - A crate with a library exports `pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");` from its library root.
-//! - Every crate has the unit test `this_test_binary_was_built_in_this_worktree` in its library root, or in its binary root
-//!   when it has no library, which calls `built_in::assert_built_here`.
+//! - Every crate has the unit test `this_test_binary_was_built_in_this_worktree` at the root of its library, or of its binary
+//!   when it has no library: a `#[test]` function that the default tier runs on Linux and on macOS (the test index and tier
+//!   rules of `mutants-cited`, so an `#[ignore]`, a `cfg` that never holds, a missing `#[test]` or a commented-out function
+//!   is no test), and whose body calls `built_in::assert_built_here` (parsed, so a call in a comment is no call).
 //! - The `LINKED` list of `tests/suite/mod.rs` (the conformance binaries) names the binary itself and each workspace library
 //!   that `botster-core` links into them: its dependencies and dev-dependencies, and their dependencies, transitively.
 
+use crate::mutants_cited::{self, Filter};
 use anyhow::{bail, Context, Result};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -14,9 +17,11 @@ use std::path::Path;
 /// The line that each library root has.
 pub const CONST_LINE: &str = "pub const BUILT_IN: &str = env!(\"CARGO_MANIFEST_DIR\");";
 /// The unit test that each crate has.
-pub const TEST_FN: &str = "fn this_test_binary_was_built_in_this_worktree()";
-/// The call that the unit test makes.
-pub const TEST_CALL: &str = "built_in::assert_built_here(";
+pub const TEST_NAME: &str = "this_test_binary_was_built_in_this_worktree";
+/// The function that the unit test calls (the last two segments of its path).
+pub const TEST_CALL: [&str; 2] = ["built_in", "assert_built_here"];
+/// The tiers that must run the unit test.
+pub const TEST_TIERS: [&str; 2] = ["default on linux", "default on macos"];
 /// The suite of the conformance binaries.
 pub const SUITE: &str = "tests/suite/mod.rs";
 /// The package of the conformance binaries.
@@ -36,6 +41,11 @@ pub struct Package {
     pub dependencies: BTreeSet<String>,
     /// The names of its dev-dependencies (every `dev-dependencies` table).
     pub dev_dependencies: BTreeSet<String>,
+    /// The tiers that run the unit test `TEST_NAME` at the root of the library (or binary): empty when there is no such
+    /// test.
+    pub test_tiers: Vec<String>,
+    /// Whether the body of the root function `TEST_NAME` calls `built_in::assert_built_here`.
+    pub test_calls: bool,
 }
 
 /// The `LINKED` entry of a library: `("<name>", <name with _>::BUILT_IN),`.
@@ -95,12 +105,25 @@ pub fn verdict(packages: &BTreeMap<String, Package>, suite: &str) -> Vec<String>
                 problems.push(format!("{name}: src/lib.rs has no line `{CONST_LINE}`"));
             }
         }
-        match package.lib.as_ref().or(package.main.as_ref()) {
-            Some(root) if root.contains(TEST_FN) && root.contains(TEST_CALL) => {}
-            Some(_) => problems.push(format!(
-                "{name}: its library root (or its binary root, with no library) has no `{TEST_FN}` that calls `{TEST_CALL}..)`"
-            )),
-            None => problems.push(format!("{name}: no src/lib.rs and no src/main.rs")),
+        if package.lib.is_none() && package.main.is_none() {
+            problems.push(format!("{name}: no src/lib.rs and no src/main.rs"));
+            continue;
+        }
+        let missing: Vec<&str> = TEST_TIERS
+            .into_iter()
+            .filter(|tier| !package.test_tiers.iter().any(|t| t == tier))
+            .collect();
+        if !missing.is_empty() {
+            problems.push(format!(
+                "{name}: the {} tier does not run the test `{TEST_NAME}` at the root of its library (or binary)",
+                missing.join(" and the ")
+            ));
+        }
+        if !package.test_calls {
+            problems.push(format!(
+                "{name}: the root function `{TEST_NAME}` does not call `{}`",
+                TEST_CALL.join("::")
+            ));
         }
     }
     let suite = compact(suite);
@@ -113,6 +136,62 @@ pub fn verdict(packages: &BTreeMap<String, Package>, suite: &str) -> Vec<String>
         }
     }
     problems
+}
+
+/// Whether the root function `TEST_NAME` of `text` calls `built_in::assert_built_here` (a path that ends in those two
+/// segments). A file that does not parse has no such call.
+fn root_test_calls(text: &str) -> bool {
+    struct Calls(bool);
+    impl<'ast> syn::visit::Visit<'ast> for Calls {
+        fn visit_path(&mut self, path: &'ast syn::Path) {
+            let names: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
+            self.0 |= names.ends_with(&TEST_CALL.map(str::to_string));
+            syn::visit::visit_path(self, path);
+        }
+    }
+    let Ok(file) = syn::parse_file(text) else {
+        return false;
+    };
+    file.items.iter().any(|item| match item {
+        syn::Item::Fn(function) if function.sig.ident == TEST_NAME => {
+            let mut calls = Calls(false);
+            syn::visit::Visit::visit_block(&mut calls, &function.block);
+            calls.0
+        }
+        _ => false,
+    })
+}
+
+/// The tiers that run `TEST_NAME` at the root of each package's library (or binary), by package, from the test index and
+/// tier rules of `mutants-cited`. `files` holds `(package, has a slow feature, root file relative to root, kind)`.
+fn root_test_tiers(
+    files: &[(String, bool, String, String)],
+    read: &dyn Fn(&str) -> Option<String>,
+) -> Result<BTreeMap<String, Vec<String>>> {
+    let packages: Vec<mutants_cited::Package> = files
+        .iter()
+        .map(|(name, slow, root, kind)| mutants_cited::Package {
+            name: name.clone(),
+            slow: *slow,
+            targets: vec![mutants_cited::Target {
+                kind: kind.clone(),
+                name: name.replace('-', "_"),
+                root: root.clone(),
+                required_features: Vec::new(),
+            }],
+        })
+        .collect();
+    let slow = Filter::parse(crate::test_budget::SLOW_FILTER)?;
+    let mut tiers = BTreeMap::new();
+    for test in mutants_cited::tests(&packages, read)? {
+        if test.name == TEST_NAME && test.path == TEST_NAME {
+            tiers.insert(
+                test.package.clone(),
+                mutants_cited::tiers_of(&test, &packages, &slow)?,
+            );
+        }
+    }
+    Ok(tiers)
 }
 
 /// The dependency names of every table named `table` in a manifest: the top-level one and each `[target.*.<table>]`.
@@ -146,13 +225,34 @@ fn package(dir: &Path) -> Result<Package> {
         .with_context(|| format!("{}/Cargo.toml has no package name", dir.display()))?
         .to_string();
     let read = |file: &str| std::fs::read_to_string(dir.join(file)).ok();
+    let lib = read("src/lib.rs");
+    let main = read("src/main.rs");
+    let test_calls = lib
+        .as_ref()
+        .or(main.as_ref())
+        .is_some_and(|text| root_test_calls(text));
     Ok(Package {
         name,
-        lib: read("src/lib.rs"),
-        main: read("src/main.rs"),
+        lib,
+        main,
         dependencies: table_names(&manifest, "dependencies"),
         dev_dependencies: table_names(&manifest, "dev-dependencies"),
+        test_tiers: Vec::new(),
+        test_calls,
     })
+}
+
+/// Whether the manifest of `dir` declares a `slow` feature.
+fn has_slow_feature(dir: &Path) -> bool {
+    std::fs::read_to_string(dir.join("Cargo.toml"))
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .is_some_and(|manifest| {
+            manifest
+                .get("features")
+                .and_then(|f| f.get("slow"))
+                .is_some()
+        })
 }
 
 /// `cargo xtask built-in`: the I/O shell of [`verdict`] over `crates/*` and `xtask`.
@@ -168,9 +268,32 @@ pub fn command(root: &Path, _args: &[String]) -> Result<()> {
         }
     }
     let mut packages = BTreeMap::new();
+    let mut files = Vec::new();
     for dir in dirs {
         let package = package(&dir)?;
+        let relative = dir
+            .strip_prefix(root)
+            .unwrap_or(&dir)
+            .to_string_lossy()
+            .into_owned();
+        let (file, kind) = if package.lib.is_some() {
+            ("src/lib.rs", "lib")
+        } else {
+            ("src/main.rs", "bin")
+        };
+        files.push((
+            package.name.clone(),
+            has_slow_feature(&dir),
+            format!("{relative}/{file}"),
+            kind.to_string(),
+        ));
         packages.insert(package.name.clone(), package);
+    }
+    let read = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+    for (name, tiers) in root_test_tiers(&files, &read)? {
+        if let Some(package) = packages.get_mut(&name) {
+            package.test_tiers = tiers;
+        }
     }
     let suite =
         std::fs::read_to_string(root.join(SUITE)).with_context(|| format!("read {SUITE}"))?;
@@ -207,6 +330,8 @@ mod tests {
             main: None,
             dependencies: names(dependencies),
             dev_dependencies: names(dev),
+            test_tiers: TEST_TIERS.map(str::to_string).to_vec(),
+            test_calls: true,
         }
     }
 
@@ -253,31 +378,99 @@ mod tests {
         let (mut packages, suite) = good();
         packages.get_mut("edges").unwrap().lib =
             Some(LIB.replace(CONST_LINE, "pub const OTHER: u8 = 0;"));
-        packages.get_mut("guardian").unwrap().lib = Some(LIB.replace(TEST_FN, "fn other()"));
-        packages.get_mut("fuzz").unwrap().lib = Some(LIB.replace(TEST_CALL, "assert!("));
+        packages.get_mut("guardian").unwrap().test_tiers = Vec::new();
+        packages.get_mut("fuzz").unwrap().test_tiers = vec!["default on linux".to_string()];
+        packages.get_mut("kit").unwrap().test_calls = false;
         assert_eq!(
             verdict(&packages, &suite),
             vec![
                 format!("edges: src/lib.rs has no line `{CONST_LINE}`"),
-                format!("fuzz: its library root (or its binary root, with no library) has no `{TEST_FN}` that calls `{TEST_CALL}..)`"),
-                format!("guardian: its library root (or its binary root, with no library) has no `{TEST_FN}` that calls `{TEST_CALL}..)`"),
+                format!("fuzz: the default on macos tier does not run the test `{TEST_NAME}` at the root of its library (or binary)"),
+                format!("guardian: the default on linux and the default on macos tier does not run the test `{TEST_NAME}` at the root of its library (or binary)"),
+                format!("kit: the root function `{TEST_NAME}` does not call `built_in::assert_built_here`"),
             ]
         );
     }
 
     #[test]
-    fn a_binary_crate_needs_the_test_in_its_binary_root() {
+    fn a_crate_without_a_root_file_is_named() {
         let (mut packages, suite) = good();
-        packages.get_mut("xtask").unwrap().main = Some("fn main() {}\n".to_string());
-        assert_eq!(
-            verdict(&packages, &suite),
-            vec![format!("xtask: its library root (or its binary root, with no library) has no `{TEST_FN}` that calls `{TEST_CALL}..)`")]
-        );
-        packages.get_mut("xtask").unwrap().main = None;
+        let xtask = packages.get_mut("xtask").unwrap();
+        xtask.main = None;
         assert_eq!(
             verdict(&packages, &suite),
             vec!["xtask: no src/lib.rs and no src/main.rs".to_string()]
         );
+    }
+
+    /// The test index of `mutants-cited` decides what a test is and which tiers run it: each negative form gives no
+    /// default-tier run, and only the root function counts.
+    #[test]
+    fn only_a_registered_root_test_that_the_default_tier_runs_counts() {
+        let body =
+            "{\n    botster_test_process::built_in::assert_built_here(\"x\", BUILT_IN);\n}\n";
+        let tiers_of = |text: &str| {
+            let files = vec![(
+                "x".to_string(),
+                true,
+                "crates/x/src/lib.rs".to_string(),
+                "lib".to_string(),
+            )];
+            let text = text.to_string();
+            let read = move |path: &str| (path == "crates/x/src/lib.rs").then(|| text.clone());
+            root_test_tiers(&files, &read)
+                .unwrap()
+                .remove("x")
+                .unwrap_or_default()
+        };
+        let all = TEST_TIERS.map(str::to_string).to_vec();
+        assert_eq!(
+            tiers_of(&format!("#[cfg(test)]\n#[test]\nfn {TEST_NAME}() {body}")),
+            all
+        );
+        for negative in [
+            // No `#[test]`.
+            format!("#[cfg(test)]\nfn {TEST_NAME}() {body}"),
+            // Commented out.
+            format!("// #[test]\n// fn {TEST_NAME}() {{}}\n"),
+            format!("/*\n#[test]\nfn {TEST_NAME}() {body}*/\n"),
+            // Ignored, or under a cfg that never holds, or only with the slow feature.
+            format!("#[test]\n#[ignore]\nfn {TEST_NAME}() {body}"),
+            format!("#[cfg(any())]\n#[test]\nfn {TEST_NAME}() {body}"),
+            format!("#[cfg(feature = \"slow\")]\n#[test]\nfn {TEST_NAME}() {body}"),
+            // Not at the root: inside a module.
+            format!("#[cfg(test)]\nmod tests {{\n    #[test]\n    fn {TEST_NAME}() {body}}}\n"),
+        ] {
+            assert!(
+                !tiers_of(&negative).iter().any(|t| t == "default on linux"),
+                "{negative}"
+            );
+        }
+        // Only on macOS.
+        let mac = tiers_of(&format!(
+            "#[cfg(target_os = \"macos\")]\n#[test]\nfn {TEST_NAME}() {body}"
+        ));
+        assert_eq!(mac, vec!["default on macos".to_string()]);
+    }
+
+    #[test]
+    fn only_a_parsed_call_in_the_root_function_counts() {
+        let call = "botster_test_process::built_in::assert_built_here(\"x\", BUILT_IN);";
+        assert!(root_test_calls(&format!(
+            "#[test]\nfn {TEST_NAME}() {{\n    {call}\n}}\n"
+        )));
+        // The re-export path of the testkit, and a `use` of the module.
+        assert!(root_test_calls(&format!(
+            "#[test]\nfn {TEST_NAME}() {{\n    botster_core_testkit::built_in::assert_built_here(\"x\", BUILT_IN);\n}}\n"
+        )));
+        for negative in [
+            format!("#[test]\nfn {TEST_NAME}() {{\n    // {call}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{}}\nfn other() {{\n    {call}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{\n    botster_test_process::built_in::check_here(&[]).unwrap();\n}}\n"),
+            "not rust {".to_string(),
+        ] {
+            assert!(!root_test_calls(&negative), "{negative}");
+        }
     }
 
     #[test]
@@ -325,13 +518,6 @@ mod tests {
             table_names(&manifest, "dev-dependencies"),
             names(&["d", "e"])
         );
-    }
-
-    /// The workspace itself passes: the gate's taint step runs the command too, but this test fails first, locally.
-    #[test]
-    fn this_workspace_passes() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        command(root, &[]).unwrap();
     }
 
     /// The command reads `crates/*`, `xtask` and the suite, and fails on a gap: a library of `crates/` without the const.

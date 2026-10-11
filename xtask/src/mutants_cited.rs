@@ -418,7 +418,7 @@ pub fn tests(packages: &[Package], read: &dyn Fn(&str) -> Option<String>) -> Res
 ///
 /// # Errors
 /// A predicate that the check does not know.
-fn tiers_of(test: &TestFn, packages: &[Package], slow: &Filter) -> Result<Vec<String>> {
+pub(crate) fn tiers_of(test: &TestFn, packages: &[Package], slow: &Filter) -> Result<Vec<String>> {
     let has_slow = packages.iter().any(|p| p.name == test.package && p.slow);
     let tiers = [
         Tier {
