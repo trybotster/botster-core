@@ -1191,7 +1191,7 @@ mod slow_controls {
         let stdout = wrap.take_stdout().expect("the shell's stdout");
         hold.send(b"running\n").unwrap();
         let (_rest, line) = botster_test_process::first_line(stdout);
-        assert_eq!(line, "running");
+        assert_eq!(line, "running\n");
         let pid = wrap.id();
         let children = platform::live_children(platform::pid(pid).unwrap()).unwrap();
         assert_eq!(
