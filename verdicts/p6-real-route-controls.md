@@ -318,3 +318,87 @@ It accepts no later import or pending removal. It does not convert the failed pa
 I changed no product code and ran no execution job.
 
 VERDICT: CLEAN
+
+## Round 6 — 2026-10-11: completed Linux gate and corrected body
+
+Exact head: `27cb2cc48562334612d2d227aff8d8bb88a30d52`.
+Source base: `f49f74302526a28b6aced1595f74c7d0a1d22836`.
+Tree: `e02638de17d5bf1031e2a6807a07eb20ef906125`.
+The source and tree remain unchanged from Round 5. That source review remains valid.
+
+Linux log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-27cb2cc4-pool-20261011-123345-13820.log`.
+SHA256: `3d15d9aea86074d2e1f1fdde37c51e8aa5962169691a143a18efd02cad99715a`.
+I read the exact-head/base headers, stage records, summaries, relevant test outcomes, mutation identities, and named catch records.
+The pool uses four CPUs on MS-A1. BOTSTER_CI_BASE_REF is `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+That gate reference does not change the branch's source base above.
+All ten stages pass in 1557.6 seconds. The job and wrapper exit zero after 1568 seconds: one queued and 1567 running.
+Default passes 1755 tests, with 474 skipped, in 12.458 seconds.
+Slow passes 570 tests, with 2038 skipped, in 41.723 seconds.
+The interrupted-read, socket-identity, holder-count, and written-count tests pass.
+Strict runs 363 of 381 pending ids, with 18 real-only not run and two held.
+The real minimum remains 49 / 68 passing and 50 / 69 accepted. Eleven of 36 pending-real ids pass.
+Fuzz reports no changed crate with a decoder harness. This head removes no pending id.
+
+A static parser verifies every raw mutation identity and both stages' named catch records.
+Stage 1 has 164 unique identities: 67 caught, 93 missed, four unviable, and zero timeout, in 298.0 seconds.
+Stage 2's 93 unique identities exactly match stage 1's missed identities.
+Its slow baseline passes in 46.0 seconds. Stage 2 catches 73, misses none, and reports 20 unviable and zero timeout, in 1091.6 seconds.
+Each stage's raw caught identities exactly match its unique named catch records.
+The final total is 140 caught, zero missed, zero timeout, and 24 unviable. Unviable results supply no catch evidence.
+Stage 1 catches `edge_tap.rs:347:9: replace Tap<E>::link_held_for_start -> bool with true`.
+Its named catcher is `edge_tap::tests::held_starts::an_interrupted_read_in_quiet_is_not_quiet_and_is_read_again_at_the_next_call`.
+The new assertion therefore has completed catch evidence. The parent gate remains failed as recorded in Round 5.
+
+Stage 2 reports one FLAKY result for `botster-core-sys::slow_process a_spawned_child_matches_its_identity_and_dies_by_the_group_kill`.
+The test fails once and passes on its one mutation-profile retry. That result is not a catch.
+The mutation deletes the route_stream_holders control arm in botster-core-testkit.
+The holder-count test catches that mutation independently. The final catch result does not depend on the flaky test.
+I read the sys, edges, and test-process manifests. Their dependency paths do not include botster-core-testkit.
+The main gate log gives no first-attempt failure output. P6 later supplies a retained mutant log beside it.
+I read its sys-test attempts and holder-test failure output. The sys test panics in process_guard.rs:113 during cleanup, with wait status 9.
+The sys test passes its second attempt. The holder test fails both attempts at its public control-error assertion.
+The supplemental output confirms the cleanup panic. This review does not prove the proposed registration-race diagnosis or a structural fix.
+The body names P6 as the owner of a separate structural fix after #287, under BUILD.md Testing rule 9.
+I read the complete shared flake record, its correction, and rule 9. I accept the owner assignment; the structural fix remains open.
+P6 removes the proposed many-run campaign after integration and this reviewer's requests. This verdict authorizes no such campaign.
+It accepts no future diagnosis method, retry, timeout change, or structural-fix implementation.
+
+### Body and historical probe evidence
+
+I read the complete retained body and its complete correction delta.
+Retained body: `~/botster-sessions/shared/core-stage1/evidence/p6-route-controls/pr-287-body-27cb2cc4.md`.
+SHA256: `47d3c7961a9986ce51931bffa9063d9a69cec87cd2fda8fb21128ccb8c96d4b4`.
+The preferred GitHub tool truncates the body. The GitHub CLI supplies its complete text and current head/base identities.
+At 20:07:41Z, GitHub names the exact head above and base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Its body matches the retained body after trailing-newline normalization.
+The body names the correct slow_tests paths, source fixes, failed parent gate, current green gate, and mixed Mac outcomes.
+The body states that the probe scripts mask aggregate failures. It does not present their zero exits as green full gates.
+The prior-art note and limits of host_bytes remain explicit.
+
+I read the decoded command and named outcomes in the historical Linux three-run probe log on `722b415a`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-controls-722b415a-pool-20261011-115554-74918.log`.
+SHA256: `2d0da52eff78d44496db9858cf4cb29080201393f92d0921f957038064ebace2`.
+Its 40 retained named records agree with the body's Linux table. The seven listed OU candidates each have three named real passes.
+The a2_1 attach test has three named real passes; its testkit test fails. Both reported timeout cases remain failed.
+The dp_1 and dp_2 selections supply no named pass. The script masks failures and restores the scratch pending files.
+It sets BOTSTER_ONLY per selection and does not set BOTSTER_SEEDS. This record supplies no explicit 32-seed proof.
+The job exits zero after 186 seconds; the wrapper exits zero after 187 seconds. Those exits do not prove green aggregate commands.
+I accept these results only as historical named probe outcomes. I approve no pending removal from this table.
+
+I read the current plan pin's complete R-71 follow-up term and integration's complete current-authority explanation.
+The corrected body labels the old .36 start-hold table as current transcript forms with open follow-up conditions.
+P3 owns the later transcript PR. The a2_1 startup becomes a named value of at least 30000 ms; clock steps 7 and 35 exceed it.
+Steps 8 and 36 retain StartupTimeout. The plan leaves step 27's real_wait 1200 unchanged.
+The ad_7 first section, steps 3–13, is removed. Its remaining sections retain startup 500 for the worker's own exit.
+Both ids remain pending here. This review closes no R-71 transcript condition.
+The steward draft path supplied by integration is absent locally. The plan term and integration's explanation supply the current scope.
+
+I read complete integration Round 3 at `31f348afd84dd0d2bc974ed3ebcb14fb414cd989` through Git.
+Its source, gate, body, mutation comparison, and pending-work limits agree with this review. Integration closes RG-SI-1.
+
+The reviewed source, required carried Mac implementation evidence, completed exact-head Linux gate, and corrected body are CLEAN.
+The separate structural flake fix remains open. The current-v1 import, applicable check, delta review, and final gate remain future work.
+This verdict accepts no later head, import, pending removal, contracts pin, or PR completion beyond this reviewed head and evidence.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable base-check job.
+
+VERDICT: CLEAN
