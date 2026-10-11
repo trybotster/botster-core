@@ -55,3 +55,16 @@ At #68 I wrote that the three `e3_1` ids need no `parked_work` fence, because th
 Still to do before the final CLEAN:
 1. **Main moved again, and not by rulings only.** Main is now `17f8a6e94cf3fff61c4eb2aff4a02f1e5dfd4b3e`. Commit `185e558` changes `conf::ad_3_adopted_equals_started.json`, so BUILD.md's rulings-only exception (one file, `docs/steward-rulings.md`) does not apply. `c548c06f` does not fast-forward main. That merge is disjoint (`ad_3` is not a path of this PR), so it needs no delta review. But the gate and the verdict must be on the exact head that main fast-forwards to.
 2. **B13 disclosure (P5).** `e31-whose-parked-probe.log` and `r88-groupA-tiers-mac.log` ran in the shared `targets/p5` with no `cargo clean` and no record that only one worktree built there. A stale binary of another worktree could have run. P5 reruns both from a cleaned `targets/p5` (`r88a-clean-evidence.log`). I check that the rerun gives the same results: 32 of 32 for s2 on `carried_transition`, PASS on both tiers for the four ids, and the `e3_1` failures where they were before.
+
+## Final: CLEAN on e8adac5d6d285ded5bef0a337c89d065ea01dbad
+
+- `e8adac5d` = `c548c06f` (merge 1, reviewed) + main `17f8a6e94cf3fff61c4eb2aff4a02f1e5dfd4b3e`. The recomputed tree `6aedbeae2cc781d87f41f0ba3eb388e2404c8554` equals the commit's tree. The merge's delta is main's delta only: `ad_3_adopted_equals_started.json` and `steward-rulings.md`. Neither is a path of this PR, so the merge is disjoint (Q7).
+- Gate on the exact head: `...-e8adac5d-pool-20261011-163257-2092.log` (sha256 `6f0ecca68205ff892ede38889a71166521ef1318361f574c132755eded1850b8`). The header names head `e8adac5d...` and base `17f8a6e9...`. msa1. Ten steps PASS. Exit 0.
+- Main is now `1baa9228c3363836d4abe80ad649bae8e42d21c5`. Since `17f8a6e9`, it changed `docs/steward-rulings.md` only, so BUILD.md's rulings-only exception applies and no new gate is needed.
+- **B13 closed.** `r88a-clean-evidence.log` (sha256 prefix `fc0d9803`, recomputed):
+  - It starts with a logged `cargo clean` of `targets/p5` ("Removed 25934 files", then 0 entries), and only the Core worktree builds there. Core is `2e03346020a63cdc9c069a638170e95cb1416177`.
+  - Every transcript blob equals this PR's blob.
+  - The four ids `ok` on both tiers. `carried_transition` reaches index 35 in all its runs (32 per-seed runs plus the tier run), so the title fence and the s2 fence hold. No run is INCONCLUSIVE.
+  - `runnable_silent` FAILs at 30, `eventless` is unsupported `signals_sent`, and on the real tier every `e3_1` id is unsupported `route_fill`.
+  - These results are the same as the earlier logs.
+- 016c's body LOW is fixed. I have no open finding.
