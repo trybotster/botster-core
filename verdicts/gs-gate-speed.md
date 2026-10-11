@@ -1163,3 +1163,22 @@ The lead directs #265 to merge first. P5 must retain the approved stat-only snap
 The final exact-head gate is reported running. No gate evidence for this new head is accepted yet. Integration delta review remains required.
 
 I ran no gate, build, or test. The lead owns the merge decision and current-base check.
+
+
+### New-head gate receipt
+
+I read the final gate log for `3c8044f40a6b26400240616b8946b05478b72fca`, with base `ddd3b849df5db34d20d944ff6b8de23405fdb5c8`.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-3c8044f4-pool-20261011-055225-5278.log`.
+
+All ten steps PASS in 153.0 seconds. The gate exits 0. The default tier passes 1683 tests; the slow tier passes 499 tests.
+
+The corrected regression and all lock probe tests pass. The coverage check examines 1031 slow-only tests.
+
+The mutation result is unchanged: two caught, zero missed, zero timeout, and seven unviable. Both raw catch identities match their named reports.
+
+Stage 2 does not run because stage 1 misses no mutant. Package CLEAN remains valid on this exact head, with zero open findings.
+
+Pre-import integration CLEAN is `30f8045fe17057fd6ea2075b05b153e33ed8e2e5` at `80f17bcf`. New-head integration delta review remains pending.
+
+The lead owns the merge decision and current-base check. I ran no gate, build, or test.

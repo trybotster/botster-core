@@ -13,7 +13,13 @@ The implementer reports a base-merge-check failure on `Cargo.lock`. I performed 
 
 The own diff is identical after removal of Git blob index lines. The lockfile addition is still the one dev-dependency line.
 
-Source CLEAN applies to the new exact head. Its final gate and integration delta review remain pending.
+Source CLEAN applies to the new exact head. Its final gate passes all ten steps in 153.0 seconds. Integration delta review remains pending.
+
+New-head gate: `~/botster-sessions/gates/botster-core-stage1-gs-datadir-lock-3c8044f4-pool-20261011-055225-5278.log`.
+
+The default tier passes 1683 tests; the slow tier passes 499. The mutation result remains two caught and seven unviable, with zero missed or timeout.
+
+Pre-import integration CLEAN: `30f8045fe17057fd6ea2075b05b153e33ed8e2e5` at `80f17bcf`.
 
 The evidence below belongs to the previous reviewed head `80f17bcf`, not the new head.
 
