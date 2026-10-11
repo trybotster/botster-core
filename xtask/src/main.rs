@@ -6,6 +6,7 @@ mod ci;
 mod fsutil;
 mod gate_decisions;
 mod high_tier;
+mod known_flaky;
 mod lists;
 mod mutant_logs;
 mod mutants_cited;
