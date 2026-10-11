@@ -901,3 +901,69 @@ fn a_held_frame_is_parked_work_only_when_it_waits_for_room() {
         "with room, the exit report is taken now"
     );
 }
+
+/// Core EV-5b, TM-6 (steward ruling R-87, `parked_work`): an op step that waits only for room is parked work of the op's
+/// session. A detach whose worker link is gone closes the route itself (`DetachLocal`), and that close needs room.
+#[test]
+fn an_op_step_that_waits_only_for_room_is_parked_work_of_its_session() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.engine.poll_events(64);
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    // One mandatory event fills the queue.
+    w.engine.begin(create("s2")).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the create's event filled the queue, and nothing waits yet"
+    );
+    w.engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Detached,
+        })
+        .unwrap();
+    w.pump();
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s1")]),
+        "the detach's local close waits only for room"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
+
+/// Core EV-5b, EV-6, TM-6 (steward ruling R-87, `parked_work`): a route event that the full queue cannot take is parked, and
+/// it is parked work of the route's session.
+#[test]
+fn a_parked_route_event_is_parked_work_of_the_routes_session() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.engine.poll_events(64);
+    // One mandatory event fills the queue.
+    w.engine.begin(create("s2")).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the create's event filled the queue, and nothing waits yet"
+    );
+    w.worker_says("s1", WorkerMsg::RouteStalled { route });
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s1")]),
+        "the RouteStalled event waits only for room"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
