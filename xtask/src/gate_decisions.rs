@@ -53,6 +53,22 @@ impl Mutant {
 pub struct Exclusion {
     pub pattern: String,
     pub reason: String,
+    /// The number of mutants that an `exclude_re` entry must match (`mutants_stale`): 1, or the `N` of a trailing
+    /// `# N mutants` on its line. `None` for an exclusion that is not an entry of the mutants file.
+    pub count: Option<usize>,
+}
+
+/// The count of an `exclude_re` entry from the text after its `',`: none is 1; `# N mutants` is `N`, for `N` of 2 or more.
+fn count_of(rest: &str) -> Option<usize> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Some(1);
+    }
+    let digits = rest.strip_prefix("# ")?.strip_suffix(" mutants")?;
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) || digits.starts_with('0') {
+        return None;
+    }
+    digits.parse().ok().filter(|n| *n >= 2)
 }
 
 /// The mutants of a `cargo mutants --list --json` document. A mutant outside a function (a constant) has no function.
@@ -86,7 +102,7 @@ pub fn parse_mutants(json: &str) -> Result<Vec<Mutant>> {
 /// The `exclude_re` entries of the mutants file, each with the comment block above it (or above its group of entries).
 ///
 /// # Errors
-/// An entry line is not a single-quoted string.
+/// An entry line is not a single-quoted string, followed by nothing or by `# N mutants` (N of 2 or more).
 pub fn exclusions_of(toml: &str) -> Result<Vec<Exclusion>> {
     let mut entries = Vec::new();
     let mut inside = false;
@@ -108,12 +124,21 @@ pub fn exclusions_of(toml: &str) -> Result<Vec<Exclusion>> {
             reason.push(comment.trim());
             last_was_comment = true;
         } else if !line.is_empty() {
-            let Some(pattern) = line.strip_prefix('\'').and_then(|l| l.strip_suffix("',")) else {
+            // A literal string has no `'`, so its first `',` ends it.
+            let Some((pattern, rest)) = line.strip_prefix('\'').and_then(|l| l.split_once("',"))
+            else {
                 bail!("{MUTANTS_FILE}: an exclude_re entry that is not a single-quoted string: {line}");
+            };
+            let Some(count) = count_of(rest) else {
+                bail!(
+                    "{MUTANTS_FILE}: an exclude_re entry whose text after the string is not `# N mutants` (N of 2 or \
+                     more): {line}"
+                );
             };
             entries.push(Exclusion {
                 pattern: pattern.to_string(),
                 reason: reason.join(" "),
+                count: Some(count),
             });
             last_was_comment = false;
         }
@@ -174,6 +199,7 @@ pub fn check(
             Exclusion {
                 pattern: glob.clone(),
                 reason: String::new(),
+                count: None,
             },
             Box::new(move |m: &Mutant| regex.is_match(&m.file)),
         ));
@@ -263,6 +289,7 @@ fn inputs(root: &Path) -> Result<Inputs> {
     exclusions.extend(crate::ci::OFF_MACOS_EXCLUSIONS.iter().map(|re| Exclusion {
         pattern: (*re).to_string(),
         reason: String::new(),
+        count: None,
     }));
     Ok(Inputs { exclusions, globs })
 }
