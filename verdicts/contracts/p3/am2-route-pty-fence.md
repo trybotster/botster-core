@@ -155,3 +155,15 @@ VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration rev
 - Result (read by me): all 10 steps PASS, with the corpus test and the five new R-83 self-tests; `botster-gate: exit 0 after 280 s on msa1`. The mutants step has nothing to mutate (the lint is under `tests/`). The self-tests and the hand mutants cover the lint.
 - The gate base is the main tip. Main's only change after the PR's merge base `63128469ce1d57cbef00f2b6549f699a27d058fc` that the earlier gate base did not have is `docs/steward-rulings.md` (R-83, R-84), and `git merge-tree` of the head with `138173e410b0281a9b481669ffce7cfebab9f374` is clean.
 - 016c ACCEPT on the same head (`.review-verdicts/r83-route-pty-a85f62af-accept.md`).
+
+## Merged head `5e2080649f5ba010bddfef58f3ee4f9af8cc1a74` (BUILD Q7)
+
+VERDICT: CLEAN (0 open) on this exact head. Merge-ready by fast-forward.
+
+- Two main merges since `a85f62afebd2e61209da32b753dccf9b3662b150`: `eb989a2ea15c29efcaa71741f81068ffbaba0f8f` (main `138173e410b0281a9b481669ffce7cfebab9f374`) and `f1844c006591a56bd66f533142a66e41d920245c` (main `6135cb32cb2e2c2696863c8fc909108e97ff5137`), then `5e2080649f5ba010bddfef58f3ee4f9af8cc1a74` (main `cce568ebdf20f9b8102283b7ac8cd872e01e300d`).
+- `git merge-tree --write-tree` of `a85f62afebd2e61209da32b753dccf9b3662b150` and `cce568ebdf20f9b8102283b7ac8cd872e01e300d` gives the head's own tree (`88631e930aa635f49e5360b6434c93f721d86dcc`), so the merges have no hand edits.
+- The PR's own diff is unchanged: `git patch-id --stable` of the diff from `63128469ce1d57cbef00f2b6549f699a27d058fc` to `a85f62afebd2e61209da32b753dccf9b3662b150` equals that of the diff from `cce568ebdf20f9b8102283b7ac8cd872e01e300d` to the head (`605ab61712794b04327a0d5c76cfd1610007ad2d`).
+- Main's 12 changed paths are disjoint from the PR's own paths, so no delta review is needed (Q7). Main adds one Core transcript (the EV-8 wrong-route query reply). The corpus lint test passes on it in the gate below.
+- P3's base-merge check: `~/botster-sessions/shared/core-stage1/evidence/p3-am2/base-merge-check-a85f62af-5e208064.log`, PASS.
+- Gate: `~/botster-sessions/gates/botster-contracts-p3-am2-route-pty-fence-5e208064-pool-20261011-130813-91186.log`, SHA256 `d52998ff8d7111aeecb93bb89506cdba6de7969e72ac8a815d4791fc8be642d3`. Header: head `5e2080649f5ba010bddfef58f3ee4f9af8cc1a74`, base `cce568ebdf20f9b8102283b7ac8cd872e01e300d` (BOTSTER_CI_BASE_REF), Linux pool. All 10 steps PASS, with `every_core_transcript_keeps_the_fence_and_line_discipline_rules`; `botster-gate: exit 0 after 157 s on msa1`.
+- The base is the main tip and an ancestor of the head, so the head fast-forwards main.
