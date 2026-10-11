@@ -218,3 +218,42 @@ This verdict completes source delta review. It accepts no future import, gate re
 GitHub names this exact head and base. The PR remains open. I changed no product code and ran no execution job.
 
 VERDICT: CLEAN
+
+## Round 6 — 2026-10-11: final evidence after oracle_resume import
+
+Exact head: `7e07b775fd420debc664792f6416a5997e5228de`.
+Base: `d582853da895688710ab97f8f1a0858599e8ba18`.
+Tree: `999bd68f85420be82f0bc36e9a27cdfac80f7b10`.
+The source remains the Round 5 source. No finding remains.
+
+I read the complete final body and retained gate stage records, summaries, mutation identities, and root-test results.
+Gate: `~/botster-sessions/gates/botster-core-stage1-p6-short-root-7e07b775-pool-20261011-084813-17823.log`.
+The header and checkout record identify this exact head and base. The ordinary Linux gate uses four CPUs.
+All ten stages pass in 194.5 seconds. The job and wrapper exit zero after 323 seconds, with 121 queued and 202 running.
+Default passes 1712 tests, with 481 skipped, in 13.049 seconds.
+Slow passes 551 tests, with 2011 skipped, in 42.165 seconds.
+The root test passes in the slow tier and the stage-2 baseline. No FLAKY record appears.
+The stage-2 baseline passes 551 tests in 41.112 seconds; its build and run total is 51.9 seconds.
+
+Strict conformance runs 370 of 390 pending ids; 20 real-only ids do not run and two remain held.
+The testkit minimum remains 56 / 69. The real minimum remains 46 / 68 passing and 47 / 69 accepted.
+Five of 30 pending-real ids pass: conf::dp_7_revoked_reason_reaches_client_and_host,
+conf::ou_2b_handoff_failure_is_reported_as_handoff_failed, conf::ou_2b_healthy_reasons_send_route_closed_last,
+conf::ou_7_exit_after_last_frame_then_close, and conf::ou_7_exit_after_tail_queued_then_close.
+The final body keeps these ids pending until the contracts-v0.1.38 pin PR under the lead's rule.
+This review approves no list removal or minimum increase.
+
+Stage 1 misses both mutants in 9.0 seconds. Stage 2 finds both unviable in 2.1 seconds.
+Their identities are short_root at real.rs:255:5 and RealCoreHarness::make at real.rs:296:9,
+each replaced with Ok(Default::default()). The returned types have no Default implementation, as reviewed before this import.
+The final result is zero caught, zero missed, zero timeout, and two unviable. This supplies no viable mutation catch.
+Fuzz records that the diff changes no crate with a decoder harness.
+The prior explicit failed reversal and focused Mac proof retain their reviewed heads and scope for the unchanged short-root implementation.
+
+The final body identifies this head and gate. It records the failed base check and package source verdict at 833eddc2754c68fced81f96c14b1a2e1080ea8f5.
+Round 5 supplies the required manual delta review. Earlier gate records remain identified by their earlier heads.
+GitHub names this exact head and base. The PR remains open.
+This round closes the package review's final-evidence and body requirements. It accepts no future source import.
+I changed no product code and ran no build, test, gate, mutation, reversal, or executable merge-check job.
+
+VERDICT: CLEAN
