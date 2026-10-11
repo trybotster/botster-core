@@ -45,8 +45,8 @@ The proposed snapshot cannot distinguish that route from an `Open` route with an
 Core arms the close deadline only when it posts `RouteStalled`. The adoption path specifies no replay of that transition or stall state.
 Thus, the stated adoption path cannot restore the close deadline for a route that was already stalled.
 
-This finding does not decide Q3's rule for a worker without a host.
-It concerns the report that the design says will restore clocks after adoption.
+The steward approved Q3: no stall deadline runs while no host is connected.
+This finding concerns the report that restores clocks after adoption, including a route that stalled before the host disappeared.
 
 Required change: specify the adoption snapshot for both `Open` and `Stalled` routes.
 Identify how Core receives the state, mark and applicable route limits needed to restore each deadline.
@@ -65,12 +65,24 @@ Record the relevant vault decisions, old code at the authorized SHA, and framewo
 State what the design reuses and rejects. Give the reason for each new custom mechanism.
 If the implementation copies old code, identify the required `Stolen-From` and `For-Clause` commit trailers.
 
-## Pending contract decisions
+## Contract decisions received before the verdict was sent
 
-Q1, Q2 and Q3 remain with the steward through the lead. This verdict does not approve any proposed answer.
-Q1 must settle E3-1's atomic step and event rule before the reservation design can receive CLEAN.
-Q2 must settle the progress fence definition before the contracts transcript change can receive CLEAN.
-Q3 must settle the clock rule during loss of the host and adoption.
+The reviewer read the R-90 follow-up at contracts commit `43647054722f3133cfd30b67a909b8fc427dcb3e`.
+The steward approved Q1 with four conditions:
+
+1. No host-visible route fact changes before the event posts.
+2. The post consumes event budget in the pump that posts it. Without budget, Core carries the post with `more: true`.
+3. Core releases the reservation when it consumes the newer report after the worker declines the transition.
+4. Due steps follow TM-5 and E3-1. Stall events across sessions follow link consumption order, with no asserted cross-session order.
+
+The revised design must state these four conditions. The reservation alone does not satisfy the rule for the later post's event budget.
+Q2 is approved in contract terms: `progressed` proves consumption of transport progress that occurred after the latest `route_accept`.
+The contract definition does not expose the internal mark. The title fence remains conditional on report order, so ST-D1 still applies.
+Q3 is approved: the host's absence suspends both stall deadlines. The new host arms deadlines after it consumes progress reports.
+That answer does not supply the missing state in ST-D2's adoption snapshot.
+
+The lead also assigned a separate host-driver PR for the TM-6 `more_input` defect before the stall-clock PR.
+The pair reviewer and Sol review both Core PRs. This design verdict does not review or approve that separate driver change.
 
 ## Validation
 
