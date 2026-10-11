@@ -6,7 +6,8 @@
 //! use a scripted stream; the driver registers each stream with its poll under the token that [`Routes::bind`] gives.
 //!
 //! **Bounded turns (plan 2.4, 2.5).** The readiness is edge-triggered, as for the control socket: a flag per direction is
-//! set by an event and cleared only when a read or write finds `WouldBlock`. Each turn writes at most one pending write and
+//! set by an event and cleared only when a read or write finds `WouldBlock`, or when a write of some bytes takes none
+//! (F122). Each turn writes at most one pending write and
 //! reads at most one chunk of each route, and a read takes no more than the allowance, so a client that writes without
 //! end gets transport backpressure (DP-5) and cannot hold back the other sources. The driver gives the read bound: the one
 //! bound of its control socket and PTY reads.

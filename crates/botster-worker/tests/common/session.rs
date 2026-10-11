@@ -303,7 +303,7 @@ fn hello_and_launch(
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
         stop_grace_ms,
-        limits,
+        limits: limits.clone(),
     }));
     match route {
         None => link.msg(&launch_msg),
@@ -330,7 +330,7 @@ fn hello_and_launch(
                 "{answer:?}"
             );
             let mut bytes = Vec::new();
-            for msg in [launch_msg, attach_route()] {
+            for msg in [launch_msg, attach_route(&limits)] {
                 let mut payload = Vec::new();
                 msg.encode(&mut payload);
                 encode_frame(FrameType::HOST_MSG, &payload, u32::MAX, &mut bytes).unwrap();
@@ -346,9 +346,8 @@ fn hello_and_launch(
     (link, payload)
 }
 
-/// The `AttachRoute` of route 1, with the limits that the host applies for default options (`admit.rs`).
-fn attach_route() -> HostMsg {
-    let core = CoreLimits::default();
+/// The `AttachRoute` of route 1, with the limits that the host applies for default options under `core` (`admit.rs`).
+fn attach_route(core: &CoreLimits) -> HostMsg {
     HostMsg::AttachRoute {
         route: RouteId(1),
         options: AttachOptions {
@@ -729,8 +728,8 @@ struct RouteClient {
 }
 
 impl RouteClient {
-    fn new(stream: UnixStream) -> RouteClient {
-        let HostMsg::AttachRoute { limits, .. } = attach_route() else {
+    fn new(stream: UnixStream, core: &CoreLimits) -> RouteClient {
+        let HostMsg::AttachRoute { limits, .. } = attach_route(core) else {
             unreachable!("attach_route is an AttachRoute")
         };
         // timer: deadline — the limit of a wait for a real worker's route frame; not a contract value.
@@ -799,7 +798,7 @@ fn a_real_route_carries_the_attach_the_input_and_the_output() {
         CoreLimits::default(),
     );
     drop(worker_end);
-    let mut client = RouteClient::new(client);
+    let mut client = RouteClient::new(client, &CoreLimits::default());
     client.read_to_live();
     client.send(&ToWorker::Text {
         op: Op(0),
@@ -842,7 +841,7 @@ fn a_real_route_delivers_large_output_whole_and_in_order() {
         done.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("done\n")
     );
-    let mut client = RouteClient::new(client);
+    let mut client = RouteClient::new(client, &CoreLimits::default());
     client.read_to_live();
     let mut output = Vec::new();
     // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
@@ -884,17 +883,20 @@ fn a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads() {
         quoted(&root.path().join("done")),
         hold.shell()
     );
+    // 9B: the route queue is at least the snapshot bound, so both are 64 KiB (a 24x80 screen is far smaller).
     let limits = CoreLimits {
         route_queue_bytes: 64 * 1024,
+        max_snapshot_bytes: 64 * 1024,
         ..CoreLimits::default()
     };
+    limits.validate().expect("legal limits");
     let (client, worker_end) = UnixStream::pair().unwrap();
     let _s = GuardedSession::launch_with_route(
         root.path(),
         &script,
         5000,
         Some(worker_end.as_fd()),
-        limits,
+        limits.clone(),
     );
     drop(worker_end);
     match done.line(Deadline::cleanup()) {
@@ -903,7 +905,7 @@ fn a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads() {
             panic!("the payload wrote all its output to a client that read nothing: {other:?}")
         }
     }
-    let mut client = RouteClient::new(client);
+    let mut client = RouteClient::new(client, &limits);
     client.read_to_live();
     let mut output = Vec::new();
     // Only the new bytes, and the two before them, can complete the marker: the search stays linear in the output.
@@ -944,7 +946,7 @@ fn a_client_close_ends_its_real_route() {
         CoreLimits::default(),
     );
     drop(worker_end);
-    let mut client = RouteClient::new(client);
+    let mut client = RouteClient::new(client, &CoreLimits::default());
     client.read_to_live();
     drop(client);
     loop {
