@@ -8,10 +8,11 @@
 //! the only thread that pumps Core.
 
 use super::program::Inputs;
-use crate::edge_tap::Rows;
+use super::SharedTap;
 use botster_conformance::Deadline;
 use botster_core_conformance::RouteClient;
-use botster_core_contract::prelude::SessionId;
+use botster_core_contract::prelude::{InstanceId, SessionId};
+use botster_core_host::session::{row_key, Row};
 use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
 use std::io::{self, Read, Write};
@@ -36,23 +37,31 @@ pub(super) struct RealRoute {
     input: Option<SessionInput>,
 }
 
-/// What `pty_input` on a route reads: the registry rows of the route's data directory, its session, and the probes' input
-/// logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
+/// What `pty_input` on a route reads: the tap of the route's handle (its stored rows), the route's session and the session's
+/// instance at the attach, and the probes' input logs. The answer is [`crate::route_client::route_pty_log`], as on the testkit.
 pub(super) struct SessionInput {
-    pub(super) rows: Rows,
+    pub(super) tap: SharedTap,
     pub(super) session: SessionId,
+    /// The session's instance when the route attached (`None`: the session had no stored row then).
+    pub(super) instance: Option<InstanceId>,
     pub(super) inputs: Inputs,
 }
 
 impl SessionInput {
-    /// The worker of the session, as its row names it now, and the input that its probe read.
+    /// The worker of the route's session instance, as its stored row names it now, and the input that its probe read. A
+    /// session that was removed, or created again with a new instance, is no longer the route's: the route has no input log
+    /// then. The record of the session's processes outlives `Remove`, so the stored row decides.
     fn log(&self) -> Result<Value, String> {
-        let worker = self
-            .rows
+        let row = self
+            .tap
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&self.session)
-            .and_then(|row| row.worker)
+            .stored_row(&row_key(&self.session))
+            .and_then(|bytes| Row::decode(&self.session, &bytes))
+            .filter(|row| Some(&row.instance) == self.instance.as_ref())
+            .ok_or_else(|| format!("the route's session instance of {} is gone", self.session.0))?;
+        let worker = row
+            .worker
             .map(|worker| worker.identity())
             .ok_or_else(|| format!("the session {} has no worker process yet", self.session.0))?;
         let input = self.inputs.input(worker).map_err(|e| format!("{e:?}"))?;
