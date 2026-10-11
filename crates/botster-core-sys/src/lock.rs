@@ -116,12 +116,13 @@ fn key_of(meta: &std::fs::Metadata) -> Key {
 /// `LockFile::try_exclusive` with the table `held`. The whole open runs under its mutex.
 fn try_exclusive_in(held: &'static Mutex<Table>, path: &Path) -> Result<LockFile, LockError> {
     let mut table = table(held)?;
-    // A file that this process holds is never opened: the close of the new descriptor would release the lock.
-    match std::fs::metadata(path) {
-        Ok(meta) if table.contains_key(&key_of(&meta)) => return Err(LockError::Held),
-        Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(LockError::Io(error)),
+    // A file that this process holds is never opened: the close of the new descriptor would release the lock. A path whose
+    // metadata cannot be read (a missing file, which the open creates, or an error, which the open reports) goes on to
+    // the open: a held file that it opens anyway is kept with its holder below.
+    if let Ok(meta) = std::fs::metadata(path) {
+        if table.contains_key(&key_of(&meta)) {
+            return Err(LockError::Held);
+        }
     }
     let file = OpenOptions::new()
         .read(true)
