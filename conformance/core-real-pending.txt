@@ -21,7 +21,7 @@
 # await_quiet fences of contracts PR #27 (contracts-v0.1.26, v1 c19ad938). The controls hold_start_at and fail_next (P5,
 # real-controls PR C; R-49 Q2 and Q3) made 3 more pass.
 
-# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (29; 7 from P4a PR3: attach_stream, client_close, route_gate).
+# the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (26; 7 from P4a PR3: attach_stream, client_close, route_gate).
 conf::a2_2_missing_op_is_bad_frame_not_refused
 conf::a2_3_lost_session_closes_routes_session_lost
 conf::a2_4_other_osc_forms_stay_in_output
@@ -32,16 +32,13 @@ conf::a7_1_query_deadline_absent_or_zero_is_invalid_input
 conf::a7_1_query_deadline_at_1ms_and_at_max_attaches
 conf::a7_1_query_deadline_positive_below_1ms_is_invalid_input
 conf::a7_1_refused_attach_reserves_nothing
-conf::a7_1_screen_cap_below_snapshot_plus_one_is_invalid_input
 conf::a7_1_screen_cap_equal_to_snapshot_plus_one_attaches
 conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one
 conf::dp_7_revoked_reason_reaches_client_and_host
 conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output
 conf::er_route_limit
-conf::ev_5_repeated_attach_detach_without_polling_stays_bounded
 conf::ev_5_route_closed_retires_route_keyed_events
 conf::ev_7_event_and_output_both_carry_the_sequence
-conf::ev_8_attach_requires_a_positive_query_deadline
 conf::id_1_old_handles_do_not_reach_new_instance
 conf::in_4_worker_tags_client_input_and_reports_activity
 conf::lc_12_drop_leaves_workers_running
