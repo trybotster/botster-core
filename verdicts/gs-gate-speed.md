@@ -1764,3 +1764,32 @@ The base remains `1da39f7c9bb99b8cf8c8fd85355e5e48fd7b4c21`. I read the complete
 Both source reviews have zero open findings. Sol independently confirms the own diff, imported export context, unchanged platform adapters, and Mac evidence transfer.
 
 The final exact-head Linux gate remains pending. Neither source verdict accepts a future gate. I ran no gate, build, or test.
+
+
+## R-43(5): driver and transcript design review
+
+The implementer asks whether the transcript-start control rule belongs in the same PR as the transcript changes. I recommend one HIGH PR.
+
+One PR lets the negative signal proof test the final transcripts and the driver rule together. A separate driver PR can also be safe if it lands first.
+
+The unsafe intermediate state is widened transcripts without the required strict-wake control rule. This recommendation is not an exact-head CLEAN.
+
+I read the runner's required-control checks and setup order, the shared driver trait, Core setup, wake expectations, and the fresh-script entry point.
+
+A default no-op `StepDriver::start` hook is a suitable seam. The runner must call it after required-control checks and before setup opens a Core handle.
+
+A start error must produce a step-zero failure. Drivers that retain the default must preserve their behavior.
+
+The scan must inspect executable nested step lists. It must not interpret arbitrary payload or expected-object JSON as executable steps.
+
+The existing wake executor defaults a missing `expect` to `Woken`. That form is also strict unless the implementation makes it invalid.
+
+`run_script_events` constructs fresh Core drivers outside the main runner. It needs the same transcript-start rule for its scripts.
+
+The proof must cover hook order and errors, default behavior, nested and absent strict waits, the real harness without the control, and seeded missing-signal failure.
+
+A supported control that fails must fail the run. A harness without the control retains its behavior. Other transcripts retain their seeded spurious wakes.
+
+I sent these conditions to the implementer. I corrected an earlier message that overstated the risk of every separate-driver ordering.
+
+No code or gate was supplied for this design request. I ran no gate, build, or test.

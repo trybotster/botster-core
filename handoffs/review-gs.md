@@ -1,6 +1,18 @@
 # GS reviewer handoff
 
-## Current review result
+## Current design review
+
+R-43(5): I recommend one HIGH PR for the transcript changes and transcript-start driver rule. A driver-first separate PR can also be safe.
+
+The proposed start hook must run before setup. Its errors must fail. The scan must cover executable nested steps and implicit strict Woken expectations.
+
+Fresh scripts in run_script_events need the same rule. The negative test must prove that seeded spurious wakes cannot hide a missing signal.
+
+This is a design recommendation, not an exact-head CLEAN. Wait for the implementation head and evidence.
+
+Core #270 still waits for its final exact-head Linux gate or merge receipt. I ran no gate, build, or test.
+
+## Previous Core PR #270 source result
 
 - Repository and PR: `trybotster/botster-core#270`.
 - Head: `b038bac80c7939343433ec2e843c393f694470ce`.
