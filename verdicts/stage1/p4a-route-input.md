@@ -513,3 +513,28 @@ I require no private queue assertion to make that deletion fail.
 One MEDIUM source finding remains open. The same-head package verdict is pending.
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 The tree comparisons use Git source objects only.
+
+## Round 4 — 2026-10-10
+
+Reviewed head: `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+Reviewed base: `0a564513e50930ce25f2e4a175f45cffbef7119d`.
+Plan 23ad authorizes this full fourth review. The source and evidence inspection above records its complete scope.
+
+I read package Round 155 at verdict commit `95a50a91ccda66a356aa536f65221b809eac1496`, `verdicts/p3-worker.md`.
+It reports NOT CLEAN on this exact head and base. Both reviewers agree on the closures and the new finding.
+
+R3-1 / F103 LOW and R3-2 / F107 MEDIUM are CLOSED in their reported scopes.
+F99, F100, F101, F102, F104, F105, and F106 retain their specific closures.
+R4-1 / F113 MEDIUM remains OPEN: route admission omits the stop check before payload exit.
+The supplied passing gate does not close F113. The complete route admission unit remains unaccepted.
+
+This is the fourth NOT CLEAN integration round for PR #227.
+The lead authorizes Round 5 in `msg_plugin-w_1791683701_f3c368`.
+That review covers the F113 correction and admission parity.
+The replacement PR body must map every `start_checks` check to the route path.
+The integration reviewer must verify every row. A missing route check is a finding.
+The replacement head, its gate, and the same-head package artifact remain pending.
+
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+
+VERDICT: NOT CLEAN (1 open: R4-1 / F113 MEDIUM).
