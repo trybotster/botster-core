@@ -459,3 +459,25 @@ The lead assigns one new round head containing the API correction, current v1 0c
 That head needs its applicable delta review, focused Mac receipt, complete before/after table, and full exact-head gate.
 The package reviewer reports no runtime finding at 27d7e821, but has not committed the formal composition round.
 Round 4 remains active. This continuation supplies no formal source CLEAN or merge approval.
+
+### Round 4 continuation: final composition head supplied
+
+READY msg_plugin-w_1791720047_272cd7 names `3cf27c1b0f6941100b096570bb3ca51ade0a7c2e`, base `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+Its tree is bb072608e02424557d9cc95d395d4b5ca6c8f12b. Sol reads the complete updated PR body.
+Sol reads dff7e476's complete fixture delta and the surrounding Link decoder and report reader.
+The route fixture reads Launched and RouteReceived for route 1 in either order. It requires exactly one of each.
+A duplicate or other lifecycle report fails. The existing reader preserves every decoded frame and socket timeout.
+
+Merge 38635c9e has parents dff7e476 and exact current base 0c5ac80e.
+Sol's independent merge-tree result equals its tree 6624c7cd563f406ea81436e1d39ac2982029f006, with no conflict.
+Sol reads the full base-check record: conditions 1, 2, and 4 pass; condition 3 fails on the inspected fixture change.
+All twelve other imported paths retain the exact base blob. The remaining imported path is the inspected known-flaky file.
+Commit 3cf27c1b removes EV-5's entry from that file. The file retains only its explanatory comments.
+This removal changes mutation selection; it supplies no conformance pending removal.
+
+Sol reads the complete exact-head Mac summary receipt and the complete earlier EV-5 receipt.
+The exact-head receipt reports all selected groups passed, including 19 slow_facade_worker tests and 150 real must-pass trials.
+It contains summaries rather than individual proof names. Final gate review still needs the named public proof results.
+The bbc83015 receipt names EV-5 PASS in each of twenty runs. Sol starts no repeat campaign.
+The current full gate, A5-4 table, and formal package composition verdict remain pending.
+This continuation supplies no formal source CLEAN, final gate approval, or merge approval.

@@ -115,3 +115,71 @@ Current v1 is d86bfcc7 after #256. A replacement head needs the current base, ap
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (4 open) at 96f6f387bc9924a6ac436cc4820b2e166203d572
+
+## Round 2: correction review at 29b769b1
+
+- Head: `29b769b1e1549f8aaf7d3055c372e2cefa6592b3`.
+- Base: `b3cb268f3c2cb3223dadef02033d2bee49f06c59`.
+- Parent: `2646d13f71845f34a0b526db1239d511174c29ff`.
+- Tree: `4f1072dcb2d6ad75888dc95943e35cd6e69a0a49`.
+- READY: `msg_plugin-w_1791719298_3ee4b3`; documentation correction: `msg_plugin-w_1791719601_037eaa`.
+- Package NOT CLEAN: `c06769f8fbe05ce5bbd4494984b00dcd1f3b9f62`, verdicts/p5-real-controls-d.md.
+- Package receipt: `msg_plugin-w_1791719833_eca232`.
+- Risk: HIGH. Plan 23ar remains applicable.
+
+Sol reads the complete package addition and verifies its publication on fetched stage1/review-p5.
+Sol reads all corrective source deltas and the affected complete source sections.
+Sol compares the ordered added/deleted line sequences for all own paths with Round 1.
+The unchanged paths match exactly. The six changed paths contain the inspected corrections and documentation changes.
+All nineteen imported-only paths retain the exact base blobs. Three shared paths retain the inspected own changes and imported source.
+The current PR body names later head e2b11b17. Its later correction and import remain outside this round.
+
+### Closed findings
+
+- D-SI-1 is CLOSED in source. recorded_pids reads worker and payload pids from every harness directory.
+  reuse_pid supplies that full set to the unchanged own-group and different-start-time guard.
+  The two-directory real-process test checks both workers. The supplied Linux report names all three vector replacements as caught.
+- D-F1 is CLOSED in source. The count-polling loop is removed. The named production reap function waits, queues, notifies, and returns.
+  The spawn wrapper only detaches that function. The two owned-thread tests join it and check the queue and notifier outputs.
+  Sol reads the complete published R-55 follow-up at contracts d13a16511582a91642d692e7b959d52415d342db.
+  The crash proof uses the accepted counts and one-wake form. D-F6 below concerns its separate earlier-reaper race.
+- D-F2 is CLOSED. Sol reads the Mac header, focused selection, mutation diff, baseline, both outcomes, and final exit.
+  Both replacements of platform/macos.rs::threads by Ok(0) and Ok(1) are caught.
+  The selection runs platform:: tests, including the test of the new count function. The unmutated baseline passes.
+- D-F3 is CLOSED in source. The snapshot records the root's kind and mode at the empty path.
+  The new test changes the root mode and checks rejection. Supplied Linux and Mac results name that test as PASS.
+- D-F4 remains CLOSED. The body retains the five-test count for the old head and describes the later root-mode test separately.
+- Package D-F5 is CLOSED. The documentation-only child moves the bystander comments back above bystander.
+  The body names the imported slow_driver_observer fixture correctly.
+
+The own exclusion correction changes Children::spawn to reap for the same wait-error fallback and unchanged reason.
+The process-check entry permits the owned reaper test's plain Child because the tested function must own its reap.
+The count test removes its after-join count assertion. It retains the live-thread count and both descriptor counts.
+The Prior art conclusions from Round 1 remain applicable. These corrections reuse the existing helpers and add no dependency.
+
+### D-F6 MEDIUM: an earlier reaper can remain in the crash count
+
+Status: OPEN. This agrees with the package finding.
+The test ends s0 before the crash proof for two live workers.
+Production reap publishes s0's exit before notify and return. Core can consume that exit while the reaper still runs.
+The pump supplies no event for the kernel's removal of that thread from its count.
+The exact before+2 assertion can therefore include the retiring s0 reaper and fail.
+The same setup leaves s0 as a competing notifier. This review claims no demonstrated false PASS of the wake assertion.
+
+Separate the unread-exit refusal proof into its own nextest test process.
+The crash-count proof must start only the two live workers and have no earlier ended reaper.
+Preserve R-55 condition 2 items 1 through 4. Do not add a count-polling loop.
+P5 reports correction 404c845d and current-base import e2b11b17 in msg_plugin-w_1791719784_e3edb8.
+P5 calls this D-F5; the formal package finding is D-F6. Sol awaits their exact delta READY and retained evidence.
+
+### Evidence limits
+
+Sol reads relevant named results from the supplied 2646d13f Linux and Mac logs.
+The Mac focused suite reports 110 passes. Its separate AD-6 selection passes. Its two thread-count mutants are caught.
+The Mac job and wrapper exit zero. These results precede the documentation-only child and the later executable correction.
+Sol has not completed acceptance review of the full Linux gate in this round.
+The package verdict reports its green result, but that report does not replace Sol's independent gate review.
+This round accepts no final gate, merge, pending removal, or later changed head.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (1 open) at 29b769b1e1549f8aaf7d3055c372e2cefa6592b3
