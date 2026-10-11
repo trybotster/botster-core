@@ -508,3 +508,34 @@ The later changes reuse the descriptor edge, per-link driver, worker action queu
 No dependency or alternative runtime is added. The protocol condition remains closed by the lead's explicit PR confirmation.
 This continuation accepts no gate, merge, new minimum result, future pending removal, or future base import.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+### Round 4 formal source verdict: replacement head
+
+- Head: `7e577f68a167fb1f21e248fcd3300ee87118b9bf`.
+- Base: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+- Parent: `3cf27c1b0f6941100b096570bb3ca51ade0a7c2e`.
+- Tree: `c057c2d569a9fe42eb23563431a7652d7e79071e`.
+- Package delta CLEAN: `9d9c765ba0eb63612d206f1fca51d0b7e4bda716`, verdicts/p3-worker.md.
+- Package receipt: `msg_plugin-w_1791720707_e89f28`.
+
+Sol reads the complete package Round 167 addition and verifies publication on fetched stage1/review-p3.
+That verdict covers this exact head and base. Round 166 retains its complete composition review for unchanged source.
+Sol's cumulative Round 4 inspection covers both base imports and every later own source delta recorded above.
+The replacement changes only the actual repository-list test. Every other file equals the inspected parent.
+The test still fails on a read error, parse error, or any parsed entry. It requires the empty list from the reviewed removal.
+The parser, selection, verdict, and nonempty fixtures remain unchanged.
+
+Zero integration source findings remain open. The R-65 protocol condition is closed by the lead's explicit PR confirmation.
+The complete composition retains the inspected state-dependent failure paths, descriptor ownership, bounded route transport, and public behavior proofs.
+The .36 pin and three in_10 removals retain their recorded execution limits. DP-2 stays pending.
+The preceding Prior art checks remain applicable. The replacement reuses the current list parser and repository-file test.
+No dependency, alternative runtime, timeout, retry, or test exclusion is added.
+
+The Mac receipt still names parent 3cf27c1b. Its unchanged runtime coverage is retained within the stated summary-only limit.
+No completed replacement full gate or A5-4 table has arrived.
+Their exact-head results, named public proof outcomes, mutation identities, and failure classifications still need acceptance review before merge.
+The body must record the replacement result before merge, as the package verdict requires.
+This CLEAN covers source only. It accepts no final gate, merge, new minimum result, future status removal, or future base import.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 7e577f68a167fb1f21e248fcd3300ee87118b9bf
