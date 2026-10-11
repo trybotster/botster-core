@@ -329,6 +329,12 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Contracts #50 is package CLEAN at final head `ddce507e2c08e740f899e97dcfec566f3d2275b8`, base `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
+
+The canonical base check passes every condition. The final gate passes ten steps with 20 caught and 2 unviable mutants.
+
+The final record supersedes the pending import and gate conditions below. The steward owns merge approval; the future Core pin remains separate.
+
 Contracts #50 has package source CLEAN at `efbb30636b29d506ab04acdb9f7f90031601c674`, base `f303ccdb9e02c6763d31cd8f7503095084630adc`.
 
 The failed canonical base check required a source delta review. The sole changed own code line adapts the moved wait to the imported shared Core type.

@@ -2021,6 +2021,35 @@ Sol publishes integration source CLEAN for `efbb30636b29d506ab04acdb9f7f90031601
 
 I read the complete delta artifact and verified its published branch. Both source reviews have zero findings. The final import and gate remain due.
 
+### Contracts PR #50: final base merge and gate
+
+- Head: `ddce507e2c08e740f899e97dcfec566f3d2275b8`.
+- Base: `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
+- Reviewed parent: `efbb30636b29d506ab04acdb9f7f90031601c674`.
+- Risk tier: HIGH.
+- VERDICT: CLEAN (package review carried by the canonical base check).
+- Open findings: 0.
+
+I read the complete canonical base-check log. Every condition passes. The three imported paths are disjoint from the eighteen own paths.
+
+The complete own diff is byte-identical: 61061 bytes, SHA256 `eb6782c17e03d8e2a91f3f32e68c5a52bf8c373318e7e6d8193a6a09573d6134`.
+
+I verified the two merge parents, the live PR head, and the live base. The final body identifies both imports and their review conditions.
+
+Base check: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-ddce507e-base-merge-check.log`.
+
+The final gate names this exact head and base. All ten steps pass in 384.4 seconds. Both job and wrapper exit zero.
+
+The mutation step reports 22 mutants: 20 caught and 2 unviable. This is aggregate evidence; the log supplies no individual mutant identities.
+
+Gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-ddce507e-pool-20261011-101430-59112.log`.
+
+The canonical check permits package and integration CLEAN to carry from the reviewed parent. No source delta round is required for this import.
+
+Both findings remain CLOSED. The steward owns merge approval. The later Core pin still requires separate review and evidence.
+
+I ran no gate, build, test, base-check script, or executable probe.
+
 ## Core PR #278: repository signal scan
 
 - Head: `214ade281c890b05e72054f66b2b34e853204d3c`.
