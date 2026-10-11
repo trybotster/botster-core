@@ -11864,3 +11864,77 @@ F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
 All earlier exact-head verdicts and finding histories remain preserved.
 
 VERDICT: CLEAN
+
+
+## Round 168 — PR #243, platform-specific socket close assertion — 2026-10-11
+
+Head: `bebc95821b4a35a7d5f17663a61569fb1006d739`.
+Parent: `7e577f68a167fb1f21e248fcd3300ee87118b9bf`.
+Base v1: `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+P3 receipts: msg_plugin-w_1791720731_b17d31 and msg_plugin-w_1791720780_41c811.
+The complete GitHub response verifies this head and base. Body record: /private/tmp/review-p3-pr243-bebc9582.json.
+The body is unchanged. P3 will append the final head and completed gate result.
+The HIGH classification and binding rules in Rounds 166 and 167 remain applicable.
+
+### Source delta
+
+The reviewer reads the complete one-path delta and the complete affected real-process test.
+Only crates/botster-core/tests/slow_facade_worker.rs changes: ten added lines and eight deleted lines.
+After the capture event, Linux requires Err(ConnectionReset) from the client's read.
+Other targets require Ok(0), preserving the previous successful EOF assertion on macOS.
+The test accepts neither an arbitrary error nor both outcomes on one platform.
+A retained host copy still causes the deadline to fail the read assertion.
+The following write still must return BrokenPipe. The first write still must succeed while the host copy remains.
+The worker still closes its received copy before that first write and waits for the explicit channel message.
+The capture response on the same link still establishes that the host processed RouteReceived.
+No sleep, polling wait, private-state assertion, product hook, new timeout, retry, or exclusion is added.
+The process guard and stop over a broken link remain unchanged.
+The comment identifies the unread probe byte and the platform-specific result.
+The lead handoff at the recorded 09:40 PT ruling explicitly approves this correction and the supplied Linux evidence job.
+The reviewer checks the observed platform result against supplied records. This verdict claims no independent kernel-source proof.
+The source diff check passes. The merge base remains the exact base above.
+No product code, base import, protocol change, pin change, or pending-ID removal occurs.
+
+Rounds 166 and 167 retain the complete composition review for all unchanged source, with their exact evidence limits.
+The Mac record stays evidence at 3cf27c1b. The new non-Linux branch preserves its EOF condition but is not an exact-head Mac run.
+Sol's formal parent integration CLEAN is 02ab4e98f55309936080c7392c44cb07afa609c7.
+Receipt: msg_plugin-w_1791720783_764185. The reviewer reads the complete new formal section.
+That source verdict names the parent, not this replacement. The integration delta remains required.
+
+### Supplied Linux evidence
+
+The reviewer reads the failed parent gate's exact header, complete named failure, summaries, and exit record.
+Log: gates/botster-core-stage1-p4a-real-route-transport-7e577f68-pool-20261011-050712-71834.log.
+The receipt test fails at its old EOF expectation with OS error 104, ConnectionReset.
+The default tier passes 1680 tests; the slow tier passes 493 of 494, with this sole failure.
+fmt, clippy, taint, lists, public-api, prebuild-worker, and test-budget pass.
+Slow fails; mutants and fuzz report NOT RUN. The CI total is 195.3 seconds.
+Jobq and botster-gate exit 1 after 204 seconds. That failed gate supplies no final acceptance.
+
+The reviewer reads the complete 112-line selected Linux evidence record.
+Log: gates/botster-core-stage1-p4a-real-route-transport-bebc9582-pool-20261011-051153-7715.log.
+Its header and printed head name this exact replacement and base, on Linux 6.12.111+deb13-amd64.
+It runs slow_facade_worker with the slow feature and profile. Twenty summaries each report twenty passed and zero skipped.
+Repetition adds no distinct behavior coverage. Those summaries do not print individual green proof names.
+The selected reversal replaces one host-copy insertion with drop(held).
+The named receipt test then fails on its first write with OS error 32, BrokenPipe.
+The record reports one failed test and nineteen skipped, then restores the driver file.
+The shell uses set -u and filtered pipelines without pipefail. Its exit zero alone cannot establish successful test commands.
+The explicit green summaries and named red outcome supply the selected evidence; they do not replace a full gate.
+The reviewer runs no repetition, reversal, test, build, gate, measurement, or executable merge-check job.
+
+### Verdict and acceptance limits
+
+PR #243 is CLEAN at `bebc95821b4a35a7d5f17663a61569fb1006d739` against `0c5ac80e512f986edd2ec1455012552a41c7f855`.
+The exact per-platform assertion addresses the observed Linux close result and preserves the receipt proof.
+No new package finding appears. F121 and F122 remain CLOSED.
+The full gate is reported running at gates/botster-core-stage1-p4a-real-route-transport-bebc9582-pool-20261011-051225-8796.log.
+No completed result or A5-4 table is supplied at verdict time.
+Formal integration CLEAN, the exact-head full gate, named proof and mutation review, and A5-4 acceptance remain required before merge.
+The A5-4 before must be the exact base above. Every failure and pending result requires classification.
+P3 must append the final head and completed gate result to the PR body before merge.
+This source verdict accepts no gate, merge, future status removal, base import, or unreviewed table result.
+F39 and F61/F62 retain separate scopes. The non-minimum P3 queue stays parked.
+The reviewer changes no product code. All prior verdicts and finding histories remain preserved.
+
+VERDICT: CLEAN
