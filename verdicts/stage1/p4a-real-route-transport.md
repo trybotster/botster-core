@@ -159,3 +159,68 @@ The next review must name the corrected head and retain both finding closures.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Correction source inspection before Round 2 — 2026-10-11
+
+Reviewed head: `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
+The sole parent is the Round 1 head, `5ca808f82967f25f476988439a74b5bb9893e7f6`.
+The stack base remains `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
+I read the complete five-path correction: 106 insertions and sixteen deletions. The diff check passes.
+I requested the exact-head package verdict. This inspection precedes the formal Round 2 verdict.
+
+### PRC-1 MEDIUM / F121 — OPEN: the new proof uses invalid limits
+
+The new proof is `a_full_real_route_queue_stops_the_pty_reads_until_the_client_reads` in both existing real-worker fixtures.
+It waits for the done marker while the client reads nothing. The cleanup deadline must expire without that marker.
+It then reads the route, receives the complete three-million-byte payload and marker, and requires the done marker.
+This bounded observation replaces the insufficient immediate check. The existing guards own the worker and payload groups.
+The driver removes its redundant decrement. The machine still refreshes the budget after each nonempty PTY read.
+The changed exclusion reason names the new proof and keeps the progressing-reader conformance ID pending.
+
+However, the proof sets only `route_queue_bytes` to 64 KiB and retains the other default CoreLimits values.
+At the code's contracts pin, `max_snapshot_bytes` defaults to 16 MiB (`limits.rs:144`).
+The cross-limit rule rejects `route_queue_bytes < max_snapshot_bytes` (`limits.rs:399`).
+The test sends these limits directly in a worker Launch and does not call CoreLimits validation.
+The new retained runs therefore prove the budget path under an invalid configuration.
+They do not close the finding, whose required correction specifies a legal queue.
+
+Required correction: use legal related limits and assert that `CoreLimits::validate` succeeds before launch.
+Retain the normal-run and ignored-budget reversal evidence for that legal configuration.
+I sent this point to both P3 agents in `msg_plugin-w_1791703937_d1b503` and `msg_plugin-w_1791703937_8e4901`.
+
+### PRC-2 LOW / F122 — The behavior is corrected; the documentation remains inaccurate
+
+`write_once` now clears write readiness for a nonempty zero write before it waits for writable.
+The updated public test requires no `RouteWritable` after a readable-only event.
+The same test then requires `RouteWritable` after a writable event. Empty writes and interrupted retries keep their earlier behavior.
+The selected reversal removes the readiness clear. The new assertion fails with `Some(RouteWritable)` where it requires None.
+The source correction and proof address the incorrect event decision.
+
+The module header and PR description still say that only WouldBlock clears readiness.
+The correction also clears write readiness for a nonempty zero write.
+I requested this documentation correction in `msg_plugin-w_1791703964_5fd870`.
+Status: OPEN for that documentation correction. The behavior is closed in source.
+
+### Retained correction evidence and limits
+
+I read all three new logs completely:
+
+- `~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/f121-budget-ignored-revert-macos.log`.
+- `~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/f122-revert-macos.log`.
+- `~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/mac-slow-981a1a74.log`.
+
+The budget reversal replaces the driver's PtyReadBudget assignment with a no-op.
+Both real-worker fixtures fail because the done marker arrives while the client reads nothing, in 0.52 and 0.67 seconds.
+The reversal header names the parent plus the working correction. It is selected evidence, not an exact-head final gate.
+The zero-write reversal fails its public event assertion. Its log also names the parent plus the working correction.
+The normal Mac log names the reviewed head and Darwin 27.0.0.
+It passes 77 worker tests, seventeen slow_cli tests, 39 slow_session tests, and 115 core-sys tests.
+The new budget proof passes in both fixtures. The invalid limits still prevent PRC-1 closure.
+
+GitHub names the reviewed head and the unchanged stack base branch.
+The body correctly states that no new gate ran under the lead's pool rule.
+The parent pre-review gate remains evidence for its parent. A final gate remains required after both CLEANs.
+No status list, pin, transcript assertion, or production test branch changes in this correction.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (2 open)
