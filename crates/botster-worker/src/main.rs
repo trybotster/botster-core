@@ -371,9 +371,11 @@ impl Driver {
             }
             Action::CloseDescriptor(id) => drop(self.descriptors.remove(&id)),
             Action::RouteClose { route } => drop(self.route_streams.remove(&route)),
-            // The route transport and the PTY read budget are real-only work of PR C (plan section 6.3 item 1): until then
-            // no route byte is written, and the budget only limits a route that no byte reaches.
-            Action::RouteWrite { .. } | Action::PtyReadBudget(_) => {}
+            // The route transport, its read allowances and the PTY read budget are real-only work of PR C (plan section 6.3
+            // item 1): until then no route byte is read or written, and the budget only limits a route that no byte reaches.
+            Action::RouteWrite { .. }
+            | Action::PtyReadBudget(_)
+            | Action::RouteReadAllowance { .. } => {}
         }
         Ok(())
     }
