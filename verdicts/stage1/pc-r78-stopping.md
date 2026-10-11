@@ -295,3 +295,22 @@ Sol changes no product source and runs no build, test, gate, mutation, reversal,
 Never poll. Wait for the doorbell.
 
 VERDICT: NOT CLEAN (2 MEDIUM: R291-SI-2 source and R291-SI-3 design) at dc47d2b474826e99c9c80cacf64b47a031f7e0d7 against base 5e953398925351c12e463a7b0a946b79d9841edc
+
+## Round 6 — corrected revision-4 design delta
+
+Corrected delta SHA-256: `cf3914bc4e7f8fae32619b72ddcb3ae941b6dfe6fb871bda3ab3e39f2a2438ef`.
+PC receipt: `msg_plugin-w_1791761355_a28dce`. Sol reads the complete corrected delta and verifies its hash.
+Sol reads the full corrected package design section at `bbf3ad90dfe221dd5ca391f7d264912284a3662c`.
+Its design CLEAN covers the same hash and preserves the source/evidence conditions.
+Rule 3 withdraws the earlier unconditional open-peer_ended rule.
+LinkPeerEnded also marks drain_due for a drain announced after the pump's last link read.
+read_link clears drain_due when it starts. Only an unblocked drain_due link adds runnable work.
+A budget-limited read retains the existing more_input result. A held frame without mandatory room waits for poll and unpark_links.
+The new full-queue driver proof must check more=false while blocked, then wake and ordered delivery after the poll frees room.
+This correction addresses R291-SI-3 at design level without adding a limit or timer.
+The source review must verify the exact placement of drain_due updates and held-frame acceptance against the imported ST driver change.
+Sol accepts no ST implementation, source repair, or execution through this design correction.
+R291-SI-2, new-head evidence, both source reviews, and final acceptance remain due.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open design findings) for corrected revision-4 delta cf3914bc against base 5e953398925351c12e463a7b0a946b79d9841edc; #291 source remains NOT CLEAN
