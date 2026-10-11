@@ -945,3 +945,19 @@ Integration CLEAN remains required on this exact head and base.
 Under Q8, this green gate can serve as the merge gate when both verdicts cover this unchanged head and base.
 A later head requires the applicable review record and exact-head gate.
 The reviewer ran no test, build, or gate. The reviewer owns no build target for this PR.
+
+
+### Integration CLEAN received for Core #284
+
+Integration CLEAN covers source `8d56987ec2d7983bdeebd2101cca751f1d2c92ee`.
+Reviewed base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+Integration verdict: `de6dc5714066a746367ea3e595bb79253e63bc45`, `verdicts/stage1/rc-paste.md`, round 1.
+Message: `msg_plugin-w_1791745607_5e8a33`.
+The integration reviewer closes RC-PASTE-1 and reports zero open findings.
+The reviewer confirms all imported paths, the static import tree, and 55 matched catches in the exact-head green gate.
+Both source CLEAN verdicts now cover this exact head and base.
+
+The final-gate slot rule governs the next step. The implementer requests FINAL-READY and waits for SLOT after #283.
+The applicable import review or check and final exact-head gate remain due after the slot.
+This record grants no slot and accepts no future gate result.
+The reviewer ran no test, build, or gate.
