@@ -56,25 +56,34 @@ fn read_of(result: io::Result<usize>, buf: &[u8]) -> RouteRead {
     }
 }
 
-/// What a write result means for the unsent bytes: it drains the written bytes, keeps them when the stream is full
-/// (`WouldBlock`, the flush stops) or the write was interrupted (it is tried again), and loses them on any other error,
-/// as with a lost transport (Core OU-5). True: the flush goes on.
+/// What a write result means for the unsent bytes: it drains the written bytes, and the flush goes on (true). A write
+/// that makes no progress (`Ok(0)`, a full stream `WouldBlock`, a signal `Interrupted`) keeps the bytes and stops the
+/// flush: the next write or read of the route flushes again, so a flush never spins (#238 RR-R1-1). Any other error
+/// loses the bytes, as with a lost transport (Core OU-5).
 fn after_write(result: io::Result<usize>, unsent: &mut Vec<u8>) -> bool {
     match result {
+        Ok(0) => false,
         Ok(n) => {
             unsent.drain(..n);
             true
         }
-        Err(e) if e.kind() == io::ErrorKind::WouldBlock => false,
-        Err(e) if e.kind() == io::ErrorKind::Interrupted => true,
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+            ) =>
+        {
+            false
+        }
         Err(_) => {
             unsent.clear();
-            true
+            false
         }
     }
 }
 
-/// Writes `unsent` to `end` while it takes bytes: until nothing is left or the stream is full (`after_write`).
+/// Writes `unsent` to `end` while each write makes progress: until nothing is left, or a write takes nothing
+/// (`after_write`). Each pass drains at least one byte or ends the flush, so the loop ends.
 fn flush_into(end: &mut impl Write, unsent: &mut Vec<u8>) {
     while !unsent.is_empty() {
         let result = end.write(unsent);
@@ -250,31 +259,44 @@ mod slow_tests {
 
     /// Before the handoff, an empty read returns at once, so the driver can pump Core; after it, a read waits until the
     /// deadline.
-    /// A write drains what it wrote; a full stream keeps the bytes and stops the flush; an interrupted write keeps them and
-    /// goes on; any other error loses them (Core OU-5) and goes on.
+    /// A write drains what it wrote and the flush goes on; a write with no progress (`Ok(0)`, a full stream, a signal)
+    /// keeps the bytes and stops the flush; any other error loses them (Core OU-5) and stops it.
     #[test]
     fn a_write_result_drains_keeps_or_loses_the_unsent_bytes() {
         let failed = |kind: io::ErrorKind| Err(io::Error::from(kind));
         let mut unsent = b"abcd".to_vec();
         assert!(after_write(Ok(3), &mut unsent));
         assert_eq!(unsent, b"d");
+        assert!(!after_write(Ok(0), &mut unsent));
+        assert_eq!(unsent, b"d");
         assert!(!after_write(failed(io::ErrorKind::WouldBlock), &mut unsent));
         assert_eq!(unsent, b"d");
-        assert!(after_write(failed(io::ErrorKind::Interrupted), &mut unsent));
+        assert!(!after_write(
+            failed(io::ErrorKind::Interrupted),
+            &mut unsent
+        ));
         assert_eq!(unsent, b"d");
-        assert!(after_write(failed(io::ErrorKind::BrokenPipe), &mut unsent));
+        assert!(!after_write(failed(io::ErrorKind::BrokenPipe), &mut unsent));
         assert!(unsent.is_empty());
     }
 
-    /// A stream that takes `chunk` bytes per write until `room` is used, then is full (`WouldBlock`).
+    /// A stream that fails its next `interrupts` writes with `Interrupted`, then takes `chunk` bytes per write until
+    /// `room` is used, then is full (`WouldBlock`). A `chunk` of 0 takes nothing (`Ok(0)`).
     struct Chunky {
         taken: Vec<u8>,
         room: usize,
         chunk: usize,
+        interrupts: usize,
+        writes: usize,
     }
 
     impl Write for Chunky {
         fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.writes += 1;
+            if self.interrupts > 0 {
+                self.interrupts -= 1;
+                return Err(io::Error::from(io::ErrorKind::Interrupted));
+            }
             if self.room == 0 {
                 return Err(io::Error::from(io::ErrorKind::WouldBlock));
             }
@@ -289,15 +311,22 @@ mod slow_tests {
         }
     }
 
-    /// A flush writes until the stream is full, over several partial writes, and keeps the rest for the next flush.
+    /// A flush writes until the stream is full, over several partial writes, and keeps the rest for the next flush. A
+    /// write with no progress (a signal, or `Ok(0)`) ends the flush after that one write and keeps every byte; the next
+    /// flush goes on (#238 RR-R1-1: a flush never spins).
     #[test]
-    fn a_flush_writes_until_the_stream_is_full_and_keeps_the_rest() {
+    fn a_flush_writes_while_it_makes_progress_and_keeps_the_rest() {
         let mut end = Chunky {
             taken: Vec::new(),
             room: 4,
             chunk: 2,
+            interrupts: 1,
+            writes: 0,
         };
         let mut unsent = b"abcdef".to_vec();
+        flush_into(&mut end, &mut unsent);
+        assert_eq!((end.writes, end.taken.as_slice()), (1, &b""[..]));
+        assert_eq!(unsent, b"abcdef");
         flush_into(&mut end, &mut unsent);
         assert_eq!(end.taken, b"abcd");
         assert_eq!(unsent, b"ef");
@@ -305,6 +334,17 @@ mod slow_tests {
         flush_into(&mut end, &mut unsent);
         assert_eq!(end.taken, b"abcdef");
         assert!(unsent.is_empty());
+        let mut stuck = Chunky {
+            taken: Vec::new(),
+            room: 4,
+            chunk: 0,
+            interrupts: 0,
+            writes: 0,
+        };
+        let mut unsent = b"ab".to_vec();
+        flush_into(&mut stuck, &mut unsent);
+        assert_eq!(stuck.writes, 1);
+        assert_eq!(unsent, b"ab");
     }
 
     /// The wait for the first byte: nothing by the deadline or a signal gives `Empty`, a readable stream gives the read,
@@ -392,7 +432,6 @@ mod slow_tests {
             .unwrap();
         assert!(got.is_empty(), "{got:?}");
         route.write(b"late");
-        assert!(route.unsent.is_empty());
         assert_eq!(
             route.read(64, &deadline(LONG)),
             RouteRead::Eof { ended: None }
