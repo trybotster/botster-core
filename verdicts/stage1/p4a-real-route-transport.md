@@ -254,3 +254,50 @@ If that round is NOT CLEAN, the lead must decide before Round 4 starts.
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Source closure inspection before Round 3 — 2026-10-11
+
+Reviewed head: `53502d5517b5cf5863fca0ae768712d0e52ab804`.
+The sole parent is `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
+The stack base remains `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
+I read the complete two-path delta: sixteen insertions and thirteen deletions. The diff check passes.
+Both finding closures are present in source and retained evidence. The exact-head package verdict is requested.
+This entry does not issue formal CLEAN before that package verdict is read.
+
+**PRC-1 MEDIUM / F121 — CLOSED in source and focused evidence.**
+The proof sets both `route_queue_bytes` and `max_snapshot_bytes` to 64 KiB.
+It asserts `limits.validate()` before launch. The shared Launch helper clones these limits into Launch.
+The helper derives AttachRoute applied limits from the same CoreLimits value.
+RouteClient also derives its decode bounds from that value. The other callers retain their default configurations.
+The guarded real-worker proof retains the bounded negative observation, resumed delivery, and complete payload check.
+The driver still refreshes its budget before the next read. The redundant decrement remains removed.
+
+I read `~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/f121-legal-limits-macos.log` completely.
+Its header names the parent plus the working correction and states the valid limits and validation assertion.
+Both normal fixtures pass in 10.68 and 10.78 seconds.
+The selected reversal replaces the real PtyReadBudget assignment with a no-op.
+Both fixtures then fail because the done marker arrives while the client reads nothing, in 0.46 and 0.64 seconds.
+This is selected proof evidence, not a complete exact-head gate.
+The earlier invalid-limit evidence remains historical and is no longer the closure evidence.
+
+**PRC-2 LOW / F122 — CLOSED in source and documentation.**
+The corrected zero-write behavior and public readable-only assertion remain intact.
+The module header now names a nonempty zero write as another case that clears readiness.
+I read the complete current GitHub body. Its behavior and Prior art descriptions also name this case.
+GitHub names the reviewed head and the unchanged stack base branch.
+
+I read `~/botster-sessions/shared/core-stage1/evidence/p3-route-transport/mac-slow-53502d55.log` completely.
+The header names the exact reviewed head and Darwin 27.0.0 after prebuild of three binaries.
+It passes 77 worker tests in 10.64 seconds, seventeen slow_cli tests in 0.19 seconds, and 39 slow_session tests in 10.56 seconds.
+The new budget proof has a named PASS in both real-worker fixtures.
+The separate-process core-sys run passes 115 tests in 0.813 seconds.
+The preceding individual passes add no distinct coverage.
+
+The body retains the final Linux gate requirement under the lead's pool rule. The parent gate proves its parent only.
+The current correction changes no runtime behavior beyond the already-reviewed correction, status list, pin, or transcript assertion.
+The progressing-reader ID stays pending for its separate real route_fill proof.
+I find no additional integration issue in this delta.
+
+GitHub access recovers during this inspection. The previously local Round 2 commit `8ac8dacb4813b6b7b605e02f8f4902fa96f11579` is now pushed.
+The earlier DNS failures remain recorded in the handoff as historical limits.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
