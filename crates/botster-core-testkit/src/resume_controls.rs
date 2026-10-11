@@ -1,12 +1,18 @@
 //! The resume oracle of the testkit (`docs/core-testkit-controls.md`): `oracle_resume` (Core ST-6b, the resume invariant).
 //!
-//! A fresh libghostty terminal loads Core's pages of a capture and applies the output that the session's model consumed
-//! after the capture's `model_rev`. It is compared with the session's model: the live worker model's snapshot
-//! (`Worker::model_snapshot`, the encoder of `CaptureSnapshot`). An independent libghostty terminal replays the output that
-//! the worker read with the worker's own step rule only to find that suffix (R-7).
+//! Steward ruling R-67: the testkit uses the two comparisons of the real form (R-62), through the shared comparator
+//! ([`crate::oracle_compare`]). O_raw is a fresh oracle terminal that applies the output that the session's model consumed,
+//! from the model log, which the testkit fills at the program edge (`worker.rs`, before `Input::PtyOutput`); the worker crate
+//! never fills it. (a) O_resume, a fresh oracle terminal that loads Core's pages of the capture and applies the output that the
+//! model consumed after the capture's `model_rev`, equals O_raw. (b) The live model's snapshot (`Worker::model_snapshot`),
+//! decoded into an oracle terminal, equals O_raw. The model has then applied every logged byte that it consumed. So the
+//! expected side never passes through the encoder, and the comparator touches only oracle terminals, never the live model.
+//! An independent libghostty terminal replays the output that the worker read with the worker's own step rule only to find
+//! the consumed part (R-7).
 
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
+use crate::oracle_compare::{raw_oracle, resume_holds};
 use crate::snapshot_controls::CapturePages;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::{CaptureId, ModelRev, SessionId, Size};
@@ -109,8 +115,8 @@ struct Resume {
     capture: CaptureId,
 }
 
-/// `oracle_resume` (Core ST-6b): `{equal}`. Core's pages of `capture`, loaded in a fresh oracle terminal, with every byte
-/// that the session's model consumed after the capture's `model_rev`, give the live session model now. A capture that the
+/// `oracle_resume` (Core ST-6b, R-67): `{equal}`. Core's pages of `capture`, loaded in a fresh oracle terminal, with every
+/// byte that the session's model consumed after the capture's `model_rev`, and the live session model now, each equal O_raw. A capture that the
 /// host did not complete, a `model_rev` that the worker never had, or a worker with no model is `Bad`.
 fn oracle_resume(
     harness: &mut TestkitHarness,
@@ -159,10 +165,19 @@ fn oracle_resume(
         .restore()
         .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))?;
     restored.vt_write(&log.output[before..after]);
-    let resumed = restored
-        .snapshot()
-        .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))?;
-    Ok(json!({"equal": resumed == live}))
+    let live = CapturePages {
+        bytes: &live,
+        history: History::On,
+        cell_px: size.cell_px,
+    }
+    .restore()
+    .map_err(|e| ControlError::Bad(format!("oracle_resume: the live model's snapshot: {e:?}")))?;
+    let profile = row.request.color_profile.as_ref();
+    let equal = resume_holds(restored, live, || {
+        raw_oracle(&size, profile, &log.output[..after])
+    })
+    .map_err(|e| ControlError::Bad(format!("oracle_resume: {e:?}")))?;
+    Ok(json!({ "equal": equal }))
 }
 
 #[cfg(test)]
