@@ -3287,3 +3287,28 @@ Sol accepts no pending removal, later pin, final import, or PR completion.
 Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
 
 VERDICT: NOT CLEAN (1 open: PF-SI-3) at c130201627159e9810ff705912d5cd376e989839
+
+## Round 88 — revision 23cm, 2026-10-11
+
+Head: `bbfc1b99a88b5d717d8f151c6a49f4ff01295362`.
+Prior reviewed head: `c130201627159e9810ff705912d5cd376e989839`.
+Only docs/stage1-plan.md changes. Sol reads the complete correction and added history row.
+Pin: stage1-plan.c77c2434.md, SHA-256 `c77c243490be26d6e4ee9f5b9491fd8b62d6dc9827dceebccfd864e2d60abf02`.
+The pin equals the committed bytes and has mode 0444.
+Sections 5, 6.3, and 8 remain byte-identical. The active manifest and Core identifiers remain unchanged.
+
+PF-SI-3 closes. The plan now states 45 fence-exception entries: 43 R-56 and two R-60.
+It gives the per-identifier counts: in_9_legacy_keys_table has 39 R-56 and one R-60.
+in_9_non_us_layout_uses_supplied_text has four R-56 and one R-60.
+Those counts match Sol's static count of the exact cited Contracts cce568e object in Round 86.
+The correction distinguishes the unfenced captures from the missing program-ready exceptions.
+Zero plan findings remain.
+
+All other reviewed terms and evidence limits in Rounds 86–87 remain applicable.
+Both pending rulings govern now under the steward's confirmation. Their later implementation reviews remain due.
+The #288 result counts and diagnoses remain owner reports in this plan review.
+The structural flake fix, artifact-retention implementation, and final import conditions remain due.
+This verdict accepts no implementation, execution evidence, pending removal, later pin, final import, or PR completion.
+Sol runs no build, test, gate, mutation, reversal, or measurement. Never poll.
+
+VERDICT: CLEAN (0 open) at bbfc1b99a88b5d717d8f151c6a49f4ff01295362
