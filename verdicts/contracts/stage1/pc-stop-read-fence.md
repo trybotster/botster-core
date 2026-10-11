@@ -50,3 +50,14 @@ Pre-check on `origin/main` `194643cf65bb4418c522322fb94c5461b65b5757`:
 - Main's `driver.rs` changes do not touch `await_get`, `await_title`, `get_matches` or the pump. The three transcripts have no attach, so the R-70 attach rule cannot flag them.
 
 For CLEAN on the merged head I need: the base-merge-check output (no conflict; no overlap; the PR's own diff byte-identical to the reviewed one), and a green `botster-gate` on that exact head that I read myself.
+
+## Round 2 (merge of main, Q7): head `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0`
+
+VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration review.
+
+1. **The merge.** The parents of `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0` are the reviewed head `cba0267083288a9e6bb2f3916ea836758aba4ce3` and contracts `main` `194643cf65bb4418c522322fb94c5461b65b5757`. It is the one main merge that the steward requires. The remote branch `stage1/pc-stop-read-fence` points at this head.
+2. **Q7, checked by me.**
+   - The diff from the reviewed head to the merged head has exactly the 22 paths that main changed since `f303ccdb9e02c6763d31cd8f7503095084630adc`. None of the PR's four files is among them.
+   - `git diff --raw` of the PR's own change: the reviewed diff (`f303ccdb..cba02670`) and the new diff (`194643cf..8d79b70d`) have the same four blob pairs, so they are byte-identical.
+3. **Base-merge-check output** (`~/botster-sessions/shared/core-stage1/evidence/pc-stop-fence/base-merge-check-8d79b70d.out`, SHA256 `ad2fc65aa11408dd2cae56b2dc42b405313b204d83dbfa80e7039f90cf680ae7`): all conditions PASS (no conflict; none of the 22 base paths in the PR's diff; own diff byte-identical, sha256 `235b413643252170d9b42457ddcd2ec93fe49c7af03a7f2c8d70f24a3bb17b20`; no pending line-set files). It agrees with my own check.
+4. **Final gate on the exact head** (read by me): `~/botster-sessions/gates/botster-contracts-stage1-pc-stop-read-fence-8d79b70d-pool-20261011-104344-94809.log`, SHA256 `30b7d23ea3dc3d6f853acd20f10845c1692b01dd2ad6e707699b0adb96639678`. Header: head `8d79b70d1d68966911a844c73bdbc4bdcd8f85f0`, base `194643cf65bb4418c522322fb94c5461b65b5757`. All 10 steps PASS; `botster-gate: exit 0 after 226 s on msa1`. Main's R-70 attach lint ran in this gate (`fence_lint`, 15 lines PASS, including `an_attach_after_an_unmet_output_needs_a_title_fence_when_its_exact_output_is_asserted`), so the merged transcripts meet the new lint.
