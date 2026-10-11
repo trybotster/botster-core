@@ -3,11 +3,15 @@
 ## Current review result
 
 - PR: #256, mutation retry and catch report.
-- Head: `db4fd197b40788a56e57eec47c97b5f005359a80`.
-- Base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Head: `0e222c592d17995380ec6f20449f91d71207d2fc`.
+- Base: `c8907b74bd247002784843e1a12f6487b08c579f`.
 - Verdict: CLEAN.
 - Open findings: 0. GS-FG-R1-1 HIGH and GS-FG-R1-2 LOW are CLOSED.
 - Full verdict: `verdicts/gs-gate-speed.md`.
+
+The base-merge-check from `db4fd197` to `0e222c59` passes every check. I read the log and independently verified identical own diffs.
+
+Source CLEAN carries over to the exact new head. The implementer reports that its one full gate is running. Gate acceptance remains pending.
 
 The parser now detects a status-line candidate before it parses the known envelope. An unknown candidate returns an error.
 
@@ -61,7 +65,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the new head and base-merge-check evidence, or a delta review request. Both PR #256 source findings remain closed.
+Wait for the exact-head gate result or a delta review request. Both PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

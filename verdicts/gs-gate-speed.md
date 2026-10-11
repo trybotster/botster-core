@@ -466,3 +466,25 @@ The new fixture tests can change scheduling. They do not repair that recovery or
 Limit: this confirms the change's relation to the diagnosed cause. I did not independently reproduce this occurrence or equate its error text with another trace.
 
 This confirmation does not approve the second gate at `db4fd197`. The lead's required new head, base-merge-check, and full gate still apply.
+
+## PR #256: verified base merge
+
+- Head: `0e222c592d17995380ec6f20449f91d71207d2fc`.
+- Base: `c8907b74bd247002784843e1a12f6487b08c579f`.
+- Reviewed parent: `db4fd197b40788a56e57eec47c97b5f005359a80`.
+- VERDICT: CLEAN (carried over through the verified base merge).
+- Open findings: 0.
+
+I read the retained base-merge-check log:
+
+`~/botster-sessions/gates/botster-core-gs-flake-guard-base-merge-check-db4fd197-0e222c59.log`
+
+The check reports PASS for ancestry, conflict absence, disjoint paths, identical own diff, and unchanged pending lists.
+
+I checked the merge parents and base paths with Git. The four changed base paths do not intersect the six PR paths.
+
+I independently compared the complete own diffs. They are byte-identical: 46885 bytes, SHA-256 `c74d91f086dfc4fe14fda2c53f6fe68391565b31fd296ac0b1e6a38bdacf6ac2`.
+
+The lead's carry-over condition is satisfied. The source CLEAN applies to this exact head. The failed earlier gate remains on the record.
+
+The implementer reports that the one full gate on this head is running. Gate acceptance remains pending. I ran no gate or build.
