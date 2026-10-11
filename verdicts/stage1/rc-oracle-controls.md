@@ -89,3 +89,24 @@ This source CLEAN accepts no later head, gate, merge, pin, or pending removal.
 Sol ran no test, build, gate, measurement, or mutant.
 
 VERDICT: CLEAN (0 open) at 147853f8a8ea9c39ab58433d29304c3e75eb8ce5
+
+## Q7 source carry — 2026-10-11
+
+Head: `ad1a38098a474f3ca9770bdbc828be7be92e4783`.
+Base: `b6fd4b98e5f95aba4a6a1dc13efb609036be36f2`.
+Parents are the accepted 147853f8 head and this base. No own correction follows Round 1.
+Sol read the complete canonical PASS check at `gates/botster-core-rc-oracle-bmc-ad1a3809-20261011-103813.log`.
+Check SHA256: `9b006b28c7f2539d2da782b508e1733d2a47521fbd3558a4d5538c814d2b4e7d`.
+Sol independently confirms both parents and all three imported paths.
+Outside the pending files, the complete own diff is byte-identical. It has 52169 bytes.
+Own-diff SHA256: `ae788e8b30d7a2cbe068bb2b8197db092b10e10237fa93d73cf2cac3508985e3`.
+The two imported non-list blobs equal the base. No imported non-list path overlaps the own paths.
+The testkit pending file equals the prior file minus both own removals and the base's separate lc_2 removal.
+The real pending blob equals the accepted head. No other pending change occurs.
+The static merge tree equals the head tree, `27307134a2c87a065d10d45729ec45988f0ce3d5`.
+Sol read the complete package Q7 carry at `a03c864a`, with the same head and base.
+Both findings remain closed. Source CLEAN carries under Q7's line-set rule. No delta round is required.
+The final exact-head gate remains pending. The earlier gate does not establish this head's gate result.
+Sol accepts no future gate, merge, pin, or pending removal. Sol ran no execution job.
+
+VERDICT: CLEAN (0 open) at ad1a38098a474f3ca9770bdbc828be7be92e4783
