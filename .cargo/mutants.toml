@@ -339,6 +339,16 @@ exclude_re = [
     # An all-build assertion rejects zero; `a_worker_refuses_zero_read_bound` proves it. A minimum whole-frame read is not required.
     # A seed reproduces the same build; changed read chunking can change a schedule without changing the contract results.
     'crates/botster-core-testkit/src/worker\.rs:38:30: replace \* with \+$',
+    # botster-core-testkit stand_in.rs PeerLink::read_and_answer, the WouldBlock guard replaced with true (the gate on #228
+    # b7e6817b missed it in both stages; lead ruling, 2026-10-10): equivalent at the public boundary on the harness's own
+    # path. A stand-in's link never carries a descriptor: Core sends one only with an AttachRoute frame on a worker link
+    # whose handshake passed (botster-core-host driver.rs), and every stand-in fails the handshake (impostor_args allows
+    # only another token or instance; announced_args refuses a protocol in {T, T-1}; a withholding stand-in never answers).
+    # So the stand-in's non-blocking read of its owned connected AF_UNIX stream into a valid buffer fails only with
+    # WouldBlock or a peer reset; after a reset every read is EOF, which closes the end on the next step
+    # (the_stand_in_closes_its_end_when_the_host_closes); the peer is gone, so no bytes or answers change, and drop closes
+    # every stream. Only this one mutant is excluded.
+    'crates/botster-core-testkit/src/stand_in\.rs:126:27: replace match guard e\.kind\(\) == io::ErrorKind::WouldBlock with true in PeerLink::read_and_answer$',
     # botster-core-testkit process_group (P6): process glue of a real process group (BUILD.md testing rule 10), one entry per
     # function. They start or signal real processes, which the default tier never does; the proof is the slow tier,
     # `tests/slow_process_group.rs`: `dropping_the_guard_ends_the_whole_group` (`spawn`, `pid`, `take_stdout`, `drop`),
