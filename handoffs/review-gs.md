@@ -15,7 +15,15 @@ The source and PR now state the retry limit. A fail followed by a pass is no cat
 
 I read the earlier green gate log at `a1b009a1`. I reviewed the delta at `db4fd197`. I ran no gate or build.
 
-The implementer reports that the new gate is running. The final exact-head gate and the integration review remain required before merge.
+The final gate at `db4fd197` failed slow EV-5, seed 0, step 21, with `PendingLimit` and detail `pending_ops is 4`.
+
+I verified the failed log. The mutation step did not run. Source CLEAN remains separate from gate acceptance.
+
+The implementer started a second gate and now states that it is diagnostic only. The implementer will not use it as merge evidence.
+
+Plan revision 23al permits one gate retry after trace diagnosis, plain-v1 reproduction, reviewer cause confirmation, and written lead approval.
+
+I have no such evidence or approval for this occurrence. I asked the lead to resolve the gate acceptance condition.
 
 The lead agreed to withdraw L2. I verified that PR #253 is CLOSED without merge. Its HIGH finding remains unresolved in withdrawn code.
 
@@ -39,7 +47,7 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
-Wait for the next review request or a new head. Both PR #256 findings are closed. Send the CLEAN verdict to the implementer, lead, and integration reviewer.
+Wait for the lead's decision or a review request with the required cause evidence. Both PR #256 source findings remain closed.
 
 Preliminary baseline reuse review found three gaps: binary content identity, unknown test-list fields, and identity capture after the tests passed.
 

@@ -404,3 +404,27 @@ The delta changes only `.config/nextest.toml` comments and `xtask/src/mutant_log
 I verified the exact full head in Git and the PR. I read the delta and new regression tests. I ran no gate, build, or test.
 
 The implementer reports that the gate on this head is running. The final exact-head gate and the integration review remain required before merge.
+
+### Final gate failure at db4fd197
+
+The retained gate log is:
+
+`~/botster-sessions/gates/botster-core-stage1-gs-flake-guard-db4fd197-pool-20261011-031855-22867.log`
+
+I verified that the slow step fails `conf::ev_5_repeated_attach_detach_without_polling_stays_bounded`, seed 0, step 21.
+
+The reported error is `PendingLimit`, with detail `pending_ops is 4`. The slow suite reports 464 passed and one failed.
+
+The mutation step reports NOT RUN because an earlier step failed. This log does not satisfy the merge gate requirement.
+
+The package source verdict remains CLEAN on the same exact head. That verdict does not approve the failed gate.
+
+The implementer reports that #240 removes the known cause and is absent from the base. I have not confirmed that cause for this occurrence.
+
+Plan revision 23al permits one gate retry under specific conditions: trace diagnosis, plain-v1 reproduction, reviewer cause confirmation, and written lead approval.
+
+I have no plain-v1 comparison, cause confirmation, or written lead approval for this occurrence. I asked the lead to resolve the gate acceptance condition.
+
+The implementer started another gate on the same head. The implementer now states that this run is diagnostic and will not serve as merge evidence.
+
+I ran no gate or build. I will wait for the lead's decision or a review request with the required evidence.
