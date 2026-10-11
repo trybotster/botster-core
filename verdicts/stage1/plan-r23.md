@@ -1878,3 +1878,30 @@ The reviewer preserves the limit: no independent reproduction of this occurrence
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (1 open) at fde30774815004a99dcb8281583669c67162dc26
+
+
+## Round 53: revision 23an, cause-removing import correction
+
+- Head: `05b18303c0afe4cf9b5e0437f6307f56fb39045b`.
+- Base and sole parent: `fde30774815004a99dcb8281583669c67162dc26`.
+- Request: `msg_plugin-w_1791714614_c064c9`.
+- Plan SHA-256: `361935e2e23c7327d1d30cbc84dd6c9fbe41108d0e97a1304505928e647c4a63`.
+
+AN-SI-1 MEDIUM is CLOSED. This verdict supersedes Round 52 for the corrected text.
+Sol read the complete correction and checked the complete net delta against approved 23am.
+Only the new section 8 bullet changes. No other path changes.
+
+Case (a) covers an import that leaves the diagnosed cause unchanged, or a cause that is not diagnosed.
+Its gate needs all three 23al attribution conditions, with the red log as the record.
+Without those conditions, the PR waits for a commit that removes the cause.
+Case (b) covers an import that removes the diagnosed cause. That import is a source repair and needs no 23al approval.
+It still needs its own exact-head gate and the applicable source review or base-merge check.
+The lead records the v1 commit that removes the cause.
+The PR body retains the red log path and failing ID. A merge SHA alone supplies no acceptance while the cause remains.
+
+The existing exact-head, current-base, full-green, package CLEAN, integration CLEAN, and one-re-gate limits remain.
+The rule changes no pin, transcript, conformance ID, minimum, staffing, or Mac evidence requirement.
+This verdict approves the rule. It accepts no #256 cause attribution, import, gate, or merge.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 05b18303c0afe4cf9b5e0437f6307f56fb39045b

@@ -177,3 +177,39 @@ A full green gate on this exact head and current base remains required before me
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open) at 15633946e020a9d092ff2fcb8d0bf20560efd202
+
+
+## Round 3: exact-head gate and merge receipt
+
+- Reviewed head: `15633946e020a9d092ff2fcb8d0bf20560efd202`.
+- Gate base: `5ac94fabf41909a733267a62b692c1a4ee72bf62`.
+- Gate receipt: `msg_plugin-w_1791714571_28f4b3`.
+- Package completion: `dc3a119cf660eb01e10a8f48e888fbfc98a4a026`, verdicts/rc-real-controls.md.
+- Package receipt: `msg_plugin-w_1791714622_18b228`.
+- Merge receipt: `msg_plugin-w_1791714614_c064c9`.
+- v1 merge: `c8907b74bd247002784843e1a12f6487b08c579f`.
+
+Sol read the complete package completion section. The source CLEAN at e33b7739 remains unchanged.
+Sol read the retained full gate's exact-head/base header, checks, suite results, all twelve mutation outcome lines, summary, and completion:
+`~/botster-sessions/gates/botster-core-stage1-rc-program-ready-15633946-pool-20261011-032441-61505.log`.
+All ten steps pass, total 256.6 seconds.
+The default tier passes 1616 tests in 13.088 seconds. The slow tier passes 466 tests in 36.015 seconds.
+The corrected public readiness and hello wake proofs pass. EV-5 passes in both ordinary tiers.
+Stage 1 reports seven mutants: two caught, five missed, zero timeout, and zero unviable, in 22.1 seconds.
+The unmutated slow baseline passes 466 tests in 29.227 seconds; its complete step takes 38.5 seconds.
+Stage 2 catches exactly those five missed full identities, once each, in 74.0 seconds.
+Sol independently compares both full identity multisets. They are equal.
+The five cover both readiness constants, `serve`, the dispatch result, and deletion of the readiness arm.
+The final result is seven caught, with zero missed, timeout, or unviable. The complete mutation step takes 137.2 seconds.
+The real pending report retains 58 IDs and reports zero newly passing IDs.
+The raw minimum report is not a new accepted minimum proof; the unfenced AD-7 limit under R-59 remains.
+Fuzz starts no trial because no changed crate has a decoder harness.
+The job and wrapper exit 0 after 271 seconds; the job queues one second and runs 270 seconds.
+
+Sol independently reads the v1 merge object. Its parents are the exact gate base and reviewed head.
+Its tree is `c3ff9d9412fa5d96a0289adb9d3ec0fbf6e845f6`, equal to the reviewed and gated head's tree.
+The exact-head gate requirement is now satisfied. The qualified Mac result from Round 2 retains its stated failure and limits.
+No additional execution is required or claimed by this review.
+Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at 15633946e020a9d092ff2fcb8d0bf20560efd202; completion and merge tree verified.
