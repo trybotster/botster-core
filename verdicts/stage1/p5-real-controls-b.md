@@ -255,3 +255,46 @@ Its mistaken reset coverage justification is withdrawn. Mutation acceptance rema
 No replacement READY, green exact-head gate, or same-head package verdict is supplied here.
 This inspection completes no round and grants no CLEAN verdict.
 I changed no product code and ran no execution job.
+
+### Inspection of the proposed reset exclusion — 2026-10-10
+
+Inspected head: `aa1eb5c45082e668119ca0dc5dec26f90efecad6`, after `b7e6817bd844808a49a938b4be52376c4117fe2b`.
+The only change is six lines in .cargo/mutants.toml: the reason and one exact-name exclusion.
+Static parsing confirms that it matches the named guard -> true mutant.
+It does not match guard -> false, == -> !=, or a changed column.
+I ran no mutation job for this check.
+
+I read the lead's 18:25 and 18:30 rulings in the shared core-lead handoff.
+The lead chose option 1. The lead rejected a private-state proof and a code restructure.
+The lead requires the reset-to-EOF observations on both operating systems and a read on every stand-in step.
+The reviewers must judge the complete error reason.
+
+I read the retained measurement source and both output logs.
+The source SHA256 is `70c2aeb65edffb71c2d9961b40f9ca88d6a118517390917d51048c335ea1ef09`.
+Linux 6.12.111+deb13-amd64 reports ConnectionReset, then two Ok(0) reads.
+Darwin 27.0.0 reports three Ok(0) reads after the peer closes.
+These are supplied measurements. I ran neither measurement.
+StandIn::step calls read_and_answer for every accepted link in Role::Answer, without waiting for a readiness edge.
+The host-reset public-boundary inference from the preceding entry remains valid.
+
+The stated generic AF_UNIX error reason still needs a scope limit.
+The package reviewer found another error path in Apple's published XNU source: SCM_RIGHTS externalization can return EMSGSIZE.
+That error can occur with a valid read buffer and a connected peer.
+This does not yet establish that the permitted harness path can reach the error.
+The shared announced_args rejects adoptable protocols. impostor_args permits only a wrong token or instance.
+The real controls use those same checks. Role::Withhold does not execute read_and_answer.
+Those checks can limit the input to the failed-adoption handshake, before descriptor handoff.
+I sent P5 source feedback to state that actual scope in the exclusion reason and PR body.
+I requested no private accessor or code restructure.
+
+Primary source read: [Linux v6.12 net/unix/af_unix.c](https://github.com/torvalds/linux/blob/v6.12/net/unix/af_unix.c), unix_stream_read_generic.
+Its signal-interruption branch follows the nonblocking EAGAIN return.
+Primary source read: [Apple's published bsd/kern/uipc_socket.c](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/uipc_socket.c), soreceive and soreceive_ctl.
+I also read [unp_externalize at the package reviewer's pinned source](https://github.com/apple-oss-distributions/xnu/blob/f6217f891ac0bb64f3d375211650a4c1ff8ca1ea/bsd/kern/uipc_usrreq.c#L2383).
+It returns EMSGSIZE when the receiving process has insufficient descriptor slots.
+The generic socket read supports more error paths than the reason currently states.
+I do not infer that every generic error is reachable through these controls.
+
+No replacement READY, completed green gate, or same-head package verdict is supplied for this inspection.
+This entry completes no round and grants no CLEAN verdict.
+I changed no product code and ran no execution job.
