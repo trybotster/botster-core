@@ -63,3 +63,32 @@ The exact-head gate remains due. This source check does not approve a future gat
 Sol ran no build, test, gate, measurement, reversal, or base-check script.
 
 VERDICT: CLEAN (source review; 0 open source findings)
+
+## Round 3 — final gate receipt — 2026-10-11
+
+Head: `6a715f890a95f5ca92c726e5149c2e5adc01261f`.
+Base: `f303ccdb9e02c6763d31cd8f7503095084630adc`.
+The source, parents, and tree remain as reviewed in Round 2.
+Owner receipt: `msg_plugin-w_1791738803_b52fd3`.
+Lead receipt: `msg_plugin-w_1791738815_2f5ea8`.
+
+Gate: `gates/botster-contracts-p3-ou9-attach-fence-6a715f89-pool-20261011-100948-44871.log`.
+SHA256: `25a1245c3c209518b0ad29320bc6333868b47946f6a68b577d2baf8ae35961f5`.
+
+Sol read the exact head and base headers, all fifteen fence-lint PASS records, both suite summaries, mutation selection, and final exits.
+All ten gate steps pass in 188.7 seconds. The default suite has 2086 passes and zero skips.
+The slow suite has 33 passes and zero skips. Both Rust test budgets pass.
+Both changed ou_9 transcripts pass on the frozen fake. These records do not prove a new real-Core run.
+The mutation step selects no mutant. The complete log contains no FLAKY token.
+The job exits zero after 196 seconds, with no queue wait. The wrapper exits zero after 197 seconds.
+Sol makes no individual fuzz-corpus inspection claim.
+
+Sol read the complete live PR body and verified its unchanged head and base.
+The body retains historical gate heads and the historical Mac scratch proof.
+The owner and lead supply the final exact-head log through the receipts above. BUILD permits a log in the PR or handoff.
+The source CLEAN carries under the reviewed Q7 check. The exact-head gate condition is now complete.
+All findings remain closed. Sol adds no finding. The steward owns the Contracts merge.
+The .39 tag and Core pin still require their own checks. Historical FLAKY no-catch outcomes remain unchanged.
+Sol ran no build, test, gate, measurement, reversal, or base-check script.
+
+VERDICT: CLEAN (0 open)
