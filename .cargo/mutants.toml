@@ -83,6 +83,7 @@ exclude_re = [
     # succeeded (only_a_successful_run_passes), the verdict on the exit.
     'xtask/src/ci\.rs:\d+:\d+: replace clippy_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask ci.rs slow_job -> Ok(()): process glue. The body runs the slow tier under nextest (test_budget::command), then
+    # the slow-only test check (slow_coverage::command, which prints "slow-coverage: N slow-only tests checked"), then
     # the real-tier conformance binary under `--ignored` with the slow tier's bounds (test_budget::pending_real; the ids of
     # core-real-pending.txt, plan 23l), and prints its report;
     # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
@@ -155,6 +156,14 @@ exclude_re = [
     # inputs (the_inputs_are_the_reasoned_entries_the_globs_and_the_xtask_sources), check
     # (a_shell_entry_that_names_the_tested_decision_it_calls_passes) and verdict (a_check_passes_only_with_no_violation).
     'xtask/src/gate_decisions\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
+    # xtask slow-coverage command -> Ok(()): process glue. It reads `cargo metadata` and the pending-real file of the real
+    # repository and lists the tests of the whole workspace twice; a test cannot list the real workspace inside a mutation
+    # run of it. Only this whole-body replacement is excluded; the body has no operator. Its decision stays
+    # mutation-tested: check (a_slow_only_test_outside_the_filter_or_an_ignored_one_not_pending_fails, on real nextest
+    # lists of a fixture), with violations (a_slow_only_test_outside_the_slow_filter_is_a_violation), listed_trial
+    # (a_listed_trial_of_each_kind_passes_and_a_pending_real_id_must_be_in_the_file) and parse_list
+    # (a_list_of_an_unknown_form_is_an_error); verdict (a_check_passes_only_with_no_violation).
+    'xtask/src/slow_coverage\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask mutants-stale command -> Ok(()): process glue. It runs `cargo mutants --list` on the whole workspace and `git
     # rev-parse`, and reads the mutants file; a test cannot list the mutants of the real workspace inside a mutation run of
     # it. Only this whole-body replacement is excluded; the body has no operator. Its decision stays mutation-tested: stale
