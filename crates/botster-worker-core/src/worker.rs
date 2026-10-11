@@ -149,6 +149,10 @@ pub enum Input {
     },
     /// The route's transport takes bytes again after a write that it did not take.
     RouteWritable { route: RouteId },
+    /// Bytes that the driver read from a bound route's transport: the client's frames (DP-5).
+    RouteRead { route: RouteId, bytes: Vec<u8> },
+    /// The client closed the route's transport, or a read of it failed (OU-5).
+    RouteEnded { route: RouteId },
 }
 
 /// An action of the worker, for its driver.
@@ -194,6 +198,10 @@ pub enum Action {
     /// Read at most this many PTY bytes in total until the next budget (OU-3d source backpressure); `Some(0)` stops every
     /// PTY read, a drain too. `None` lifts the limit. A driver starts with no limit.
     PtyReadBudget(Option<usize>),
+    /// Read at most `bytes` more client bytes of the route's stream until its next allowance (DP-5: the route's input bound,
+    /// and room for one more `input_refused`); `0` stops the route's reads, and so the client gets transport backpressure.
+    /// The worker sends one after the bind, before the driver reads the route.
+    RouteReadAllowance { route: RouteId, bytes: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1077,6 +1085,8 @@ impl Machine for Worker {
             Input::Descriptor(id) => self.routes.descriptor(id),
             Input::RouteWritten { route, result } => self.on_route_written(route, result),
             Input::RouteWritable { route } => self.on_route_writable(route),
+            Input::RouteRead { route, bytes } => self.on_route_read(route, &bytes),
+            Input::RouteEnded { route } => self.on_route_ended(route),
         }
         self.arm_orphan(now);
     }
