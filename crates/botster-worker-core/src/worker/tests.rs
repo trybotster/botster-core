@@ -6,6 +6,12 @@ use std::time::Duration;
 
 const TOKEN: [u8; TOKEN_LEN] = [7; TOKEN_LEN];
 const EPOCH: u64 = 4;
+/// Steward ruling R-82: EIO on Linux and macOS, the program's side of the PTY is gone.
+const EIO: i32 = 5;
+/// Steward ruling R-82: EPIPE on the testkit's program edge, the program ended.
+const EPIPE: i32 = 32;
+/// ENOSPC: an OS write error while the program's side of the PTY still exists (not in R-82's table), so `Failed`.
+const OS_WRITE_ERROR: i32 = 28;
 
 fn instance() -> InstanceId {
     InstanceId("4-1".into())
@@ -1206,9 +1212,42 @@ fn a_failed_pty_write_is_failed_with_exact_counts() {
     let mut w = World::running();
     w.send(&write(1, b"abc", None));
     w.feed(Input::PtyWritten(Ok(1)));
-    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let actions = w.feed(Input::PtyWritten(Err(OS_WRITE_ERROR)));
     let result = input_result(&mut w, &actions, 1).expect("done");
     assert_eq!(outcome(&result), (WriteOutcome::Failed, 1, 1));
+}
+
+/// IN-2, steward ruling R-82: a host write that fails because the program's side of the PTY is gone ends as the payload's
+/// end ends it, before `PayloadExited` too: `Partial` with exact counts, or a certain zero when it wrote nothing.
+#[test]
+fn a_host_write_error_of_a_gone_program_side_ends_as_the_payload_end() {
+    for errno in [EIO, EPIPE] {
+        let mut w = World::running();
+        w.send(&write(1, b"abc", None));
+        w.feed(Input::PtyWritten(Ok(1)));
+        let actions = w.feed(Input::PtyWritten(Err(errno)));
+        let result = input_result(&mut w, &actions, 1).expect("done");
+        assert_eq!(
+            outcome(&result),
+            (WriteOutcome::Partial, 1, 1),
+            "errno {errno}"
+        );
+
+        let mut w = World::running();
+        let actions = w.send(&write(2, b"x", None));
+        assert_eq!(pty_writes(&actions), [b"x".to_vec()]);
+        let actions = w.feed(Input::PtyWritten(Err(errno)));
+        let result = input_result(&mut w, &actions, 2).expect("done");
+        assert_eq!(
+            outcome(&result),
+            (
+                WriteOutcome::NotWritten(NotWrittenReason::SessionEnded),
+                0,
+                0
+            ),
+            "errno {errno}"
+        );
+    }
 }
 
 /// IN-2, IN-7: the payload's end makes a started write `Partial` with exact counts, a write that wrote nothing a certain
@@ -1236,7 +1275,7 @@ fn the_payload_end_ends_writes_with_exact_counts() {
     let mut w = World::running();
     w.send(&write(1, b"abc", None));
     w.feed(Input::PayloadExited(ExitStatus::Code(0)));
-    let actions = w.feed(Input::PtyWritten(Err(5)));
+    let actions = w.feed(Input::PtyWritten(Err(EIO)));
     let result = input_result(&mut w, &actions, 1).expect("done");
     assert_eq!(
         outcome(&result),
