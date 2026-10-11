@@ -67,10 +67,13 @@
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
 //!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
 //!   `HandoffFailed`. Core sees exactly the result of a real failed send: the endpoint back, with `Failed`.
+//! - `oracle_resume` (`{session, capture}` → `{equal}`, Core ST-6b, R-62): the real form, through a capture layer between the
+//!   driver and Core's composition ([`resume`]).
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
 mod program;
+mod resume;
 
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
@@ -120,6 +123,8 @@ enum Role {
 struct Handle {
     data_dir: PathBuf,
     tap: Weak<Mutex<Tap<RealEdges>>>,
+    /// The records of the handle's capture layer (`oracle_resume`).
+    resume: Weak<Mutex<crate::capture_layer::Shared>>,
     /// The crash slot of the handle's Core (`host_crash`, R-55 (1)).
     crash: CrashHandle,
 }
@@ -1014,12 +1019,18 @@ impl CoreHarness for RealCoreHarness {
                 }
             }
             let driver = HostDriver::open(cfg, edges)?;
-            let (slot, crash) = Crashable::new(Box::new(driver));
+            // The crash slot holds the capture layer, so a `host_crash` drops the layer with the driver.
+            let (layer, resume) = crate::capture_layer::CaptureLayer::new(Box::new(driver), {
+                let marks = self.programs.marks();
+                Box::new(move || marks.next())
+            });
+            let (slot, crash) = Crashable::new(Box::new(layer));
             self.handles.insert(
                 spec.handle.clone(),
                 Handle {
                     data_dir,
                     tap,
+                    resume,
                     crash,
                 },
             );
@@ -1097,6 +1108,7 @@ impl CoreHarness for RealCoreHarness {
                     | "route_reports"
                     | "fail_next"
                     | "fail_handoff"
+                    | "oracle_resume"
                     | "host_crash"
                     | "reuse_pid"
                     | "bystander_alive"
@@ -1128,6 +1140,7 @@ impl CoreHarness for RealCoreHarness {
             "route_reports" if self.tapped => self.route_reports(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
             "bystander_alive" if self.tapped => self.bystander_alive(args),
@@ -1334,6 +1347,7 @@ mod slow_controls {
             "route_reports",
             "fail_next",
             "fail_handoff",
+            "oracle_resume",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
@@ -1348,12 +1362,12 @@ mod slow_controls {
         }
     }
 
-    fn sid(name: &str) -> SessionId {
+    pub(super) fn sid(name: &str) -> SessionId {
         SessionId(name.into())
     }
 
     /// Pumps `core` until `done` holds, by the cleanup deadline. The host pumps after a wake (TM-6).
-    fn pump_until(core: &mut dyn CoreApi, done: impl FnMut(&mut dyn CoreApi) -> bool) {
+    pub(super) fn pump_until(core: &mut dyn CoreApi, done: impl FnMut(&mut dyn CoreApi) -> bool) {
         pump_until_at(core, Duration::ZERO, done);
     }
 
@@ -1385,7 +1399,7 @@ mod slow_controls {
         }
     }
 
-    fn state(core: &dyn CoreApi, session: &str) -> SessionState {
+    pub(super) fn state(core: &dyn CoreApi, session: &str) -> SessionState {
         core.get(&sid(session)).expect("the session").state
     }
 
@@ -1402,7 +1416,7 @@ mod slow_controls {
     }
 
     /// As [`created`], with the payload's environment `env`.
-    fn created_with(
+    pub(super) fn created_with(
         harness: &RealCoreHarness,
         core: &mut dyn CoreApi,
         session: &str,
@@ -2491,6 +2505,7 @@ mod slow_tests {
             Handle {
                 data_dir: PathBuf::from("/nonexistent/d/h"),
                 tap: Weak::new(),
+                resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
             },
         );
