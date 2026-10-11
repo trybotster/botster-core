@@ -510,6 +510,7 @@ dependencies = [
  "botster-core-edges",
  "botster-core-link",
  "botster-core-sys",
+ "botster-route-codec",
  "botster-test-process",
  "botster-worker-core",
  "kqueue",

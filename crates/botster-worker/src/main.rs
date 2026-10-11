@@ -20,14 +20,18 @@
 
 mod command_line;
 mod io_decisions;
+mod route_io;
 
+use botster_core_contract::prelude::RouteId;
 use botster_core_edges::Machine;
 use botster_core_link::launch::{WorkerLaunch, TOKEN_VAR};
 use botster_core_link::msg::PayloadId;
 use botster_core_sys::fd_pass;
 use botster_core_sys::payload::{self, LoopThread, Payload, PayloadCommand};
 use botster_core_sys::process::start_time;
-use botster_worker_core::{Action, CandidateId, Input, PayloadSpec, SpawnFailure, Worker};
+use botster_worker_core::{
+    Action, CandidateId, DescriptorId, Input, PayloadSpec, SpawnFailure, Worker,
+};
 use io_decisions::{IoFailure, ReadyState};
 use mio::net::{UnixListener, UnixStream};
 use mio::unix::SourceFd;
@@ -127,10 +131,13 @@ struct Driver {
     /// Inputs of the current turn; the machine handles them before the next one.
     inputs: VecDeque<Input>,
     exit: bool,
-    /// The route streams that the control link delivered (DP-2), each close-on-exec (`fd_pass::recv_with_fds`). The route
-    /// transport over the bound ones is real-only work of PR C (plan section 6.3 item 1): until then the driver holds each
-    /// stream until `RouteClose`.
+    /// The route streams that the control link delivered (DP-2), each close-on-exec (`fd_pass::recv_with_fds`), until the
+    /// machine binds or closes them.
     descriptors: io_decisions::DescriptorTable<OwnedFd>,
+    /// The bound route streams and their bounded I/O (`route_io`; plan section 6.3 item 1).
+    routes: route_io::Routes<std::os::unix::net::UnixStream>,
+    /// The PTY bytes that the driver may still read (`PtyReadBudget`, OU-3d); `None`: no limit.
+    pty_budget: Option<usize>,
 }
 
 impl Driver {
@@ -190,6 +197,8 @@ impl Driver {
             inputs: VecDeque::new(),
             exit: false,
             descriptors: io_decisions::DescriptorTable::default(),
+            routes: route_io::Routes::default(),
+            pty_budget: None,
         })
     }
 
@@ -205,6 +214,7 @@ impl Driver {
             self.read_control();
             self.accept_candidate();
             self.read_candidates();
+            self.routes.turn(&mut self.inputs);
             self.settle()?;
             if self.exit {
                 return Ok(());
@@ -229,6 +239,8 @@ impl Driver {
                 write_blocked: self.pty_wants_write,
                 endpoint_readable: self.endpoint_readable,
                 candidate_readable: self.candidates.values().any(|c| c.readable),
+                pty_budget: self.pty_budget,
+                routes_busy: self.routes.busy(),
             }
             .timeout(self.worker.next_deadline(), Instant::now());
             if io_decisions::poll_interrupted(self.poll.poll(&mut events, timeout))? {
@@ -282,6 +294,16 @@ impl Driver {
                             event.is_read_closed(),
                             event.is_error(),
                         );
+                    }
+                    Token(token) if route_io::is_route_token(token) => {
+                        let writable = self.routes.event(
+                            token,
+                            event.is_readable(),
+                            event.is_writable(),
+                            event.is_read_closed() || event.is_write_closed(),
+                            event.is_error(),
+                        );
+                        self.inputs.extend(writable);
                     }
                     Token(token) => {
                         let candidate = io_decisions::candidate_of(token)
@@ -356,16 +378,44 @@ impl Driver {
             }
             Action::AdoptLink(id) => self.adopt_link(id)?,
             // DP-2: a route's stream comes with its `AttachRoute` frame (`read_control`). The machine binds it or closes it.
-            Action::BindRoute { descriptor, route } => self.descriptors.bind(descriptor, route),
+            Action::BindRoute { descriptor, route } => self.bind_route(descriptor, route),
             Action::CloseDescriptor(id) => self.descriptors.close(id),
-            Action::RouteClose { route } => self.descriptors.close_route(route),
-            // The route transport, its read allowances and the PTY read budget are real-only work of PR C (plan section 6.3
-            // item 1): until then no route byte is read or written, and the budget only limits a route that no byte reaches.
-            Action::RouteWrite { .. }
-            | Action::PtyReadBudget(_)
-            | Action::RouteReadAllowance { .. } => {}
+            Action::RouteClose { route } => {
+                if let Some(stream) = self.routes.close(route) {
+                    let _ = self
+                        .poll
+                        .registry()
+                        .deregister(&mut SourceFd(&stream.as_raw_fd()));
+                }
+            }
+            Action::RouteWrite { route, bytes } => self.routes.write(route, bytes),
+            Action::RouteReadAllowance { route, bytes } => self.routes.allow(route, bytes),
+            Action::PtyReadBudget(budget) => self.pty_budget = budget,
         }
         Ok(())
+    }
+
+    /// `BindRoute`: the stream becomes the route's transport, nonblocking and in the loop for both directions. A stream that
+    /// the loop cannot serve ends the route's reads (OU-5), and the machine closes the route.
+    fn bind_route(&mut self, descriptor: DescriptorId, route: RouteId) {
+        let Some(fd) = self.descriptors.take(descriptor) else {
+            return;
+        };
+        let stream = std::os::unix::net::UnixStream::from(fd);
+        let nonblocking = stream.set_nonblocking(true);
+        let raw = stream.as_raw_fd();
+        let token = self.routes.bind(route, stream);
+        let registered = nonblocking.and_then(|()| {
+            self.poll.registry().register(
+                &mut SourceFd(&raw),
+                Token(token),
+                Interest::READABLE | Interest::WRITABLE,
+            )
+        });
+        if registered.is_err() {
+            drop(self.routes.close(route));
+            self.inputs.push_back(Input::RouteEnded { route });
+        }
     }
 
     fn spawn(&mut self, spec: &PayloadSpec) -> Result<PayloadId, SpawnFailure> {
@@ -493,9 +543,11 @@ impl Driver {
         if !io_decisions::read_pty(self.pty_registered, self.pty_readable, draining) {
             return;
         }
-        let want = draining.map_or(self.read_chunk.get(), |left| {
-            left.min(self.read_chunk.get())
-        });
+        // OU-3d: a spent budget stops the read, a drain's too, until the routes take bytes.
+        let want = io_decisions::pty_read_bytes(self.read_chunk.get(), draining, self.pty_budget);
+        if want == 0 {
+            return;
+        }
         let mut buf = vec![0u8; want];
         let mut ended = false;
         match payload.read(&mut buf) {
@@ -504,6 +556,9 @@ impl Driver {
                 self.inputs.push_back(Input::PtyOutput(buf[..n].to_vec()));
                 if let Some(left) = self.drain_left.as_mut() {
                     *left = left.saturating_sub(n);
+                }
+                if let Some(budget) = self.pty_budget.as_mut() {
+                    *budget = budget.saturating_sub(n);
                 }
             }
             Err(error) => match io_decisions::failure(&error) {
