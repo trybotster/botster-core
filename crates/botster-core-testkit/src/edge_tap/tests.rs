@@ -1269,3 +1269,71 @@ fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes
         assert_eq!(t.inner.sent, vec![(A, b"rt".to_vec())]);
     });
 }
+
+fn route_frames(route: RouteId) -> Vec<u8> {
+    let activity = WorkerMsg::Observed {
+        observation: botster_core_link::msg::Observation::ClientInput {
+            route,
+            input_rev: InputRev(1),
+        },
+    };
+    let close = WorkerMsg::RouteClosed {
+        route,
+        reason: RouteCloseReason::Detached,
+        route_tag: None,
+    };
+    [worker_frame(&activity), worker_frame(&close)].concat()
+}
+
+fn reports_of(rig: &Rig, route: RouteId) -> (bool, bool) {
+    let seen = rig.with(|t| t.route_reports(&InstanceId("1-1".into()), route));
+    (seen.activity_before_close, seen.closed)
+}
+
+/// R-66: only the driver's own calls count. The take-ahead consumes nothing, and a report that the driver received is consumed
+/// at its next call on the link, whichever branch of `link_recv` gave the bytes: the bytes that the tap holds, the end that
+/// it holds, or the inner edge's read. While a received report waits for that call, the control wakes the host.
+#[test]
+fn the_driver_consumes_a_route_report_at_its_next_call_in_every_branch() {
+    let r2 = RouteId(2);
+    let bytes = [hello_frame("1-1"), route_frames(r2)].concat();
+    // Held bytes, then the held end.
+    let mut rig = rig(fake_with_link(vec![Read::Data(bytes.clone()), Read::Eof]));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert!(!rig.with(Tap::quiet));
+    assert_eq!(reports_of(&rig, r2), (false, false), "the take-ahead");
+    let signals = rig.signals();
+    assert!(!rig.with(|t| t.reports.waits()));
+    assert_eq!(rig.recv(A, bytes.len()).unwrap(), bytes);
+    assert_eq!(
+        reports_of(&rig, r2),
+        (false, false),
+        "received, not consumed"
+    );
+    assert_eq!(rig.signals(), signals + 1, "the control wakes the host");
+    assert!(!rig.with(Tap::quiet));
+    assert_eq!(rig.recv(A, 16).unwrap(), b"", "the held end");
+    assert_eq!(reports_of(&rig, r2), (true, true));
+    // The inner edge's read, then a call that only meets `WouldBlock`.
+    let mut rig = rig_with_inner_read(bytes.clone());
+    assert_eq!(rig.recv(A, bytes.len()).unwrap(), bytes);
+    assert_eq!(reports_of(&rig, r2), (false, false));
+    assert_eq!(
+        rig.recv(A, 16).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    assert_eq!(reports_of(&rig, r2), (true, true));
+    assert!(!rig.with(|t| t.reports.waits()));
+    // A link that the driver closed consumes nothing more.
+    let mut rig = rig_with_inner_read(bytes.clone());
+    assert_eq!(rig.recv(A, bytes.len()).unwrap(), bytes);
+    rig.edges.link_close(A);
+    assert_eq!(rig.recv(A, 16).unwrap(), b"");
+    assert_eq!(reports_of(&rig, r2), (false, false));
+}
+
+fn rig_with_inner_read(bytes: Vec<u8>) -> Rig {
+    let mut rig = rig(fake_with_link(vec![Read::Data(bytes)]));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    rig
+}

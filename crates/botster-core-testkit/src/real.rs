@@ -173,6 +173,13 @@ struct OfSession {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct OfRoute {
+    session: SessionId,
+    route: RouteId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct HostCrash {}
 
 #[derive(Debug, Deserialize)]
@@ -604,6 +611,16 @@ impl RealCoreHarness {
         let (tap, row) = self.stored(handle, &session)?;
         let held = lock(&tap).launch_held(&row.instance);
         Ok(json!({ "held": held }))
+    }
+
+    /// Steward ruling R-66: `{activity_before_close, closed}`, what Core consumed of the worker's reports of `route` in
+    /// `session` ([`Tap::route_reports`]). It reads the tap and never waits (R-14.3); a report that waits for the driver's
+    /// next call wakes the host, so that the next pump consumes it.
+    fn route_reports(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfRoute { session, route } = parse(args)?;
+        let (tap, row) = self.stored(handle, &session)?;
+        let seen = lock(&tap).route_reports(&row.instance, route);
+        Ok(json!({ "activity_before_close": seen.activity_before_close, "closed": seen.closed }))
     }
 
     /// Core DP-2: the next hand-over of a route's stream endpoint fails, once, at the tap ([`Tap::fail_next_handoff`]).
@@ -1061,6 +1078,7 @@ impl CoreHarness for RealCoreHarness {
                     | "hold_start_at"
                     | "release_start_at"
                     | "start_held"
+                    | "route_reports"
                     | "fail_next"
                     | "fail_handoff"
                     | "host_crash"
@@ -1091,6 +1109,7 @@ impl CoreHarness for RealCoreHarness {
             "hold_start_at" if self.tapped => self.hold_start_at(handle, args),
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
+            "route_reports" if self.tapped => self.route_reports(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "host_crash" if self.tapped => self.host_crash(handle, args),

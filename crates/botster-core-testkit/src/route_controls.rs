@@ -1,10 +1,12 @@
 //! The route-transport controls of the testkit (`docs/core-testkit-controls.md`): they act at the host's edge of the
 //! hand-over (`link_send_descriptor`) and at the in-memory route streams, never in the worker machine or the host (plan 2.1).
+//! `route_reports` reads the host's `link_recv` edge ([`crate::route_reports`]).
 
-use crate::controls::{parse, ControlRegistry};
+use crate::controls::{parse, session_row, ControlRegistry};
 use crate::core::HandoffHold;
 use crate::harness::{HostFaults, TestkitHarness};
 use botster_core_conformance::ControlError;
+use botster_core_contract::prelude::{RouteId, SessionId};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -13,6 +15,7 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("fail_handoff", fail_handoff);
     registry.register("hold_handoff", hold_handoff);
     registry.register("release_handoff", release_handoff);
+    registry.register("route_reports", route_reports);
     for &name in crate::route_client::ROUTE_CONTROLS {
         registry.register(name, route_only);
     }
@@ -39,6 +42,34 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct NoArgs {}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfRoute {
+    session: SessionId,
+    route: RouteId,
+}
+
+/// Steward ruling R-66: `{activity_before_close, closed}`, what the host of `handle` consumed of the worker's reports of
+/// `route` in `session`. It reads the edge's record and never waits (R-14.3); a report that waits for the driver's next call
+/// signals the host's wake, so that the next pump consumes it.
+fn route_reports(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfRoute { session, route } = parse(args)?;
+    let row = session_row(harness, handle, &session)?;
+    let (reports, wake) = harness
+        .reports_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    let reports = lock(&reports);
+    if reports.waits() {
+        wake.signal();
+    }
+    let seen = reports.seen(&row.instance, route);
+    Ok(json!({ "activity_before_close": seen.activity_before_close, "closed": seen.closed }))
+}
 
 /// The faults of the host of `handle`.
 fn faults(harness: &TestkitHarness, handle: &str) -> Result<HostFaults, ControlError> {
