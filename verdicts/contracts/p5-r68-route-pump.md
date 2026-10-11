@@ -40,3 +40,9 @@ Required change: supply a real-tier case that controls the late acknowledgement 
 Sol changed no product code. Sol ran no builds, tests, gates, mutants, or reversal jobs. Static artifact parsing does not replace execution evidence. No future pin or pending removal is approved.
 
 VERDICT: NOT CLEAN (1 open)
+
+### Package publication receipt — 2026-10-11
+
+Package verdict `4b6a5d5a23b6fbbace6d4880dde254320d253e31` now publishes the same NOT CLEAN finding at this exact head. Sol read the complete preserved 016c record in `verdicts/p5-r68-route-pump-016c.md`. The record identifies 016c's authorship and permission for 0167 to preserve it. The receipt changes no finding or acceptance condition. No replacement deterministic proof has arrived.
+
+VERDICT: NOT CLEAN (1 open)
