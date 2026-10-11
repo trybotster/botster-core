@@ -54,3 +54,9 @@ The note on the order with #69:
 - If the lint lands first, s28/s29 are listed, and #69's merge removes them (shrink-only).
 
 I check this on the READY head.
+
+### 016c's prototype findings on revision 3 (package scope; recorded, not repeated; I also check them at READY)
+
+- MEDIUM: `pty_queued` suspends every input cause with no proving expectation and no held-write context (prototype line 249).
+- MEDIUM: `Completed` and `op_posted` clear a cause by the text of the op variable, with no handle and no binding generation (lines 153 and 258). 016c asks for negative tests: `bytes: 0`, an unrelated later op, and a `$w` reused across handles.
+- Distinctness: `activity_before_close` stays true once set. So an earlier `route_reports` with `activity_before_close: true` does not fence a later `route_send` on the same route. A fence for the later send needs a distinct proof. (In #69, r2 has one send before its fence, so #69 is not affected.)
