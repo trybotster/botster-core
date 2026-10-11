@@ -65,6 +65,9 @@ pub(super) struct Shared {
     captures: BTreeMap<CaptureId, Recorded>,
     /// The sessions that a `Resize` or a `SetColorProfile` reached (condition 3).
     changed: BTreeSet<SessionId>,
+    /// The pages that replace the next second capture: the negative proof through comparison 2.
+    #[cfg(test)]
+    second: Option<Vec<u8>>,
 }
 
 fn lock(shared: &Mutex<Shared>) -> MutexGuard<'_, Shared> {
@@ -185,6 +188,8 @@ impl CaptureLayer {
             begun: BTreeMap::new(),
             captures: BTreeMap::new(),
             changed: BTreeSet::new(),
+            #[cfg(test)]
+            second: None,
         }));
         let weak = Arc::downgrade(&shared);
         (CaptureLayer(shared), weak)
@@ -442,6 +447,8 @@ impl RealCoreHarness {
             .flat_map(|(_, bytes)| bytes.clone())
             .collect();
         let second = shared.capture_now(&session)?;
+        #[cfg(test)]
+        let second = shared.second.take().unwrap_or(second);
         drop(shared);
         let size = row.request.size;
         let profile = row.request.color_profile.as_ref();
@@ -456,7 +463,402 @@ impl RealCoreHarness {
 
 #[cfg(test)]
 mod tests {
+    use super::super::program::Programs;
+    use super::super::slow_controls::{created_with, pump_until, sid, state};
     use super::*;
+    use crate::candidate::Candidate;
+    use botster_core_conformance::{CoreHarness, OpenSpec, WorkerBuild};
+    use botster_route_codec::prelude::HexBytes;
+    use std::os::fd::RawFd;
+
+    /// A Core that completes each `CaptureSnapshot` at the next `pump`, after an unrelated event: two pages of two bytes,
+    /// the capture's id and the page's index. It records the captures that it released.
+    struct Fake {
+        next: u64,
+        posted: Vec<Event>,
+        queue: VecDeque<Event>,
+        released: Arc<Mutex<Vec<CaptureId>>>,
+    }
+
+    struct NoWake;
+
+    impl WakeHandle for NoWake {
+        fn wait(&self, _timeout: Duration) -> Wake {
+            Wake::TimedOut
+        }
+        fn fd(&self) -> RawFd {
+            -1
+        }
+    }
+
+    /// An event that is not the control's.
+    fn other() -> Event {
+        Event::Completed {
+            op: OpId(999),
+            result: OpResult::Ok(OpOutput::Unit),
+        }
+    }
+
+    impl CoreApi for Fake {
+        fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
+            self.next += 1;
+            let id = OpId(self.next);
+            if let Op::CaptureSnapshot { .. } = op {
+                self.posted.push(other());
+                self.posted.push(Event::Completed {
+                    op: id,
+                    result: OpResult::Ok(OpOutput::Capture(Capture {
+                        capture: CaptureId(id.0),
+                        page_count: 2,
+                        total_bytes: 4,
+                        model_rev: ModelRev(0),
+                    })),
+                });
+            }
+            Ok(id)
+        }
+        fn pump(&mut self, _now: Now) -> PumpReport {
+            let posted = u32::try_from(self.posted.len()).unwrap();
+            self.queue.extend(self.posted.drain(..));
+            PumpReport {
+                more: false,
+                events_posted: posted,
+            }
+        }
+        fn poll_events(&mut self, max: usize) -> Vec<Event> {
+            let n = self.queue.len().min(max);
+            self.queue.drain(..n).collect()
+        }
+        fn wake_handle(&self) -> Arc<dyn WakeHandle> {
+            Arc::new(NoWake)
+        }
+        fn read_page(&self, capture: CaptureId, page: u32) -> Result<Page, CoreError> {
+            Ok(Page {
+                index: page,
+                bytes: HexBytes(vec![
+                    u8::try_from(capture.0).unwrap(),
+                    u8::try_from(page).unwrap(),
+                ]),
+                last: page == 1,
+            })
+        }
+        fn release(&mut self, capture: CaptureId) {
+            self.released.lock().unwrap().push(capture);
+        }
+        fn next_deadline(&self) -> Option<Instant> {
+            unreachable!()
+        }
+        fn cancel(&mut self, _op: OpId) -> CancelResult {
+            unreachable!()
+        }
+        fn get(&self, _id: &SessionId) -> Result<SessionRecord, CoreError> {
+            unreachable!()
+        }
+        fn list(&self) -> Vec<SessionRecord> {
+            unreachable!()
+        }
+        fn status(&self) -> Status {
+            unreachable!()
+        }
+        fn diagnostics(&self) -> Value {
+            unreachable!()
+        }
+        fn terminal_state(&self, _id: &SessionId) -> Result<TerminalState, CoreError> {
+            unreachable!()
+        }
+        fn release_owner(&mut self, _client: &ClientId) {
+            unreachable!()
+        }
+        fn snapshot_formats(&self, _session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
+            unreachable!()
+        }
+        fn shadow_answerable_kinds(&self) -> Vec<botster_route_codec::prelude::QueryKind> {
+            unreachable!()
+        }
+        fn attach(
+            &mut self,
+            _client: ClientId,
+            _session: SessionId,
+            _transport: RouteTransport,
+            _options: AttachOptions,
+        ) -> Result<AttachResult, AttachRefused> {
+            unreachable!()
+        }
+        fn tap_read(&mut self, _session: &SessionId, _max: usize) -> Result<TapChunk, CoreError> {
+            unreachable!()
+        }
+        fn set_silence_threshold(
+            &mut self,
+            _session: &SessionId,
+            _threshold: Option<Duration>,
+        ) -> Result<(), CoreError> {
+            unreachable!()
+        }
+        fn service_send(
+            &mut self,
+            _id: &ServiceId,
+            _lane: u8,
+            _frame: &OutboundFrame,
+        ) -> Result<(), SendError> {
+            unreachable!()
+        }
+        fn service_recv(&mut self, _id: &ServiceId, _lane: u8) -> Result<Option<Frame>, RecvError> {
+            unreachable!()
+        }
+        fn service_report(&self, _id: &ServiceId) -> Result<SpawnReport, CoreError> {
+            unreachable!()
+        }
+        fn service_log_tail(&self, _id: &ServiceId, _max: usize) -> Result<Vec<u8>, CoreError> {
+            unreachable!()
+        }
+        fn features(&self) -> Features {
+            unreachable!()
+        }
+        fn limits(&self) -> CoreLimits {
+            unreachable!()
+        }
+        fn worker_protocol(&self) -> u8 {
+            unreachable!()
+        }
+        fn adoptable_worker_protocols(&self) -> BTreeSet<u8> {
+            unreachable!()
+        }
+        fn worker_protocol_compatibility(&self, _protocol: Option<u8>) -> WorkerCompatibility {
+            unreachable!()
+        }
+        fn terminal_identity(&self) -> TerminalIdentity {
+            unreachable!()
+        }
+    }
+
+    fn now() -> Now {
+        Now {
+            monotonic: Instant::now(),
+            unix: 1,
+        }
+    }
+
+    /// The layer records the transcript's capture with its mark and pages; the control's own capture is not recorded, is
+    /// released, and the events that its pumps took reach the driver first, in order, and in the next `events_posted`.
+    #[test]
+    fn the_layer_records_captures_and_holds_the_controls_events_for_the_driver() {
+        let root = tempfile::tempdir().unwrap();
+        let programs = Programs::listen(root.path()).unwrap();
+        let released = Arc::new(Mutex::new(vec![]));
+        let fake = Fake {
+            next: 0,
+            posted: vec![],
+            queue: VecDeque::new(),
+            released: Arc::clone(&released),
+        };
+        let (mut layer, shared) = CaptureLayer::new(Box::new(fake), programs.marks());
+        let shared = shared.upgrade().unwrap();
+        assert!(
+            matches!(
+                lock(&shared).capture_now(&sid("s1")),
+                Err(ControlError::Bad(_))
+            ),
+            "no pump yet"
+        );
+
+        let op = layer
+            .begin(Op::CaptureSnapshot {
+                session: sid("s1"),
+                owner: ClientId("c1".into()),
+            })
+            .unwrap();
+        assert_eq!(layer.pump(now()).events_posted, 2);
+        let events = layer.poll_events(8);
+        assert_eq!(events.len(), 2);
+        {
+            let shared = lock(&shared);
+            let recorded = &shared.captures[&CaptureId(op.0)];
+            assert_eq!(recorded.session, sid("s1"));
+            assert_eq!(recorded.mark, 0);
+            assert_eq!(recorded.pages, Ok(vec![1, 0, 1, 1]));
+            assert!(shared.begun.is_empty());
+        }
+
+        let second = lock(&shared).capture_now(&sid("s1")).unwrap();
+        assert_eq!(second, vec![2, 0, 2, 1]);
+        assert_eq!(*released.lock().unwrap(), vec![CaptureId(2)]);
+        assert!(
+            !lock(&shared).captures.contains_key(&CaptureId(2)),
+            "not the transcript's"
+        );
+        assert_eq!(
+            layer.pump(now()).events_posted,
+            1,
+            "the held event is reported"
+        );
+        assert_eq!(layer.pump(now()).events_posted, 0, "once");
+        assert_eq!(layer.poll_events(0), vec![]);
+        assert_eq!(layer.poll_events(8), vec![other()]);
+        assert_eq!(layer.poll_events(8), vec![]);
+
+        layer
+            .begin(Op::Resize {
+                session: sid("s2"),
+                size: Size {
+                    rows: 2,
+                    cols: 2,
+                    cell_px: None,
+                },
+            })
+            .unwrap();
+        assert!(lock(&shared).changed.contains(&sid("s2")));
+        assert!(!lock(&shared).changed.contains(&sid("s1")));
+    }
+
+    /// The output of `st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut` at `contracts-v0.1.36`:
+    /// steps 6 (before the capture) and 13 (after it).
+    const BEFORE: &[u8] =
+        b"\x1b[3;5H\x1b[1;31m\x1b7\x1b[1;10H\x1bH\x1b[2;4r\x1b(0\x1b[0m\x1b]2;r62-st6b-dec-1\x1b\\";
+    const AFTER: &[u8] = b"\x1b8x\tlqk\x1bD\x1bD\x1bD\x1b(By\x1b]2;r62-st6b-dec-2\x1b\\";
+
+    /// The pages of an oracle terminal of the session's size that applied `bytes` without the saved cursor (DECSC): a capture
+    /// with one field removed.
+    fn without_saved_cursor(bytes: &[u8]) -> Vec<u8> {
+        let at = bytes.windows(2).position(|w| w == b"\x1b7").unwrap();
+        let mut terminal = Terminal::new(
+            &Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            History::On,
+        )
+        .unwrap();
+        terminal.vt_write(&[&bytes[..at], &bytes[at + 2..]].concat());
+        terminal.snapshot().unwrap()
+    }
+
+    fn titled(core: &mut dyn CoreApi, title: &str) {
+        pump_until(core, |c| {
+            c.terminal_state(&sid("s1")).unwrap().title.as_deref() == Some(title)
+        });
+    }
+
+    /// R-62 on a real session of the prebuilt candidate, with the bytes of the `saved_cursor` transcript:
+    /// - the real form gives `{equal: true}`;
+    /// - a capture with the saved cursor removed gives `{equal: false}` through comparison 1 (the transcript's capture) and
+    ///   through comparison 2 (the second capture);
+    /// - an unknown capture, a capture of another session and an unknown session are `Bad`;
+    /// - after a `Resize` of the session the control is `unsupported_control` (condition 3);
+    /// - a session whose program is not only `hold` is `unsupported_control` `unknown_output_history` (condition 1).
+    #[test]
+    fn the_real_form_compares_both_captures_with_the_raw_output() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        created_with(&harness, core.as_mut(), "s1", harness.probe_env());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| state(c, "s1") == SessionState::Running);
+        let output = |h: &mut RealCoreHarness, bytes: &[u8]| {
+            h.control(
+                "a",
+                "pty_output",
+                &json!({"session": "s1", "bytes_hex": HexBytes(bytes.to_vec()).to_hex()}),
+            )
+        };
+        assert_eq!(output(&mut harness, BEFORE), Ok(Value::Null));
+        titled(core.as_mut(), "r62-st6b-dec-1");
+        let shared = harness.handles["a"].resume.upgrade().unwrap();
+        core.begin(Op::CaptureSnapshot {
+            session: sid("s1"),
+            owner: ClientId("c1".into()),
+        })
+        .unwrap();
+        // The pumps take the events, and the layer records the completed capture.
+        pump_until(core.as_mut(), |_| !lock(&shared).captures.is_empty());
+        let capture = *lock(&shared).captures.keys().next().unwrap();
+        assert_eq!(output(&mut harness, AFTER), Ok(Value::Null));
+        titled(core.as_mut(), "r62-st6b-dec-2");
+
+        let resume = |h: &mut RealCoreHarness, session: &str, capture: CaptureId| {
+            h.control(
+                "a",
+                "oracle_resume",
+                &json!({"session": session, "capture": capture}),
+            )
+        };
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Ok(json!({"equal": true}))
+        );
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Ok(json!({"equal": true})),
+            "again"
+        );
+
+        let pages = lock(&shared).captures[&capture].pages.clone();
+        lock(&shared).captures.get_mut(&capture).unwrap().pages = Ok(without_saved_cursor(BEFORE));
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Ok(json!({"equal": false})),
+            "comparison 1"
+        );
+        lock(&shared).captures.get_mut(&capture).unwrap().pages = pages;
+        lock(&shared).second = Some(without_saved_cursor(&[BEFORE, AFTER].concat()));
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Ok(json!({"equal": false})),
+            "comparison 2"
+        );
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Ok(json!({"equal": true}))
+        );
+
+        let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+        assert!(bad(resume(&mut harness, "s1", CaptureId(capture.0 + 100))));
+        assert!(bad(resume(&mut harness, "s9", capture)));
+        created_with(&harness, core.as_mut(), "s2", harness.probe_env());
+        assert!(
+            bad(resume(&mut harness, "s2", capture)),
+            "another session's capture"
+        );
+
+        core.begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 20,
+                cols: 70,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+        assert_eq!(
+            resume(&mut harness, "s1", capture),
+            Err(ControlError::Unsupported)
+        );
+
+        let print = json!({ "program": [{ "print": "x" }, { "hold": {} }] }).to_string();
+        core.begin(Op::Create {
+            session: sid("s3"),
+            request: SpawnRequest {
+                argv: vec![harness.probe_binary(), print],
+                ..request(json!({}))
+            },
+        })
+        .unwrap();
+        pump_until(core.as_mut(), |c| c.get(&sid("s3")).is_ok());
+        assert_eq!(
+            resume(&mut harness, "s3", capture),
+            Err(ControlError::UnsupportedFor(
+                "unknown_output_history".into()
+            ))
+        );
+        drop(core);
+    }
 
     fn request(script: Value) -> SpawnRequest {
         SpawnRequest {
