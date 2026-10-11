@@ -127,3 +127,12 @@ conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
 # (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
 # that fence lands (the GS lists rule). Owner: P3 (R-60 fences).
 conf::dp_5_bytes_and_text_reach_the_pty_exactly
+
+# After the merge of v1 f6025aed into this PR, these pass on the testkit (strict, BOTSTER_SEEDS=0-31). The contracts'
+# core-fence-exceptions.txt (contracts-v0.1.39) lists each of them: unfenced pty_input captures (R-56; 1, 2, 9 and 13 entries)
+# and one no program_ready entry (R-60) in each.
+# So they stay real-pending until those fences land (the GS lists rule). Owner: P3 (the R-56 burn-down, R-60 fences).
+conf::in_9_key_encoded_by_worker_modes_at_write
+conf::in_9_kitty_modifier_keys_need_flag_8
+conf::in_9_mouse_each_encoding_and_limits
+conf::in_9_mouse_each_tracking_mode
