@@ -474,6 +474,7 @@ name = "botster-test-process"
 version = "0.1.0"
 dependencies = [
  "botster-core-sys",
+ "errno",
  "kqueue",
  "libc",
  "libproc",
