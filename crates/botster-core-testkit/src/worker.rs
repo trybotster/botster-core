@@ -1660,7 +1660,9 @@ impl TestkitCore {
 }
 
 impl CoreApi for TestkitCore {
+    /// A `Resize` or a `SetColorProfile` is recorded as it enters, before Core admits it (condition 3, R-62).
     fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
+        self.captures.begun(&op);
         self.driver.begin(op)
     }
 
