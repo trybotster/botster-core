@@ -1,5 +1,17 @@
 # Core #277 — worker death before Running
 
+## Round 3 — 2026-10-11 — final body and merge receipt
+
+Verdict: CLEAN (0 open) at `2c78bb6c8424d37089062437731980ec0d34eab0`.
+Sol reads the final body section. It now contains both exact-head delta verdicts and keeps the corrected catcher claim.
+Sol reads the complete package final section at `d28b50691c644196856bc8fee44ed3efc39bdff6`.
+The lead merges this head as `9f7085f703457b0669785697dbeb14ac687a8942`.
+Sol verifies the exact parents: gate base `20c4e98df6b47a45f3e2284a976e1c8a1341457e` and the gated head.
+The merge tree equals the gated head tree, `fed65ce895b71a25f22d1c9ac82d3344e9952580`.
+All final conditions close. This acceptance covers #277 only.
+The original program-controls group remains incomplete. The lead owns the six other classification places for separate triage.
+No later pin or pending removal is accepted. Sol ran no execution job.
+
 ## Round 2 — 2026-10-11 — base imports and final gate
 
 Verdict: CLEAN (0 open) at `2c78bb6c8424d37089062437731980ec0d34eab0`.

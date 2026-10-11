@@ -1,5 +1,48 @@
 # Core #279 — route PTY input log
 
+## Round 3 — 2026-10-11 — cumulative base imports
+
+Verdict: source CLEAN (0 open) at `80c5b50cfd4e94efd65b06ea13c045bab91a476f`.
+Base: `9f7085f703457b0669785697dbeb14ac687a8942`.
+Parents: `e75d804056b080023f077d7780fa16becb53f895` and this base.
+Package source CLEAN: `1a3ea8cbda7140a16acd3aef203025a4a7b5f6fe`, Round 186, read in full.
+Sol also reads the complete earlier package Round 185 at `39704ff9dad7cad8ce55a0f67e6fb0f983afd567`.
+The lead gives this head the final-gate slot after #277 merges. The owner reports that its final gate is running.
+
+Sol reads both complete failed import reports, including the cumulative check:
+`~/botster-sessions/shared/core-stage1/evidence/p3-testkit-route-input/base-merge-check-abcbf164-80c5b50c.log`.
+Its SHA256 is `fabe4d46e71f1505cc762bf16eff5930bd59d065f5dda610e7771484e0c4b655`.
+The cumulative check passes ancestry and the testkit pending condition.
+It fails conditions 1–3 and the real pending condition. This round supplies the required explicit delta review.
+The resolved conflict affects only the real pending file. The source overlap affects only real.rs.
+Q7 automatic carry does not apply.
+
+Sol independently compares every cumulative own and imported path against the accepted head and current base.
+All six own blobs outside the source overlap and pending files remain byte-identical.
+All 22 changed base paths outside own scope equal their current-base blobs.
+The complete own added and removed lines in real.rs remain identical against the new base.
+The complete imported added and removed lines in real.rs equal the base changes exactly.
+Sol reads that complete import delta: the oracle module, capability term, three dispatch arms, and test entries;
+and the worker_file_name capability, its documentation, and its test entry.
+The self.tapped guard still covers the complete control expression. The route log and original-instance checks remain unchanged.
+The weak tap remains weak. The import introduces no strong reference that would hold the data-directory claim.
+
+The testkit pending file equals its original file minus four own rows and four separate base rows.
+No row belongs to both removal sets. The final own count is 455 to 451, with no own addition.
+The real pending file equals the accepted file minus the base A2-3 row, followed by the base's complete oracle block.
+Sol checks that exact byte composition and verifies that no identifier repeats.
+All four own additions and their comments remain intact. Real pending changes from base 32 to own 36.
+The minimum file retains the accepted blob and its 69 identifiers.
+The four own moves, eighteen relation identifiers, AM-2, and A2-1 keep their accepted scope.
+
+Sol reads the complete current body at this exact head. Its corrected comment and plan-input claims remain intact.
+The final body still needs the cumulative imports, complete failed check, both delta verdicts, and completed exact-head gate.
+The gate at 6161c5c2 remains historical evidence. No running or future gate is accepted here.
+The earlier ST-6 FLAKY contributes no catch. P5 owns its separate diagnosis; this review does not resolve its cause.
+F135 through F139 and RI-SI-1 remain closed. No new source finding arises from these imports.
+This verdict accepts no later import, pin, pending removal, or merge. Sol ran no execution job.
+Wait for the doorbell. Never poll.
+
 ## Round 2 — 2026-10-11 — comment correction
 
 Verdict: source CLEAN (0 open) at `abcbf16451e7faa0eca84bca8f3b7ee474ffd880`.
