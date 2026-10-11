@@ -2263,3 +2263,55 @@ The merge tree equals the accepted head tree, `0cfed7dc43a101334878bdcf4dc61fbb0
 This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
 
 I ran no gate, build, test, or executable probe.
+
+### Core PR #286: budget-held full seeds, round 1
+
+- Head: `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`.
+- Base: `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN.
+- Open findings: 1 MEDIUM.
+
+**GS-HF-R1-1 MEDIUM: the required seed-specific negative proof is missing.**
+
+Design section 8 requires a pool evidence job with a test-only held id that fails at seed 1 only. The lists run must pass. The held-full run must fail and name seed 1.
+
+The supplied positive runs report 32 ignored trials and zero failures. The body reports a local negative change that fails at all four selected seeds.
+
+Neither result proves that each trial executes its named seed. A trial loop that always executes seed 0 could pass those evidence checks.
+
+Provide the design's negative proof on the reviewed source. Retain its command, source change, lists result, held-full result, failure seed, and exit status.
+
+This finding concerns evidence. I found no demonstrated regression in the current gate verdict from the reviewed source.
+
+The new command adds the full-seed testkit run after the existing slow runs. It clears the three selection variables and uses the unchanged 600-second bound.
+
+The existing process group, tracker, and leftover check surround the command. The budget proof text is required when the held file parses.
+
+The gate compares the report's budget count with the held file. It compares the seed count with the CI seed set. Missing reports and failed commands fail the step.
+
+The lists run and its first-seed rule remain unchanged. The ordinary pending result remains ignored. A held id must still pass.
+
+The mutation stages remain unchanged. Stage 2 does not select held-full. Thus, the new run supplies candidate coverage, but no mutant coverage at seeds 1-31.
+
+The candidate binaries and the mutation build paths retain their existing rules. This review does not extend the earlier approval of those rules.
+
+The new exclusions cover four mutants each in the two command shells. The pure report, seed-count, budget-filter, and verdict decisions remain subject to mutation tests.
+
+The exact-head gate passes all ten steps. Its step total is 376.0 seconds; the job and wrapper exit zero after 403 seconds.
+
+The default tier passes 1752 tests. The slow tier passes 559 tests. Held-full reports one budget id at 32 seeds and takes 9.64 seconds.
+
+The mutation step reports 23 mutants: 21 caught and 2 unviable, with no missed or timed-out mutant. Stage 2 has no remaining mutant.
+
+The timing job reports 9.64 and 9.65 seconds with four threads, versus 38.54 and 38.53 seconds with one thread.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-114751-62573.log`.
+
+Timing: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-34b47734-pool-20261011-114445-56512.log`.
+
+Authority: `~/botster-sessions/shared/core-stage1/design-gs-budget-held-slow-step.md`, section 8, and plan revision 23by.
+
+I read all six changed files. The prior-art check at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` supplies no corresponding held-full run.
+
+Sol must complete the HIGH integration review. I ran no gate, build, test, base-check script, or executable probe.
