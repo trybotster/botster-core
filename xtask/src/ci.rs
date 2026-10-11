@@ -405,10 +405,9 @@ fn mutation_verdict(code: Option<i32>) -> Result<()> {
     )
 }
 
-/// The options of the mutation run, after the mutant selection.
-const MUTANTS_OPTIONS: [&str; 7] = [
-    "--jobs",
-    "1",
+/// The options of the mutation run, after the mutant selection. They name no `--jobs`: cargo-mutants 27.1.0 tests one
+/// mutant at a time by default, and both stages run `--in-place`, which refuses `--jobs` (`conflicts_with`).
+const MUTANTS_OPTIONS: [&str; 5] = [
     "--no-shuffle",
     "--test-tool",
     "nextest",
@@ -993,10 +992,17 @@ fn two_stage_decision(
 }
 
 /// The arguments of stage 1 after its mutant selection (the diff, the options and the exclusions, which the listing shares):
-/// a line for each mutant (`MUTANTS_PROGRESS`), the names of `write_skip` skipped (`--iterate`), the output under
-/// `output`, and the nextest arguments.
+/// in place (`--in-place`, so serial), a line for each mutant (`MUTANTS_PROGRESS`), the names of `write_skip` skipped
+/// (`--iterate`), the output under `output`, and the nextest arguments.
+///
+/// In place, cargo-mutants mutates the gate's own tree and builds in its `target/`, which the default tier has built: a
+/// copy of the tree has no `target/` (it is ignored), so each gate built the workspace cold for stage 1 (median 75 s of
+/// 146 pool gates). The mutants, the tests, the profile and the timeout (`--timeout-multiplier` of cargo-mutants' own
+/// baseline, which still runs) are the same. The tree in place has `.git`, a copy has not: the baseline fails the step
+/// when a test depends on that. The gate runs on a snapshot of the commit that it removes when it ends.
 fn stage1_run_args(output: &Path) -> Vec<String> {
-    let mut args: Vec<String> = MUTANTS_PROGRESS.iter().map(|s| s.to_string()).collect();
+    let mut args = vec!["--in-place".to_string()];
+    args.extend(MUTANTS_PROGRESS.iter().map(|s| s.to_string()));
     args.push("--iterate".into());
     args.push("--output".into());
     args.push(output.display().to_string());
@@ -2206,12 +2212,33 @@ mod tests {
         );
     }
 
+    /// Stage 1 runs in place, in the gate's built `target/`, as stage 2 does; no stage names `--jobs`, which cargo-mutants
+    /// refuses with `--in-place`.
+    #[test]
+    fn both_stages_run_in_place_and_name_no_jobs() {
+        let stage1: Vec<String> = MUTANTS_OPTIONS
+            .iter()
+            .map(|s| s.to_string())
+            .chain(stage1_run_args(Path::new("out")))
+            .collect();
+        let stage2 = stage2_args(&[], &[], &[], &[], Path::new("out"));
+        for (name, args) in [("stage 1", &stage1), ("stage 2", &stage2)] {
+            assert!(args.iter().any(|a| a == "--in-place"), "{name}: {args:?}");
+            assert!(
+                !args.iter().any(|a| a.starts_with("--jobs") || a == "-j"),
+                "{name}: {args:?}"
+            );
+        }
+    }
+
     /// Each mutation stage prints a line for each mutant outcome (`--caught`, `--unviable`), so a long stage of caught
-    /// mutants is never silent for the pool's 20-minute output watchdog. Stage 1 keeps its skip list, its output and its
-    /// nextest arguments; stage 2's whole arguments are in `stage_2_tests_exactly_the_missed_mutants_with_the_slow_tier`.
+    /// mutants is never silent for the pool's 20-minute output watchdog. Stage 1 keeps its place, its skip list, its output
+    /// and its nextest arguments; stage 2's whole arguments are in
+    /// `stage_2_tests_exactly_the_missed_mutants_with_the_slow_tier`.
     #[test]
     fn each_mutation_stage_prints_a_line_for_each_mutant() {
         let expected: Vec<String> = [
+            "--in-place",
             "--caught",
             "--unviable",
             "--iterate",
