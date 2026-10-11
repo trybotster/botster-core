@@ -23,3 +23,10 @@ When the PR's branch is known, this file moves to `verdicts/contracts/<branch>.m
 - The A5-4 table on both Core tiers, with no PASS to non-PASS.
 - `dp_5_full_input_queue` passes in R-81's form.
 - A driver self-test that fails when `progress()` is removed.
+
+## R-89 checks for #66 (steward FYI, pending; it governs now)
+
+- A step deadline bounds every driver wait.
+- `next_event` checks `deadline.expired()` after any queued event, and before the `Pending` return for `more` or `posted`. When the deadline has expired, it returns `TimedOut` (INCONCLUSIVE `step_timeout`).
+- Self-tests are required with a Core or a client that always answers `more`. One covers `pump_until`, and one covers the expect-all/collect loop. Each must end INCONCLUSIVE `step_timeout`, and each must be red without the check.
+- Owner: RC, in #66.
