@@ -406,3 +406,66 @@ This CLEAN verdict completes the source review. It does not claim the replacemen
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: CLEAN (0 open)
+
+
+## Completed Round 3 evidence and accepted base import — 2026-10-11
+
+Reviewed and gated head: `5921340d4f90d94ab7864b740820c0d5fb88ad03`.
+Gate base: `7e8e07d6221603e8cb602bb25daed4cb6dd04c17`.
+Imported head: `af5d51386c1d7dec6d6633f4d3a5dfa9503c2e10`.
+Imported base: `910c0a9adcbec718e52abaea1c568065d2241dd0`.
+Receipt: `msg_plugin-w_1791704542_74cc7c`.
+Package completion CLEAN: `54d1709617d8f382f440760c2286c35a16310453`, `verdicts/p6-real-route.md`.
+I read the complete package completion round after `msg_plugin-w_1791704678_4cb434`.
+This record completes the retained evidence review. The disjoint import requires no source delta round.
+
+### Completed Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-5921340d-pool-20261010-235507-54316.log`.
+I read its exact-head header, reports, summary, and every individual outcome in both mutation stages.
+The command runs plain `cargo xtask ci`, with four build jobs and four nextest threads.
+All ten stages pass in 2650.1 seconds. The mutation step takes 2462.4 seconds.
+Default: 1604 passed, 484 skipped, in 11.942 seconds.
+Slow: 427 passed, 1989 skipped, in 104.636 seconds.
+Conformance: 206 passed. Strict pending runs 373 / 394, with 21 real-only IDs not run and two held IDs.
+Testkit minimum: 55 / 69. Pending-real reports zero newly passing IDs among 77 IDs.
+The gate reports real-passing 36 / 68 and real-accepted 37 / 69.
+Those are historical gate counts. R-59 counts the current real minimum as 35 / 68 plus one unfenced pass.
+AD-7 remains in its current list, but its unfenced pass cannot count until the required held:true form passes.
+
+Stage 1 misses all 34 slow-only mutants in 112.7 seconds.
+The unmutated slow baseline passes all 427 tests in 102.725 seconds; its job takes 109.7 seconds.
+Stage 2 catches 29 and finds five unviable, with zero missed and zero timeout, in 2237.5 seconds.
+I compare both complete identity multisets. They match, with 34 unique identities in each stage.
+The four added capability mutants are caught in stage 2: both whole-body replacements and both boolean-operator replacements.
+The other thirty identities cover the preceding route delta.
+Fuzz passes and reports no changed decoder harness.
+The job and wrapper exit zero after 2659 seconds, with one second queued and 2658 seconds running.
+This gate supplies the capability execution evidence that remained pending in Round 3.
+
+### Accepted #242 import
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-real-route-af5d5138-pool-20261011-003944-36495.log`.
+I read the complete retained log. Its head and base match the imported head and base above.
+Both ancestry checks and all four conditions pass.
+The job and wrapper exit zero after 137 seconds, with one second queued and 136 seconds running.
+The base changes only `crates/botster-core-host/src/tests/driver/observations.rs`, outside all six PR paths.
+I previously read that accepted #242 test source during plan Round 47. This import adds no further edit.
+
+I independently compare both complete full-index own diffs.
+They match: 29504 bytes, SHA256 `4a7fcc9e381585c2b9c5fb1b29ce43d73de6109b9d2b14065efc4253ad28c44e`.
+That comparison includes the PR's `core-real-pending.txt` change.
+The source merge has no conflict. Its automatic tree equals the actual imported tree:
+`e2b056d1e1ae86e4599affabb7f11403e1699ff0`.
+The final v1 merge, `475a442fa58cd2555c4121ce705ea3cf75470692`, has that same tree.
+GitHub reports #238 MERGED with source head `af5d5138` and base branch v1.
+The import preserves route behavior, capability declarations, pending changes, pin, deadlines, cleanup, ownership, and mutation exclusions.
+
+The full gate belongs to `5921340d`. The imported head has a base check, without a separate full gate.
+The lead's ~22:50 pool rule says no gate per v1 import. The lead's ~04:45 entry accepts this specific import.
+The published PR body states the same decision. The check's generic message still says the gate runs on the new head.
+This record applies the lead's specific decision and preserves the distinction between the two evidence heads.
+The Round 3 source CLEAN carries to the unchanged own delta. All prior findings remain closed.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open)
