@@ -214,9 +214,11 @@ impl<E: HostEdges> HostDriver<E> {
         &mut self.edges
     }
 
-    /// TM-6: a call that leaves work for `pump` signals the wake before it returns.
+    /// TM-6: a call that leaves work for `pump` signals the wake before it returns. Work is a runnable step, or an action that
+    /// the call queued and only `pump` performs (an `attach` queues its handoff, a `cancel` its message). Parked work is
+    /// neither, so it does not signal (EV-5b).
     fn sync_wake(&self) {
-        if self.engine.runnable() {
+        if self.engine.runnable() || self.engine.has_actions() {
             self.wake.signal();
         }
     }
@@ -851,9 +853,10 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
         self.engine.next_deadline()
     }
 
+    /// The cancel's message to the worker is queued, and the next `pump` sends it (OR-1, TM-6, IN-6: `Admitted` is "admitted to
+    /// the worker stream").
     fn cancel(&mut self, op: OpId) -> CancelResult {
         let result = self.engine.cancel(op);
-        self.perform();
         self.sync_wake();
         result
     }
