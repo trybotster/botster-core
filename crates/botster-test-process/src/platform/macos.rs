@@ -30,8 +30,9 @@ pub fn start_time(pid: Pid) -> std::io::Result<Option<u64>> {
 /// pid that was reused meanwhile can make it wait for another process, within the deadline; a caller that must not be
 /// misled holds the process unreaped (its own child), so that the pid cannot be reused.
 ///
-/// A process that exited before the wait (a zombie) is `Exited`, as on Linux, and only a reaped one is `Gone`: see
-/// [`ended_before_the_watch`].
+/// A process that began to exit before the wait (exiting, or a zombie) is `Exited`, as a zombie is on Linux, and only a
+/// reaped one is `Gone`: see [`ended_before_the_watch`]. `Exited` does not mean that the status is available: XNU posts
+/// `NOTE_EXIT` before it makes the process a zombie (see [`await_status`]).
 ///
 /// # Errors
 /// The wait could not be set up, or it failed.
@@ -53,10 +54,11 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
     )
 }
 
-/// The answer for a process whose exit watch the kernel refused with ESRCH: it has exited already, as a zombie, or it was
-/// reaped. A probe with no signal tells them apart: a zombie still has its pid, so the probe succeeds (or is refused with
-/// EPERM, for a process of another user), and the answer is `Exited`, as Linux gives for a zombie (its pidfd is readable at
-/// once). A reaped process has no pid, so the probe fails with ESRCH, and the answer is `Gone`.
+/// The answer for a process whose exit watch the kernel refused with ESRCH: it is exiting or a zombie already, or it was
+/// reaped (see [`exiting_or_gone`]). A probe with no signal tells them apart: an exiting process and a zombie still have
+/// their pid, so the probe succeeds (or is refused with EPERM, for a process of another user), and the answer is `Exited`,
+/// as Linux gives for a zombie (its pidfd is readable at once). A reaped process has no pid, so the probe fails with ESRCH,
+/// and the answer is `Gone`.
 ///
 /// One limit: when another thread reaps the zombie and the pid is reused between the refused watch and the probe, the probe
 /// meets the new process and the answer is `Exited` where `Gone` was true. Both mean that the watched process ended, and
