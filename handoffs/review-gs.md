@@ -329,6 +329,10 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Core #281 source CLEAN carries to `d7abc589391ed492e27413c05c8489c262377f36`, base `23bb03a113218a5af24b44d31635dacad43c5981`.
+
+Every canonical base-check condition passes. I verified both parents and the live head and base. The final gate remains pending.
+
 Core #278 is final package CLEAN at `4b277224e9b7e164bdc8bed2e634601e9c8b2a3f`. The final exact-head gate passes all ten steps.
 
 The gate condition is complete. Zero findings remain. The lead owns merge approval.

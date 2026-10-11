@@ -2210,6 +2210,26 @@ I read the complete artifact and verified its publication. Both source reviews h
 
 The implementer must wait for that slot before the final import, check, and gate. This receipt accepts no future head or gate.
 
+### Core PR #281: final base import
+
+- Head: `d7abc589391ed492e27413c05c8489c262377f36`.
+- Base: `23bb03a113218a5af24b44d31635dacad43c5981`.
+- Reviewed parent: `1f0ab3eb5e8f19b43fed1e34468e86bced9a244b`.
+- VERDICT: CLEAN (package source review carried by the canonical base check).
+- Open findings: 0.
+
+I read the complete canonical check. Every condition passes. The 28 imported paths are disjoint from the one own path.
+
+The own diff is byte-identical: 1033 bytes, SHA256 `a161c7001ea17f6e8a61a00cf17e9b7810eb1e24f38123e42c1cf1cb8a2f6f9f`.
+
+I verified both parents and the live PR head and base. Both pending files retain the base's contents.
+
+Log: `~/botster-sessions/gates/botster-core-stage1-gs-not-a-repo-d7abc589-base-merge-check.log`.
+
+The canonical check carries both source CLEANs. The implementer reports a running final gate under the lead's slot.
+
+The final exact-head gate remains pending. This record accepts no result before completion. I ran no gate, build, test, or base-check script.
+
 This verdict applies only to the exact head above. Any later base merge needs the canonical check and its required final gate.
 
 I ran no gate, build, test, or executable probe.
