@@ -224,3 +224,33 @@ No status list, pin, transcript assertion, or production test branch changes in 
 I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — 2026-10-11: invalid budget-proof configuration
+
+Reviewed head: `981a1a7441497aa7e2b6839253a5b2621ed64f89`.
+Stack base: `e493ff5f6d8622f64feb1805fe1def887f69adad` (#240).
+Source inspection: `64d170f42fab6419c2c1151b9f864527cf3084a4`.
+The head contains one correction commit after the Round 1 head. The preceding inspection records its complete scope.
+
+I read the complete package Round 164 / #243 Round 2 at `43c7535c10143446b3041304d1d42af2d372354a`.
+The package reviewer leaves F121 open and closes F122's behavior. The package reviewer confirms the invalid-limit finding independently.
+The package artifact also requires the AttachRoute applied limits to derive from the same valid CoreLimits as Launch.
+I check that fixture: `attach_route` currently derives these limits from a separate default CoreLimits value.
+The corrected proof must represent the host's valid launch and corresponding route request.
+
+PRC-1 MEDIUM / F121 remains OPEN for valid limits, validation before launch, matching applied route limits, and retained proof evidence.
+PRC-2 LOW / F122 is closed in source for the event decision and public proof.
+Integration retains its documentation closure condition because the module header and PR body still describe the old readiness rule.
+This is the sole difference between the current package and integration closure status.
+The package reviewer does not dispute the corrected event behavior. I do not claim an additional runtime defect.
+
+The new bounded stop/resume observation is otherwise correct. Removing the redundant decrement is valid.
+The complete Mac logs and selected reversals retain the limits stated in the source inspection.
+They do not establish F121 under a valid configuration. The final Linux gate remains required after both CLEANs.
+The PR moves no conformance ID. The R-59 tally limit and #240 stack requirement remain in force.
+
+This completes integration Round 2. The next round is within the normal three-round limit.
+If that round is NOT CLEAN, the lead must decide before Round 4 starts.
+I run no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: NOT CLEAN (2 open)
