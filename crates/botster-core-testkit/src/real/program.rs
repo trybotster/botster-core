@@ -566,13 +566,6 @@ impl Lines {
     }
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PtyOutput {
-    session: SessionId,
-    bytes_hex: String,
-}
-
 fn on() -> bool {
     true
 }
@@ -639,7 +632,7 @@ impl RealCoreHarness {
                 Ok(json!({ "ready": ready }))
             }
             "pty_output" => {
-                let args: PtyOutput = parse(args)?;
+                let args: crate::pty_controls::PtyOutput = parse(args)?;
                 let bytes = hex_decode(&args.bytes_hex)
                     .map_err(|e| ControlError::Bad(format!("bytes_hex: {e}")))?;
                 if bytes.is_empty() {

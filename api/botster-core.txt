@@ -43,6 +43,8 @@ impl core::marker::UnsafeUnpin for botster_core::Core
 impl !core::panic::unwind_safe::RefUnwindSafe for botster_core::Core
 impl !core::panic::unwind_safe::UnwindSafe for botster_core::Core
 pub struct botster_core::RealEdges
+impl botster_core::RealEdges
+pub fn botster_core::RealEdges::wake_descriptor(&self) -> core::io::error::Result<std::os::fd::owned::OwnedFd>
 impl botster_core_host::driver::HostEdges for botster_core::RealEdges
 pub fn botster_core::RealEdges::accept_link(&mut self) -> core::option::Option<botster_core_host::io::LinkId>
 pub fn botster_core::RealEdges::close_route_stream(&mut self, botster_core_contract::route::StreamEndpoint, &[u8])

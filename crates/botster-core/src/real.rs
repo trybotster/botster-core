@@ -62,6 +62,11 @@ impl PollWake {
         })
     }
 
+    /// An owned duplicate of the poll's descriptor: the same kqueue or epoll instance that [`WakeHandle::fd`] names.
+    fn descriptor(&self) -> io::Result<OwnedFd> {
+        self.registry.as_fd().try_clone_to_owned()
+    }
+
     /// Consumes the readiness that is queued, without waiting. The edge-triggered readiness of `mio` is gone after this, so
     /// the driver reads every link once more (plan 2.5).
     fn consume(&self) {
@@ -412,6 +417,17 @@ pub struct RealEdges {
 }
 
 impl RealEdges {
+    /// Host API (Core TM-6, steward ruling R-68): an owned duplicate of the wake's descriptor, for a host that polls the
+    /// wake together with its own descriptors. It is the same kqueue or epoll instance that `WakeHandle::fd` names, not a
+    /// separate notifier: a signal of the wake handle makes it readable, and the pump that takes the work clears it. The
+    /// caller owns the duplicate and closes it; Core keeps its own descriptor.
+    ///
+    /// # Errors
+    /// The duplicate failed (`dup`).
+    pub fn wake_descriptor(&self) -> io::Result<OwnedFd> {
+        self.wake.descriptor()
+    }
+
     /// Opens the edges of a host over an open data directory. The directory's lock and registry move into the edges.
     pub(crate) fn new(data: DataDir, data_dir: &Path) -> io::Result<(RealEdges, u64)> {
         let (lock, storage, epoch) = data.into_storage();
@@ -691,6 +707,40 @@ mod tests {
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WouldBlock);
         assert_eq!(calls, 2);
         assert_eq!(retry_interrupted(|| Ok::<u8, io::Error>(7)).unwrap(), 7);
+    }
+
+    /// Core TM-6 (`RealEdges::wake_descriptor`): the owned duplicate is the wake's own poll instance. A signal of the wake
+    /// handle makes it readable, and consuming the queued readiness, as a pump does, clears it.
+    #[test]
+    fn a_signal_of_the_wake_makes_its_owned_duplicate_readable() {
+        let wake = PollWake::new().unwrap();
+        let duplicate = wake.descriptor().unwrap();
+        // One poll that does not wait: the duplicate is readable now, or it is not.
+        let readable = || {
+            let mut fds = [rustix::event::PollFd::new(
+                &duplicate,
+                rustix::event::PollFlags::IN,
+            )];
+            let now = rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            rustix::event::poll(&mut fds, Some(&now)).unwrap() > 0
+        };
+        assert!(!readable(), "no signal yet");
+        wake.signal();
+        assert!(readable(), "the signal shows on the duplicate");
+        wake.consume();
+        wake.drain();
+        assert!(
+            !readable(),
+            "the consumed readiness is gone from the duplicate too"
+        );
+        assert_ne!(
+            duplicate.as_raw_fd(),
+            wake.fd(),
+            "the caller owns its own descriptor"
+        );
     }
 
     /// TH-2: a wait is a wake when it was interrupted, when an event came, or when the flag is set; only a quiet timeout is
