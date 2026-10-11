@@ -329,6 +329,14 @@ I read the retained base-merge-check log. The final exact-head gate remains requ
 
 ## Remaining review work
 
+Contracts #50 is NOT CLEAN at `9bb6fd56e88514de82ecbc4d93c920372a3e0736`. GS-R43-1 HIGH remains open.
+
+The strict-wake scan treats unused `ack` and `barrier` fields as executable steps. It can disable seeded wakes outside the authorized scope.
+
+The full finding and the static false-pass example are in `verdicts/gs-gate-speed.md`. The implementer must repair the scan and provide a negative scope proof.
+
+The exact-head gate passes. That evidence does not close the source finding. Sol owns the HIGH integration review.
+
 Core #266 is merged. Contracts #45 is package CLEAN at `56e5b744`; wait for integration completion or a merge receipt. PR #262 still waits for its new head and evidence.
 
 The lead assigns the next GS review: the `id_2` data-directory lock fix in `core-sys lock.rs`, risk HIGH.

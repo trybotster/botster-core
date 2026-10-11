@@ -1793,3 +1793,67 @@ A supported control that fails must fail the run. A harness without the control 
 I sent these conditions to the implementer. I corrected an earlier message that overstated the risk of every separate-driver ordering.
 
 No code or gate was supplied for this design request. I ran no gate, build, or test.
+
+## Contracts PR #50: R-43(5), round 1
+
+- Head: `9bb6fd56e88514de82ecbc4d93c920372a3e0736`.
+- Reviewed base: `9d19b997fd044ca76c0844f8a32fa79d930e5ec4`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN.
+- Open findings: 1 HIGH.
+
+### GS-R43-1: the strict-wake scan includes steps that the runner does not execute
+
+`strict_woken_wait`, in `crates/botster-core-conformance/src/driver.rs:1674`, scans every top-level `ack` and `barrier` value.
+
+The order executor uses those fields only on recognized order constructs. Its `order_kind` function rejects objects with keys outside each construct's form.
+
+Core ordinary steps can contain those fields without executing them. The transcript schema permits arbitrary step JSON through `items: true`.
+
+For example, `{"data_dir":"extra","ack":{"wait_wake":{},"expect":"Woken"}}` executes only `data_dir`. CoreDriver returns before it reads `ack`.
+
+The new scan reports a strict wait for this example. CoreDriver then disables seeded spurious wakes for the entire transcript.
+
+Append `{"wait_wake":{"timeout_ms":0},"expect":"TimedOut"}` to that example. No executable step expects strict `Woken`.
+
+With the seeded harness used by the new tests, the existing seeded wake makes the final wait fail. The new scan removes that wake and permits a pass.
+
+This conclusion follows from source inspection. I did not execute this example. The existing no-strict-wait test establishes the relevant seeded-wake behavior.
+
+The change therefore removes A5-2 coverage from a transcript outside the authorized strict-wait scope. Plan revision 23av requires other transcripts to retain seeded spurious wakes.
+
+Required repair: classify executable nested steps with the same order-form rules that the runner uses. Do not scan unused `ack` or `barrier` fields.
+
+Also keep direct wait detection consistent with Core step dispatch. An earlier ordinary operation can return before a second operation field executes.
+
+Add a negative scope proof for the example above. It must retain the seeded wake and apply no `no_spurious_wakes` control.
+
+Keep the proofs for valid nested order constructs, missing `expect`, failed controls, and fresh scripts. Do not replace the runner's form rules with a second approximate parser.
+
+### Evidence and review scope
+
+The runner calls the default no-op start hook after required-control checks and before setup. It converts a hook error through the existing step-zero error path.
+
+The real testkit control does not require an open handle. It updates the run's scheduler. The before-setup placement prevents an initial seeded wake from remaining set.
+
+The eight transcript changes remove the required control. Strict `Woken` expectations remain strict. Ordinary widened waits have a same-clock pump with no event and no `more`.
+
+The `tm_3` exception uses one posted event, `pump_idle`, and exactly `[Silent]`, as plan revision 23av requires.
+
+The exact-head contracts gate reports ten passing steps in 543.8 seconds. It reports 12 mutants: 10 caught and 2 unviable.
+
+Gate: `~/botster-sessions/gates/botster-contracts-stage1-gs-r43-spurious-wakes-9bb6fd56-pool-20261011-083955-96932.log`.
+
+I read both Core comparison logs. The testkit reports 209 passes and the same four failing ids before and after the change.
+
+The real tier changes from eight unsupported-control results to four passes, one strict-wake failure, and three unsupported `route_fill` results.
+
+The strict-wake failure is `tm_6_begin_and_attach_signal_wake`. The implementation does not widen that expectation to hide the failure.
+
+Comparison logs: `botster-core-scratch-gs-r43-before-f29aeae1-pool-20261011-082419-31009.log` and `botster-core-scratch-gs-r43-after2-8d71a84a-pool-20261011-085024-24401.log` under `~/botster-sessions/gates/`.
+
+These comparison commands report known failures and still exit zero. Their exit status is not a conformance PASS verdict.
+
+Sol must complete the HIGH integration review. A later base merge requires its own review under the lead's current-base rule.
+
+The passing gate does not close GS-R43-1. I ran no gate, build, test, or executable probe.
