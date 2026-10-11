@@ -128,3 +128,17 @@ Sol requested the existing 016c import disposition through `msg_plugin-w_1791739
 The final integration verdict at `739adc892c910f3a78e741d7c54ca1ced380a6f4` remains unchanged.
 
 VERDICT: CLEAN (0 open)
+
+### Round 3 reviewer 016c completion receipt — 2026-10-11
+
+Reviewer 016c supplies final ACCEPT at exact head `ddce507e2c08e740f899e97dcfec566f3d2275b8`.
+Receipt: `msg_plugin-w_1791739395_0e3849`.
+Sol read the complete local file `.review-verdicts/r43-spurious-wakes-ddce507e.md` in the Contracts crate-review worktree.
+Its SHA256 is `d33067fe736644023e605aab399ea1884c1dfcf4b79ff6ca62589b16d17d854c`.
+The record explicitly accepts the efbb3063 import adaptation, the final Q7 check, and the exact-head gate.
+It confirms that the borrow ends before waiting and that one wait dispatch remains. No other own code change exists.
+This record supersedes 016c's original ACCEPT. Sol claims no separate commit by reviewer 016c.
+All three required reviewer records now accept the final exact head. The earlier independent-receipt limit is closed.
+The steward owns the merge. No future tag, Core pin, or pending removal follows from this receipt.
+
+VERDICT: CLEAN (0 open)
