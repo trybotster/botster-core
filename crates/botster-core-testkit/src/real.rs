@@ -62,10 +62,13 @@
 //!   ([`Tap::fail_next_handoff`]). The tap gives the endpoint back with `Failed`, and `RealEdges` takes nothing, as a `sendmsg`
 //!   that fails takes nothing. Core then closes the endpoint, so the client reads the end of its stream, and the route closes
 //!   `HandoffFailed`. Core sees exactly the result of a real failed send: the endpoint back, with `Failed`.
+//! - `oracle_resume` (`{session, capture}` → `{equal}`, Core ST-6b, R-62): the real form, through a capture layer between the
+//!   driver and Core's composition ([`resume`]).
 //!
 //! Every other control gives `unsupported_control`, which is never a pass.
 
 mod program;
+mod resume;
 
 use crate::adopt_controls::{announced_args, impostor_args, plan_of, signal_name};
 use crate::candidate::{Candidate, PROBE, WORKER};
@@ -109,6 +112,8 @@ enum Role {
 struct Handle {
     data_dir: PathBuf,
     tap: Weak<Mutex<Tap<RealEdges>>>,
+    /// The records of the handle's capture layer (`oracle_resume`).
+    resume: Weak<Mutex<resume::Shared>>,
 }
 
 /// The processes of a session, as Core's own registry rows name them (AD-6, LC-5).
@@ -738,10 +743,18 @@ impl CoreHarness for RealCoreHarness {
                 }
             }
             let driver = HostDriver::open(cfg, edges)?;
-            self.handles
-                .insert(spec.handle.clone(), Handle { data_dir, tap });
+            let (layer, resume) =
+                resume::CaptureLayer::new(Box::new(driver), self.programs.marks());
+            self.handles.insert(
+                spec.handle.clone(),
+                Handle {
+                    data_dir,
+                    tap,
+                    resume,
+                },
+            );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            Box::new(RefusalLayer::new(Box::new(driver), script.clone()))
+            Box::new(RefusalLayer::new(Box::new(layer), script.clone()))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -813,6 +826,7 @@ impl CoreHarness for RealCoreHarness {
                     | "start_held"
                     | "fail_next"
                     | "fail_handoff"
+                    | "oracle_resume"
             ) || program::CONTROLS.contains(&op)
                 || route::CONTROLS.contains(&op))
     }
@@ -840,6 +854,7 @@ impl CoreHarness for RealCoreHarness {
             "start_held" if self.tapped => self.start_held(handle, args),
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
+            "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
             op if self.tapped && program::CONTROLS.contains(&op) => {
                 self.program_control(handle, op, args)
             }
@@ -1877,6 +1892,7 @@ mod slow_tests {
             Handle {
                 data_dir: PathBuf::from("/nonexistent/d/h"),
                 tap: Weak::new(),
+                resume: Weak::new(),
             },
         );
         assert_eq!(

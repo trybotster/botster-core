@@ -54,6 +54,9 @@ struct Probe {
     requests: Arc<UnixStream>,
     /// Every byte that the probe reported reading, in order.
     input: Vec<u8>,
+    /// Every `pty_output` that the probe acknowledged, in order, each with its mark (`State::marks` before it): the
+    /// session's output history (`oracle_resume`, R-62).
+    output: Vec<(u64, Vec<u8>)>,
     /// The requests sent and the acknowledgements received.
     sent: u64,
     acked: u64,
@@ -68,6 +71,8 @@ struct State {
     probes: BTreeMap<ProcessIdentity, Probe>,
     /// The wake handles of the handles that `open` opened.
     wakes: Vec<Weak<dyn HostWake>>,
+    /// The number of `pty_output` requests that any probe acknowledged: the mark of the next one.
+    marks: u64,
     /// Every accepted connection, so that the drop can end its reader.
     connections: Vec<UnixStream>,
     closing: bool,
@@ -223,10 +228,48 @@ impl Programs {
         self.hub.lock().probes.contains_key(&worker)
     }
 
+    /// The probe of `worker` acknowledged the output `bytes` (`pty_output`): it goes to the probe's output history with the
+    /// next mark.
+    fn wrote(&self, worker: ProcessIdentity, bytes: Vec<u8>) {
+        let mut state = self.hub.lock();
+        let mark = state.marks;
+        state.marks += 1;
+        if let Some(probe) = state.probes.get_mut(&worker) {
+            probe.output.push((mark, bytes));
+        }
+    }
+
+    /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
+    pub(super) fn marks(&self) -> Marks {
+        Marks(Arc::clone(&self.hub))
+    }
+
+    /// The output history of the probe of `worker`: every `pty_output` that it acknowledged, in order, with its mark. A
+    /// worker whose probe never connected has written none. It never waits.
+    pub(super) fn output(&self, worker: ProcessIdentity) -> Vec<(u64, Vec<u8>)> {
+        self.hub
+            .lock()
+            .probes
+            .get(&worker)
+            .map(|probe| probe.output.clone())
+            .unwrap_or_default()
+    }
+
     /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
     fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
         let state = self.connected(worker)?;
         Ok(state.probes[&worker].input.clone())
+    }
+}
+
+/// The mark that the next acknowledged `pty_output` gets. A capture begun at mark `m` has every output of a mark below `m`
+/// before its cut (`oracle_resume`, R-62 condition 2).
+#[derive(Clone)]
+pub(super) struct Marks(Arc<Hub>);
+
+impl Marks {
+    pub(super) fn next(&self) -> u64 {
+        self.0.lock().marks
     }
 }
 
@@ -399,6 +442,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
         Probe {
             requests: Arc::new(requests),
             input: vec![],
+            output: vec![],
             sent: 0,
             acked: 0,
             closed: false,
@@ -549,7 +593,8 @@ impl RealCoreHarness {
                 }
                 let worker = self.worker_of(handle, &args.session)?;
                 self.programs
-                    .request(worker, &Request::Output(HexBytes(bytes).to_hex()))?;
+                    .request(worker, &Request::Output(HexBytes(bytes.clone()).to_hex()))?;
+                self.programs.wrote(worker, bytes);
                 Ok(Value::Null)
             }
             "pty_input" => {
