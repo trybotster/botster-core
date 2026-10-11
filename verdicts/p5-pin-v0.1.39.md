@@ -206,3 +206,149 @@ No product code changed. I ran no build, test, gate, mutation job, or executable
 I used read-only Git, source inspection, and independent artifact parsing.
 
 VERDICT: CLEAN
+
+## Round 2 — final import and test delta, 2026-10-11
+
+- Exact head: `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+- Tree: `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+- Intermediate head: `017f01277f7e903154b85ba2d9316c97aa50f42a`.
+- Intermediate tree: `d05c852b0f5afd926adbbd2d61b8699b310c51b8`.
+- Base: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+- Parent: `017f01277f7e903154b85ba2d9316c97aa50f42a`.
+- Intermediate parents: `f46d69b8dfcb0704d811616fb5e8d9aa22148431` and the base.
+- Previous reviewed head: `2866d5928f66954cf57e0a4959db2e587a543080`.
+- Previous base: `20c4e98df6b47a45f3e2284a976e1c8a1341457e`.
+- Delta request: `msg_plugin-w_1791751884_af8187`.
+- Tier: HIGH. Round 1's deciding rules still apply.
+- Open review findings: zero. P5 retains the separate EV-5 diagnosis under the lead's ruling.
+- Result: source CLEAN. The exact-head final gate is still required.
+
+### Authority and source
+
+The lead's ~07:01 ruling permits a test for `pinned_job_common` during the final slot.
+The ~07:12 ruling assigns the slot after #281. The later #283 merge entry returns the slot to P5.
+The lead requires a complete base check and reviewer deltas where that check fails.
+The supplied final gate is running. I accept no result from a running gate.
+
+The delta has four commits:
+
+1. `48c3d64d287330d571f18437713f77596099baa9` imports base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
+   Its parents are the previous reviewed head and that base. Its tree is `efa5c5b19ffc4ec8bb5346caddb966a7ea32b692`.
+2. `f46d69b8dfcb0704d811616fb5e8d9aa22148431` adds one twelve-line default test in `xtask/src/lists.rs`.
+   Its parent is the first merge. Its tree is `dcc2bb110a15bcda614ad82faea023cfacd17512`.
+3. `017f01277f7e903154b85ba2d9316c97aa50f42a` imports #283 through the final base.
+4. `d893833eb9dc3762e859c0130e51498bf6db91fe` restores one pending ID and three cause comments, with one blank line.
+   Its parent is the intermediate head. No other file changes.
+
+The new test reads the contracts checkout from `cargo metadata --locked` through the existing metadata helper.
+It reads Core's checked-in common file and rejects an empty copy.
+It then compares that copy with the result of `pinned_job_common`.
+An empty or `xyzzy` result cannot satisfy that comparison with the current nonempty copy.
+The helper derives the contracts root from the dependency's manifest path. It does not call Git.
+The test adds no mutation exclusion, timeout, gate selector, or product code.
+I read the complete test, the helper, the existing pinned-copy function, and the corresponding lists checks.
+
+The imported route input log uses a weak tap and the session's attached instance.
+It refuses a removed or recreated instance. It does not keep Core's directory claim alive.
+The route read and readiness methods retain the reviewed behavior.
+The imported real-harness attach code does not change wake descriptor ownership or crash checks.
+I read both overlapping source deltas and their new route-input proofs.
+The imported startup change affects a spawned Start after link loss. It does not change the diagnosed IN-9 guard or output cause.
+The #283 input queue change affects three base paths outside this PR's own paths.
+Its final blobs equal the base. This delta review supplies no separate verdict for those base PRs.
+
+### Independent composition checks
+
+The previous reviewed own delta has eleven paths. The base imports change twenty-one paths.
+Three paths overlap: `core-real-pending.txt`, `real.rs`, and `real/route.rs`.
+At the intermediate head, the own added/deleted line sequence remains exact in each overlap against the final base.
+
+| Overlap | Own changed lines | SHA256 of the added/deleted line sequence |
+|---|---:|---|
+| `conformance/core-real-pending.txt` | 24 | `98eb6a8d4734e5b0b756627447a5aa8c9fc75941a23b611fb42665f2a1a2b1e6` |
+| `crates/botster-core-testkit/src/real.rs` | 95 | `a3c276fa52555bd98045a83149b6534341b429bcbd317e7d8e05659097b4c05a` |
+| `crates/botster-core-testkit/src/real/route.rs` | 61 | `3942335ca8df0d6718b27656b29b1393dd159def8adcec06d393d9f3c398fd6d` |
+
+The pending conflict resolution imports exactly the base's added/deleted lines.
+It removes the base's `a2_3` ID and imports the four IDs from the base's new groups.
+At the intermediate head, the pending set equals the final base minus the same thirteen own removals.
+The exact head restores `conf::ev_5_poll_wakes_pending_work`. The pending set has 24 IDs and twelve removals from the base.
+No other ID changes. No ID absent from the base joins the pending set.
+Seven other own blobs remain unchanged from Round 1. The lists file adds only the twelve-line test.
+The test addition remains unchanged through the second merge.
+The second merge imports exactly `program.rs`, `pty_controls.rs`, and `pty_controls/tests.rs` from #283.
+All 339 intermediate tree entries equal the final base plus the verified own delta and that test.
+The exact head changes only the pending file through the five-line restoration.
+The full-index intermediate own diff SHA256 is `1ae338eb05baa21f603aa7ce0289875eec44b087b8c5a383efcf3474c99bfba8`.
+The exact-head own diff SHA256 is `8b84e398a4bfcd3f6e003575be6d6e04d186c101afe050e98a7dc32e826af042`.
+`git diff --check` passes against the base at both heads. These read-only checks do not replace the canonical base check.
+
+### Closed review findings
+
+- R282-D1, LOW: the body omitted both imports, the conflict result, and the new test.
+  P5 added the Slot delta section and marked A5-4 as historical.
+  P5 also corrected the body's account of the commit message's unsupported claim that both stages missed the two read mutants.
+  The body states that stage 2 stopped before any mutant ran. The commit history remains intact.
+  After the restoration, three body statements still described thirteen removals. P5 corrected all three.
+  The summary and removal table now name twelve removals. The expected-change table keeps EV-5 pending.
+  GitHub verification at the exact head closes the finding. Fix receipt: `msg_plugin-w_1791752524_9c934e`.
+- R282-D2, MEDIUM: the supplied manual Git record did not contain the canonical base check.
+  P5 supplied the complete `cargo xtask base-merge-check 2866d5928f66954cf57e0a4959db2e587a543080 017f01277f7e903154b85ba2d9316c97aa50f42a` output.
+  I read every PASS and FAIL line. The body links the output and states FAIL.
+  The check reports the pending conflict, both source overlaps, changed diff index lines, and a removed blank line.
+  The source and composition checks above resolve each failed condition for this delta review.
+  The later five-line restoration changes no base import. I inspected that complete restoration separately.
+- R282-D3, MEDIUM: the intermediate head removes an ID that fails its final gate.
+  The lead requires that ID to stay pending. P5 restores it at the exact head and records the cause as unresolved.
+  This action closes the invalid removal. It does not diagnose or repair the wake failure.
+
+### Local proof and cache provenance
+
+I read `shared/core-stage1/evidence/p5-r68/delta-017f0127/reversal-and-nogit.log` in full.
+P5 invalidates the earlier local log because two worktrees shared its target directory (B13).
+The replacement record names an rsync copy without `.git` and its own new target directory.
+All three runs compile xtask from that copy and name its test binary.
+The unmutated test passes. The empty and `xyzzy` replacements fail the equality assertion.
+The record supports these focused results without Git. It does not supply the required final mutation result.
+SHA256: `f211ae1d25c4d88ff9318e92956c0429703b32cdcbff0130fb74ac5d840f63ad`.
+
+Canonical check log: `shared/core-stage1/evidence/p5-r68/delta-017f0127/xtask-base-merge-check.log`.
+SHA256: `97fc4b39922346bc225a359a0e982a8abee18adf63ca44492d892f2618e3ff6a`.
+The check exits 1 and requires delta reviews from both reviewers. This record supplies the package delta review.
+
+### Red gate and retained diagnosis
+
+The final gate on the intermediate head fails on the real tier.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.39-017f0127-pool-20261011-135043-383.log`.
+SHA256: `0531b245266545b310924efd699a629a069273b3d8e09004a19927042faf3e21`.
+The wrapper names head `017f0127` and exits 1 after 339 seconds on msa1.
+Fmt, clippy, taint, lists, public-api, prebuild-worker, and test-budget pass.
+The default run has 1756 passes and 474 skips in 11.256 seconds.
+The slow run has 573 passes, one failure, and 2026 skips in 41.539 seconds.
+The failure is `conf::ev_5_poll_wakes_pending_work`, seed 0, step 13: expected `Woken`, received `TimedOut`.
+This is FAIL, not INCONCLUSIVE. Mutants and fuzz do not run. Total step time is 260.5 seconds.
+
+I read all sixteen transcript steps at `.39`, the strict wake dispatch, and the driver's complete `poll_all` method.
+Step 12 polls every queued event without a pump. Step 13 requires a wake with zero timeout.
+The host's `poll_events` calls `unpark_links` and `sync_wake` before returning.
+`sync_wake` signals for runnable engine work or queued actions. `unpark_links` signals for an acceptable held frame.
+The real wake reads its atomic flag before polling. This PR changes neither that wait nor the two signal checks.
+The log does not record the engine work, held frame, or asynchronous worker input at step 12.
+These source reads do not establish whether Core loses a required wake or the transcript lacks a fence.
+I make no cause claim. I do not apply the earlier IN-9 retry exception to this EV-5 failure.
+
+The lead's latest handoff requires the restoration and one final gate. P5 keeps the slot.
+P5 owns the diagnosis after #282 and before the next contracts #54 round.
+Record: `shared/core-stage1/handoffs/flaky-ev-5-poll-wakes-pending-work-017f0127.md`.
+R-43(5) keeps the strict Woken requirement. The restoration does not change the transcript or its expected value.
+
+The exact-head final gate is running:
+`~/botster-sessions/gates/botster-core-stage1-p5-pin-v0.1.39-d893833e-pool-20261011-135858-40112.log`.
+I accept no outcome from that running gate. This source CLEAN is not final gate or merge acceptance.
+The exact-head gate, final mutation result, and Sol's exact-head verdict remain required.
+
+All review findings close before this formal delta verdict.
+I changed no product code. I ran no build, test, gate, mutation job, or executable merge check.
+I used read-only Git, source inspection, and artifact parsing.
+
+VERDICT: CLEAN
