@@ -128,3 +128,29 @@ VERDICT: NOT CLEAN (1 open). Lint-only delta: `6d310b968d44046284fdd003aaaebb610
 ### Gate
 
 - P3 runs the gate on the head that closes F4. I read it before any CLEAN.
+
+## Round 3: head `a85f62afebd2e61209da32b753dccf9b3662b150`
+
+VERDICT: CLEAN (0 open) on this exact head. Merge-ready from the integration review.
+
+### F4 closed (and 016c item 2)
+
+- `a85f62afebd2e61209da32b753dccf9b3662b150` (parent `53c44a709a0030a0347d3b1c9e9badb628b320d8`) changes only `fence_lint.rs`. A known fence of a route read must cover `least.max(1)`; a `Bound(Num::Run)` fence is still the reviewer's check.
+- Tests: the `var`-only floor in `the_floor_of_a_route_read_counts_each_part` is now 1. `a_read_of_var_parts_only_needs_a_fence` flags a literal 0 and a fixed `let` of 0, and accepts 1 in both forms.
+- Hand mutant "F4 reverted: no minimum of 1": CAUGHT, run on this head (the last line of `~/botster-sessions/shared/core-stage1/evidence/p3-am2/f2-hand-mutants-53c44a70-macos.log`).
+
+### R-84 (1) as corrected (steward draft, `pending-rulings-edits.md` item 2)
+
+- A partial `modes` now merges onto the modes of a fresh terminal of the pinned libghostty, not onto `ModeFlags::default()`. The PR body states the correction. A fresh terminal has `dec_1035`, `dec_1036`, `ansi_12`, `dec_1007` and `dec_7` on.
+- None of these changes an unmodified printable key press, a focus report or a bracketed paste. The only scripted mode change in the class C transcripts (`dp_3_route_codec`, `dp_5_no_input_has_a_success_acknowledgement`) turns mouse tracking and focus reporting off. So each explicit override (`{kitty_flags: 0}`, `{focus_reporting: true}`, `{bracketed_paste: true}`) still gives the session's encoding, and the class C counts of round 1 stand.
+
+### Unchanged since round 1
+
+- `c26e8ad152c521d6c249d757fb9acda549a53dfc`..`a85f62afebd2e61209da32b753dccf9b3662b150` changes only `fence_lint.rs`. The 26 transcripts, the 30 fences, the exception list and ou_10 are as I checked them in round 1.
+
+### Gate on the exact head
+
+- Log: `~/botster-sessions/gates/botster-contracts-p3-am2-route-pty-fence-a85f62af-pool-20261011-125506-59684.log`, SHA256 `c082b7048358dd07d8cd4b57b5183845e43dd1f8487fa06e52b26f6b4505b41b`.
+- Header: head `a85f62afebd2e61209da32b753dccf9b3662b150`, base `138173e410b0281a9b481669ffce7cfebab9f374` (BOTSTER_CI_BASE_REF), Linux pool.
+- Result (read by me): all 10 steps PASS, with the corpus test and the five new R-83 self-tests; `botster-gate: exit 0 after 280 s on msa1`. The mutants step has nothing to mutate (the lint is under `tests/`). The self-tests and the hand mutants cover the lint.
+- The gate base is the main tip. Main's only change after the PR's merge base `63128469ce1d57cbef00f2b6549f699a27d058fc` that the earlier gate base did not have is `docs/steward-rulings.md` (R-83, R-84), and `git merge-tree` of the head with `138173e410b0281a9b481669ffce7cfebab9f374` is clean.
