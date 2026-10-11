@@ -80,8 +80,8 @@ struct LinkTap {
     frames: Option<FrameDecoder>,
     /// The instance that the link's hello names, or that `connect_worker` asked for.
     instance: Option<InstanceId>,
-    /// The decoder of the bytes that the inner edge took from Core on the link: until the tap knows that no held start can
-    /// meet its `Launch` here, or until bytes that are not a frame.
+    /// The decoder of the bytes that the inner edge took from Core on the link, until the tap knows that no held start can
+    /// meet its `Launch` here. Its bound is [`OUTBOUND_BOUND`].
     sent: Option<FrameDecoder>,
 }
 
@@ -92,7 +92,7 @@ impl LinkTap {
             end: None,
             frames: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
             instance: None,
-            sent: Some(FrameDecoder::new(DEFAULT_MAX_PAYLOAD)),
+            sent: Some(FrameDecoder::new(OUTBOUND_BOUND)),
         }
     }
 
@@ -186,6 +186,12 @@ fn find_frame(
         start = at;
     }
 }
+
+/// The payload bound of the tap's decoder of Core's outbound frames: the largest length that a frame header can hold. Core's
+/// own bound of a worker link (`HostEngine::link_frame_bound`) follows its configured limits and is at most `u32::MAX / 2`,
+/// so the decoder refuses no frame that Core can send, and the tap finds every `Launch` whole. It copies only the frames
+/// that Core already holds in its outbound buffer.
+const OUTBOUND_BOUND: u32 = u32::MAX;
 
 /// Whether `frame` is the host's order to launch the payload (AD-7 step 4).
 fn is_launch(frame: &Frame) -> bool {
@@ -411,14 +417,15 @@ impl<E: HostEdges> Tap<E> {
             return bytes.len();
         };
         match find_frame(&mut decoder, bytes, is_launch) {
-            Ok(Some(0)) => {
+            // A refusal of the decoder holds too: the tap gives the inner edge no byte that it could not read.
+            Ok(Some(0)) | Err(_) => {
                 if let Some(hold) = self.holds.get_mut(&held) {
                     hold.link = Some(link);
                 }
                 0
             }
             Ok(Some(start)) => start,
-            Ok(None) | Err(_) => bytes.len(),
+            Ok(None) => bytes.len(),
         }
     }
 
@@ -426,9 +433,8 @@ impl<E: HostEdges> Tap<E> {
     fn sent(&mut self, link: LinkId, bytes: &[u8]) {
         if let Some(state) = self.links.get_mut(&link) {
             if let Some(decoder) = state.sent.as_mut() {
-                if find_frame(decoder, bytes, |_| false).is_err() {
-                    state.sent = None;
-                }
+                // A refusal is final in the decoder, so the next `sendable` of a held start on this link holds.
+                let _ = find_frame(decoder, bytes, |_| false);
             }
         }
     }
