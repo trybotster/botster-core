@@ -296,11 +296,13 @@ impl Driver {
                         );
                     }
                     Token(token) if route_io::is_route_token(token) => {
+                        // Only the read side makes a route readable. A write-closed event alone (kqueue's write filter)
+                        // has no byte and no end to read: the read filter reports each of them in its own event.
                         let writable = self.routes.event(
                             token,
                             event.is_readable(),
                             event.is_writable(),
-                            event.is_read_closed() || event.is_write_closed(),
+                            event.is_read_closed(),
                             event.is_error(),
                         );
                         self.inputs.extend(writable);
