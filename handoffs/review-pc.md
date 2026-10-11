@@ -1506,3 +1506,22 @@ AD-3 PASS-to-FAIL remains preserved. The same step-16 failure occurs without R-7
 Mac 3/3 records use intermediate commits; the later socket and facade changes replace polling loops with process helpers.
 The facade test uses a real worker process with a test-owned worker link. It does not prove production route-frame order.
 No reviewer execution job runs. Wait for the fixed-head READY doorbell. Never poll.
+
+#291 Round 1 verdict pushed: 5eb26a34f7131061db9bc81d6b88e16e4a24dcd5.
+The worktree is clean. Two findings remain open on 79f31be3. Wait for the fixed-head READY. Never poll.
+
+## #290 F-283-1 Round 1: one source finding
+
+Reviewed head 4fb31c10bde8eba1b947f7a142e88568bfb22cd6, base 5e953398925351c12e463a7b0a946b79d9841edc.
+The reviewer read all three changed files, all remaining program assertions, runtime callers, and retained evidence.
+F283-PC-1 MEDIUM: program.rs still asserts ignores_sigterm() and window_size(), each a getter for private state with only test callers.
+The widened scope requires every private-state assertion in the program-edge tests to change.
+The SIGTERM proofs must use signal/poll_exit before and after the script step.
+Window-size proof needs observable behavior or a named coverage/removal disposition. Audit remaining getters under the same rule.
+F283-PC-2 LOW closes: PC corrected the stale pending-gate body and named Sol-B. The reviewer read the corrected body.
+Verdict NOT CLEAN (1 open), verdicts/pc-f283-observable.md.
+The exact-head Linux gate passes ten steps. Default 1792, slow 584; eight caught mutants, zero missed or unviable.
+All eight raw identities match named test citations. No FLAKY line appears in the gate.
+Local reversals R1–R4 each fail an observable test; restoration passes 25/25. Clean history remains owner-reported.
+Runtime ScriptedProgram::unread is unchanged. Only the unused output_unread counter and accessor are removed in production.
+No reviewer execution job runs. Wait for the fixed-head READY doorbell. Never poll.
