@@ -10,7 +10,9 @@ VERDICT: NOT CLEAN (1 open)
 - Current base: `5c480db457797fa7ebecb33835a52e26a5a8490d`.
 - Risk: HIGH. The contracts pin changes on all seven manifest dependencies.
 - Package supplement: `f774f13238d3499e9af5ae45811ff8488435ebeb`, read in full.
-- The package supplement covers the initial head. Its delta artifact remains pending at this record.
+- The package supplement covers the initial head.
+- Package delta: `c139fc773768b27213418f43ef11edd0eb46b459`, read in full for the delta section.
+- The package delta matches this verdict: PIN-SI-1 closes and PC-PIN-1 remains open.
 
 The initial head had two open findings. The current head closes PIN-SI-1 and retains PC-PIN-1.
 Sol reviewed source and retained evidence. Sol ran no build, test, gate, mutation, reversal, or executable merge-check job.
