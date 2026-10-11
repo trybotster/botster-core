@@ -609,7 +609,11 @@ pub(crate) mod parked_work_scenario {
         normalize_op(&mut create, &harness.probe_binary());
         core.begin(serde_json::from_value(create).expect("an op"))
             .expect("begin");
-        while core.pump(now()).more {}
+        // The bound ends a host that never runs out of work (R292-F2).
+        let end = Instant::now() + BOUND;
+        while core.pump(now()).more {
+            assert!(Instant::now() < end, "the host never ran out of work");
+        }
         let stop = core
             .begin(Op::Stop {
                 id: SessionId("s1".into()),
