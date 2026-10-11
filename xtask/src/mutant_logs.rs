@@ -65,7 +65,7 @@ fn state_of(status: &str) -> Result<Option<State>> {
     if pass(status) {
         return Ok(Some(State::Passed));
     }
-    if matches!(status, "SLOW" | "TERMINATING") {
+    if matches!(status, "START" | "SLOW" | "TERMINATING") {
         return Ok(None);
     }
     if let Some(rest) = status.strip_prefix("FLAKY ") {
@@ -104,14 +104,14 @@ fn attempts(text: &str) -> Option<(u32, u32)> {
     Some((n.parse().ok()?, m.parse().ok()?))
 }
 
-/// A nextest status line: the status, right-aligned before a bracketed time (`[   0.183s]`, or `[> 60.000s]` for a slow
-/// notice), an optional counter (`( 76/429)`), then the binary id and the test name. Mixed-case lines (`Summary`,
-/// `Starting`) and compiler output do not match.
+/// A nextest status line: the status, right-aligned before a bracketed time (`[   0.183s]`, `[> 60.000s]` for a slow
+/// notice, or blank for a start), an optional counter (`( 76/429)`, or `(───)` on a retry line in cargo-mutants' logs),
+/// then the binary id and the test name. Mixed-case lines (`Summary`, `Starting`) and compiler output do not match.
 fn status_line() -> &'static Regex {
     static LINE: OnceLock<Regex> = OnceLock::new();
     LINE.get_or_init(|| {
         Regex::new(
-            r"^\s*([A-Z][A-Z0-9 +/\-]*?) \[\s*>?\s*\d+(?:\.\d+)?s\] (?:\(\s*\d+/\s*\d+\) )?(\S+) (\S.*?)\s*$",
+            r"^\s*([A-Z][A-Z0-9 +/\-]*?) \[\s*(?:>\s*)?(?:\d+(?:\.\d+)?s)?\s*\] (?:\([^)]*\) )?(\S+) (\S.*?)\s*$",
         )
         .expect("a valid regex")
     })
@@ -283,6 +283,36 @@ mod tests {
         assert!(run.failed.is_empty(), "{run:?}");
         assert_eq!(run.flaky, ["w t::a"]);
         assert!(run.retried);
+    }
+
+    /// The lines of a real cargo-mutants log (cargo-mutants 27.1.0, cargo-nextest 0.9.146, evidence
+    /// `gates/botster-core-gs-flaky-log-a0fe57de-evidence.log`): a retry line has the counter `(───)` and a start has a
+    /// blank time, and both name the same test as its final line.
+    #[test]
+    fn the_lines_of_a_real_log_name_one_test_whatever_their_counter() {
+        let flaky = "       START [         ] (1/2) flaky tests::two_tripled_is_six
+       START [         ] (1/2) flaky tests::half_fails_once_under_a_mutant
+  TRY 1 FAIL [   0.002s] (\u{2500}\u{2500}\u{2500}) flaky tests::half_fails_once_under_a_mutant
+    test tests::half_fails_once_under_a_mutant ... FAILED
+        PASS [   0.002s] (1/2) flaky tests::two_tripled_is_six
+ TRY 2 START [         ] (\u{2500}\u{2500}\u{2500}) flaky tests::half_fails_once_under_a_mutant
+  TRY 2 PASS [   0.002s] (2/2) flaky tests::half_fails_once_under_a_mutant
+     Summary [   0.006s] 2 tests run: 2 passed (1 flaky), 0 skipped
+   FLAKY 2/2 [   0.002s] (2/2) flaky tests::half_fails_once_under_a_mutant
+";
+        let run = read_run(flaky).unwrap();
+        assert!(run.failed.is_empty(), "{run:?}");
+        assert_eq!(run.flaky, ["flaky tests::half_fails_once_under_a_mutant"]);
+        let caught =
+            "  TRY 1 FAIL [   0.003s] (\u{2500}\u{2500}\u{2500}) flaky tests::two_tripled_is_six
+ TRY 2 START [         ] (\u{2500}\u{2500}\u{2500}) flaky tests::two_tripled_is_six
+  TRY 2 FAIL [   0.002s] (2/2) flaky tests::two_tripled_is_six
+     Summary [   0.006s] 2 tests run: 1 passed, 1 failed, 0 skipped
+  TRY 2 FAIL [   0.002s] (2/2) flaky tests::two_tripled_is_six
+";
+        let run = read_run(caught).unwrap();
+        assert_eq!(run.failed, ["flaky tests::two_tripled_is_six"]);
+        assert!(run.flaky.is_empty() && run.retried);
     }
 
     /// Signals in both forms are failures; slow notices and terminations in progress change no state; an unknown status
