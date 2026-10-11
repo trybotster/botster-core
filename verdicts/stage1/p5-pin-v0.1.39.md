@@ -381,3 +381,27 @@ Sol runs no build, test, gate, mutation, reversal, measurement, or executable ba
 
 
 VERDICT: NOT CLEAN for final acceptance (0 open source or body findings; matching final package evidence record pending) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
+
+
+## Round 6 — matching final package closure, 2026-10-11
+
+Head: `d893833eb9dc3762e859c0130e51498bf6db91fe`.
+Tree: `20f7a73777f20e8a976b62c4b0f70792ea2fd1cb`.
+Base: `670e5fc799a25794910a1847fc41b3e089bf03f4`.
+Sol reads complete package Round 3 at pushed commit `4beb43f7b27d478c713acfcbd88dec4f271395f3`.
+That CLEAN names the same exact head, tree, base, final gate hash, source closure, twelve removals, and combined mutation result.
+All package findings and final evidence conditions close, including LOW.
+Round 5 supplies Sol's independent final gate and body review. No later source or body change is accepted here.
+The fuzz step passes because the diff changes no crate with a decoder harness. Sol claims no fuzz execution.
+The completed final gate satisfies the remaining gate and mutation conditions for this reviewed head.
+The corrected final body preserves both red gates, the incomplete first mutation result, and historical evidence limits.
+The canonical failures have explicit package and integration delta reviews. No automatic Q7 carryover is claimed.
+
+Zero source, body, or final evidence findings remain open.
+EV-5 remains real-pending. Its ignored-run PASS authorizes no further removal and proves no diagnosis.
+P5 retains the EV-5 and ST-6 diagnoses and the separate IN-9 fence work under the existing decisions.
+Those tasks do not close through this gate. This verdict accepts no later head, pin, pending removal, or merge tree.
+The lead controls the merge. Its tree must equal the gated tree.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: CLEAN (0 open) at d893833eb9dc3762e859c0130e51498bf6db91fe against base 670e5fc799a25794910a1847fc41b3e089bf03f4
