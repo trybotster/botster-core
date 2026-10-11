@@ -24,6 +24,12 @@ The implementer must join all threads before reporting failure. R1-2 remains ope
 
 I asked for accurate test and probability descriptions. New evidence and formal READY remain pending.
 
+Second preliminary delta `80f17bcf` joins all spawners before reporting failure. The source addresses R1-1; corrected evidence remains pending.
+
+The live PR body now has the corrected prior-art and test descriptions. R1-2 LOW is CLOSED on `80f17bcf`.
+
+No CLEAN is issued before formal READY and review of the corrected evidence.
+
 ## Previous PR #262
 
 - PR: #262, exact counts for mutation exclusions.

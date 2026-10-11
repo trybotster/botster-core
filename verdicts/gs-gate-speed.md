@@ -1076,3 +1076,15 @@ I also asked the implementer to qualify the numerical probability claim with its
 GS-DL-R1-2 remains OPEN. The live PR body still contains the old prior-art sentence when I read it.
 
 This inspection is preliminary. The formal reviewed head remains `96238f62`, NOT CLEAN (2 open). I ran no gate, build, or test.
+
+### Second preliminary correction inspection
+
+I read the delta at `80f17bcf142823c5b8cebf16c704e2ee06b2a4cf` and the updated live PR body.
+
+The destructor now joins every spawner before it reports failure. It avoids a second panic when the main test already panics.
+
+The source now labels the probability as an estimate with an independent-cycle assumption. The body states the corrected test and its other failure cases.
+
+The prior-art correction is published. GS-DL-R1-2 LOW is CLOSED on this head.
+
+The source addresses GS-DL-R1-1. Its corrected Linux and Mac evidence and formal READY remain pending. No CLEAN is issued in this preliminary inspection.
