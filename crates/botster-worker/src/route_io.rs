@@ -8,16 +8,15 @@
 //! **Bounded turns (plan 2.4, 2.5).** The readiness is edge-triggered, as for the control socket: a flag per direction is
 //! set by an event and cleared only when a read or write finds `WouldBlock`. Each turn writes at most one pending write and
 //! reads at most one chunk of each route, and a read takes no more than the allowance, so a client that writes without
-//! end gets transport backpressure (DP-5) and cannot hold back the other sources.
+//! end gets transport backpressure (DP-5) and cannot hold back the other sources. The driver gives the read bound: the one
+//! bound of its control socket and PTY reads.
 
 use crate::io_decisions::{failure, IoFailure, EIO};
 use botster_core_contract::prelude::RouteId;
 use botster_worker_core::Input;
 use std::collections::{BTreeMap, VecDeque};
 use std::io::{Read, Write};
-
-/// The most bytes that one read of a route's stream takes (as one read of the control socket).
-pub const ROUTE_READ_BYTES: usize = 64 * 1024;
+use std::num::NonZeroUsize;
 
 /// The poll token bit of the route streams. A candidate's token never has it, so the two kinds of token never meet.
 pub const ROUTE_TOKEN: usize = 1 << (usize::BITS - 1);
@@ -57,20 +56,22 @@ impl<S> RouteIo<S> {
 /// The bound route streams, by route.
 #[derive(Debug)]
 pub struct Routes<S> {
+    /// The most bytes that one read of a route's stream takes.
+    read_chunk: NonZeroUsize,
     next_token: usize,
     routes: BTreeMap<RouteId, RouteIo<S>>,
 }
 
-impl<S> Default for Routes<S> {
-    fn default() -> Self {
+impl<S: Read + Write> Routes<S> {
+    /// No bound route yet. One read of a route takes at most `read_chunk` bytes.
+    pub fn new(read_chunk: NonZeroUsize) -> Self {
         Routes {
+            read_chunk,
             next_token: 0,
             routes: BTreeMap::new(),
         }
     }
-}
 
-impl<S: Read + Write> Routes<S> {
     /// `BindRoute`: the stream is the route's transport from now. Returns its poll token: a new one for each bind. Both
     /// directions start as ready, so the first turn finds out what the stream holds.
     pub fn bind(&mut self, route: RouteId, stream: S) -> usize {
@@ -138,7 +139,7 @@ impl<S: Read + Write> Routes<S> {
                 write_once(route, io, inputs);
             }
             if io.reads() {
-                read_once(route, io, inputs);
+                read_once(route, io, self.read_chunk, inputs);
             }
         }
     }
@@ -175,10 +176,15 @@ fn write_once<S: Write>(route: RouteId, io: &mut RouteIo<S>, inputs: &mut VecDeq
     inputs.push_back(Input::RouteWritten { route, result });
 }
 
-/// One read of the route, bounded by its allowance. The end of the stream, or an error other than `Interrupted` and
+/// One read of the route, bounded by `read_chunk` and its allowance. The end of the stream, or an error other than `Interrupted` and
 /// `WouldBlock`, ends the route's reads (OU-5): `RouteEnded`, once.
-fn read_once<S: Read>(route: RouteId, io: &mut RouteIo<S>, inputs: &mut VecDeque<Input>) {
-    let mut buf = vec![0u8; ROUTE_READ_BYTES.min(io.allowance)];
+fn read_once<S: Read>(
+    route: RouteId,
+    io: &mut RouteIo<S>,
+    read_chunk: NonZeroUsize,
+    inputs: &mut VecDeque<Input>,
+) {
+    let mut buf = vec![0u8; read_chunk.get().min(io.allowance)];
     match io.stream.read(&mut buf) {
         Ok(0) => {
             io.ended = true;
