@@ -1081,6 +1081,11 @@ mod slow_controls {
             .session_processes(&data_dir, &sid("s1"))
             .expect("the row of s1")
             .instance;
+        // No pump has run since the `Start` began, so Core has sent no `Launch`: the hold is only armed.
+        assert!(
+            !lock(&tap).launch_held(&instance),
+            "an armed hold has met nothing"
+        );
         // Whichever comes first: the `Launch` meets the hold, or the worker has a child (the worker spawns its payload only
         // on the `Launch`, so a child means that the `Launch` passed the hold).
         let mut child = None;
