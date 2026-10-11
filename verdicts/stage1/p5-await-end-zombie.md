@@ -149,3 +149,25 @@ The current safe watcher and rustix probe remain the reused components. The OLD 
 No source or body finding appears in this inspection. The exact-head Linux gate passes.
 This inspection grants no formal CLEAN. The same-head package artifact remains pending.
 Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+## Round 1 complete at a5406877
+
+Head: `a540687728a7be9718e9bb11de62aa042ed905b6`. Base: `c9ae2c2ffd9682d8bac29583205b39d13cc9f2a5`.
+Package receipt: msg_plugin-w_1791725080_eaa760.
+Package verdict: `216e9b18e45f740b875787402c496ea1bb438c3d`, verdicts/p5-await-end-zombie.md, Round 1.
+Sol reads the complete 104-line package artifact and verifies publication on origin/stage1/review-p5.
+The published PR still names this exact head and base. The worktree has no unrelated change.
+
+The package artifact reports CLEAN with zero open findings. It agrees with the integration source, import, body, and evidence checks.
+The initial inspection b747c2f6, correction inspection 6bbcd93a, and final import/gate inspection 0bc7ec19 remain applicable.
+The original failed Linux and Mac logs stay failed. The lead-directed #243 repair import and new exact-head Linux gate replace no historical result.
+The exact-head Linux gate passes all ten steps. The unchanged own code retains the supplied ba7dded6 Mac evidence within its recorded limits.
+No individual Mac mutation catcher is printed. No new Mac run, local reversal verification, or independent XNU source check is claimed.
+The PID reuse limit remains explicit. The answer proves the old process ended; it supplies no exit status or new-process identity guarantee.
+The OLD CORE comparison and current safe-component reuse remain applicable. No pending ID is removed or minimum count increased.
+
+Zero integration findings remain open. Section 8 requires no repeated full gate for this unchanged head with both applicable CLEANs.
+This CLEAN covers only this exact head, base, source composition, body, and supplied evidence. A later import remains outside this verdict.
+The lead retains merge order. Sol ran no build, test, gate, mutation, reversal, measurement, or executable merge-check job.
+
+VERDICT: CLEAN (0 open) at a540687728a7be9718e9bb11de62aa042ed905b6
