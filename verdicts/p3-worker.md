@@ -13110,3 +13110,63 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code. F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
 
 VERDICT: NOT CLEAN
+
+
+## Round 184 — #279 corrected comments and review input, 2026-10-11
+
+Exact head: `abcbf16451e7faa0eca84bca8f3b7ee474ffd880`.
+Exact PR base: `73da7b8662b8112f993ae3db19f0a2fa141ff4c2`.
+Parent: `6161c5c2122e43b4721497ad787814b108f22169`.
+Delta READY: `msg_plugin-w_1791740717_79a5c1`. Body correction: `msg_plugin-w_1791740828_4cb65b`.
+Risk: HIGH under BUILD rule 3, unchanged. This is a source delta review before the final gate.
+Previous package verdict: pushed `0dd3717f39488ed1c8527e0afc536cf64805ac0d`, Round 183 NOT CLEAN.
+Integration verdict at the parent: `1e28050b4dc3b6b50bf82062777201ddd78dd21a`, Round 1 NOT CLEAN.
+
+### Finding closure
+
+**F138 LOW — the boundary-test comments confuse unknown attribution with an absent operation identifier. CLOSED.**
+This closes integration RI-SI-1 in the package source review. Formal integration closure remains separate.
+The reviewer reads the complete one-commit delta from the exact parent.
+Only two comments in tests/route_pty_log.rs change. No executable statement or assertion changes.
+The first comment now states that pinned ou_1 step 9 sends bytes 78 with operation "1".
+It states that step 12 reads the log and that the testkit has no known operation attribution for that log.
+The second comment explains the false written_without_op match that a null segment would permit.
+It states that the non-null label rejects this false match.
+These comments match the pinned .36 transcript and matcher facts verified in Rounds 181 through 183.
+The PR's matcher explanation now makes the same distinction and names F138 / RI-SI-1.
+
+**F139 LOW — the PR names a different plan input from READY. CLOSED.**
+The initial live body still calls 23bq current, while the corrected READY names 23bs.
+The reviewer requests the exact review input in P3 receipt msg_plugin-w_1791740794_b3c57a and Sol receipt msg_plugin-w_1791740794_82d0a9.
+P3 corrects only the body. The exact head and base remain unchanged.
+Verified complete body: /private/tmp/review-p3-pr279-abcbf164-f139-fixed.json.
+The body now labels 23bs as Review input and gives its exact file and checksum.
+File: stage1-plan.1acba268.md. SHA256: 1209ec1cb4b5c38070266fa31d143a9f9ad01986b0de0fa6a5b1fdf865a0a538.
+It separately names the lead's 23bt pin, stage1-plan.a730792d.md.
+SHA256: a81ae3e282ff913d27f5469abc8c17476c124cf74feaa3e2feb4948bcbcff1ca.
+The reviewer verifies both file checksums and the complete body-only change.
+The reviewer compares both plan files. Their changes concern the R-74 lint count, its note, and the 23bt history row.
+Those changes concern contracts #52 and do not alter this route-log PR.
+No additional source change is needed.
+
+### Source and gate limits
+
+F135, F136, and F137 remain CLOSED. No package finding remains at this exact head.
+The whole source behavior, pending accounting, base-import review, and supplied historical evidence retain Round 182's conclusions.
+The source delta changes comments only. It changes no product code, test behavior, transcript, pin, timeout, or mutation exclusion.
+The owner reports 2/2 focused route_pty_log tests passing on macOS. No raw focused-test log accompanies this READY.
+The reviewer records this as an owner report and runs no test.
+The 6161c5c2 full gate remains evidence at its original head. It is not a gate at abcbf164 or any future head.
+The separate ST-6 FLAKY result remains no catch. P5 owns its structural diagnosis after the pin PR.
+Its failure cause remains unknown. No flake repair or suppression is accepted here.
+
+BUILD permits the gate after source CLEAN. The lead's 03:12 handoff orders the comment correction, delta CLEANs, and final gate.
+This verdict is source CLEAN only. It accepts no future base import, exact-head gate, or merge.
+After both delta CLEANs, the owner still owes one v1 import, its complete base check, and one final gate.
+A disjoint import retains Q7's proof requirements. Any other import requires both reviewers' delta review.
+Formal integration acceptance at this head and the lead's merge decision remain separate.
+F39 and F61/F62 retain separate scopes. All prior verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
