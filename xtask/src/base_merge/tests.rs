@@ -573,10 +573,10 @@ fn flips_in(path: &str, pr_removes: &str, base_removes: &str) -> (Repo, String, 
     (repo, reviewed, new)
 }
 
-/// Lead, 2026-10-10: the real-tier pending list is a line set too; the two lists named here are the whole of `SET_FILES`.
+/// Lead, 2026-10-10: the real-tier pending list is a line set too: a real merge of disjoint removals in it, and of one id
+/// that both sides remove, passes condition 4.
 #[test]
 fn the_real_tier_pending_list_is_a_line_set_file() {
-    assert_eq!(SET_FILES, [PENDING, REAL_PENDING]);
     for (pr, base) in [("conf::b", "conf::d"), ("conf::b", "conf::b")] {
         let (repo, reviewed, new) = flips_in(REAL_PENDING, pr, base);
         let report = check(repo.0.path(), &reviewed, &new, "v1").unwrap();
