@@ -5,15 +5,15 @@
 - Reviewer branch: `stage1/review-pc`.
 - Scope: 38 program-control IDs after #222 and #227. The original PR #220 group had 32 IDs.
 - Binding brief: `~/botster-sessions/shared/core-stage1/brief-program-controls.md`.
-- Binding plan: `~/botster-sessions/pins/stage1-plan.a2897c12.md`, revision 23ar.
-- Verified plan SHA-256: `2e4d6e962f37ddafe2a68fd50598a1bd218fe3a6a53358f8cccd970884e0daed`.
+- Binding plan: `~/botster-sessions/pins/stage1-plan.0af4db8d.md`, revision 23au.
+- Verified plan SHA-256: `8c4f8bb51f2d3defe02822c4ed0b03d6f7a08f5b693950d4746fd6fd8139e3d9`.
 - The last #233 source review uses contracts-v0.1.29. The new design base uses contracts-v0.1.32 under plan 23ar.
 - Initial review base: PR #220, `6c1624e940cd98da24690b1224fc1c5fa8893c6e`.
 - Last #233 reviewed head: `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`.
 - Last #233 review base: `9ef7e57b857a551e5b66a84d0953630186cb51e7` on `v1`.
 - Current integration reviewer: Sol, `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`, as relayed by the implementer.
 - File split agreed with P6: `crates/botster-core-testkit/src/real/program.rs`, plus one dispatch line each in `real.rs`.
-- Active review: PR #264 at `617c14228183770b4fc32264aa875728910462de`, base `0c5ac80e512f986edd2ec1455012552a41c7f855`. Package NOT CLEAN (1 open).
+- Active review: PR #264 at `46094d5b504861e59b66ac8cf16b399841d7ec71`, base `010f2a49952f9b77581f304dbaa41006b115d40b`. Package CLEAN (0 open).
 - Last #233 status: package and integration CLEAN at `a7be76d55ed38bc89d6a8136c4c62d5d2c9bdb3a`. All five findings are closed. Its final gate receipt remains pending here.
 - Contracts dependency: PR #30 has merged and shipped as `contracts-v0.1.27`.
 - The contracts PR adds the probe control socket and the `ad_3` output fence under steward approvals Q1 and Q2.
@@ -710,4 +710,89 @@ The new whole-body exclusions cover I/O shells and cite tested decisions. No add
 The green gate does not close RP-PC-1. Its malformed-report tests omit these cases.
 The reviewer ran no build, test, gate, mutation, reproduction, or merge-check job.
 Next: push this verdict and send it to PC and Sol. Then wait for the fix doorbell. Never poll.
+The original program-controls group remains incomplete.
+
+Push record: PR #264 NOT CLEAN (1 open) is on origin/stage1/review-pc at f07dc3f2a643fae93e8c0c818b448acb05b2d44d.
+Reviewed head: 617c14228183770b4fc32264aa875728910462de. Base: 0c5ac80e512f986edd2ec1455012552a41c7f855.
+RP-PC-1 remains open. No implementation CLEAN exists. The reviewer worktree is clean.
+Wait for the fix doorbell. Never poll.
+
+Sol implementation verdict receipt: msg_plugin-w_1791722758_9cfcd5.
+Sol reports NOT CLEAN (1 open) at 617c14228183770b4fc32264aa875728910462de.
+Local Sol verdict: ff06aa630166fa7b9924f2588a639f4f7a8b2430.
+File: verdicts/stage1/pc-real-only-proofs-implementation.md.
+The package reviewer read the complete local verdict. RP-SI-1 and RP-PC-1 identify the same parser defect.
+Sol confirms the published package verdict f07dc3f2a643fae93e8c0c818b448acb05b2d44d and its installed-nextest excerpt requirement.
+Sol reports that GitHub DNS prevented his push. This receipt does not establish publication of his local commit.
+The package verdict remains NOT CLEAN (1 open). Wait for the fix doorbell. Never poll.
+
+Sol publication receipt: msg_plugin-w_1791723032_fe3dfd.
+Sol reports that the DNS limit is closed and his push published ff06aa630166fa7b9924f2588a639f4f7a8b2430.
+The source head remains 617c14228183770b4fc32264aa875728910462de. No finding scope changed.
+Both implementation verdicts remain NOT CLEAN (1 open) for the same parser defect.
+Wait for the fix doorbell. Never poll.
+
+## PR #264: implementation review round 2
+
+READY: msg_plugin-w_1791732123_fd124a.
+Head: c0f295ab65fdbd18e9c05928ef835a9f23e4c992. Base: 010f2a49952f9b77581f304dbaa41006b115d40b.
+Plan: 23au, stage1-plan.0af4db8d.md. Tier: HIGH.
+Package verdict: CLEAN (0 open), verdicts/pc-real-only-proofs.md, Round 2.
+RP-PC-1 is closed. The XML tree parser validates the document and actual testcase elements.
+Its tests cover comments, escaped output, CDATA, malformed roots, and unclosed children.
+The retained nextest 0.9.146 fixture checks first-pass, flaky, failed, ignored, and missing identities.
+The reviewer read roxmltree 0.21.1 source and the revised ecosystem Prior art note.
+
+The lead's 15:56 design approval permits a real-only ID's own real-tier trial as its proof.
+The reviewer used orchestrate-delivery to check this changed acceptance premise.
+The real tier runs an own trial must-pass. The testkit ignores it. Separate named proofs retain both-tier transcript ignores.
+The lists check restricts suite lines to the same real-only ID. Coverage requires the own trial selected and unignored.
+The JUnit result check requires same-run PASS for every line. Counts include each ID once.
+The AD-6 own-trial mapping supplies the existing base proof. It removes no ID.
+The reviewer read its pinned transcript, clause expectations, real controls, and existing real behavior proof.
+Twenty-six IDs remain real-only; only AD-6 is non-pending. All four status files and nextest configuration equal the base.
+PC corrected the opening PR body in msg_plugin-w_1791732210_ee78ed. The reviewer verified it through the GitHub API.
+
+The base-merge report fails. The reviewer checked the overlapping files and changed own diff directly.
+The mutants.toml conflict preserves the base's exact-count note and PC's shell exclusion.
+known_flaky.rs adds only the new fixture argument. Later merges have no conflict diff.
+Gate: gates/botster-core-stage1-pc-real-only-proofs-c0f295ab-pool-20261011-080948-87049.log.
+SHA-256: b3da59005323e61c69db4154ce4e8924ed383b49ab5c774b228dbe48d2dc1700.
+All ten steps PASS. Wrapper exit 0 after 686 seconds on Linux.
+Default: 1705 PASS, 481 skipped, 17.418 seconds. Slow: 550 PASS, 2003 skipped, 56.483 seconds.
+AD-6 own trial PASS in 0.461 seconds. The result check names it and checks one proof.
+Mutants: 83 identities, 81 caught, 2 unviable, 0 missed, 0 timeout. Stage 2 catches the three misses.
+The reviewer matches all 86 raw records and 81 named catch reports.
+
+Two FLAKY OU-9 outcomes do not count as catches. The independent fixture catches both mutants.
+PC's record is handoffs/flaky-ou_9-baseline-then-live-no-gap-c0f295ab.md, status OPEN.
+The failing step and raw failure text are unavailable. The cause remains undiagnosed.
+The reviewer read the record and the lead's 18:21 assignment to P3, cause first, before the attach group.
+Package CLEAN does not close or accept that separate defect.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable merge check.
+Next: push CLEAN and send the verdict to PC, Sol, and the lead.
+Sol's integration delta remains required. After both CLEANs, PC merges current v1 once and runs the final exact-head gate.
+The current gate base is stale. This verdict covers no later head. Wait for the doorbell. Never poll.
+The original program-controls group remains incomplete.
+
+
+## PR #264: implementation review round 3
+
+Head: 46094d5b504861e59b66ac8cf16b399841d7ec71. Parent: c0f295ab65fdbd18e9c05928ef835a9f23e4c992.
+Base: 010f2a49952f9b77581f304dbaa41006b115d40b. Plan: 23au. Tier: HIGH.
+PC correction receipt: msg_plugin-w_1791732602_8f8d71.
+Sol Round 2 publication: 6e9511aa7e3474c63d55b9593979ae14f08c2d75, receipt msg_plugin-w_1791732725_699ea1.
+Sol closes RP-SI-1 and opens one LOW RP-SI-2 for stale module summaries at the parent.
+The package reviewer read Sol's complete Round 2 verdict and the complete five-file correction.
+The GitHub API confirms the current head, unchanged base, and PR body.
+The delta changes only comments and documentation. It changes no executable code, mapping line, pending ID, pin, or gate setting.
+All five changed summaries state both forms and retain same-run PASS. They resolve the text that RP-SI-2 identifies.
+Package verdict: CLEAN (0 open), verdicts/pc-real-only-proofs.md, Round 3. RP-PC-1 stays closed.
+Round 2 source evidence remains applicable to the unchanged executable code.
+The green gate ran at parent c0f295ab. No gate receipt exists here for 46094d5b.
+The reviewer ran no build, test, gate, mutation, reproduction, or executable merge check.
+The separate OU-9 defect remains OPEN with P3. Package CLEAN does not close it.
+Next: push this exact-head verdict and send its commit to PC, Sol, and the lead.
+Sol's same-head integration delta remains required. After both CLEANs, PC merges current v1 once and runs the final exact-head gate.
+This verdict covers no later head or merge. Wait for the doorbell. Never poll.
 The original program-controls group remains incomplete.
