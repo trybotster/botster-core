@@ -407,3 +407,109 @@ No fourth review round starts without that decision.
 I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: NOT CLEAN (2 open: R3-1 LOW and R3-2 MEDIUM).
+
+## Source and evidence inspection — 2026-10-10 — Package verdict pending
+
+Reviewed head: `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+Prior reviewed head: `d1d8742a36de00753d32e302aeac99fb72bf1a0a`.
+PR and gate base: `0a564513e50930ce25f2e4a175f45cffbef7119d`.
+Plan 23ad authorizes the full fourth review. Plan 23ae retains that authorization.
+I inspected all twelve own paths, the complete receipt correction, affected interfaces, six source merges, accounting, and supplied evidence.
+This inspection completes no round before the same-head package verdict arrives.
+
+### Checked corrections
+
+R3-1 / F103 closes in source. The private `route_pressure` accessor and its assertions are removed.
+The pressure proofs use actions and decoded frames to check encoded refusal bytes, ordered ops, and renewed allowance.
+The healthy-close proof checks the encoded suffix before `route_closed` under the 1000-byte bound.
+It also requires fewer than 50 refusals, so some received frames must remain waiting before close.
+The quiet-batch and guard proofs retain their public checks without private queue assertions.
+
+R3-2 / F107 closes in source. `Route::decide` decides each complete frame at receipt.
+`Received` holds decided input, refusal, or bad-frame values. `apply_route` waits for resources without deciding route readiness again.
+The early-batch proof receives 50 complete frames before Live, within the granted allowance, while the baseline remains unread.
+It drains Live and all 50 NotReady refusals. It requires no PTY write from that batch.
+Healthy close clears waiting frames and prevents later application.
+
+F105 and F106 retain their closures. Completion still calls the shared, nonrecursive settling pass.
+Receipt reports every complete input revision before refusal pressure stops application.
+The quiet-batch proof checks all 50 bytes without another read or route write.
+The guard proof rejects revision 49 with Stale and exact zero after receipt reports revision 50.
+Later refusal delivery produces no second receipt revision.
+F99, F100, F101, F102, and F104 retain their source corrections and public checks.
+
+### R4-1 / F113 — MEDIUM — OPEN — Route admission permits input during payload stop
+
+Locations: `worker/input.rs:253-260,329-330,351-362`; `worker.rs:486-494,854-879`.
+
+`Pending::Route` calls `payload_takes_input`, which checks only Live and absence of exit.
+Stop sets `termed` and the grace deadline. Kill sets `killed`. The payload can remain Live until exit arrives.
+A writable route can receive bytes or text in that interval and start a PTY write.
+The same route path can start previously queued input when its admission turn arrives during that interval.
+Host admission rejects `termed`, `killed`, or an active grace deadline as NotWritten(Stopping).
+DP-5 at contracts-v0.1.27 maps that outcome to `input_refused{session_ended}`.
+The new route admission path does not apply this stop check.
+
+Use a shared stop predicate for host and route admission. Preserve the existing behavior for model replies under EV-8.
+Add public proofs for route bytes and text after Stop and Kill, before exit arrives.
+Also check queued route input when its admission turn arrives after Stop.
+Require SessionEnded refusal and no PTY write for each refused input.
+Retain a failed source-reversal receipt for the correction.
+
+The package reviewer reported F113. I independently confirmed its source path and the pinned DP-5 mapping.
+The implementer accepts this defect and plans a correction. Neither reviewer has a contrary lead ruling.
+This is a source counterexample. I ran no reproduction job.
+
+### Source merges and accounting
+
+Five automatic source merge trees equal their actual trees:
+
+- `492e1a7e`: `53a884f761832f180a2b8118d6fd6ec0c635517d`.
+- `f87b0538`: `6b1c25f583120595540d01979f367eb08296007c`.
+- `171d70ed`: `bfdaf1e98c9fb87a635bef34ad0e62b14a9ffa87`.
+- `3e9cd9f0`: `19383c3f4aa41b9b1b101760d59c8acf9f4ff3e3`.
+- Final `27e1dae6`: `d6bfc014c62aa029fc653fa6aa7d8aba57e15302`.
+
+Merge `2e475bf9` conflicts only in `core-real-pending.txt`.
+Its automatic tree is `277f6b6299c73b9018b5628918d40eae37545b0c`; its actual tree is `04eddb44fa00896dcb48fcd3bcb363e21464d9ba`.
+I read the complete resolution. It retains both introductions and all IDs from both parents.
+The route group has 29 IDs; the program group has 38. No other path differs from the automatic tree.
+The final merge retains the pre-merge route, input, and route-test bytes.
+All six imports retain the reviewed #235, #232, #236, #222, #237, and #234 changes.
+
+The same twelve IDs move from Core pending to real-pending. No further own ID leaves pending.
+The real tier still lacks the route data plane. The packaged worker still ignores its route actions.
+The PR claims no real-route completion. Pins, exclusions, held IDs, and other coverage lists have no own change.
+`git diff --check` passes. The PR head and base match the recorded commits.
+The updated PR body contains its route-input Prior art note. I read the two cited vault notes.
+The note identifies the old receipt and rejection caps as lessons, not contract bounds.
+
+### Supplied evidence
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p4a-route-input-27e1dae6-pool-20261010-183554-22780.log`.
+The header names the exact head and base. All ten jobs pass in 540.4 seconds.
+Default: 1568 passing tests, 20.055 seconds. Slow: 396 passing tests, 159.119 seconds.
+Both conformance reports show 205 passed and zero failed. Strict coverage is 374/395.
+There are 21 real-only transcripts and two held transcripts. The reports list 70 IDs without transcripts, two deferred IDs, and 18 withdrawn IDs.
+Minimum counts are testkit 54/69, real 31/68, and real-accepted 31/69.
+Real-pending is 93, with zero newly passing IDs. The twelve-ID own transfer explains the change from the base's 81.
+Stage 1 has 118 mutants: 115 caught, three unviable, zero missed, and zero timeout, in 235.2 seconds.
+Stage 2 does not run because stage 1 misses none.
+The job takes 651 seconds, including 94 queued seconds. The wrapper takes 652 seconds.
+The passing gate does not cover the new stop finding.
+
+I read `evidence/p3-pr3/pr3-round152-reverts.log` and its complete script. I did not run the script.
+The F105 reversal fails the quiet-batch proof. The F106 reversal fails four named proofs.
+The F107 reversal fails the early-batch proof. The reservation reversal fails both named pressure-related proofs.
+Removal of the application pass fails 22 route proofs. The restored source passes all 144 selected proofs.
+These receipts contain result summaries and failed test names, not full assertion output or a final-head header.
+The retained correction source matches the reported reversals. I claim no final-head reversal run from those receipts.
+
+I read `evidence/p3-pr3/pr3-5a41-mutants-reverts.log`.
+The healthy-close proof fails both previously missed pressure mutants: it observes 1027 bytes and 1841 bytes against the 1000-byte bound.
+Deleting `received.clear()` remains green: the closing check still prevents application. The source contains the required discard.
+I require no private queue assertion to make that deletion fail.
+
+One MEDIUM source finding remains open. The same-head package verdict is pending.
+I changed no product code and ran no build, test, gate, mutation job, merge-check job, or reversal job.
+The tree comparisons use Git source objects only.
