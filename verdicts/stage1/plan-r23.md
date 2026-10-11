@@ -1387,3 +1387,36 @@ This documentation change requires no execution gate.
 I ran no build, test, gate, mutation job, merge-check job, or reversal job.
 
 VERDICT: CLEAN (0 open) at b895ad493b9919dd63a9e11a596ba5fd210f1ea5
+
+## Round 41 — revision 23af — 2026-10-10
+
+Reviewed head: `4f6516bd638bcf835dae5d7496e6ed9dc660bf5a`.
+Prior accepted head: `b895ad493b9919dd63a9e11a596ba5fd210f1ea5`.
+Scope: the R-54 reference in section 0 and its revision row.
+The revision changes one plan file in one commit on the prior accepted head.
+I compared the complete plan texts. Those two additions are the only changes.
+
+I read the complete R-54 ruling and its commit delta at botster-contracts `99d21663193240563daa447118e4846aeb4ef647`.
+That commit adds only the ruling to `docs/steward-rulings.md`.
+I checked EV-8 at contracts-v0.1.27, including its refusal set, fallback admission, transaction ordering, revision rule, and retirement events.
+EV-8(c) does not permit a SessionEnded refusal for a query reply.
+EV-8(h) does not retire a query at Stop. Payload end still retires it.
+EV-8(e) retains a fallback that cannot yet be admitted and retries it when capacity becomes available.
+EV-8(f) keeps every reply contiguous at the shared admission point and advances no input revision.
+The plan accurately references R-54's reply exception during Stopping, including the interval after Kill and before payload end.
+The exception covers both client query replies and shadow replies.
+It adds no exception for host writes or other client input. Their Stopping and SessionEnded refusals remain required.
+
+R-54 requires the query-after-Stop proof with a host write refused as NotWritten(Stopping) in the same interval.
+The plan retains P3's proof and the typed reply exception in `Worker::admission(source)`.
+This review accepts the plan rule. It accepts no implementation, correction proof, or gate for #227.
+F113 remains open at the last reviewed PR head, `27e1dae68638421a9820ee893ccf6dbcaec1c67c`.
+The authorized Round 5 must still verify the F113 correction and every admission-parity row against the replacement source.
+
+The revision changes no code pin, contract text, conformance ID, coverage list, passing count, staffing limit, or stage acceptance condition.
+The remote plan head matches the reviewed head. `git diff --check` passes.
+The reviewed plan bytes have SHA256 `8e463cfda8bffa98cbfd321995b13c57e4eb752ef9fc9ccff366ca9c07f40bc6`.
+This documentation change requires no execution gate.
+I ran no build, test, gate, mutation job, measurement, merge-check job, or reversal job.
+
+VERDICT: CLEAN (0 open) at 4f6516bd638bcf835dae5d7496e6ed9dc660bf5a
