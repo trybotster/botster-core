@@ -136,10 +136,10 @@ impl TestkitRoute {
         self
     }
 
-    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the bytes that
-    /// the stream takes from the worker now (0 while gated) and F is the route's frame bound. The worker's queue to the route
-    /// then holds a frame that the stream does not take. The control returns when the program edge has the bytes, and the
-    /// host is woken. A payload that has exited is refused.
+    /// `route_fill` (R-47 item 3): the session's program writes N = C + F bytes of the fill pattern, where C is the
+    /// bytes that the stream takes from the worker now (0 while gated with no accept limit) and F is the route's frame
+    /// bound. The worker's queue to the route then holds a frame that the stream does not take. The control returns
+    /// when the program edge has the bytes, and the host is woken. A payload that has exited is refused.
     fn route_fill(&mut self) -> Result<Value, String> {
         let fill = self
             .fill
