@@ -30,6 +30,9 @@ pub fn start_time(pid: Pid) -> std::io::Result<Option<u64>> {
 /// pid that was reused meanwhile can make it wait for another process, within the deadline; a caller that must not be
 /// misled holds the process unreaped (its own child), so that the pid cannot be reused.
 ///
+/// A process that exited before the wait (a zombie) is `Exited`, as on Linux, and only a reaped one is `Gone`: see
+/// [`ended_before_the_watch`].
+///
 /// # Errors
 /// The wait could not be set up, or it failed.
 pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
@@ -40,7 +43,7 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         kqueue::FilterFlag::NOTE_EXIT,
     )?;
     match watcher.watch() {
-        Err(error) if gone(&error) => return Ok(Waited::Gone),
+        Err(error) if gone(&error) => return ended_before_the_watch(pid),
         other => other?,
     }
     exit_after_polls(
@@ -48,6 +51,25 @@ pub fn await_end(pid: Pid, deadline: Deadline) -> std::io::Result<Waited> {
         || polled(watcher.poll(Some(deadline.remaining()))),
         || deadline.expired(),
     )
+}
+
+/// The answer for a process whose exit watch the kernel refused with ESRCH: it has exited already, as a zombie, or it was
+/// reaped. A probe with no signal tells them apart: a zombie still has its pid, so the probe succeeds (or is refused with
+/// EPERM, for a process of another user), and the answer is `Exited`, as Linux gives for a zombie (its pidfd is readable at
+/// once). A reaped process has no pid, so the probe fails with ESRCH, and the answer is `Gone`.
+///
+/// One limit: when another thread reaps the zombie and the pid is reused between the refused watch and the probe, the probe
+/// meets the new process and the answer is `Exited` where `Gone` was true. Both mean that the watched process ended, and
+/// [`Waited`] carries no status, so the answer stays true about the end.
+///
+/// # Errors
+/// The probe failed for another reason.
+fn ended_before_the_watch(pid: Pid) -> std::io::Result<Waited> {
+    match rustix::process::test_kill_process(pid) {
+        Ok(()) | Err(rustix::io::Errno::PERM) => Ok(Waited::Exited),
+        Err(rustix::io::Errno::SRCH) => Ok(Waited::Gone),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// The outcome of the polls of a wait for an exit event: an event ends it as `Exited`, a timeout as `Deadline`. An
