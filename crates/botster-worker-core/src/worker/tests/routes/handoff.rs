@@ -21,6 +21,8 @@ fn attach_frame(route: u64) -> Vec<u8> {
         route: RouteId(route),
         options: options(),
         limits: limits(),
+
+        client: ClientId("c".into()),
     })
 }
 

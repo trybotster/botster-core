@@ -164,9 +164,16 @@ pub(crate) enum Owner {
     FinalRow,
 }
 
-/// A route that waits for the hand-over of its stream (DP-2): its id, the stream that Core holds, and what `attach`
-/// returned.
-pub(crate) type PendingHandoff = (RouteId, StreamEndpoint, AttachOptions, AppliedRouteLimits);
+/// A route that waits for the hand-over of its stream (DP-2): its id, the stream that Core holds, what `attach` returned,
+/// and the arguments that `AttachRoute` carries.
+pub(crate) struct PendingHandoff {
+    pub(crate) route: RouteId,
+    pub(crate) transport: StreamEndpoint,
+    pub(crate) options: AttachOptions,
+    pub(crate) limits: AppliedRouteLimits,
+    /// The client of `attach` (DP-8): the worker keeps it as a route tag, and reports it at adoption.
+    pub(crate) client: ClientId,
+}
 
 /// The host engine.
 pub struct HostEngine {

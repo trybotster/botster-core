@@ -53,7 +53,7 @@ pub(crate) fn finish_close(
             .next()
             .map(|route| (*route, RouteCloseReason::SessionLost)),
         End::Exited(exit) => bound.find_map(|route| {
-            let held = pending.iter().any(|(r, ..)| r == route);
+            let held = pending.iter().any(|p| p.route == *route);
             if held || s.delivered.contains(route) {
                 Some((*route, RouteCloseReason::SessionEnded { exit }))
             } else if s.worker.link.is_none() {

@@ -176,6 +176,8 @@ fn attach(
             route,
             options,
             limits,
+
+            client: ClientId("c".into()),
         },
         vec![descriptor],
     )
@@ -312,6 +314,8 @@ fn an_attach_route_without_a_descriptor_closes_the_link() {
         route: RouteId(1),
         options: options(),
         limits: limits(),
+
+        client: ClientId("c".into()),
     });
     assert!(actions.contains(&Action::LinkClose), "{actions:?}");
     assert!(!actions
@@ -516,6 +520,8 @@ fn a_link_end_closes_the_unbound_descriptors() {
         route: RouteId(1),
         options: options(),
         limits: limits(),
+
+        client: ClientId("c".into()),
     });
     let read = w.feed(World::read(
         frame[..frame.len() - 1].to_vec(),

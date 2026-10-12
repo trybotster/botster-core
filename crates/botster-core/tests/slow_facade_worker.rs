@@ -603,6 +603,7 @@ fn adopted_worker(mut stream: UnixStream, launch: &WorkerLaunch) -> UnixStream {
                         start_time: 1,
                     },
                 },
+                routes: 0,
                 features: BTreeSet::new(),
                 terminal: None,
                 formats: vec![],

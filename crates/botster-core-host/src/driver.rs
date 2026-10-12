@@ -373,7 +373,8 @@ impl<E: HostEdges> HostDriver<E> {
                 transport,
                 options,
                 limits,
-            } => self.send_handoff(link, route, transport, options, limits),
+                client,
+            } => self.send_handoff(link, route, transport, options, limits, client),
             Action::CloseRoute {
                 route: _,
                 transport,
@@ -395,12 +396,14 @@ impl<E: HostEdges> HostDriver<E> {
         endpoint: StreamEndpoint,
         options: AttachOptions,
         limits: AppliedRouteLimits,
+        client: ClientId,
     ) {
         let mut payload = Vec::new();
         HostMsg::AttachRoute {
             route,
             options,
             limits,
+            client,
         }
         .encode(&mut payload);
         let Some(state) = self.links.get_mut(&link) else {

@@ -102,7 +102,11 @@ enum Kind {
 #[derive(Debug)]
 struct Route {
     limits: AppliedRouteLimits,
+    /// The stable tags of the attach (DP-8): `route_tag` and `owner` from its options, `client` from `AttachRoute`. An
+    /// adoption reports them in the route's `RouteLive`.
     route_tag: Option<String>,
+    owner: Option<String>,
+    client: ClientId,
     /// Stream-delimited frames in order; `written` bytes of the first one are on the transport.
     queue: VecDeque<Queued>,
     written: usize,
@@ -404,6 +408,7 @@ impl Worker {
         route: RouteId,
         options: AttachOptions,
         limits: AppliedRouteLimits,
+        client: ClientId,
     ) {
         let Some(descriptor) = self.attach_descriptor(route) else {
             return;
@@ -415,6 +420,8 @@ impl Worker {
         let mut entry = Route {
             limits,
             route_tag: options.route_tag.clone(),
+            owner: options.owner.clone(),
+            client,
             queue: VecDeque::new(),
             written: 0,
             queued: 0,
@@ -1030,6 +1037,8 @@ mod tests {
                 route_input_queue_bytes: 0,
             },
             route_tag: None,
+            owner: None,
+            client: ClientId("c".into()),
             queue: VecDeque::new(),
             written: 0,
             queued,

@@ -602,7 +602,8 @@ impl Worker {
                 route,
                 options,
                 limits,
-            } => self.on_attach_route(route, options, limits),
+                client,
+            } => self.on_attach_route(route, options, limits, client),
             HostMsg::Detach { route, reason } => self.on_detach(route, reason),
             HostMsg::RouteStallDue { route, mark } => self.on_route_stall_due(route, mark),
             HostMsg::RouteCloseDue { route, mark } => self.on_route_close_due(route, mark),
@@ -1050,6 +1051,8 @@ impl Worker {
         WorkerMsg::Adopted {
             report: Box::new(AdoptReport {
                 payload,
+                // DP-8: the live routes are reported in a later commit of this PR; until then none follow.
+                routes: 0,
                 features: worker_features(),
                 terminal: ran.then(|| self.adopted_terminal()),
                 // The formats of `Launched`: a model that ran keeps them (P5 #201 R1-2).

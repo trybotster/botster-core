@@ -1020,6 +1020,7 @@ fn adopted_then_exited(instance: &InstanceId) -> Vec<u8> {
     let mut out = frame(FrameType::HELLO, &payload);
     let report = WorkerMsg::Adopted {
         report: Box::new(AdoptReport {
+            routes: 0,
             payload: AdoptedPayload::Running {
                 payload: botster_core_link::msg::PayloadId {
                     pid: 900,

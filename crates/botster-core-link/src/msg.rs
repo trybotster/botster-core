@@ -79,6 +79,8 @@ pub enum HostMsg {
         route: RouteId,
         options: AttachOptions,
         limits: AppliedRouteLimits,
+        /// The client of `attach`: a stable tag that the worker keeps, so that an adopting host gets it back (DP-8).
+        client: ClientId,
     },
     /// `Detach` (DP-7). The worker answers with `RouteClosed`.
     Detach {
@@ -92,6 +94,9 @@ pub enum HostMsg {
     /// The route's `stall_close_after` is due for the stall that began at this `mark` (R-90, OU-2). The worker closes the
     /// route only while it is still `Stalled` at that mark.
     RouteCloseDue { route: RouteId, mark: u64 },
+    /// The new handle's id of the live route that the worker reported as [`WorkerMsg::RouteLive`] with `key` (DP-8, ID-2).
+    /// The host sends one per route, after the row's `SessionState` posts. From it on, `route` names that route on this link.
+    RouteId { key: u64, route: RouteId },
 }
 
 /// What a worker observed in its model or on its input path. The host adds the instance and the time (TM-1, EV-9).
@@ -235,12 +240,18 @@ pub enum WorkerMsg {
     /// The worker's live state, sent once right after its hello in an adoption (AD-1, AD-3; steward ruling R-35). Every value
     /// is read from the worker's live state, never remembered from the spawn.
     Adopted { report: Box<AdoptReport> },
+    /// One live route of an adopted worker (DP-8), one frame each, right after `Adopted` (`AdoptReport.routes` of them). The
+    /// worker names no route of this link before the host's [`HostMsg::RouteId`] for its `key`.
+    RouteLive(Box<RouteLive>),
 }
 
 /// What an adopted worker reports about itself (AD-1, AD-3, DP-12, R-35).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AdoptReport {
     pub payload: AdoptedPayload,
+    /// The number of live routes (OU-2 `Open` or `Stalled`; steward ruling R-99) that follow as [`WorkerMsg::RouteLive`]
+    /// (DP-8). Required in worker protocol 1 (steward ruling R-98).
+    pub routes: u32,
     /// The worker's own features (A2-6; AD-4: the `worker_features` of a worker of protocol N - 1).
     pub features: BTreeSet<Feature>,
     /// The terminal state, with the focus and the model and input revisions (ST-1, IN-10, DP-12). Present once the payload
@@ -250,6 +261,24 @@ pub struct AdoptReport {
     /// The snapshot formats that the worker can emit (ST-6).
     #[serde(default)]
     pub formats: Vec<SnapshotFormat>,
+}
+
+/// A live route of an adopted worker (DP-8): the stable tags of its attach and what the new host's stall clock needs. One
+/// route per frame, so the route count never affects a frame's size; it holds a subset of the route's `AttachRoute` frame.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RouteLive {
+    /// The worker's key of the route: an opaque token of this link, never a `RouteId`.
+    pub key: u64,
+    /// Absent when the attach gave none, as in `AttachOptions`, so the shared fields encode alike.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub route_tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    pub client: ClientId,
+    /// The limits that the old host applied at attach (OU-1).
+    pub limits: AppliedRouteLimits,
+    /// `Some(mark)` while the route is `Stalled` at `mark` (OU-2); None while it is `Open`.
+    pub stalled: Option<u64>,
 }
 
 /// The payload of an adopted worker (R-35: the host's recovery depends on it).
@@ -318,6 +347,7 @@ impl WorkerMsg {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     fn size() -> Size {
         Size {
@@ -447,6 +477,7 @@ mod tests {
         .map(|payload| WorkerMsg::Adopted {
             report: Box::new(AdoptReport {
                 payload,
+                routes: 2,
                 features: BTreeSet::from([Feature::FocusReport]),
                 terminal: None,
                 formats: vec![],
@@ -484,6 +515,145 @@ mod tests {
                 mark: 0
             })
         );
+    }
+
+    fn limits(n: u64) -> AppliedRouteLimits {
+        let d = Duration::from_millis(n);
+        AppliedRouteLimits {
+            max_frame_bytes: n,
+            max_screen_frame_bytes: n,
+            max_history_page_bytes: n,
+            max_paste_bytes: n,
+            max_query_bytes: n,
+            max_query_reply_bytes: n,
+            max_file_bytes: n,
+            query_deadline: d,
+            stall_deadline: d,
+            stall_close_after: d,
+            route_input_queue_bytes: n,
+        }
+    }
+
+    fn route_live(tags: Option<&str>, stalled: Option<u64>) -> RouteLive {
+        RouteLive {
+            key: u64::MAX,
+            route_tag: tags.map(String::from),
+            owner: tags.map(String::from),
+            client: ClientId(tags.unwrap_or("c").into()),
+            limits: limits(u64::MAX),
+            stalled,
+        }
+    }
+
+    /// DP-8: the route adoption messages and `AttachRoute`'s client round-trip, with the tags absent and present.
+    #[test]
+    fn the_route_adoption_messages_round_trip() {
+        for live in [route_live(None, None), route_live(Some("t"), Some(7))] {
+            let msg = WorkerMsg::RouteLive(Box::new(live));
+            let mut bytes = Vec::new();
+            msg.encode(&mut bytes);
+            assert_eq!(WorkerMsg::decode(&bytes), Ok(msg.clone()), "{msg:?}");
+        }
+        let id = HostMsg::RouteId {
+            key: 3,
+            route: RouteId(9),
+        };
+        let attach = attach_route(Some("t"));
+        for msg in [id, attach] {
+            let mut bytes = Vec::new();
+            msg.encode(&mut bytes);
+            assert_eq!(HostMsg::decode(&bytes), Ok(msg.clone()), "{msg:?}");
+        }
+    }
+
+    /// Steward ruling R-98: DP-8's fields are part of worker protocol 1, with no default for an older peer. A message that
+    /// lacks a required one does not decode.
+    #[test]
+    fn a_message_without_a_required_dp_8_field_does_not_decode() {
+        let mut report = Vec::new();
+        WorkerMsg::Adopted {
+            report: Box::new(AdoptReport {
+                payload: AdoptedPayload::NotLaunched,
+                routes: 0,
+                features: BTreeSet::new(),
+                terminal: None,
+                formats: vec![],
+            }),
+        }
+        .encode(&mut report);
+        let mut live = Vec::new();
+        WorkerMsg::RouteLive(Box::new(route_live(Some("t"), None))).encode(&mut live);
+        let mut attach = Vec::new();
+        attach_route(None).encode(&mut attach);
+        let mut id = Vec::new();
+        HostMsg::RouteId {
+            key: 1,
+            route: RouteId(1),
+        }
+        .encode(&mut id);
+        let without = |bytes: &[u8], field: &str| {
+            let mut value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+            let object = match value.get_mut("report") {
+                Some(report) => report.as_object_mut().unwrap(),
+                None => value.as_object_mut().unwrap(),
+            };
+            assert!(object.remove(field).is_some(), "{field}");
+            serde_json::to_vec(&value).unwrap()
+        };
+        assert!(WorkerMsg::decode(&without(&report, "routes")).is_err());
+        for field in ["key", "client", "limits"] {
+            assert!(
+                WorkerMsg::decode(&without(&live, field)).is_err(),
+                "{field}"
+            );
+        }
+        assert!(HostMsg::decode(&without(&attach, "client")).is_err());
+        for field in ["key", "route"] {
+            assert!(HostMsg::decode(&without(&id, field)).is_err(), "{field}");
+        }
+    }
+
+    /// The smallest `AttachRoute` of a route: a one-digit id, and only the options that are always encoded, each at its
+    /// shortest (`file_directory` is an absolute path, so at least `/`).
+    fn attach_route(tags: Option<&str>) -> HostMsg {
+        HostMsg::AttachRoute {
+            route: RouteId(1),
+            options: AttachOptions {
+                file_directory: "/".into(),
+                file_permissions: None,
+                route_features: vec![],
+                terminal_formats: vec![],
+                owner: tags.map(String::from),
+                query_deadline: None,
+                route_tag: tags.map(String::from),
+                route_limits: None,
+                history: None,
+                stall_deadline: None,
+                answers_queries: true,
+                input: true,
+            },
+            limits: limits(u64::MAX),
+            client: ClientId(tags.unwrap_or("c").into()),
+        }
+    }
+
+    /// DP-8, 0181's STDP8-D3: a route's `RouteLive`, with its own integers at their widest, is smaller than the smallest
+    /// `AttachRoute` of the same route, with the tags absent and present. The worker decoded that `AttachRoute` within its
+    /// `frame_bound`, and it sends with the same bound, so the route's `RouteLive` always fits.
+    #[test]
+    fn a_route_live_frame_is_smaller_than_its_attach_route_frame() {
+        for tags in [None, Some("t"), Some(&*"x".repeat(4096))] {
+            let mut live = Vec::new();
+            WorkerMsg::RouteLive(Box::new(route_live(tags, Some(u64::MAX)))).encode(&mut live);
+            let mut attach = Vec::new();
+            attach_route(tags).encode(&mut attach);
+            assert!(
+                live.len() < attach.len(),
+                "{} >= {}",
+                live.len(),
+                attach.len()
+            );
+        }
     }
 
     /// Plan section 3: an unknown field of a known message is ignored, so a newer worker may add fields.

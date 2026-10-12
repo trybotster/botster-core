@@ -643,15 +643,16 @@ impl HostEngine {
         let routes: BTreeSet<RouteId> = self.sessions[id].routes.clone();
         let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.pending_handoffs)
             .into_iter()
-            .partition(|(route, _, _, _)| routes.contains(route));
+            .partition(|p| routes.contains(&p.route));
         self.pending_handoffs = rest;
-        for (route, transport, options, limits) in mine {
+        for p in mine {
             self.act(Action::HandoffRoute {
                 link,
-                route,
-                transport,
-                options,
-                limits,
+                route: p.route,
+                transport: p.transport,
+                options: p.options,
+                limits: p.limits,
+                client: p.client,
             });
         }
     }

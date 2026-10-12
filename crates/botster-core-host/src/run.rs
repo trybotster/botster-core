@@ -690,8 +690,10 @@ impl HostEngine {
         // A closed route is never handed to a worker. Core still holds the stream of a hand-over that waits, so Core owes
         // the client what the worker would write: the route's `route_closed`, when its reason has one, then one close of
         // the stream (OU-2, steward ruling R-50).
-        if let Some(i) = self.pending_handoffs.iter().position(|(r, ..)| *r == route) {
-            let (_, transport, _, limits) = self.pending_handoffs.remove(i);
+        if let Some(i) = self.pending_handoffs.iter().position(|p| p.route == route) {
+            let crate::engine::PendingHandoff {
+                transport, limits, ..
+            } = self.pending_handoffs.remove(i);
             self.act(Action::CloseRoute {
                 route,
                 transport,

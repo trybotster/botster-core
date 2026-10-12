@@ -871,7 +871,6 @@ impl HostEngine {
         transport: RouteTransport,
         options: AttachOptions,
     ) -> Result<AttachResult, AttachRefused> {
-        let _ = &client;
         // Every refusal is synchronous and hands the caller's transport back, untouched (DP-2, steward ruling R-19).
         let limits = match self.check_attach(&session, &transport, &options) {
             Ok(limits) => limits,
@@ -896,8 +895,13 @@ impl HostEngine {
         );
         let s = self.sessions.get_mut(&session).expect("checked");
         s.routes.insert(route);
-        self.pending_handoffs
-            .push((route, endpoint, options, limits));
+        self.pending_handoffs.push(crate::engine::PendingHandoff {
+            route,
+            transport: endpoint,
+            options,
+            limits,
+            client,
+        });
         if self.sessions[&session].terminal.is_some() {
             self.flush_handoffs(&session);
         }

@@ -121,6 +121,8 @@ pub enum Action {
         transport: StreamEndpoint,
         options: AttachOptions,
         limits: AppliedRouteLimits,
+        /// The client of `attach` (DP-8).
+        client: ClientId,
     },
     /// Closes a route's stream that Core still holds, before its hand-over (OU-2, steward ruling R-50): the driver writes
     /// `frame` (the stream bytes of the route's `route_closed`, when its reason has one and it fits) once, without waiting,

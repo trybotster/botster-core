@@ -434,6 +434,7 @@ impl World {
             link,
             msg: WorkerMsg::Adopted {
                 report: Box::new(AdoptReport {
+                    routes: 0,
                     payload,
                     features: BTreeSet::from([Feature::FocusReport]),
                     terminal: launched.then(terminal_state),

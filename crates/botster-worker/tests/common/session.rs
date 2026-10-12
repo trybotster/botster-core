@@ -423,6 +423,7 @@ fn attach_route(core: &CoreLimits) -> HostMsg {
             stall_close_after: core.stall_close_after,
             route_input_queue_bytes: core.route_input_queue_bytes,
         },
+        client: ClientId("c".into()),
     }
 }
 
