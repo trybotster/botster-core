@@ -154,3 +154,44 @@ VERDICT: CLEAN (0 open, including LOW)
 Package message `msg_plugin-w_1791832513_c72949` confirms that the reviewer read complete integration Round 3 at `adda76b49f727bb88db1e59949968586b57e1edb`.
 The package handoff records both CLEAN reviews at c707c4d6 and the F150–F154 closures under the authorized settlement.
 No new package round follows. Final import and train evidence remain due. Mac IN-6 classification and F28 remain separate.
+
+
+### v1 import inspection: acd6ced0
+
+Owner delta request: `msg_plugin-w_1791837252_eddacd`.
+Head: `acd6ced03f7306cbf250f25d668b239ef7d70b33`.
+Tree: `3564fc0fceb0af604e73c041ced018236f8f7902`.
+Imported source and gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Merge `22493716793572d712080eb991d253fb22b47894` has c707c4d6 and that base as its parents.
+The owner reports no textual conflict and rerere off. The final commit adapts one Workers::new call to WorkerClock::manual(start).0.
+
+I read the complete adaptation and the affected test. Its manual worker clock stays at start.
+Core's injected host time advances through stop_grace and supplies KillPayload. No worker deadline is needed for that kill or drain.
+The test still observes title before Exited Killed and the Stop completion across 32 seeds. No subject getter is added.
+Seven of the eight own file patches retain their exact additions and deletions against the new base.
+The eighth, core/tests.rs, differs only through this constructor adaptation.
+The imported resize result, worker-clock interface, build-location macro, and report-hold fixture coexist with the drain.
+The driver still settles PtyOutput before another read. Resize results enter the same queued-input path without changing Drain.
+The repeated counted/flush rule, quiet-read/end conditions, no byte cap, route budget, and prior finding closures remain unchanged.
+All nine conformance files equal the imported base. No new pending removal, pin, mutation rule, or exception appears.
+
+I read the complete body through its unchanged earlier content and added v1-import section.
+Exact body SHA256: `631492b0f763f6b9f0b6a320a1eed01d938b9266a452b3c9dbcf29498a009999`.
+It records the semantic conflict, repair, local checks, and completed exact-head gate. Earlier evidence limits remain.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p3-a31-drain-acd6ced0-pool-20261012-132317-50401.log`.
+Verified SHA256: `fbe1d79466d22b97ae660cb14529092a7aed629694fac82037105c47ccc7bfe4`.
+The header names this exact head and imported base. Both parallelism caps are four. All ten steps pass.
+Default passes 2081 cases; slow passes 682. The repaired testkit title test and both real title tests pass normally.
+I match all 21 unique raw mutation catches to citations and normal PASS. Four outcomes are unviable.
+Stage 2 catches all five Stage 1 misses after its unmutated baseline passes 692 tests. No final miss, timeout, or FLAKY remains.
+Fuzz selects no changed decoder harness. CI takes 590.0 seconds; job and wrapper exit zero after 617 seconds, with no queue wait.
+This gate names the imported member, not a future train head.
+
+The local Mac log names this head and records removal of 17151 files totaling 4.4 GiB after the worktree switch.
+It reports fmt, CI taint, xtask checks, lists, clippy, default 1116, worker slow 148, and strict 581 at seeds 0–31 with exits zero.
+That record supplies no independent history of other target writers. Earlier failures keep their historical classification limits.
+The separate Mac IN-6 diagnosis and F28 remain separate duties; no closure follows from this later green run.
+
+No import finding is identified. The complete same-head package delta remains due before formal integration CLEAN.
+No final train or merge acceptance follows. I ran no execution job.
