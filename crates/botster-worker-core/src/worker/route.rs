@@ -118,8 +118,12 @@ struct Route {
     history: HistoryState,
     /// A `RouteWrite` is out (one at a time).
     writing: bool,
-    /// A healthy close: `route_closed` is the last queued frame, and the route closes when it is written (OU-2b).
+    /// The Closed transition (OU-2): the first reason is fixed, `route_closed` is the last queued frame, and the transport
+    /// closes when it is written (OU-2b). A route with no `closing` is live (`Open` or `Stalled`; steward ruling R-99).
     closing: Option<RouteCloseReason>,
+    /// The session's end (OU-7): the route delivers its queue, `route_closed` last, and takes its Closed transition with this
+    /// reason when the queue is empty. Until then it is still `Open` (R-99), so an adoption reports it (DP-8).
+    drain_close: Option<RouteCloseReason>,
     /// The client's bytes that do not make a whole frame yet (TS-3).
     reader: StreamReader,
     /// The complete frames that the route received and has not applied yet, in receive order: each was counted as received
@@ -157,6 +161,17 @@ enum Received {
 }
 
 impl Route {
+    /// The route applies client input: it is not closed, and its session has not ended.
+    fn accepts_input(&self) -> bool {
+        self.closing.is_none() && self.drain_close.is_none()
+    }
+
+    /// The reason that a close of this route reports: the Closed transition's, else the session end's that waits for the
+    /// drain.
+    fn close_reason(&self) -> Option<RouteCloseReason> {
+        self.closing.or(self.drain_close)
+    }
+
     /// Queues a frame after the frames that are queued. `output` is droppable; `input_refused`, `input_done` and
     /// `route_closed` are kept.
     fn push(&mut self, frame: &ToClient) {
@@ -406,6 +421,7 @@ impl Worker {
             baseline: 0,
             writing: false,
             closing: None,
+            drain_close: None,
             reader: StreamReader::default(),
             received: VecDeque::new(),
             input: options.input,
@@ -562,7 +578,7 @@ impl Worker {
         let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let route = self.routes.routes.get_mut(&id).expect("listed");
-            if route.closing.is_some() || route.stall.stalled() {
+            if !route.accepts_input() || route.stall.stalled() {
                 continue;
             }
             let per = route.output_payload();
@@ -603,7 +619,9 @@ impl Worker {
             // A terminal write error (the driver reports `WouldBlock` as `Ok(0)`): a failed close (OU-2b `write_failed`). A
             // healthy close that was delivering keeps its first reason (OU-2).
             Err(_) => {
-                let reason = route.closing.unwrap_or(RouteCloseReason::WriteFailed);
+                let reason = route
+                    .close_reason()
+                    .unwrap_or(RouteCloseReason::WriteFailed);
                 self.end_route(id, reason);
                 return;
             }
@@ -630,7 +648,8 @@ impl Worker {
             return;
         };
         if route.queue.is_empty() {
-            if let Some(reason) = route.closing {
+            // The Closed transition of a session's end comes here, when its queue is empty (R-99).
+            if let Some(reason) = route.close_reason() {
                 self.end_route(id, reason);
                 return;
             }
@@ -660,18 +679,29 @@ impl Worker {
         self.settle_routes();
     }
 
-    /// A healthy close (OU-2b): `route_closed` goes after every frame that is queued, and the transport closes when it is
-    /// written. A route whose bound cannot carry the frame closes with no frame. A route that is closing already keeps its
-    /// first reason.
+    /// A healthy close (OU-2b): the Closed transition now; `route_closed` goes after every frame that is queued, and the
+    /// transport closes when it is written. A route whose bound cannot carry the frame closes with no frame. A route that is
+    /// closing already, or that drains for its session's end, keeps its first reason.
     fn close_healthy(&mut self, id: RouteId, reason: RouteCloseReason) {
+        self.queue_close(id, reason, false);
+    }
+
+    /// `close_healthy`, or with `drain` the session end's close (OU-7): the route stays `Open` while it delivers its queue,
+    /// and takes the Closed transition when the queue is empty (`on_route_written`; steward ruling R-99).
+    fn queue_close(&mut self, id: RouteId, reason: RouteCloseReason, drain: bool) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
-        if route.closing.is_some() {
+        if route.close_reason().is_some() {
             return;
         }
-        route.closing = Some(reason);
-        // A closing route applies no more input: the frames that wait are discarded (plan 23ad).
+        if drain {
+            route.drain_close = Some(reason);
+        } else {
+            route.closing = Some(reason);
+        }
+        // A closing route, or a route of an ended session, applies no more input: the frames that wait are discarded (plan
+        // 23ad).
         route.received.clear();
         let frame = ToClient::RouteClosed(
             route_closed_frame(reason).expect("a healthy reason has its frame"),
@@ -714,8 +744,8 @@ impl Worker {
         }
     }
 
-    /// One route's close at the session's end. A route that is closing already keeps its first reason (`close_healthy`). The
-    /// host replaces the exit of the reported reason with its own (LC-5).
+    /// One route's close at the session's end, after its queue drains (`queue_close`). A route that is closing already keeps
+    /// its first reason. The host replaces the exit of the reported reason with its own (LC-5).
     fn end_with_session(&mut self, id: RouteId, code: Option<i32>, signal: Option<i32>) {
         let reason = RouteCloseReason::SessionEnded {
             exit: Exit {
@@ -724,7 +754,7 @@ impl Worker {
                 cause: ExitCause::Other,
             },
         };
-        self.close_healthy(id, reason);
+        self.queue_close(id, reason, true);
     }
 
     /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
@@ -739,7 +769,7 @@ impl Worker {
             route.allowance = Some(allowance.saturating_sub(bytes.len()));
         }
         // A closing route applies no more input: its bytes are discarded, so they are not held (DP-5, OU-2b).
-        if route.closing.is_none() {
+        if route.accepts_input() {
             route.reader.push(bytes);
             self.receive_route(id);
         }
@@ -798,7 +828,7 @@ impl Worker {
             let Some(route) = self.routes.routes.get_mut(&id) else {
                 return;
             };
-            if route.closing.is_some() || !route.refusal_room(queue_bytes, reserved) {
+            if !route.accepts_input() || !route.refusal_room(queue_bytes, reserved) {
                 return;
             }
             let Some(received) = route.received.pop_front() else {
@@ -826,7 +856,7 @@ impl Worker {
             let held = self.input.route_bytes(id);
             let reserved = self.reserved(id);
             let route = self.routes.routes.get_mut(&id).expect("listed");
-            let allowance = if route.closing.is_some() {
+            let allowance = if !route.accepts_input() {
                 usize::MAX
             } else if !route.refusal_room(queue_bytes, reserved) {
                 0
@@ -854,7 +884,7 @@ impl Worker {
         let Some(route) = self.routes.routes.get(&id) else {
             return;
         };
-        let reason = route.closing.unwrap_or(RouteCloseReason::PeerClosed);
+        let reason = route.close_reason().unwrap_or(RouteCloseReason::PeerClosed);
         self.end_route(id, reason);
     }
 
@@ -884,7 +914,7 @@ impl Worker {
             .routes
             .routes
             .get_mut(&id)
-            .filter(|r| r.closing.is_none())
+            .filter(|r| r.accepts_input())
         else {
             return;
         };
@@ -911,7 +941,7 @@ impl Worker {
             .routes
             .routes
             .get_mut(&id)
-            .filter(|r| r.closing.is_none())
+            .filter(|r| r.accepts_input())
         else {
             return;
         };
@@ -956,7 +986,7 @@ impl Worker {
             .routes
             .routes
             .iter()
-            .filter(|(_, r)| r.closing.is_none() && !r.stall.stalled())
+            .filter(|(_, r)| r.accepts_input() && !r.stall.stalled())
             .map(|(&id, r)| r.free_payload(queue_bytes, self.reserved(id)))
             .min();
         match budget {
@@ -1009,6 +1039,7 @@ mod tests {
             input: true,
             writing: false,
             closing: None,
+            drain_close: None,
             allowance: None,
             paste: None,
             stall: stall::Clock::default(),

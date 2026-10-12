@@ -135,7 +135,9 @@ impl Worker {
         if route.stall.stalled != Some(mark) {
             return;
         }
-        let reason = route.closing.unwrap_or(RouteCloseReason::StallTimeout);
+        let reason = route
+            .close_reason()
+            .unwrap_or(RouteCloseReason::StallTimeout);
         self.end_route(id, reason);
     }
 
