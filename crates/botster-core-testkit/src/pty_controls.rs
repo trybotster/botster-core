@@ -8,7 +8,7 @@ use crate::program::ProgramControl;
 use botster_core_conformance::ControlError;
 use botster_core_contract::prelude::SessionId;
 use botster_core_host::driver::HostWake;
-use botster_route_codec::prelude::{hex_decode, HexBytes};
+use botster_route_codec::prelude::hex_decode;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -177,7 +177,7 @@ fn pty_input(
 ) -> Result<Value, ControlError> {
     let args: Session = parse(args)?;
     let (program, _) = program_of(harness, handle, &args.session)?;
-    Ok(json!({ "bytes": { "$bytes_hex": HexBytes(program.input_log()).to_hex() } }))
+    Ok(json!({ "bytes": { "$bytes_hex": program.input_hex() } }))
 }
 
 #[derive(Debug, Deserialize)]

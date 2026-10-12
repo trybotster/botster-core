@@ -1337,9 +1337,10 @@ fn marker_fifo(root: &Path, name: &str) -> Bounded<std::fs::File> {
 
 /// Core AM-2, IN-2, IN-6: a real PTY keeps exact counts through cancellation and resumes the next transaction.
 ///
-/// The payload starts through the shared group guard ([`GuardedSession`]). It blocks on fixture children of
-/// `botster-test-process` ([`Blocker`]): one `cat` that waits for the count to read, and one that holds the payload until
-/// the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
+/// The payload starts through the shared group guard ([`GuardedSession`]). It reads the count to read with `head -n 1` from
+/// a FIFO ([`Blocker`]): `head` ends at the line, with no end of file. The test holds both ends of that FIFO until the
+/// next write is done, so the count waits in it even when `head` has not opened it yet. A `cat` of a second FIFO holds the
+/// payload until the test kills it. The test reads the payload's markers by deadlines ([`Bounded`]).
 #[test]
 fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let root = temp_root();
@@ -1349,9 +1350,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let hold = Blocker::new(root.path(), "hold").unwrap();
     let received = root.path().join("received");
     let script = format!(
-        "stty raw -echo; /bin/echo ready > {}; count=$({}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
+        "stty raw -echo; /bin/echo ready > {}; count=$(/usr/bin/head -n 1 {}); /usr/bin/head -c \"$count\" > {}; /bin/echo done > {}; exec {}",
         quoted(&root.path().join("ready")),
-        release.shell(),
+        quoted(release.path()),
         quoted(&received),
         quoted(&root.path().join("done")),
         hold.shell(),
@@ -1389,8 +1390,9 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     );
     s.link.msg(&write(2, "b".into()));
     assert!(matches!(s.link.report(), WorkerMsg::Observed { .. }));
+    // The test holds both ends of the FIFO until `head` has read the line (the write below is done), so the count waits in
+    // it even when `head` has not opened it yet. A release here could drop it: a FIFO with no open end keeps no bytes.
     release.send(format!("{}\n", count + 1).as_bytes()).unwrap();
-    release.release();
     let WorkerMsg::Done {
         req: 2,
         result: OpResult::Ok(OpOutput::Input(written)),
@@ -1408,6 +1410,7 @@ fn in_6_real_pty_cancel_keeps_counts_and_resumes_the_next_write() {
     let mut expected = text.as_bytes()[..count].to_vec();
     expected.push(b'b');
     assert_eq!(std::fs::read(&received).unwrap(), expected);
+    release.release();
     // The payload still runs (the `cat` of `hold`): it ends first, so `remove` sees the complete result (LC-7).
     s.link.msg(&HostMsg::Kill);
     assert_eq!(s.link.report(), exited(None, Some(9)));
@@ -1461,4 +1464,162 @@ fn guarded_parent() {
     eprintln!("{} {}", session.worker.id(), session.payload.pid);
     let _ = Bounded::new(std::io::stdin()).line(Deadline::cleanup());
     drop(session);
+}
+
+/// OU-7, R-107, R-108, R-108-E1 on the real driver (Core A23 candidate 2, mirrored until its transcript): a tail and a title
+/// that the payload wrote before a `Stop` that ends in a kill reach the model and the route before `Exited`. The worker is
+/// stopped (`SIGSTOP`) while the payload, which ignores `TERM`, writes the largest unread tail that its OS holds (on Linux
+/// past the PTY's count; R-108-E1) and the title, so nothing of it is read yet. Then `Stop` and `Kill` wait on the link, and
+/// the worker goes on (`SIGCONT`): the kill races the reads of the tail. In each of 20 runs, the title's observation comes
+/// before `Exited{signal 9}`, and the route gets every byte that the payload wrote.
+#[test]
+fn ou_7_a_tail_written_before_a_stop_that_kills_reaches_the_model_and_the_route_before_exited() {
+    use botster_route_codec::prelude::ToClient;
+    use std::os::fd::AsFd;
+    const TITLE: &[u8] = b"\x1b]0;T\x1b\\";
+    let n = if cfg!(target_os = "linux") {
+        4096
+    } else {
+        1000
+    };
+    for run in 0..20 {
+        let root = temp_root();
+        // The test holds the go FIFO open for reading and writing, and writes its line: the payload's read finds it
+        // whenever it opens the FIFO.
+        let go_path = root.path().join("go");
+        let made = OwnedChild::spawn(Command::new("/usr/bin/mkfifo").arg(&go_path))
+            .unwrap()
+            .status();
+        assert!(made.success());
+        let mut go = std::fs::File::from(
+            rustix::fs::open(
+                &go_path,
+                rustix::fs::OFlags::RDWR | rustix::fs::OFlags::CLOEXEC,
+                rustix::fs::Mode::empty(),
+            )
+            .unwrap(),
+        );
+        let mut up = marker_fifo(root.path(), "up");
+        let hold = Blocker::new(root.path(), "hold").unwrap();
+        let script = format!(
+            "trap '' TERM; IFS= read -r go < {}; /usr/bin/head -c {n} /dev/zero | /usr/bin/tr '\\0' a; printf '\\033]0;T\\033\\\\'; /bin/echo up > {}; exec {}",
+            quoted(&go_path),
+            quoted(&root.path().join("up")),
+            hold.shell()
+        );
+        let (client, worker_end) = UnixStream::pair().unwrap();
+        let mut s = GuardedSession::launch_with_route(
+            root.path(),
+            &script,
+            5000,
+            Some(worker_end.as_fd()),
+            CoreLimits::default(),
+        );
+        drop(worker_end);
+        let mut client = RouteClient::new(client, &CoreLimits::default());
+        client.read_to_live();
+        let worker = s.worker.id();
+        botster_core_sys::signal::signal_process(worker, rustix::process::Signal::STOP).unwrap();
+        go.write_all(b"go\n").unwrap();
+        assert_eq!(
+            up.line(Deadline::cleanup()).unwrap().as_deref(),
+            Some("up\n"),
+            "run {run}: the payload wrote its tail and title"
+        );
+        s.link.msg(&HostMsg::Stop);
+        s.link.msg(&HostMsg::Kill);
+        botster_core_sys::signal::signal_process(worker, rustix::process::Signal::CONT).unwrap();
+        let mut titled = false;
+        loop {
+            match s.link.report() {
+                WorkerMsg::Observed {
+                    observation: Observation::Title { title, .. },
+                } if title == "T" => titled = true,
+                WorkerMsg::Exited { code, signal } => {
+                    assert_eq!(
+                        (code, signal),
+                        (None, Some(9)),
+                        "run {run}: only the kill ends it"
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert!(titled, "run {run}: the title is in the model before Exited");
+        let mut expected = vec![b'a'; n];
+        expected.extend_from_slice(TITLE);
+        let mut output = Vec::new();
+        while output.len() < expected.len() {
+            if let ToClient::Output { payload } = client.frame() {
+                output.extend_from_slice(&payload);
+            }
+        }
+        assert_eq!(output, expected, "run {run}: the route got the whole tail");
+        // OU-7: after `Exited`, the route closes once its queue is delivered.
+        loop {
+            if let WorkerMsg::RouteClosed { reason, .. } = s.link.report() {
+                assert!(
+                    matches!(reason, RouteCloseReason::SessionEnded { .. }),
+                    "run {run}: {reason:?}"
+                );
+                break;
+            }
+        }
+        s.remove();
+    }
+}
+
+/// R-108 (1) on the real driver: a silent process that still holds the PTY does not hold the drain. The payload leaves a
+/// background holder in its group, which keeps the PTY as its output, writes nothing to it, and ignores the `SIGHUP` that
+/// the leader's exit sends to the group: the leader ignores `SIGHUP` before it starts the holder, so the holder inherits it. The payload then exits. The holder waits for a byte that the test sends only after
+/// `Exited`, and only then it writes its second marker, so `Exited{code 0}` came while the holder was alive.
+///
+/// On Linux the holder's output is still the terminal then: the PTY had a live writer at `Exited`, so the drain ended at
+/// a quiet read, not at the end of the output after all writers closed. On macOS the holder lives, but after the leader's
+/// exit its output is no terminal (measured: `[ -t 1 ]` is false), so on macOS this test does not prove the quiet read.
+#[test]
+fn a_silent_holder_of_the_pty_does_not_delay_exited() {
+    let root = temp_root();
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let mut held = marker_fifo(root.path(), "held");
+    let mut after = marker_fifo(root.path(), "after");
+    let mut up = marker_fifo(root.path(), "up");
+    let script = format!(
+        "trap '' HUP; (/bin/echo held > {held}; /usr/bin/head -c 1 {release} > /dev/null; if [ -t 1 ]; then /bin/echo tty > {after}; else /bin/echo none > {after}; fi) & /bin/echo up > {up}; exit 0",
+        held = quoted(&root.path().join("held")),
+        release = quoted(release.path()),
+        after = quoted(&root.path().join("after")),
+        up = quoted(&root.path().join("up")),
+    );
+    let mut s = GuardedSession::launch(root.path(), &script, 5000);
+    // The holder's own readiness: it ignores `SIGHUP` from its start, and it writes this marker before it waits.
+    assert_eq!(
+        held.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("held\n")
+    );
+    assert_eq!(
+        up.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("up\n")
+    );
+    loop {
+        if let WorkerMsg::Exited { code, signal } = s.link.report() {
+            assert_eq!((code, signal), (Some(0), None));
+            break;
+        }
+    }
+    // The test holds both ends of the FIFO, so the byte waits in it even when `head` has not opened it yet.
+    release.send(b"x").unwrap();
+    let output = if cfg!(target_os = "linux") {
+        "tty\n"
+    } else {
+        "none\n"
+    };
+    assert_eq!(
+        after.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some(output),
+        "the holder lived through Exited (on Linux with the PTY as its output)"
+    );
+    release.release();
+    s.remove();
 }

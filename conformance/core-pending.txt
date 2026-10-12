@@ -61,6 +61,11 @@ conf::a19_1_query_id_is_a_u64_decimal_string
 conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries
 conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created
 conf::a20_1_testkit_proven_ids_are_exactly_the_named_list
+# conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one: Core A22 (contracts-v0.1.46, R-104). It fails at seed 0
+# step 25: after AdoptAll it expects RouteAdopted for each live route (DP-8 route adoption), and v1 posts none. #313 (DP-8
+# route adoption, owner ST) posts RouteAdopted; it then switches its route_tag and owner to the Option form (A22) and
+# un-pends this id with the other dp_8 ids.
+conf::a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one
 conf::a2_1_env_is_exact
 conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value
 # conf::a2_1_no_deadline_code_exists: since the R-97 worker clock, steps 0-23 pass on the testkit (the start ends
@@ -213,7 +218,6 @@ conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
-conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
@@ -222,7 +226,6 @@ conf::dp_5_refusals_survive_a_resync
 # before input_refused session_ended), and the real tier at seed 0 step 15. Not diagnosed. Owner: RC.
 conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
 conf::dp_5_stalled_route_with_repeated_queries_stays_bounded
-conf::dp_5_unstarted_terminal_query_frame_retires_when_the_query_resolves
 conf::dp_5b_abort_or_route_end_leaves_nothing
 conf::dp_5b_commit_is_answered_with_input_done_and_path
 conf::dp_5b_creation_failure_writes_no_path_and_leaves_no_file
@@ -283,8 +286,6 @@ conf::ev_8_client_silent_shadow_answers_at_deadline
 conf::ev_8_core_has_no_other_query_timer
 conf::ev_8_decline_does_not_consume_the_query_id_before_fallback_admission
 conf::ev_8_encoded_reply_is_bounded_and_once
-# conf::ev_8_every_query_stays_in_output: passes on the testkit at seeds 0-31 in about 38 s, about 1.2 s per seed, over the 2 s default-tier test budget. Gate 42cdfda9 reported 2.005 s only because nextest's terminate-after ended the test at 2 s. Held in core-held.txt (budget). p4b-queries-files: make it faster or move it to the slow tier.
-conf::ev_8_every_query_stays_in_output
 conf::ev_8_exactly_one_reply_under_every_interleaving
 conf::ev_8_fallback_started_means_admitted_refused_fallback_stays_pending
 conf::ev_8_full_query_capacity_backpressures_parser_in_order
