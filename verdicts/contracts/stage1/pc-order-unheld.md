@@ -56,3 +56,18 @@ The steward accepted both additions, with conditions, and also accepted `route_c
 4. **(1)(a), the self-test.** The ruling asks for a negative self-test: an answer that the transcript reads only after the other link's send still flags. I find none among the 18 tests. The ruling also asks for a negative test for (1)(b), an answer for an earlier frame. That one exists as the `early` case. It asks for (2)'s `failed` without `written_bytes` (still flags), which does not exist.
 
 Fix: meet (1)(b), (1)(c) and (2) in `route_answer`. Add the ruling's positive and negative self-tests for each addition. Check that the corpus count does not change: the 7 ids must still pass, or each one that is now flagged gets its fence or a line. This gives a new head, and the gate runs on that exact head.
+
+### Correction by the steward (main `47936a983f2639259e2bc6478a6b10b0ac446bbf`)
+
+The steward corrected the ruling. Its new condition (1)(d) says: "`route_closed` is a fence only with reason `BadFrame` that a frame of the route caused". The same rule applies to `expect_closed`.
+
+- **F1: restored (MEDIUM),** with the fix that (1)(d) states. `unheld.rs:297` and `:290` accept every reason, and the self-test at `:839` uses `detached` as a positive case. dp_3's close comes from r2's unknown frame type (`BadFrame`), so it still counts.
+- **F2, changed.** Item 1 is dropped: (1)(b) now reads "The answer fences only X and the frames that the route sent before X", which is what `route_answer` does. Items 2 ((1)(c)) and 3 ((2)) stand.
+- **F2's self-tests.** The ruling's required negative cases are:
+  - an answer read after the other send ((1)(a));
+  - an answer for X used for a frame sent after X ((1)(b)); the `early` case covers this;
+  - `route_closed{detached}` ((1)(d));
+  - `input_refused{failed}` without `written_bytes` ((2));
+  - an `await_pty` whose `min_bytes` equals the sum of the other inputs ((3)); `the_count_must_exceed_the_other_inputs` covers this.
+  Each one must flag, and each item also needs a positive case.
+- **Item (3), the `await_pty` count,** is accepted, with one more guard: the fence comes before the other link's send. I check that guard on the next head.
