@@ -722,3 +722,17 @@ I created `stage1/review-gs` from the reviewed v1 base `f6778ad8`. This branch c
 - Integration reviewer: `sess-1791654840-017a-4e0798223b6086de3e26b7b486e22973`.
 
 End the turn while waiting. After a doorbell, call `receive_messages` once. Never poll.
+
+## Current receipt update
+
+#306 has a final package CLEAN on train head `2683de7ccbb1360d124422b3b6a2dd196b046c7e`, tree `42e00e9808db9faec524e2404f67302bee0d66c5`.
+
+The train gate hash is `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`. Ten steps pass. All 161 catches have citations and normal PASS results.
+
+The complete #306 body contains this final evidence. Sol-B's combined receipt and the lead's merge verification remain due.
+
+#323 replacement head is `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`. Its one added empty-fix test closes GS-RP-R1-1 LOW.
+
+The final corrected body and completed replacement gate remain due. The replacement local record retains one isolated base_merge timeout.
+
+I ran no execution job. End the turn while waiting for the next doorbell. Never poll.

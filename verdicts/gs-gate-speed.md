@@ -4009,3 +4009,92 @@ Sol-B accepts the same exact replacement head and completed gate. Both reviews c
 No finding changes. The initial integration receipt is complete. The abandoned train remains unaccepted, and its history is unchanged.
 
 The authorized later delivery, applicable delta, final gate, and lead merge checks remain due. This receipt authorizes no retry.
+
+## Train 5 — #306 final package receipt
+
+- Exact train head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+- Gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Frozen member: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+- VERDICT: CLEAN (#306 final package on this exact train head; 0 open).
+
+This receipt adds completed gate evidence to the accepted train source delta. The earlier complete source review and its scope remain applicable.
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-5-2683de7c-pool-20261012-112942-61568.log`.
+
+I computed its SHA256: `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`. The header names the exact train head and base.
+
+All ten steps PASS in 1,747.7 seconds. The job exits 0 after 1,854 seconds on MS-A1, with one second queued and 1,853 seconds running.
+
+The default tier passes 1,998 tests. The slow tier passes 663 tests. The name check scans 251 Rust files and passes.
+
+Mutation stage 1 has 176 mutants: 147 caught, fourteen missed, zero timeout, and fifteen unviable. Stage 2 catches all fourteen misses.
+
+The final result has 161 caught, zero missed, zero timeout, and fifteen unviable. Static log analysis matches all 161 raw catches to citations.
+
+Every catching test has a normal PASS. No FLAKY result appears. No runtime INCONCLUSIVE result appears.
+
+The inherited ev_2 entry grants no catch credit. That test passes in the ordinary default and slow tiers and the unmutated stage 2 baseline.
+
+The four decoder fuzz runs complete. The completed gate preserves the accepted root-check coverage, unchanged mutation verdict, and recorded design limits.
+
+I read the complete updated #306 body. It retains the frozen member and prior evidence, then names this final train head, tree, base, log, and counts.
+
+All package findings, including LOW, are closed. Sol-B owns the combined train receipt. The lead must still verify the final merge tree against the gated tree.
+
+This receipt accepts no later head or additional retry. I ran no execution job.
+
+## Core #323 — re-entry review, round 1 and source repair
+
+- Original head: `62877cbaeff1ffbc63e2aae7f159730cd700e47c`.
+- Replacement head: `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`.
+- Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: NOT CLEAN (final body and replacement-head evidence remain due).
+
+The lead assigns this HIGH review. The authorized exception permits a real-pending re-entry with an authority, diagnosed cause, and structural fix owner.
+
+I read the complete one-file original patch and replacement delta. The replacement adds only the explicit empty-fix test case.
+
+Every comment with the `# re-entry` prefix must parse. Missing, empty, repeated, or unknown fields fail. Malformed authority syntax fails.
+
+The tag must have a nonempty, noncomment ID line directly below it. The command also rejects duplicate IDs and applies existing eligibility checks.
+
+The exception affects only new real-pending membership. Ledger, pending, deferred, withdrawn, real-only, and testkit-proven restrictions remain in force.
+
+The authority check validates syntax. Reviewers must verify the actual ruling or lead decision, diagnosed cause, and fix owner for each future re-entry.
+
+The tag changes no list ID. The suite skips comment lines. The CI pending-real run uses that suite. The slow coverage reader uses parse_ids.
+
+Base-merge condition 4 remains a removal-only check. It preserves comment bytes and rejects added lines. A re-entry therefore requires a normal delta review.
+
+The PR adds no real-pending entry, pin change, timeout change, mutation exclusion, or gate retry policy. A future entry changes test eligibility under the authorized exception.
+
+### GS-RP-R1-1 — LOW — CLOSED by source repair
+
+The original body says the test covers each empty field. The original source has explicit empty re-entry and cause cases, but no empty fix case.
+
+The replacement adds that case and checks the `fix` refusal message. The source repair closes this finding on the replacement head.
+
+### Evidence status
+
+The original completed pool gate names the original head and base. It passes ten steps with thirty caught and two unviable mutants.
+
+Its wrapper takes 637 seconds. Its step total is 478.3 seconds. This gate does not validate the replacement head.
+
+The four retained reversal logs name the original head, show each scratch edit, and show one failing test with 39 passing lists tests.
+
+The missing-field reversal panics on a missing map key. This establishes test failure, not the intended error message. The intact parser checks missing fields before lookup.
+
+The script restores the source after each reversal. I read the script; I did not execute it. The logs retain each failure.
+
+The original local record has clippy exit 101 and 321 passed tests with two timeouts. It contains no evidence for the claimed corrected clippy or isolated passes.
+
+Sol requests the missing records or corrected claims. ST states that the unsupported round 1 claim will be withdrawn.
+
+The replacement local record has clippy PASS and 323 tests PASS. A later isolated run has one PASS and one TIMEOUT at 2.003 seconds.
+
+The timeout names `base_merge::tests::an_unreviewed_change_after_the_merge_still_fails`. The PASS names `base_merge::tests::the_real_tier_pending_list_is_a_line_set_file`.
+
+At the last complete body read, the earlier unsupported claims remain. The corrected body and completed replacement gate remain due.
+
+I accept no running gate. I ran no execution job.
