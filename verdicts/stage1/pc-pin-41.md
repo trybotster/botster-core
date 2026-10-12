@@ -353,3 +353,61 @@ Its four matching transfers, pinned exceptions, P3 owner, local strict results, 
 Both source delta reviews now cover the current head.
 The package receipt condition closes. The completed final gate, final body, package evidence acceptance, and final merge checks remain due.
 No final merge or plain-v1 execution result is accepted. Sol runs no execution job. Never poll.
+
+## Round 4 — completed final gate and body
+
+Exact final head: `69d414995408a21a32b73d01608a798202057462`.
+Reviewed base: `b0c0a419af27259006b5e06d4e5da3b3d00083e6`.
+Tree: `12f279eac5f55917f829b8ea3f8bce7165f1cd1f`.
+PC supplies completed evidence in `msg_plugin-w_1791766453_580089`.
+The complete Round 3 source delta review and current-head package receipt remain applicable.
+Sol independently verifies that the current source merge base is the exact reviewed base.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-pc-pin-41-69d41499-pool-20261011-174215-53790.log`.
+SHA-256: `5fb6af739f3bcc2cc75a876d6c8f96706eab3601c18da47116585d01ce202c2a`.
+The header names this exact head and base. The Linux job runs on msa1 with four CPUs.
+All ten steps PASS in 601.2 seconds.
+The job exits zero after 651 seconds, with zero queued seconds. The wrapper exits zero after 652 seconds.
+Default: 1843 PASS, 435 skipped, 15.016 seconds. Slow: 606 PASS, 2040 skipped, 43.604 seconds.
+The unmutated slow baseline has 606 PASS, ten slow cases, and 2746 skipped, in 42.723 seconds.
+Its complete baseline interval is 56.8 seconds.
+
+The lists step confirms 691 ledger identifiers, 412 testkit-pending identifiers, and 44 real-pending identifiers.
+Both conformance runs report 256 PASS and zero failures, in 5.83 and 5.25 seconds.
+The strict report checks 324 of 342 pending transcripts, with eighteen real-only identifiers not run and three held entries.
+Minimum coverage is testkit-passing 65/69, real-passing 58/68, and real-accepted 59/69.
+All four named real-process proofs have normal PASS results.
+The held-full run checks both budget identifiers at seeds 0–31, with one trial per seed.
+It has 64 ignored expected held results, zero failures, and 19.27 seconds of run time.
+
+Sol derives the own removal sets from the exact base and final head.
+Every one of the eleven testkit removals has exactly one normal PASS in botster-core::conformance.
+Every one of the three real removals has normal PASS in botster-core::slow_conformance and the unmutated baseline.
+The real-pending report observes 32 passing identifiers. Sol independently verifies that all 32 remain real-pending in this head.
+The eight own real-pending additions retain their .41 fence exceptions and owners.
+IN-7 remains real-pending despite its observed passing trial. E6-1 remains testkit pending.
+The final gate accepts no additional pending removal.
+
+Stage 1 has eight mutants: zero caught, eight missed, zero timeout, and zero unviable, in 35.1 seconds.
+Stage 2 tests exactly those eight identities and catches all eight, with zero missed, timeout, or unviable, in 190.0 seconds.
+Sol independently matches all eight unique first-stage misses, raw second-stage catches, and named citations.
+Each selected catcher has normal PASS in the slow run and the unmutated baseline.
+The log contains no FLAKY line. Fuzz PASS reports no changed crate with a decoder harness.
+Sol claims no new Mac execution, five-run proof, or A5-4 comparison from this final gate.
+The earlier comparison and repeated proofs retain their exact source, seed scope, failed trials, and accepted attribution limits.
+
+Sol reads the complete final body delta against the already-read source-slot body.
+GitHub confirms exact head 69d41499 and base b0c0a419.
+Final body SHA-256: `b3364d02e8d0d151c4c06b1e714849c2ddb92bada2e978f85cf85b152fa56c90`.
+The body replaces RUNNING with the completed ten-step result and names all eleven normal testkit PASS records.
+It preserves the conflict resolutions, both list-only commits, older evidence heads, red gates, and pending limits.
+It claims no plain-v1 result for the four newer removals or real acceptance for their passing ignored trials.
+
+Sol reads complete final package Round 5 at `ff77c4f0d76c2be2722ff0a7b1be20c821532770`, verdicts/pc-pin-41.md.
+Its final CLEAN covers this exact head and base, independently hashes the same body, and confirms the same raw evidence sets.
+Both source, evidence, and body reviews have zero open findings on the final head.
+This completes Sol's #289 final acceptance. The lead's Q7 check before merge remains required.
+This verdict accepts no later head, base import, pending removal, or evidence substitution.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open; final source, evidence, and body) at 69d414995408a21a32b73d01608a798202057462 against base b0c0a419af27259006b5e06d4e5da3b3d00083e6
