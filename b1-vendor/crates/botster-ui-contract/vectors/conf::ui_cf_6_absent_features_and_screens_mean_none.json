@@ -1,0 +1,428 @@
+{
+  "id": "conf::ui_cf_6_absent_features_and_screens_mean_none",
+  "contract": "ui",
+  "clause": "UI-CF-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an absent features list means no display_metric: the metric is a label: value text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "label": "Open",
+                "path": "/n",
+                "display": "metric"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 4
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "an absent features list means no external_open: the link shows the full URL as text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": "https://example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "https://example.com/a",
+            "href": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "an absent features list means no ui_embed: a view that requires it is a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect": {
+        "diagnostics": [
+          {
+            "$any": true
+          }
+        ]
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "an absent screens list means no screen: open gets the UI-SL-3 fallback and the row keeps its fields",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f",
+              "props": {
+                "text": "a"
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-SL-3"
+    },
+    {
+      "name": "an empty screens list means no screen",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": []
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    },
+    {
+      "name": "a screens list for another kind gives no screen for this kind",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "other@1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    }
+  ]
+}

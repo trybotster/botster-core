@@ -1,0 +1,31 @@
+{
+  "id": "conf::hs_0_failed_line_typed",
+  "contract": "hc",
+  "clause": "HS-0",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "hub_up"
+    ]
+  },
+  "setup": {
+    "start": false,
+    "hub": {
+      "socket_path": "/run/botster/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx/hub.sock"
+    }
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "hub_up"
+      },
+      "expect": {
+        "state": "failed",
+        "code": "socket_path_too_long",
+        "closed": true,
+        "exit_nonzero": true
+      },
+      "because": "HC HS-0"
+    }
+  ]
+}

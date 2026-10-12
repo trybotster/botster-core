@@ -1,0 +1,226 @@
+{
+  "id": "conf::ui_fd_1_non_url_is_plain_text",
+  "contract": "ui",
+  "clause": "UI-FD-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a value that is not a URL is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "not a url"
+            },
+            {
+              "id": "r1",
+              "u": "https://"
+            },
+            {
+              "id": "r2",
+              "u": "/relative/path"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "not a url",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "https://",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r21:f": {
+          "type": "text",
+          "props": {
+            "text": "/relative/path",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "an absent value is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link",
+                "absent": "none"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "none",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "a non-string value is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": 42
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "42",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    }
+  ]
+}

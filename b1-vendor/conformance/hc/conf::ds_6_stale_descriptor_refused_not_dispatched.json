@@ -1,0 +1,194 @@
+{
+  "id": "conf::ds_6_stale_descriptor_refused_not_dispatched",
+  "contract": "hc",
+  "clause": "DS-6",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "dispatch_log",
+      "reload_plugin"
+    ]
+  },
+  "setup": {
+    "fixture": "plugin"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "kind",
+        "args": {
+          "filter": {
+            "kind": "acme.note"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": [
+            {
+              "descriptor_id": "$d1",
+              "owner": "acme"
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-6"
+    },
+    {
+      "control": {
+        "op": "reload_plugin",
+        "key": "acme"
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "invoke",
+        "kind": "acme.note",
+        "action": "archive",
+        "args": {},
+        "target": "n1",
+        "descriptor_id": "$d1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "err": {
+          "code": "stale_descriptor",
+          "effect": "none"
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-6"
+    },
+    {
+      "control": {
+        "op": "dispatch_log"
+      },
+      "expect": {
+        "dispatched": []
+      },
+      "because": "HC DS-6"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "list",
+        "kind": "kind",
+        "args": {
+          "filter": {
+            "kind": "acme.note"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "items": [
+            {
+              "descriptor_id": "$d2"
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-6"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "invoke",
+        "kind": "acme.note",
+        "action": "archive",
+        "args": {},
+        "target": "n1",
+        "descriptor_id": "$d2"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "ok": {
+          "$any": true
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-6"
+    },
+    {
+      "control": {
+        "op": "dispatch_log"
+      },
+      "expect": {
+        "dispatched": [
+          {
+            "kind": "acme.note",
+            "action": "archive"
+          }
+        ]
+      },
+      "because": "HC DS-6"
+    }
+  ]
+}

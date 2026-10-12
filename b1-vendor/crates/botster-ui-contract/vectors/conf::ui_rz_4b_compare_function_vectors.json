@@ -1,0 +1,525 @@
+{
+  "id": "conf::ui_rz_4b_compare_function_vectors",
+  "contract": "ui",
+  "clause": "UI-RZ-4b",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "absent first, then null, bool, number, string, other",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "obj",
+              "v": {
+                "x": 1
+              }
+            },
+            {
+              "id": "str",
+              "v": "s"
+            },
+            {
+              "id": "num",
+              "v": 1
+            },
+            {
+              "id": "bool",
+              "v": false
+            },
+            {
+              "id": "nul",
+              "v": null
+            },
+            {
+              "id": "abs"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L3:abs"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:nul"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L4:bool"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:num"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:str"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:obj"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "false sorts before true",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": true
+            },
+            {
+              "id": "b",
+              "v": false
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "-0 equals 0, so the row key breaks the tie",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 0
+            },
+            {
+              "id": "b",
+              "v": -0.0
+            },
+            {
+              "id": "c",
+              "v": 0
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "two integers above 2^53 that give the same double are equal, so the row key breaks the tie",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 9007199254740993
+            },
+            {
+              "id": "b",
+              "v": 9007199254740992
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:b"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "strings compare bytewise in UTF-8, not by UTF-16 code units",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": "𐀀"
+            },
+            {
+              "id": "z",
+              "v": "￿"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L1:z"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "objects and arrays compare equal to each other, so the row key breaks the tie",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "c",
+              "v": {
+                "a": 0
+              }
+            },
+            {
+              "id": "b",
+              "v": {
+                "x": 1
+              }
+            },
+            {
+              "id": "a",
+              "v": [
+                1
+              ]
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L1:c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    },
+    {
+      "name": "desc reverses the whole value order, absent last, and the row-key tie-break stays ascending",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "L",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "v",
+                "path": "/v"
+              }
+            ]
+          },
+          "empty": {
+            "title": "Nothing here"
+          },
+          "error": {
+            "title": "Nothing here"
+          },
+          "order": [
+            {
+              "field": "/v",
+              "dir": "desc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "kA"
+            },
+            {
+              "id": "kN",
+              "v": null
+            },
+            {
+              "id": "k1",
+              "v": 1
+            },
+            {
+              "id": "k2y",
+              "v": 2
+            },
+            {
+              "id": "k2x",
+              "v": 2
+            },
+            {
+              "id": "kS",
+              "v": "s"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:L9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:L2:kS"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:k2x"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L3:k2y"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L2:k1"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L2:kN"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:L2:kA"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    }
+  ]
+}

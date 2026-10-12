@@ -1,0 +1,325 @@
+{
+ "id": "conf::lb_11_http_and_ws_are_async_operations",
+ "contract": "lb",
+ "clause": "LB-11",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.operations.on(function(record, request)\n  local h = record.headers\n  return { kind = record.kind, state = record.state, terminal = record.terminal, status = record.status,\n           pairs = h and #h, first_name = h and h[1][1], first_value = h and h[1][2], second_value = h and h[2][2],\n           ws_id = record.ws_id }\nend)\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n    local h = botster.http.request{ method = \"PATCH\", url = \"https://example.test/x\", timeout_ms = 1000,\n      headers = { { \"X-A\", \"1\" }, { \"X-A\", \"2\" } } }\n    local w = botster.ws.open{ url = \"wss://example.test/s\" }\n    local o = botster.http.request{ method = \"OPTIONS\", url = \"https://example.test/\", timeout_ms = 1000 }\n    return { http_ok = h.ok, http_kind = h.value.kind, http_state = h.value.state, http_terminal = h.value.terminal,\n             ws_kind = w.value.kind, ws_state = w.value.state, ws_terminal = w.value.terminal, options_ok = o.ok }\n  end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "operations": {
+      "subscribed": "$ho"
+     }
+    }
+   },
+   "because": [
+    "LB LB-11",
+    "LB LB-7"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "PATCH",
+      "url": "https://example.test/x",
+      "timeout_ms": 1000,
+      "headers": [
+       [
+        "X-A",
+        "1"
+       ],
+       [
+        "X-A",
+        "2"
+       ]
+      ]
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-h",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "ws.open",
+     "args": {
+      "url": "wss://example.test/s"
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-w",
+       "kind": "ws",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "OPTIONS",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-o",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "http_ok": true,
+       "http_kind": "http",
+       "http_state": "queued",
+       "http_terminal": false,
+       "ws_kind": "ws",
+       "ws_state": "queued",
+       "ws_terminal": false,
+       "options_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-h",
+      "kind": "http",
+      "state": "done",
+      "terminal": true,
+      "status": 200,
+      "headers": [
+       [
+        "Set-Cookie",
+        "a=1"
+       ],
+       [
+        "Set-Cookie",
+        "b=2"
+       ]
+      ],
+      "body_b64": ""
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "http",
+       "state": "done",
+       "terminal": true,
+       "status": 200,
+       "pairs": 2,
+       "first_name": "Set-Cookie",
+       "first_value": "a=1",
+       "second_value": "b=2"
+      }
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 3,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-w",
+      "kind": "ws",
+      "state": "open",
+      "terminal": true,
+      "ws_id": "ws-1"
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "ws",
+       "state": "open",
+       "terminal": true,
+       "ws_id": "ws-1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-11"
+  }
+ ]
+}

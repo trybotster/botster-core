@@ -1,0 +1,406 @@
+{
+  "id": "conf::a3_1_set_notification_policy_errors_and_states",
+  "contract": "core",
+  "clause": "A3-1",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "notification_policy"
+    ],
+    "controls": [
+      "break_control",
+      "lose_worker",
+      "storage_fail_write",
+      "withhold_feature"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "no_such_session",
+            "policy": "none"
+          }
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core A3-3",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "break_control",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "s1",
+            "policy": "none"
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w",
+            "result": {
+              "err": {
+                "code": "WorkerLinkFailed"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A3-3",
+        "Core A3-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "break_control",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "lose_worker",
+        "session": "s2"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s2",
+            "state": {
+              "Lost": {
+                "$any": true
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "s2",
+            "policy": "none"
+          }
+        }
+      },
+      "expect_error": {
+        "code": "WrongState"
+      },
+      "because": [
+        "Core A3-3",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s3",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s3",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s3",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "storage_fail_write"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "s3",
+            "policy": "none"
+          }
+        }
+      },
+      "bind": "$r"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$r",
+            "result": {
+              "err": {
+                "code": {
+                  "RegistryFailed": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A3-1",
+        "Core A3-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "withhold_feature",
+        "name": "notification_policy"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s4",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s4",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s4",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s4"
+          }
+        }
+      },
+      "bind": "$s_s4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s4",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s4",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "SetNotificationPolicy": {
+            "session": "s4",
+            "policy": "none"
+          }
+        }
+      },
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A3-3",
+        "Core A2-6"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

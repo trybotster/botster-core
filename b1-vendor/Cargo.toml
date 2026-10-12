@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = ["crates/*", "xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.dependencies]
+bytes = "1"
+include_dir = "0.7"
+miniz_oxide = "0.8"
+jsonschema = { version = "0.58", default-features = false }
+rand_chacha = "0.9"
+rand_core = "0.9"
+regex = "1"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+base64 = "0.22"
+data-encoding = "2.11"
+sha2 = "0.10"
+toml = "0.9"
+ryu-js = "1"
+url = "2"
+anyhow = "1"
+proc-macro2 = "1"
+syn = { version = "2", features = ["full", "parsing"] }
+botster-conformance = { path = "crates/botster-conformance" }
+botster-route-codec = { path = "crates/botster-route-codec" }
+botster-test-support = { path = "crates/botster-test-support" }
+botster-ui-contract = { path = "crates/botster-ui-contract" }
+botster-hub-contract = { path = "crates/botster-hub-contract" }
+botster-fake-route = { path = "crates/botster-fake-route" }
+botster-probe-script = { path = "crates/botster-probe-script" }
+
+# Test-speed profile (BUILD.md Testing rule 7). Measured on 2026-09-30: opt-level = 3 for serde_json,
+# jsonschema and sha2 left the default tier at 0.7-0.8 s, so no entry is kept yet. When a tier gets
+# slow, measure with `cargo xtask test-budget`, add `[profile.dev.package.<crate>] opt-level = 3`
+# for a dependency that dominates a profile, and keep it only if the time drops.
+
+# Measured 2026-10-01 (core-contract): `cargo xtask codegen` took 0.47 s, almost all in schema generation, and the xtask codegen
+# test spawns it five times against the 2 s limit. With these five entries it takes 0.06 s. The contract crates are listed
+# because schemars code is monomorphized in them; schemars and serde_json alone gave 0.28 s, the contract crates alone 0.23 s.
+[profile.dev.package.schemars]
+opt-level = 3
+[profile.dev.package.serde_json]
+opt-level = 3
+[profile.dev.package.botster-plugin-contract]
+opt-level = 3
+[profile.dev.package.botster-core-contract]
+opt-level = 3
+[profile.dev.package.botster-route-codec]
+opt-level = 3
+[profile.dev.package.botster-ui-contract]
+opt-level = 3
+[profile.dev.package.botster-hub-contract]
+opt-level = 3
+# Measured 2026-10-01 (plugin-contract): compiling the big manifest and frame schemas in the property tests dominated their time.
+[profile.dev.package.jsonschema]
+opt-level = 3
+[profile.dev.package.referencing]
+opt-level = 3
+[profile.dev.package.fancy-regex]
+opt-level = 3
+[profile.dev.package.regex-automata]
+opt-level = 3
+
+# The profile that `cargo bolero test` builds with (docs/tooling.md): the fuzz job and a local fuzz run.
+[profile.fuzz]
+inherits = "dev"
+opt-level = 3
+incremental = false
+codegen-units = 1

@@ -1,0 +1,42 @@
+{
+ "id": "conf::lh_2_ready_names_host",
+ "contract": "hp",
+ "clause": "LH-2",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_named"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "host": {
+      "name": {
+       "$type": "string"
+      },
+      "version": {
+       "$type": "string"
+      },
+      "globals": {
+       "$type": "array"
+      }
+     }
+    }
+   },
+   "because": "HP LH-2"
+  }
+ ]
+}

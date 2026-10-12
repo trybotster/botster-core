@@ -1,0 +1,640 @@
+{
+  "id": "conf::ts_4c_resync_same_route",
+  "contract": "codec",
+  "clause": "TS-4c",
+  "subject": "worker",
+  "requires": {
+    "features": [
+      "output_dropped"
+    ],
+    "controls": [
+      "fail_writes",
+      "pty_input",
+      "pty_output",
+      "queue_overflow"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "full",
+        "route_features": [
+          "output_dropped"
+        ],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "complete"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      },
+      "route": "r2"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      },
+      "route": "r3"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r3",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r3",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r3",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r3",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r3",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "41"
+      }
+    },
+    {
+      "route_read_bytes": {
+        "bytes": 3
+      },
+      "route": "r1"
+    },
+    {
+      "route_read_bytes": {
+        "bytes": 3
+      },
+      "route": "r2"
+    },
+    {
+      "route_read_bytes": {
+        "bytes": 3
+      },
+      "route": "r3"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "07",
+        "scripted": {
+          "notifications": [
+            {
+              "source": "bell"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "1b5d3737373b6e6f746966793b5469746c653b426f647907",
+        "scripted": {
+          "notifications": [
+            {
+              "source": "osc777",
+              "title": "Title",
+              "body": "Body"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "1b5d35323b633b61476b3d07"
+      }
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r2"
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "41"
+      },
+      "because": [
+        "Codec BP-2",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "output_dropped",
+        "notifications": 1,
+        "last": {
+          "source": "osc777",
+          "title": "Title",
+          "body": "Body"
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4",
+        "HC SF-5c"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin"
+      },
+      "on": "r1",
+      "because": "Codec TS-4c"
+    },
+    {
+      "expect": {
+        "frame": "screen"
+      },
+      "on": "r1",
+      "because": "Codec TS-4c"
+    },
+    {
+      "expect": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "on": "r1",
+      "because": "Codec TS-4c"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4c"
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "41"
+      },
+      "route": "r2",
+      "because": [
+        "Codec BP-2",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "on": "r2",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "live"
+      },
+      "ignore": [
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r2",
+      "because": "Codec TS-4c"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "6b"
+        }
+      }
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "6b"
+        }
+      ],
+      "because": "Codec BP-2"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "6166746572"
+      }
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "6166746572"
+      },
+      "because": [
+        "Codec BP-2",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "07",
+        "scripted": {
+          "notifications": [
+            {
+              "source": "bell"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r1"
+    },
+    {
+      "expect": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4",
+        "HC SF-5c"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "live"
+      },
+      "ignore": [
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-4c"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [
+          "output_dropped"
+        ],
+        "writable": true,
+        "answers_queries": true
+      },
+      "route": "r4"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r4",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r4",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r4",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r4",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r4",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "1b5d35323b633b53476b3d"
+      }
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "1b5d35323b633b53476b3d"
+      },
+      "route": "r4",
+      "because": [
+        "Codec BP-2",
+        "Codec TS-4c"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "07"
+      }
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r4"
+    },
+    {
+      "expect": {
+        "frame": "resync",
+        "reason": "overflow"
+      },
+      "on": "r4",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4"
+      ]
+    },
+    {
+      "control": {
+        "op": "fail_writes"
+      },
+      "route": "r3"
+    },
+    {
+      "control": {
+        "op": "queue_overflow"
+      },
+      "route": "r3"
+    },
+    {
+      "expect_closed": {
+        "ended": "write_failed"
+      },
+      "on": "r3",
+      "ignore": [
+        {
+          "frame": "output"
+        }
+      ],
+      "because": [
+        "Codec TS-4c",
+        "Codec TS-9"
+      ]
+    }
+  ],
+  "setup": {
+    "worker": {
+      "notification_policy": {
+        "matching": [
+          "Title\nBody"
+        ]
+      }
+    }
+  }
+}

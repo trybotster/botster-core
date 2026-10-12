@@ -1,0 +1,1422 @@
+# The crate symbols of each code span of route-codec-v1-extract-rev37.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# Source: `hub-client-contract-v1-draft.md`, taken 2026-09-30. **The client contract owns this text. Core adopts it verbatim** (DP-3). This file never changes: a later revision gets a new path.
+[rows."3"]
+"hub-client-contract-v1-draft.md" = "n/a: the file name of the contract that this extract was taken from"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 37** (on revision 36; HC Amendment 8): the Hub terminates WebRTC. Route channels are labelled `route:<route_id>` on the client's Hub peer connection. `route_limits` has no `max_chunk_bytes`, and `welcome.limits.max_chunk_bytes` bounds the chunk payload on every channel.
+[rows."5"]
+"max_chunk_bytes" = "n/a: the route-limit field that revision 37 removes; the chunk bound is welcome.limits.max_chunk_bytes (hub::Limits::max_chunk_bytes) in the same sentence"
+"route:<route_id>" = { symbols = ["hub::ROUTE_DATACHANNEL_LABEL_PREFIX", "hub::route_datachannel_label"], uncovered = { route = "the value of ROUTE_DATACHANNEL_LABEL_PREFIX", route_id = "the placeholder for the route id" } }
+"route_limits" = ["hub::AttachResult::route_limits", "codec::RouteLimits"]
+"welcome.limits.max_chunk_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_chunk_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 36** (on revision 35; Sol Hub A): the eligibility frame is the worst case: the count with the digits of `route_queue_bytes`, the longest source `osc777`, and `truncated: true`. An empty title or body is omitted. So a shortened, marked report always fits.
+[rows."7"]
+"osc777" = ["codec::NotificationSource::Osc777"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"truncated: true" = { symbols = ["codec::DroppedNotification::truncated"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 35** (on revision 34; Sol Hub A, matching Core): the worker offers `output_dropped` only on routes whose `max_frame_bytes` can carry the minimum frame, and it leaves the feature out of `attached.features` otherwise.
+[rows."9"]
+"attached.features" = ["codec::Attached::features"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"output_dropped" = ["codec::ToClient::OutputDropped", "codec.route_feature:output_dropped"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 34** (on revision 33; Sol Core): `output_dropped` always fits the route's `max_frame_bytes`. The worker shortens `last.body`, then `last.title`, at a character boundary, and sets `truncated: true`.
+[rows."11"]
+"last.body" = ["codec::OutputDropped::last", "codec::DroppedNotification::body"]
+"last.title" = ["codec::OutputDropped::last", "codec::DroppedNotification::title"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"truncated: true" = { symbols = ["codec::DroppedNotification::truncated"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 33** (on revision 32; Sol Hub A): `output_dropped` is sent only when the route negotiated the feature `output_dropped`, and a client without the feature never receives the frame. The worker applies the session's notification policy (SF-5c, supplied by the Hub), so `count` counts only passing notifications, and `last` is required and is the last passing one.
+[rows."13"]
+"count" = "n/a: the prose name of the notifications count (OutputDropped::notifications), not a field name"
+"last" = ["codec::OutputDropped::last"]
+"output_dropped" = ["codec::ToClient::OutputDropped", "codec.route_feature:output_dropped"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 32** (on revision 30; it replaces revision 31, which stated the scanning method normatively): the TS-4c guarantee states that a notification (bell, OSC 9, OSC 777) in output a route never received because of a resync is reported to that route's client exactly once, in one retained exception frame `0x0F output_dropped { notifications, last? }`, before the `resync`. How the worker finds the notifications is implementation. OSC 52 is never reported.
+[rows."15"]
+"0x0F output_dropped { notifications, last? }" = ["codec::ToClient::OutputDropped", "codec::OutputDropped::notifications", "codec::OutputDropped::last"]
+"resync" = ["codec::ToClient::Resync"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 30** (on revision 29; Sol Hub A): the A.1 tagged-value exception for `baseline_end.history` covers both `unavailable` and `incomplete`, whose data is a reason string, as A.4 states.
+[rows."17"]
+"baseline_end.history" = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history"]
+"incomplete" = ["codec::HistoryState::Incomplete"]
+"unavailable" = ["codec::HistoryState::Unavailable"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 28** (on revision 27): the `file_begin.name` length refusal is removed. The worker shortens the derived file name to the platform limit and keeps the extension, so no new numeric bound applies (regrowth rule 1).
+[rows."21"]
+"file_begin.name" = ["codec::Input::FileBegin", "codec::Input::FileBegin::name"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 27** (on revision 26; the completeness sweep, `audits/completeness-sweep-B1-20260930.md` R-1 to R-10, and two accepted-open items). It is the codec of HC Amendment 2:
+[rows."23"]
+"audits/completeness-sweep-B1-20260930.md" = "n/a: a repository path"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A.1 tagged values (R-1, HC H-1):** an enum value with no data is a JSON string; an enum value with data is an object with one key, the value name, whose value is the data object. This applies to every route JSON body (for example `{ "reason": { "unsupported": { "what": "utf8" } } }`).
+[rows."24"]
+'{ "reason": { "unsupported": { "what": "utf8" } } }' = { symbols = ["codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "an example value of what" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-8 and A.4 `route_closed` (R-2):** the body is `{ reason, exit? }`, and `exit` is present only for `session_ended`.
+[rows."25"]
+"exit" = ["codec::RouteClosed::exit"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"session_ended" = ["codec::CloseReason::SessionEnded"]
+"{ reason, exit? }" = ["codec::RouteClosed::reason", "codec::RouteClosed::exit"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **P9 binding (R-3):** a reply from a route that the query was not bound to is refused `wrong_route`; `invalid_input` stays only the route-ending protocol error.
+[rows."26"]
+"invalid_input" = ["codec::ProtocolErrorCode::InvalidInput"]
+"wrong_route" = ["codec::RefusalReason::WrongRoute"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-1 and TS-5b (R-4):** `attach` gains `writable?: bool` (default `true`). `not_writable` is the refusal on a route attached with `writable: false`.
+[rows."27"]
+"attach" = ["hub.action:session.attach"]
+"not_writable" = ["codec::RefusalReason::NotWritable"]
+"true" = "n/a: a JSON literal value"
+"writable: false" = { symbols = ["hub::AttachArgs::writable"], uncovered = { false = "a JSON literal value" } }
+"writable?: bool" = { symbols = ["hub::AttachArgs::writable"], uncovered = { bool = "a JSON type name" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-5d and TS-5f (R-5, R-9, L5):** the paste and file sequencing errors have stated reasons; the meaning of `total_bytes` and the bounds of `file_begin.name` are stated; the worker may refuse at `file_begin` (Core DP-5b).
+[rows."28"]
+"file_begin" = ["codec::Input::FileBegin"]
+"file_begin.name" = ["codec::Input::FileBegin", "codec::Input::FileBegin::name"]
+"total_bytes" = ["codec::Input::PasteBegin::total_bytes", "codec::Input::FileBegin::total_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-4c (R-6):** a resync baseline sends `screen` only, and its `baseline_end.history` is `not_requested`.
+[rows."29"]
+"baseline_end.history" = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history"]
+"not_requested" = ["codec::HistoryState::NotRequested"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A.4 (R-8):** the meanings of `resync.reason` and `terminal_query.answer_within_ms` are stated.
+[rows."30"]
+"resync.reason" = ["codec::ToClient::Resync", "codec::Resync::reason"]
+"terminal_query.answer_within_ms" = ["codec::ToClient::TerminalQuery", "codec::TerminalQuery::answer_within_ms"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A.6 (R-7):** `other_modes` is an object from mode name to bool.
+[rows."31"]
+"other_modes" = ["codec::ModeFlags::other_modes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-9 (R-10):** the subject of `route.ended` is the object `{ route_id }`.
+[rows."32"]
+"route.ended" = { symbols = ["hub::RouteEndedSubject", "hub::RouteEndedPayload"], uncovered = { route = "the Hub event route.ended, whose subject is RouteEndedSubject", ended = "the Hub event route.ended, whose payload is RouteEndedPayload" } }
+"{ route_id }" = ["hub::RouteEndedSubject::route_id"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A.2b (accepted-open from the final gates):** `attach_failed` adds `snapshot_too_large` and `bad_peer` (Core OU-2b).
+[rows."33"]
+"attach_failed" = ["codec::CloseReason::AttachFailed"]
+"bad_peer" = ["codec::AttachFailedReason::BadPeer"]
+"snapshot_too_large" = ["codec::AttachFailedReason::SnapshotTooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 25** (on revision 24; Sol Core): TS-4's parser-safe cut now cites Core ST-6b's resume invariant and allows both of Core's methods: carrying the pending parser state, or cutting at the preceding ground state and replaying the complete pending bytes as `output` after the baseline.
+[rows."37"]
+"output" = ["codec::ToClient::Output"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-10:** the focus-out condition is exact (Core DP-12). It applies when a route ends whose latest focus input was `focused: true` and no remaining route's latest focus input is `focused: true`.
+[rows."40"]
+"focused: true" = { symbols = ["codec::Input::Focus::focused"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-4:** the state cut is exactly the state that Core ST-6b lists. Images need `snapshot_graphics`, and the cwd is included.
+[rows."45"]
+"snapshot_graphics" = ["core::Feature::SnapshotGraphics"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-5f (CG-1, legacy parity):** the worker pastes the file's path **followed by one space**, as one paste, so the user can type straight after it and agent CLIs detect the path as an attachment. `written_bytes` counts the space too.
+[rows."46"]
+"written_bytes" = ["codec::InputDone::written_bytes", "codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - TB-0 also names the partial `mcp` binding for agents (already in revision 22; no route impact).
+[rows."47"]
+"mcp" = ["hub.binding:mcp"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# **Revision 22** (on revision 21; client parity audit, `audits/client-parity-20260930.md`):
+[rows."49"]
+"audits/client-parity-20260930.md" = "n/a: a repository path"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A.4 (CG-7):** new frame `0x0E output_deflate`, raw DEFLATE of one output payload, only when the route negotiated the feature `output_deflate`. The inflated size is bounded by the output frame bound.
+[rows."52"]
+"0x0E output_deflate" = ["codec::ToClient::OutputDeflate"]
+"output_deflate" = ["codec::ToClient::OutputDeflate", "codec.route_feature:output_deflate"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **`written_bytes` has one unit everywhere** (TS-5b): the bytes written to the PTY after encoding, including any bracketed-paste markers (Core IN-2). For a file, it counts only the path paste, never the uploaded content.
+[rows."55"]
+"written_bytes" = ["codec::InputDone::written_bytes", "codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-5f:** before it creates the final file, the worker checks that the encoded path paste fits `max_paste_bytes`. If it does not, the commit is refused with `too_large` and no file is created.
+[rows."56"]
+"max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - A file refusal **before the file is complete** leaves no file and writes no path. A refusal **while the path is being pasted** (`failed`, `session_ended`) carries `path` (the file stays under the Hub's cleanup policy) and the path paste's `written_bytes`, exact or absent. `input_refused` gains `path?`.
+[rows."59"]
+"failed" = ["codec::RefusalReason::Failed"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"path" = ["codec::InputRefused::path"]
+"path?" = ["codec::InputRefused::path"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"written_bytes" = ["codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-5c and TS-9, failed route:** an `input_done` or `input_refused` that already arrived still decides that input's outcome. Only input without such a frame is unknown.
+[rows."64"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **TS-7:** exception frames wait in the route's existing outgoing queue under Core's `route_queue_bytes`, and a resync never discards them. When that queue cannot hold one more, the worker stops reading the route's input. There is no separate count.
+[rows."65"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **File input, TS-5f** (a user gap; it replaces the monorepo `CONTENT_FILE` frame). `file_begin`, `file_chunk` (`0x85`), then `file_commit` or `file_abort`, bounded by `route_limits.max_file_bytes`. At the commit, the worker writes the file on the session's host and then writes its path as a paste at the commit's position in the receive order. Every commit is answered with `input_done { op, written_bytes, path }` or `input_refused` (new reason `write_failed`). The directory, naming, permissions and cleanup are Hub policy.
+[rows."69"]
+"file_abort" = ["codec::Input::FileAbort"]
+"file_begin" = ["codec::Input::FileBegin"]
+"file_chunk" = ["codec::ToWorker::FileChunk"]
+"file_commit" = ["codec::Input::FileCommit"]
+"input_done { op, written_bytes, path }" = ["codec::ToClient::InputDone", "codec::InputDone::op", "codec::InputDone::written_bytes", "codec::InputDone::path"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"route_limits.max_file_bytes" = ["codec::RouteLimits::max_file_bytes", "codec::RouteLimits"]
+"write_failed" = ["codec::RefusalReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - TS-5b: `failed` and `session_ended` can follow a partial write of any input; `written_bytes` is exact when known and absent when unknown;
+[rows."72"]
+"failed" = ["codec::RefusalReason::Failed"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"written_bytes" = ["codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **No success acknowledgement** for any input (TS-5), except a paste that requests completion and a file. `op` is optional, except on a paste or a file.
+[rows."76"]
+"op" = ["codec::Op"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **`0x0A` is now `input_refused { op?, reason, written_bytes? }`**, sent only when an input is not applied as sent (TS-5b). The fields `outcome` and `accepted_bytes`, and the outcomes `superseded`, `applied`, `cancelled` and `unknown`, are deleted.
+[rows."77"]
+"accepted_bytes" = "n/a: a field of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+"applied" = "n/a: an outcome of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+"cancelled" = "n/a: an outcome of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+"input_refused { op?, reason, written_bytes? }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::InputRefused::written_bytes"]
+"outcome" = "n/a: a field of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+"superseded" = "n/a: an outcome of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+"unknown" = "n/a: an outcome of the pre-revision-22 input_refused that this text deletes; no crate symbol by design"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **`0x0D input_done { op, written_bytes, path? }`** answers a `paste_commit { want_result: true }` and every `file_commit`.
+[rows."78"]
+"0x0D input_done { op, written_bytes, path? }" = ["codec::ToClient::InputDone", "codec::InputDone::op", "codec::InputDone::written_bytes", "codec::InputDone::path"]
+"file_commit" = ["codec::Input::FileCommit"]
+"paste_commit { want_result: true }" = { symbols = ["codec::Input::PasteCommit", "codec::Input::PasteCommit::want_result"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **A resize has no answer.** The effective size arrives in `modes` (TS-4d, TS-6).
+[rows."79"]
+"modes" = ["codec::ToClient::Modes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **Input that the modes do not report** (Core `NotReported`) sends no frame, as on a real terminal (A.5).
+[rows."80"]
+"NotReported" = ["core::NotWrittenReason::NotReported"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **Backpressure:** the worker stops reading the route while its input queue is full. The reason `lane_full` is deleted from the route reasons.
+[rows."81"]
+"lane_full" = "n/a: a route reason that this text deletes; no crate symbol by design"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - **Aligned with Core** (delta check): the stream progress point restates Core OU-3a (TB-L4), and the WebRTC one is the Hub bridge's (TB-W4, HC A8-4); a late answer while the fallback is pending is `query_expired` (Core EV-8(i)); `session_ended` is an `input_refused` reason.
+[rows."83"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"query_expired" = ["codec::RefusalReason::QueryExpired"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37)
+# - A query-reply refusal uses `input_refused` with `already_replied`, `query_expired`, `unknown_query`, `invalid_input` or `too_large`.
+[rows."84"]
+"already_replied" = ["codec::RefusalReason::AlreadyReplied"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"invalid_input" = ["codec::RefusalReason::InvalidInput"]
+"query_expired" = ["codec::RefusalReason::QueryExpired"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"unknown_query" = ["codec::RefusalReason::UnknownQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# 1. The worker parses the query, saves the **shadow answer at the parse point** (if `shadow_answerable`), and **never auto-answers**.
+[rows."91"]
+"shadow_answerable" = ["codec::TerminalQuery::shadow_answerable"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# 2. **The asked route** is the session's most recently active route (under `Latest`, TS-6). If no route has sent input yet, it is the most recently attached route that can send input. A route attached with `answers_queries: false` is never asked. If such a route exists, the worker sends `terminal_query` on that route and waits at most the **host-supplied** `query_client_deadline_ms`. The Hub sets that value as policy (a documented default in the Hub configuration, with a range of 1 ms to the Hub's maximum), and **reports the value applied to each route in `route_limits.query_client_deadline_ms`**. **Core has no timer of its own:** the only deadline is the one the host supplies.
+[rows."92"]
+"Latest" = ["core::SizePolicy::Latest"]
+"answers_queries: false" = { symbols = ["hub::AttachArgs::answers_queries"], uncovered = { false = "a JSON literal value" } }
+"query_client_deadline_ms" = ["codec::RouteLimits::query_client_deadline_ms"]
+"route_limits.query_client_deadline_ms" = ["codec::RouteLimits::query_client_deadline_ms", "codec::RouteLimits"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# 3. The client answers **from its own real terminal state** (its theme colors, its real window and cell size, its clipboard, its emulator state), or it declines. A client `decline` is **not** a final answer: it triggers the fallback.
+[rows."93"]
+"decline" = ["codec::QueryReply::Decline"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# 5. **Exactly one reply:** the client answer and the fallback atomically consume the same `query_id` **at admission**. "The fallback started" means that the fallback was **admitted**. A fallback refused at admission (for example, the input lane is full) leaves the query pending. A client answer after an admitted fallback is refused with `already_replied`, and the reverse also holds.
+[rows."95"]
+"already_replied" = ["codec::RefusalReason::AlreadyReplied"]
+"query_id" = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - A client **disables every automatic query reply** of its terminal emulator for bytes that arrive in `output`.
+[rows."97"]
+"output" = ["codec::ToClient::Output"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - It **never** sends reply bytes as `text` or `bytes`.
+[rows."98"]
+"bytes" = ["codec::ToWorker::Bytes"]
+"text" = ["codec::ToWorker::Text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - It answers only with `reply_terminal_query`, and only for a `terminal_query` it received **on that route**.
+[rows."99"]
+"reply_terminal_query" = ["codec::Input::ReplyTerminalQuery"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - **Binding.** The **worker** binds each `query_id` to the route it chose: that route and the session run. A `reply_terminal_query` from any other route is refused with `input_refused { reason: wrong_route }`.
+[rows."100"]
+"input_refused { reason: wrong_route }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::WrongRoute"]
+"query_id" = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+"reply_terminal_query" = ["codec::Input::ReplyTerminalQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - **Routing.** A query reply does **not** count as activity for `Latest` (TS-6). The worker never reroutes a query after a reply is admitted. If the completion of an admitted reply is unknown, **no other answer is sent**. If the chosen route ends **before** a reply is admitted, the worker goes straight to the shadow-terminal fallback (step 4).
+[rows."101"]
+"Latest" = ["core::SizePolicy::Latest"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Terminal queries on the route (P9, extract)
+# - **One actor per side effect.** The **worker** sends `output` bytes straight to the client (BP-1), so an attached client is the one actor for OSC 52 writes, and for notifications and the bell **on that client**. The Hub uses Core's notification events (Core EV-7) **only to inform the other clients** (the client contract's SF-5d: an event, the row's attention and Web push). It never writes to the terminal and never acts on OSC 52.
+[rows."102"]
+"output" = ["codec::ToClient::Output"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | BP-1 | **The route ends at the session worker on `local-stream`, and at the Hub's bridge on `webrtc`** (A8-5). The Hub authorizes an attach (caller, permission, session) and hands the route's endpoint over in the binding's way (section 9: TB-L2, A8-2). On `local-stream`, the Hub then gets out of the byte path, and **no Hub process touches route bytes**. On `webrtc`, the Hub's bridge relays the route frames unchanged (A8-3). | `conf::bp_1_hub_stopped_bytes_still_flow` (`SIGSTOP` the Hub process: typing still echoes, and output still arrives on an attached route, on **every** binding) |
+[rows."110"]
+"local-stream" = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | BP-2 | **Unadulterated bytes.** `output` frames carry the PTY's bytes **exactly**, in order. Client input frames reach the PTY as the bytes they specify: raw `bytes` and `text` verbatim, and semantic keys and paste encoded only as P9 and Core 5.1A define. A baseline snapshot is sent **only** at attach and at a resync (TS-4, TS-4c), never as a substitute for output. | `conf::bp_2_output_bytes_identical_to_pty` (a random byte stream written to the PTY equals the concatenated `output` payloads) |
+[rows."111"]
+"bytes" = ["codec::ToWorker::Bytes"]
+"output" = ["codec::ToClient::Output"]
+"text" = ["codec::ToWorker::Text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | BP-3 | **Framing** on the route is the thin frame of Appendix A.4, `[u8 type][body]`, delimited by the binding (TS-3). The data frames (`output`, and input `bytes` `0x83`, `text` `0x84` and `paste_chunk` `0x82`) carry raw bytes with no JSON. Control and lifecycle frames (`resize`, `modes`, `input_refused`, `input_done`, `terminal_query`, `route_closed`, and the baseline frames) travel **on the same ordered stream** beside the data. They are small and infrequent. | `conf::bp_3_data_frames_are_raw` |
+[rows."112"]
+"[u8 type][body]" = "n/a: a byte layout (a frame without its length prefix)"
+"bytes" = ["codec::ToWorker::Bytes"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"modes" = ["codec::ToClient::Modes"]
+"output" = ["codec::ToClient::Output"]
+"paste_chunk" = ["codec::ToWorker::PasteChunk"]
+"resize" = ["codec::Input::Resize"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+"text" = ["codec::ToWorker::Text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | BP-5 | *(Non-normative.)* Route frames are produced and consumed by the session's worker. On `webrtc`, the Hub's bridge relays them unchanged (A8-3). Control frames, authorization, attach, detach and revocation are the Hub's. The Core contract states the split (Core DP-4, EV-8). A client sees only the frames and results defined here. | `conf::bp_5_detach_via_hub_closes_route_at_worker`, `conf::bp_5_revocation_closes_worker_routes` |
+[rows."113"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | BP-7 | **Worker restart and adoption.** Routes do not survive a worker exit. On a Hub restart (the worker keeps running), **existing `local-stream` routes stay connected**, because the Hub is not on their path, and **`webrtc` routes end** (A8-5). The new Hub adopts the worker and its routes' metadata (Core adoption). | `conf::bp_7_routes_survive_hub_restart` |
+[rows."114"]
+"local-stream" = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# **Layering (resolved with the Core pair).** The Hub defines the route **lifecycle** and the **input and result envelopes**. Core defines the **payload encodings** of the baseline (GHOSTSNP, Core ST-6), of output and of resync. The **worker** carries those payloads **verbatim** inside the route frames (BP-1), and on `webrtc` the Hub's bridge relays the frames unchanged (A8-3). `terminal_format` (HS-3) names the Core payload encoding, for example `ghostsnp/2+raw`. A client never sees a Core version.
+[rows."117"]
+"ghostsnp/2+raw" = "n/a: an example terminal_format value; the set is open and feature-detected (HS-3)"
+"terminal_format" = ["codec::Attached::terminal_format"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-1 | `invoke(session, id, attach, { history: none | screen | full, replace_route?, answers_queries?, writable?, binding?, route_features? })` **reserves a route** and answers `{ route_id, transport, route_limits: { max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_paste_bytes, max_file_bytes, max_query_reply_bytes, query_client_deadline_ms, stall_deadline_ms, stall_close_after_ms } }`, taken from the worker options selected at attach. `binding` defaults to the binding of the requesting connection. **Before the route is reserved, the Hub refuses the attach with `unsupported { reason }`** in two cases:
+[rows."118"]
+"binding" = ["hub::AttachArgs::binding"]
+"invoke(session, id, attach, { history: none | screen | full, replace_route?, answers_queries?, writable?, binding?, route_features? })" = { symbols = ["hub.action:session.attach", "hub::AttachArgs::history", "hub::AttachHistory::None", "hub::AttachHistory::Screen", "hub::AttachHistory::Full", "hub::AttachArgs::replace_route", "hub::AttachArgs::answers_queries", "hub::AttachArgs::writable", "hub::AttachArgs::binding", "hub::AttachArgs::route_features"], uncovered = { invoke = "the client's invoke message (HC)", session = "the argument of the call", id = "the argument of the call" } }
+"unsupported { reason }" = { symbols = ["hub::ErrorCode::Unsupported"], uncovered = { reason = "the reason member of the error detail (hub.reason:session.attach:unsupported:*)" } }
+"{ route_id, transport, route_limits: { max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_paste_bytes, max_file_bytes, max_query_reply_bytes, query_client_deadline_ms, stall_deadline_ms, stall_close_after_ms } }" = ["hub::AttachResult::route_id", "hub::AttachResult::transport", "hub::AttachResult::route_limits", "codec::RouteLimits::max_frame_bytes", "codec::RouteLimits::max_screen_frame_bytes", "codec::RouteLimits::max_history_page_bytes", "codec::RouteLimits::max_paste_bytes", "codec::RouteLimits::max_file_bytes", "codec::RouteLimits::max_query_reply_bytes", "codec::RouteLimits::query_client_deadline_ms", "codec::RouteLimits::stall_deadline_ms", "codec::RouteLimits::stall_close_after_ms"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - the caller cannot authenticate on the chosen binding (for example, `webrtc` needs a paired credential and the caller has none): `binding_auth_unavailable`. A binding always authenticates the route connection itself (TB-0 item 2), and **no client kind bypasses that**;
+[rows."119"]
+"binding_auth_unavailable" = ["hub.reason:session.attach:unsupported:binding_auth_unavailable"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - no terminal format from the caller's `hello.terminal_formats` is supported by the **target session's worker**: `terminal_format`.
+[rows."120"]
+"hello.terminal_formats" = { symbols = ["hub::Hello::terminal_formats"], uncovered = { hello = "the client's hello message, typed as Hello" } }
+"terminal_format" = ["hub.reason:session.attach:unsupported:terminal_format"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# **Negotiation is per route.** The attach picks the first format in the caller's `hello.terminal_formats` that the target worker supports. `attached.terminal_format` echoes that choice, and `attached.features` is the **intersection** of the attach's `route_features` and the worker's features. **`transport` is `{ binding: <name>, … }`**, where `<name>` is an open, feature-detected string (TB-0) and the other fields are that binding's connect information (section 9). **The three frame bounds** (`max_frame_bytes`, `max_screen_frame_bytes`, `max_history_page_bytes`) bound a frame's size, which counts the type byte plus the body (TS-3). So `max_screen_frame_bytes` = Core's `max_snapshot_bytes` + 1, and `max_history_page_bytes` = the history page payload limit + 1. **Chunking is not a route limit:** a binding that chunks uses `welcome.limits.max_chunk_bytes` for every channel (TR-3, A8-3). Each route frame fits its own type's limit. **Every limit a route peer can hit is reported per route in `route_limits`**, and it is authoritative over any `welcome.limits` value of the same name (those are Hub-wide hints). **`writable`** (default `true`): a route attached with `writable: false` is view-only, and the worker refuses every input on it except `reply_terminal_query` and `resize` with `not_writable` (TS-5b). The Hub mints `route_id`, unique within the `hub_id`. **A session may have many routes at once** (several panes or clients). `replace_route: <route_id>` ends that route with `replaced` in the same step. Without it, no other route is touched. | `conf::ts_1_multi_attach`, `conf::ts_1_explicit_replace` |
+[rows."122"]
+"<name>" = { symbols = ["hub::Transport::binding"], uncovered = { name = "a placeholder for the binding name" } }
+"attached.features" = ["codec::Attached::features"]
+"attached.terminal_format" = ["codec::ToClient::Attached", "codec::Attached::terminal_format"]
+"hello.terminal_formats" = { symbols = ["hub::Hello::terminal_formats"], uncovered = { hello = "the client's hello message, typed as Hello" } }
+"hub_id" = "n/a: the Hub's identity, which HC defines; no field of a codec or route type"
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"max_history_page_bytes" = ["codec::RouteLimits::max_history_page_bytes"]
+"max_screen_frame_bytes" = ["codec::RouteLimits::max_screen_frame_bytes"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+"not_writable" = ["codec::RefusalReason::NotWritable"]
+"replace_route: <route_id>" = { symbols = ["hub::AttachArgs::replace_route"], uncovered = { route_id = "a placeholder for the route id" } }
+"replaced" = ["codec::CloseReason::Replaced"]
+"reply_terminal_query" = ["codec::Input::ReplyTerminalQuery"]
+"resize" = ["codec::Input::Resize"]
+"route_features" = ["hub::AttachArgs::route_features"]
+"route_id" = ["hub::AttachResult::route_id"]
+"route_limits" = ["hub::AttachResult::route_limits", "codec::RouteLimits"]
+"transport" = ["hub::AttachResult::transport"]
+"true" = "n/a: a JSON literal value"
+"welcome.limits" = ["hub::Welcome::limits"]
+"welcome.limits.max_chunk_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_chunk_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+"writable" = ["hub::AttachArgs::writable"]
+"writable: false" = { symbols = ["hub::AttachArgs::writable"], uncovered = { false = "a JSON literal value" } }
+"{ binding: <name>, … }" = { symbols = ["hub::AttachResult::transport", "hub::Transport::binding"], uncovered = { name = "a placeholder for the binding name" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-2 | **Connect.** The client completes its binding's connect step (section 9: TB-L2, TB-W2) within `limits.route_connect_seconds`. A route that is not connected in time ends with `not_connected` (TS-9). | `conf::ts_2_connect_once_in_time` |
+[rows."123"]
+"limits.route_connect_seconds" = ["hub::Welcome::limits", "hub::Limits::route_connect_seconds"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-3 | **Framing:** the route carries frames `[u8 type][body]` in both directions. **The binding delimits them** (section 9). A frame's **size** counts the type byte plus the body, and each frame type has its own bound (A.1 `frame_too_large`). The type values and bodies are normative in Appendix A.4. There is no route id, generation or epoch in any frame: the binding's connection **is** the route. | `conf::ts_3_framing` |
+[rows."124"]
+"[u8 type][body]" = "n/a: a byte layout (a frame without its length prefix)"
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-4 | **Baseline.** After connect: `attached`, `baseline_begin { rows, cols, modes }`, one `screen { payload }` frame (at most `route_limits.max_screen_frame_bytes`), zero or more `history { payload }`, and `baseline_end { history: not_requested | complete | unavailable { reason } | incomplete { reason } }`. The `complete` history may be empty. **The baseline is a state cut:** a terminal model that loads the baseline and then applies every later `output` reaches the same **terminal state** as the session's model at the same point (the worker's model): **exactly the state that Core ST-6b lists**: the screen and scrollback cells with their attributes, OSC 8 hyperlinks included; the palette and the dynamic colors; the cursor position, visibility, shape and blink; every `ModeFlags` field; the size and the alternate-screen state; the title and the cwd. Images are restored only when the worker advertises `snapshot_graphics`. Core states every exclusion, and nothing is lost silently (parity CG-6). **The cut is parser-safe, per Core ST-6b's resume invariant:** a model that loads the baseline and then applies every later `output` reaches the session's exact state at every cut point, including a cut inside an escape sequence (for example `ESC [` then `31mX`). Core either carries the pending parser state in the snapshot, or takes the cut at the preceding ground state and sends the complete pending sequence bytes as `output` after the baseline. Either way the prefix is restored, and a client never receives an unmatched sequence suffix. History is compared **only** when it is `complete`. If the screen cannot be produced, attach fails: the route ends with `attach_failed { reason }`. Missing or incomplete history leaves the route live. | `conf::ts_4_state_equivalence` (the model after baseline + output equals the worker's model), `conf::ts_4_history_states` |
+[rows."125"]
+"ModeFlags" = ["codec::ModeFlags"]
+"attach_failed { reason }" = ["codec::CloseReason::AttachFailed", "codec::CloseReason::AttachFailed::reason"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin { rows, cols, modes }" = ["codec::ToClient::BaselineBegin", "codec::BaselineBegin::rows", "codec::BaselineBegin::cols", "codec::BaselineBegin::modes"]
+"baseline_end { history: not_requested | complete | unavailable { reason } | incomplete { reason } }" = { symbols = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history", "codec::HistoryState::NotRequested", "codec::HistoryState::Complete", "codec::HistoryState::Unavailable", "codec::HistoryState::Incomplete", "codec::HistoryUnavailable", "codec::HistoryIncomplete"], uncovered = { reason = "the data of unavailable and incomplete, typed HistoryUnavailable and HistoryIncomplete (A.1 tagged values)" } }
+"complete" = ["codec::HistoryState::Complete"]
+"history { payload }" = ["codec::ToClient::History", "codec::ToClient::History::payload"]
+"output" = ["codec::ToClient::Output"]
+"route_limits.max_screen_frame_bytes" = ["codec::RouteLimits", "codec::RouteLimits::max_screen_frame_bytes"]
+"screen { payload }" = ["codec::ToClient::Screen", "codec::ToClient::Screen::payload"]
+"snapshot_graphics" = ["core::Feature::SnapshotGraphics"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-4b | **`live`** follows `baseline_end`. **`live` is the input-ready point** (TS-5). | `conf::ts_4b_live_after_baseline`, `conf::ts_4b_early_input_not_ready` |
+[rows."126"]
+"baseline_end" = ["codec::ToClient::BaselineEnd"]
+"live" = ["codec::ToClient::Live"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-4c | **Resync within a route.** When the worker discards queued output for this route (a reader without progress, TS-7), the worker **first finishes every frame whose bytes or chunks have started**, discards only frames not yet started, and sends `resync` at the next frame boundary. **Guarantee, when the route negotiated the feature `output_dropped`** (TS-1 `route_features`): a notification (bell, OSC 9, OSC 777) that was in output this route never received because of the discard, **and that passes the session's notification policy**, is still reported to this route's client, **exactly once**, in one `output_dropped` frame (A.4) sent **before** that `resync`. **Without the feature, no `output_dropped` frame is sent**, and those notifications are lost with the discarded output, as in revision 30. The `resync` is followed by a new `baseline_begin` … `baseline_end`, `live`. **A resync baseline sends `screen` only, never `history`, and its `baseline_end.history` is `not_requested`** (R-6). The client replaces its screen and keeps the history it has. The route and its `route_id` stay the same. **If a started frame cannot be finished, the route ends** (TS-9 `write_failed`) and the client re-attaches. **Transport loss is not a resync:** it ends the route (TS-9). | `conf::ts_4c_resync_same_route` |
+[rows."127"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"baseline_end" = ["codec::ToClient::BaselineEnd"]
+"baseline_end.history" = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history"]
+"history" = ["codec::ToClient::History"]
+"live" = ["codec::ToClient::Live"]
+"not_requested" = ["codec::HistoryState::NotRequested"]
+"output_dropped" = ["codec::ToClient::OutputDropped", "codec.route_feature:output_dropped"]
+"resync" = ["codec::ToClient::Resync"]
+"route_features" = ["hub::AttachArgs::route_features"]
+"route_id" = ["hub::AttachResult::route_id"]
+"screen" = ["codec::ToClient::Screen"]
+"write_failed" = ["codec::RouteEndReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-4d | **Modes and the effective size** travel on the route: `modes { modes, rows, cols }` in the baseline and at every change. `rows` and `cols` are the size actually applied to the PTY. | `conf::ts_4d_modes_effective_size` |
+[rows."128"]
+"cols" = ["codec::Modes::cols"]
+"modes { modes, rows, cols }" = ["codec::ToClient::Modes", "codec::Modes::modes", "codec::Modes::rows", "codec::Modes::cols"]
+"rows" = ["codec::Modes::rows"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-5 | **Input is fire-and-forget** (user rule, 2026-09-30: a terminal over ssh has no per-keystroke acknowledgement). The route's ordered, reliable delivery **is** the delivery guarantee, and **there is no success acknowledgement** for `bytes`, `text`, keys, mouse, focus or resize. The two exceptions are a paste that requests completion (TS-5b) and a file (TS-5f). `input { op?, kind: key | text | mouse | focus | resize | paste_begin | paste_chunk | paste_commit | paste_abort | file_begin | file_chunk | file_commit | file_abort, … }`. `op` is optional and chosen by the client, and it is used only to correlate a refusal (TS-5b). A paste's frames, and a file's frames, carry one `op`, which is required for them. **Order is the worker's receive order.** Input received before `live` is refused `not_ready`. Backpressure is the transport's: the worker stops reading the route while its input queue is full, so input is never dropped for lack of room. What a client does with unsent input, or with input handed to a transport that then failed, is client policy (TS-5c). | `conf::ts_5_no_success_ack`, `conf::ts_5_order_is_receive_order`, `conf::ts_5_backpressure_not_drop` |
+[rows."129"]
+"bytes" = ["codec::ToWorker::Bytes"]
+"input { op?, kind: key | text | mouse | focus | resize | paste_begin | paste_chunk | paste_commit | paste_abort | file_begin | file_chunk | file_commit | file_abort, … }" = { symbols = ["codec::ToWorker::Input", "codec::Op", "codec::Input::Key", "codec::ToWorker::Text", "codec::Input::Mouse", "codec::Input::Focus", "codec::Input::Resize", "codec::Input::PasteBegin", "codec::ToWorker::PasteChunk", "codec::Input::PasteCommit", "codec::Input::PasteAbort", "codec::Input::FileBegin", "codec::ToWorker::FileChunk", "codec::Input::FileCommit", "codec::Input::FileAbort"], uncovered = { kind = "the tag of the JSON Input enum" } }
+"live" = ["codec::ToClient::Live"]
+"not_ready" = ["codec::RefusalReason::NotReady"]
+"op" = ["codec::Op"]
+"text" = ["codec::ToWorker::Text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-5b | **The worker reports only exceptions:** `input_refused { op?, reason }`, sent when an input is **not** applied as sent. `op` echoes the input's `op` when it had one. `reason` is non-exhaustive (an unknown reason shows as "other"):
+[rows."130"]
+"input_refused { op?, reason }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason"]
+"op" = ["codec::InputRefused::op"]
+"reason" = ["codec::InputRefused::reason", "codec::RefusalReason"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `not_ready` (before `live`);
+[rows."131"]
+"live" = ["codec::ToClient::Live"]
+"not_ready" = ["codec::RefusalReason::NotReady"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `not_writable` (a route attached with `writable: false`, TS-1);
+[rows."132"]
+"not_writable" = ["codec::RefusalReason::NotWritable"]
+"writable: false" = { symbols = ["hub::AttachArgs::writable"], uncovered = { false = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `too_large`;
+[rows."133"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `mode_precondition_failed` (the paste asked for bracketed mode and it was off; the client, which classified the paste, shows its own unsafe-paste reason);
+[rows."134"]
+"mode_precondition_failed" = ["codec::RefusalReason::ModePreconditionFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `unsupported { what }` (an unknown kind or value, or invalid UTF-8 as `what: "utf8"`);
+[rows."135"]
+"unsupported { what }" = ["codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+'what: "utf8"' = { symbols = ["codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "the what value for invalid UTF-8" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `refused`;
+[rows."136"]
+"refused" = ["codec::RefusalReason::Refused"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `session_ended`;
+[rows."137"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `failed` (the write to the PTY failed);
+[rows."138"]
+"failed" = ["codec::RefusalReason::Failed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `write_failed` (a file could not be written on the host, TS-5f).
+[rows."139"]
+"write_failed" = ["codec::RefusalReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# A refusal means the input had no effect, except `failed` and `session_ended`: those can follow a partial write of **any** input (bytes, text, a paste, or a multi-byte encoded key). They carry `written_bytes`, which is exact when the worker knows it and absent when it does not. **`written_bytes` has one unit everywhere:** the bytes written to the PTY after encoding, including any bracketed-paste markers (Core IN-2). For a file, it counts only the path paste, never the uploaded content. Input that the program's modes do not report (for example, mouse events with tracking off) is not an exception: as on a real terminal, it is simply not sent to the program, with no frame. **A paste may request completion:** `paste_commit { op, want_result: true }` is answered by `input_done { op, written_bytes }` or by `input_refused`. This supports the unsafe-paste confirmation flow and paste progress. Apart from this, only a file is acknowledged (TS-5f). | `conf::ts_5b_refusal_only_on_exception`, `conf::ts_5b_partial_write_reports_written_bytes`, `conf::ts_5b_paste_done_on_request`, `conf::ts_5b_unreported_mode_input_is_silent` |
+[rows."141"]
+"failed" = ["codec::RefusalReason::Failed"]
+"input_done { op, written_bytes }" = ["codec::ToClient::InputDone", "codec::InputDone::op", "codec::InputDone::written_bytes"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"paste_commit { op, want_result: true }" = { symbols = ["codec::Input::PasteCommit", "codec::Input::PasteCommit::op", "codec::Input::PasteCommit::want_result"], uncovered = { true = "a JSON literal value" } }
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"written_bytes" = ["codec::InputDone::written_bytes", "codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Sent, and the route is still live:** the worker processes it in receive order. It is written, or refused with an `input_refused`, or (for input that the modes do not report, A.5) omitted with no frame, as on a real terminal. There is no success receipt: silence proves neither that the write has completed (the input may still be queued behind PTY backpressure) nor that no refusal is in transit.
+[rows."144"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Sent, and the route failed** (TS-9): an `input_done` or `input_refused` for it that already arrived still decides its outcome. Without such a frame, the outcome is unknown, as on ssh.
+[rows."145"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# Each client chooses to drop, keep or resend. *(Non-normative: resending may duplicate input.)* A user-confirmed paste resend is a **new** `op` with `require_bracketed: false`. **There is no size result:** the effective size arrives in `modes { modes, rows, cols }` (TS-4d). | `conf::ts_5c_unsent_has_no_effect`, `conf::ts_5c_confirmed_paste_resend_is_new_op` |
+[rows."147"]
+"modes { modes, rows, cols }" = ["codec::ToClient::Modes", "codec::Modes::modes", "codec::Modes::rows", "codec::Modes::cols"]
+"op" = ["codec::Op"]
+"require_bracketed: false" = { symbols = ["codec::Input::PasteBegin::require_bracketed"], uncovered = { false = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-5d | **Paste** is one operation: `paste_begin`, chunks, then `paste_commit` or `paste_abort`. An abort before the commit writes nothing, with no frame. An abort after the commit has no effect. A paste over `route_limits.max_paste_bytes` is refused with `input_refused { op, reason: too_large }` at the first chunk that exceeds it, with zero effect. A paste not committed when the route ends writes nothing. **Only Core's encoder** adds bracketed-paste markers, at write time, according to the mode at that time. Neither the client nor the Hub adds them. The paste's chunks reach the PTY contiguously: no other input is written between them. **Sequencing errors** (R-5): a `paste_chunk` with no open paste; a chunk, commit or abort whose `op` is not the open paste's `op`; a second `paste_begin` while a paste is open; a commit or abort with no open paste. Each is refused with `input_refused { op?, reason: refused }`, with zero effect, and the route stays open. A JSON paste frame without `op`, or a `paste_chunk` with `op` 0, is `protocol_error { malformed_frame }`. **`total_bytes`** (R-9) is advisory: when it is over `max_paste_bytes`, the worker may refuse at `paste_begin` with `too_large`; a mismatch with the bytes actually sent has no effect, and the commit writes the bytes received. | `conf::ts_5d_abort_before_commit`, `conf::ts_5d_contiguous`, `conf::ts_5d_sequencing_errors_refused` |
+[rows."148"]
+"input_refused { op, reason: too_large }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::RefusalReason::TooLarge"]
+"input_refused { op?, reason: refused }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::RefusalReason::Refused"]
+"max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes"]
+"op" = ["codec::Op"]
+"paste_abort" = ["codec::Input::PasteAbort"]
+"paste_begin" = ["codec::Input::PasteBegin"]
+"paste_chunk" = ["codec::ToWorker::PasteChunk"]
+"paste_commit" = ["codec::Input::PasteCommit"]
+"protocol_error { malformed_frame }" = ["codec::ProtocolErrorCode::MalformedFrame", "codec::CloseReason::ProtocolError"]
+"route_limits.max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes", "codec::RouteLimits"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"total_bytes" = ["codec::Input::PasteBegin::total_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - When the rule needs bracketed mode, the client sends `paste_begin { require_bracketed: true }`, and the worker applies it as Core `Paste { require_bracketed: true }`.
+[rows."151"]
+"Paste { require_bracketed: true }" = { symbols = ["core::InputPayload::Paste", "core::InputPayload::Paste::require_bracketed"], uncovered = { true = "a JSON literal value" } }
+"paste_begin { require_bracketed: true }" = { symbols = ["codec::Input::PasteBegin", "codec::Input::PasteBegin::require_bracketed"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - The worker checks the mode **atomically at the start of the write**. `ModePreconditionFailed` proves zero effect, and the worker reports it on the route as `input_refused { op, reason: mode_precondition_failed }`. The client derives its UI reason from the payload it classified.
+[rows."152"]
+"ModePreconditionFailed" = ["core::NotWrittenReason::ModePreconditionFailed"]
+"input_refused { op, reason: mode_precondition_failed }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::RefusalReason::ModePreconditionFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - A confirmed resend is a new op with `require_bracketed: false`.
+[rows."153"]
+"require_bracketed: false" = { symbols = ["codec::Input::PasteBegin::require_bracketed"], uncovered = { false = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Why the client classifies** (gate 3 #86): clients are authenticated operators, and a confirmed resend is a client choice anyway. So worker-side enforcement would add no protection against a nonconforming client. Core's `paste_require_bracketed_if` option is to be deleted (gate 2 #1). | `conf::ts_5e_precondition_zero_effect`, `conf::ts_5e_confirmed_resend_without_precondition_writes` |
+[rows."155"]
+"paste_require_bracketed_if" = "n/a: a pre-contract Core option that this text deletes (gate 2 #1); no crate symbol by design"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `file_begin { op, name, mime?, total_bytes? }`, then `file_chunk` frames (`0x85`), then `file_commit` or `file_abort`. `op` is required and nonzero. One file is open per route at a time; a second `file_begin` before the first ends is refused with `refused`. The other sequencing errors (a chunk, commit or abort with no open file or with another `op`) are refused with `refused`, and a missing or zero `op` is `protocol_error { malformed_frame }`, as for a paste (TS-5d). `name` is UTF-8, bounded only by the frame. The worker shortens the file name it derives (TS-5f) so that it always fits the platform's file-name component limit, and refuses nothing for length. It keeps the extension **only when the extension itself fits with at least one character of stem**; otherwise it shortens the whole name, extension included. The result is never empty and never exceeds the limit. `total_bytes` is advisory, as for a paste. **The worker may refuse at `file_begin`** (Core DP-5b) with `too_large` when `total_bytes` exceeds `max_file_bytes`, or when the encoded path paste cannot fit `max_paste_bytes`; nothing is created.
+[rows."157"]
+"file_abort" = ["codec::Input::FileAbort"]
+"file_begin" = ["codec::Input::FileBegin"]
+"file_begin { op, name, mime?, total_bytes? }" = ["codec::Input::FileBegin", "codec::Input::FileBegin::op", "codec::Input::FileBegin::name", "codec::Input::FileBegin::mime", "codec::Input::FileBegin::total_bytes"]
+"file_chunk" = ["codec::ToWorker::FileChunk"]
+"file_commit" = ["codec::Input::FileCommit"]
+"max_file_bytes" = ["codec::RouteLimits::max_file_bytes"]
+"max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes"]
+"name" = ["codec::Input::FileBegin::name"]
+"op" = ["codec::Op"]
+"protocol_error { malformed_frame }" = ["codec::ProtocolErrorCode::MalformedFrame", "codec::CloseReason::ProtocolError"]
+"refused" = ["codec::RefusalReason::Refused"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"total_bytes" = ["codec::Input::FileBegin::total_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Bound:** a file over `route_limits.max_file_bytes` is refused with `too_large` at the first chunk that exceeds it, and nothing of it stays on the host.
+[rows."158"]
+"route_limits.max_file_bytes" = ["codec::RouteLimits::max_file_bytes", "codec::RouteLimits"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Before it creates the final file**, the worker forms the absolute path and checks that the encoded path paste (markers included) fits `route_limits.max_paste_bytes`. If it does not, the commit is refused with `too_large` and no file is created.
+[rows."160"]
+"route_limits.max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes", "codec::RouteLimits"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **At `file_commit`**, the worker writes the file on the session's host, where the session can read it. Then it writes the file's **path followed by one space** as one paste (TS-5d) **at the commit's position in the receive order** (the space lets the user type straight after the path, and agent CLIs detect the path as an attachment; legacy parity CG-1), so the path lands in order with the user's typing. Only Core's encoder adds bracketed-paste markers, when the mode is on.
+[rows."161"]
+"file_commit" = ["codec::Input::FileCommit"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **The worker chooses the path.** The directory comes from Hub policy. The file name is unique, derived from `name` reduced to `A-Z a-z 0-9 . _ -` (an empty result becomes `file`), never overwrites a file and never leaves the directory. The worker pastes the absolute path's bytes **unmodified**: neither Core nor the worker quotes or escapes it, because neither knows the program's syntax. *(Non-normative: a Hub directory policy without spaces or shell metacharacters keeps the path usable at a shell prompt.)* `mime` is advisory.
+[rows."162"]
+"A-Z a-z 0-9 . _ -" = "n/a: a character set"
+"file" = "n/a: a literal file name"
+"mime" = ["codec::Input::FileBegin::mime"]
+"name" = ["codec::Input::FileBegin::name"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **The exception to fire-and-forget:** every `file_commit` is answered, with `input_done { op, written_bytes, path }` or with `input_refused { op, reason }`. The reasons include `too_large`, `write_failed`, `not_writable`, `not_ready`, `failed` and `session_ended`.
+[rows."163"]
+"failed" = ["codec::RefusalReason::Failed"]
+"file_commit" = ["codec::Input::FileCommit"]
+"input_done { op, written_bytes, path }" = ["codec::ToClient::InputDone", "codec::InputDone::op", "codec::InputDone::written_bytes", "codec::InputDone::path"]
+"input_refused { op, reason }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason"]
+"not_ready" = ["codec::RefusalReason::NotReady"]
+"not_writable" = ["codec::RefusalReason::NotWritable"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"write_failed" = ["codec::RefusalReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - A refusal **before the file is complete** (`too_large`, `write_failed`, `not_writable`, `not_ready`, or `session_ended` during the upload) leaves no file and writes no path.
+[rows."164"]
+"not_ready" = ["codec::RefusalReason::NotReady"]
+"not_writable" = ["codec::RefusalReason::NotWritable"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"write_failed" = ["codec::RefusalReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - A refusal **while the path is being pasted** (`failed` or `session_ended`) carries `path` (the file stays, under the Hub's cleanup policy) and `written_bytes` of the path paste (exact when known, absent when unknown, TS-5b).
+[rows."165"]
+"failed" = ["codec::RefusalReason::Failed"]
+"path" = ["codec::InputRefused::path"]
+"session_ended" = ["codec::RefusalReason::SessionEnded"]
+"written_bytes" = ["codec::InputRefused::written_bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-6 | **Size policy `Latest`.** The Hub **selects** the policy (orchestrator ruling), and the **worker computes and applies** it, because it owns the routes (BP-5):
+[rows."169"]
+"Latest" = ["core::SizePolicy::Latest"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - **Resize input:** a `resize` counts as activity, so the resizing route becomes active. It gets no answer. The applied size (which may come from a more active route) arrives in `modes` (TS-4d).
+[rows."174"]
+"modes" = ["codec::ToClient::Modes"]
+"resize" = ["codec::Input::Resize"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-7 | **Backpressure** (matches Core OU-3). A reader that makes progress is lossless: output waits, and the session's output source waits too. A reader with no progress for `route_limits.stall_deadline_ms` (Hub policy, applied by the worker) may have its queued **output** discarded and gets a resync (TS-4c). **Only queued output may be discarded:** pending `input_refused` and `input_done` frames and `route_closed` are retained and still delivered on the continuing route. **Exception frames are bounded without loss:** they wait in the route's existing outgoing queue and count against its existing byte bound (Core `route_queue_bytes`), but a resync never discards them. When that queue cannot hold one more exception frame, the worker stops reading the route's input until it can, as it does for a full input queue. No separate count or ledger exists. So a client that sends input and never reads refusals stalls its own route, and the stall rules above then close it; the worker never drops an exception frame and never grows without bound. **A resync ends the answer chance only for an affected query**: a query whose required output prefix was discarded, which means its `terminal_query` frame had not started. The client would otherwise answer from stale state. **A query frame already sent (or started, and then finished under TS-4c) is not affected**, because ordered delivery has already carried its prefix. For an affected query:
+[rows."176"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"route_limits.stall_deadline_ms" = ["codec::RouteLimits", "codec::RouteLimits::stall_deadline_ms"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - The worker retires its unstarted `terminal_query` frame.
+[rows."177"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - A later client answer for that `query_id` is refused with `input_refused { reason: already_replied }`, or `input_refused { reason: query_expired }` if the fallback is still pending (Core EV-8(i)).
+[rows."179"]
+"input_refused { reason: already_replied }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::AlreadyReplied"]
+"input_refused { reason: query_expired }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::QueryExpired"]
+"query_id" = ["codec::Input::ReplyTerminalQuery::query_id"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - If admission of the fallback is refused (for example, the lane is full), the query stays pending on the fallback path only. **The stale client-answer path is never reopened.** If it still makes no progress after `route_limits.stall_close_after_ms`, the route ends with `stalled`. | `conf::ts_7_progressing_lossless`, `conf::ts_7_stall_resync_then_close`, `conf::ts_7_unread_refusals_stop_input_reads` |
+[rows."180"]
+"route_limits.stall_close_after_ms" = ["codec::RouteLimits", "codec::RouteLimits::stall_close_after_ms"]
+"stalled" = ["codec::RouteEndReason::Stalled"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-8 | **A healthy close** drains. Every output frame queued for the route is sent. For `session_ended`, that includes **the final PTY tail through Core's final read** before the process exit. Then `route_closed { reason }` is the last frame, then EOF or the channel close. Healthy reasons: `detached`, `replaced`, `session_ended` (with `exit` beside the reason, A.4), `revoked`, `attach_failed { reason }`. (A Hub shutdown does **not** end `local-stream` routes. It ends `webrtc` routes, BP-7, A8-5.) | `conf::ts_8_drain_includes_final_tail`, `conf::ts_8_close_is_last` |
+[rows."181"]
+"attach_failed { reason }" = ["codec::CloseReason::AttachFailed", "codec::CloseReason::AttachFailed::reason"]
+"detached" = ["codec::CloseReason::Detached"]
+"exit" = ["codec::RouteClosed::exit"]
+"local-stream" = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+"replaced" = ["codec::CloseReason::Replaced"]
+"revoked" = ["codec::CloseReason::Revoked"]
+"route_closed { reason }" = ["codec::ToClient::RouteClosed", "codec::RouteClosed::reason"]
+"session_ended" = ["codec::CloseReason::SessionEnded"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-9 | **A failed route** (the transport died, or it never connected) may lose undelivered output. The worker reports the end to the Hub over its control link, and the Hub reports it with `event { stream_id: "routes", owner: "hub", name: "route.ended", subject: { route_id }, payload: { reason }, priority: "high", source, at }` (the section 8 shape, on the connection's implicit, always-open `routes` stream; `route_ended` below means this event; its `subject` is the object `{ route_id }`, R-10) on the owning client's control connection, when that connection is alive. `reason` ∈ `not_connected`, `handoff_failed`, `transport_lost`, `write_failed`, `stalled` (TS-7), `session_lost`. A failed route may lack `route_closed`, and it may lose output. It may also lose undelivered `input_done` and `input_refused` frames. Input handed to it before the failure has an unknown outcome, unless a frame for that input already arrived (TS-5c). **EOF without `route_closed` means that the cause is unknown** until `route_ended` arrives or the session watch explains it. | `conf::ts_9_failed_route_reported`, `conf::ts_9_eof_without_close_is_unknown` |
+[rows."182"]
+'event { stream_id: "routes", owner: "hub", name: "route.ended", subject: { route_id }, payload: { reason }, priority: "high", source, at }' = { symbols = ["hub::Event", "hub::Event::stream_id", "hub::ROUTES_STREAM_ID", "hub::Event::owner", "hub::Event::name", "hub::Event::subject", "hub::RouteEndedSubject::route_id", "hub::Event::payload", "hub::RouteEndedPayload::reason", "hub::Event::priority", "hub::EventPriority::High", "hub::Event::source", "hub::Event::at"], uncovered = { routes = "the value of ROUTES_STREAM_ID", hub = "the owner value of a Hub event", route = "the event name route.ended (RouteEndedSubject, RouteEndedPayload)", ended = "the event name route.ended (RouteEndedSubject, RouteEndedPayload)" } }
+"handoff_failed" = ["codec::RouteEndReason::HandoffFailed"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+"reason" = ["hub::RouteEndedPayload::reason", "codec::RouteEndReason"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"route_ended" = { symbols = ["codec::RouteEndReason"], uncovered = { route_ended = "the worker's route-ended report to the Hub (typed by its reason RouteEndReason)" } }
+"routes" = { symbols = ["hub::ROUTES_STREAM_ID"], uncovered = { routes = "the value of ROUTES_STREAM_ID" } }
+"session_lost" = ["codec::RouteEndReason::SessionLost"]
+"stalled" = ["codec::RouteEndReason::Stalled"]
+"subject" = ["hub::Event::subject"]
+"transport_lost" = ["codec::RouteEndReason::TransportLost"]
+"write_failed" = ["codec::RouteEndReason::WriteFailed"]
+"{ route_id }" = ["hub::RouteEndedSubject::route_id"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-10 | `invoke(session, id, detach, { route_id })` ends the route with `detached`. A client that closes its route connection ends only that route (TS-9 `transport_lost`). The session keeps running. **When a route ends** (by any close) **whose latest focus input was `focused: true`, and no remaining route's latest focus input is `focused: true`,** and the program enabled focus reporting, the worker writes a focus-out to the program, as a terminal losing its window would (Core DP-12; parity CG-17). | `conf::ts_10_detach`, `conf::ts_10_last_focused_route_end_writes_focus_out` |
+[rows."183"]
+"detached" = ["codec::CloseReason::Detached"]
+"focused: true" = { symbols = ["codec::Input::Focus::focused"], uncovered = { true = "a JSON literal value" } }
+"invoke(session, id, detach, { route_id })" = { symbols = ["hub.action:session.detach", "hub::DetachArgs::route_id"], uncovered = { invoke = "the client's invoke message (HC)", session = "the argument of the call", id = "the argument of the call" } }
+"transport_lost" = ["codec::RouteEndReason::TransportLost"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TS-11 | **Route identity.** A `route_id` names one attachment. A re-attach or a transport recovery makes a new route. **A Hub restart does not end `local-stream` routes, and it ends `webrtc` routes** (BP-7, A8-5). A worker exit ends them. The durable identity is `{hub_id, session_id}`. | `conf::ts_11_reattach_after_worker_exit` |
+[rows."184"]
+"local-stream" = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+"route_id" = ["hub::AttachResult::route_id"]
+"webrtc" = ["hub.binding:webrtc"]
+"{hub_id, session_id}" = { symbols = ["hub::Welcome::hub_id", "core::SessionId"], uncovered = { session_id = "the session id, typed SessionId" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# Everything else (the envelope, `describe`, watches, events, the terminal stream, input, queries, errors) is shared and binding-neutral.
+[rows."192"]
+"describe" = ["hub::Verb::Describe"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# **A binding is not tied to a client kind.** Any client may use any binding its platform supports. For example, a TUI on another machine attaches over `webrtc`, and a Web client could use a local stream where the platform allows it.
+[rows."194"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# **The set is extensible:** a new binding is a new section 9 entry plus a feature name `binding:<name>` in `features[]`. `transport.binding` is an open string, and a client uses only bindings the Hub advertises. The v1 bindings are `local-stream` (9.1), `webrtc` (9.2) and the partial `mcp` binding for agents (9.4). | `conf::tb_0_transcripts_run_unchanged_on_every_binding` (the section 12 transcripts, byte for byte, on each binding), `conf::tb_0_any_client_kind_any_binding`, `conf::tb_0_unknown_binding_not_offered` |
+[rows."196"]
+"binding:<name>" = { symbols = ["hub::BINDING_FEATURE_PREFIX", "hub::Transport::binding"], uncovered = { name = "a placeholder for the binding name" } }
+"features[]" = ["hub::Welcome::features"]
+"local-stream" = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+"mcp" = ["hub.binding:mcp"]
+"transport.binding" = ["hub::AttachResult::transport", "hub::Transport::binding"]
+"webrtc" = ["hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TR-1 | **Control.** One control connection to the Hub (the socket path). Frames are `[u32 big-endian length][UTF-8 JSON]`, where `length` counts the JSON bytes and is at most `welcome.limits.max_frame_bytes`. | `conf::tr_1_unix_framing` |
+[rows."197"]
+"[u32 big-endian length][UTF-8 JSON]" = "n/a: a byte layout of the control framing"
+"length" = "n/a: a field of the byte layout of the control framing"
+"welcome.limits.max_frame_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_frame_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - `transport = { binding: "local-stream", socket_path, route_token }`. `socket_path` is the Hub's listener. `route_token` is **unguessable**, **single-use**, bound to the `route_id` and to the authenticated caller and peer uid, and valid only within `limits.route_connect_seconds`.
+[rows."199"]
+"limits.route_connect_seconds" = ["hub::Welcome::limits", "hub::Limits::route_connect_seconds"]
+"route_id" = ["hub::AttachResult::route_id"]
+"route_token" = ["hub::Transport::route_token"]
+"socket_path" = ["hub::Transport::socket_path"]
+'transport = { binding: "local-stream", socket_path, route_token }' = { symbols = ["hub::AttachResult::transport", "hub::Transport::binding", "hub.binding:local-stream", "hub::Transport::socket_path", "hub::Transport::route_token"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - The client opens a **new** connection to `socket_path`. Its first and only handshake frame uses the **control framing** (TR-1: `[u32 big-endian JSON byte length][UTF-8 JSON]`, bounded by `welcome.limits.max_frame_bytes`): `{ "frame": "route_connect", route_id, route_token }`. The listener tells a route connection from a control connection by this first frame (`hello` or `route_connect`), without reading any terminal frame. **After the handoff, the connection carries TS-3 route frames.**
+[rows."200"]
+"[u32 big-endian JSON byte length][UTF-8 JSON]" = "n/a: a byte layout of the control framing"
+"hello" = ["hub::Hello"]
+"route_connect" = ["hub::RouteConnect"]
+"socket_path" = ["hub::Transport::socket_path"]
+"welcome.limits.max_frame_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_frame_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+'{ "frame": "route_connect", route_id, route_token }' = { symbols = ["hub::RouteConnect", "hub::RouteConnect::route_id", "hub::RouteConnect::route_token"], uncovered = { frame = "the tag of the handshake frame" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - The Hub reads **exactly** that bounded handshake and verifies the token, the route, the peer uid and the connect window. **An invalid proof does not consume the token.** **Successful verification consumes the token atomically:** if two connections present the same valid token, exactly one gets the route, and the other is closed with `close { route_token_used }`.
+[rows."201"]
+"close { route_token_used }" = { symbols = ["hub::CloseReason::RouteTokenUsed"], uncovered = { close = "the handshake close frame, typed by its reason CloseReason" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - If the handoff fails, the reservation ends with a typed reason (`route_ended { handoff_failed }`, TS-9).
+[rows."203"]
+"route_ended { handoff_failed }" = { symbols = ["codec::RouteEndReason", "codec::RouteEndReason::HandoffFailed"], uncovered = { route_ended = "the worker's route-ended report to the Hub (typed by its reason RouteEndReason)" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# - A route that is not connected within the window ends with `not_connected`.
+[rows."204"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# **Delimiting:** `[u32 big-endian length][frame]`, where `length` is the frame's size (TS-3). | `conf::tb_l2_token_single_use_bound_to_route_and_uid`, `conf::tb_l2_concurrent_same_token_one_wins`, `conf::tb_l2_handshake_uses_control_framing`, `conf::tb_l2_invalid_proof_keeps_token`, `conf::tb_l2_no_terminal_frame_read_by_hub`, `conf::tb_l2_handoff_failure_typed`, `conf::tb_l2_no_temporary_paths` |
+[rows."206"]
+"[u32 big-endian length][frame]" = "n/a: a byte layout of the local-stream route framing"
+"length" = "n/a: a field of the byte layout of the local-stream route framing"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TR-2 | **WebRTC.** Signalling stays outside the envelope. The **Hub peer connection** carries **one** reliable, ordered `control` DataChannel for the envelope, watches and event streams, and **one reliable, ordered DataChannel per route** (A8-1, A8-2). Every channel ends at the Hub, which bridges each route channel to the session's worker (A8-1). | `conf::tr_2_control_on_hub_peer_routes_on_worker_peers` |
+[rows."209"]
+"control" = { symbols = ["hub::CONTROL_DATACHANNEL_LABEL"], uncovered = { control = "the value of CONTROL_DATACHANNEL_LABEL" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TB-W2 | **Route connect.** `transport = { binding: "webrtc" }`. The client opens, on the same Hub peer connection, a reliable, ordered DataChannel labelled `route:<route_id>` within `limits.route_connect_seconds`, as A8-2 states. | `conf::tb_w2_route_on_worker_peer` |
+[rows."210"]
+"limits.route_connect_seconds" = ["hub::Welcome::limits", "hub::Limits::route_connect_seconds"]
+"route:<route_id>" = { symbols = ["hub::ROUTE_DATACHANNEL_LABEL_PREFIX", "hub::route_datachannel_label"], uncovered = { route = "the value of ROUTE_DATACHANNEL_LABEL_PREFIX", route_id = "the placeholder for the route id" } }
+'transport = { binding: "webrtc" }' = ["hub::AttachResult::transport", "hub::Transport::binding", "hub.binding:webrtc"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses
+# | TR-3 | **WebRTC framing.** Each DataChannel message is `[u8 flags][chunk]`. Bit 0 of `flags` = `final`, and the other bits are 0. A frame is the concatenation of its chunks, up to and including the one marked `final`. Each chunk is at most `welcome.limits.max_chunk_bytes` bytes on every channel. The `flags` byte is not part of the chunk, so one message is at most `max_chunk_bytes + 1` bytes, at or below the SCTP maximum message size (A8-3). A control frame is at most `welcome.limits.max_frame_bytes`. A route frame is at most its type's `route_limits` bound (TS-1). A frame that is incomplete when its channel closes is discarded. Control frames are UTF-8 JSON, and route frames are TS-3 frames without the length prefix. **Reliable ordered channels do not lose single messages.** A transport failure closes the channel, and it ends the routes on it (TS-9). | `conf::tr_3_chunking`, `conf::tr_3_incomplete_frame_discarded` |
+[rows."212"]
+"[u8 flags][chunk]" = "n/a: the TR-3 DataChannel message layout (a flags byte and a chunk); codec::ChunkReader reads it"
+"final" = "n/a: the name of bit 0 of the TR-3 flags byte; codec::ChunkReader reads it"
+"flags" = "n/a: the flags byte of a TR-3 DataChannel message; codec::ChunkReader reads it"
+"max_chunk_bytes + 1" = ["hub::Limits::max_chunk_bytes"]
+"route_limits" = ["codec::RouteLimits"]
+"welcome.limits.max_chunk_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_chunk_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+"welcome.limits.max_frame_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_frame_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - **Integers** in JSON are within ±(2^53 − 1). A u64 identifier (request `id`, `op` in JSON) is sent as a **decimal string**.
+[rows."218"]
+"id" = ["hub::Req::id", "hub::RequestId"]
+"op" = ["codec::Op"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - **Tagged values** (R-1): an enum value with no data is a JSON string (`"detached"`). An enum value with data is an object with exactly one key, the value name, whose value is the data object (`{ "unsupported": { "what": "utf8" } }`, `{ "protocol_error": { "code": "malformed_frame" } }`, `{ "unavailable": { "reason": "evicted" } }`). A receiver accepts the bare string for a value whose data is all optional. This applies to every JSON body on the control stream and on a route. (`baseline_end.history` keeps its revision-26 forms, `{ "unavailable": reason }` and `{ "incomplete": reason }` with `reason` a string, as a named exception for compatibility.)
+[rows."219"]
+'"detached"' = ["codec::CloseReason::Detached"]
+"baseline_end.history" = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history"]
+"reason" = { symbols = ["codec::HistoryUnavailable", "codec::HistoryIncomplete"], uncovered = { reason = "the data of unavailable and incomplete (A.1 tagged values)" } }
+'{ "incomplete": reason }' = { symbols = ["codec::HistoryState::Incomplete", "codec::HistoryIncomplete"], uncovered = { reason = "the data of incomplete, typed HistoryIncomplete" } }
+'{ "protocol_error": { "code": "malformed_frame" } }' = ["codec::ProtocolErrorCode::MalformedFrame", "codec::CloseReason::ProtocolError", "codec::CloseReason::ProtocolError::code"]
+'{ "unavailable": reason }' = { symbols = ["codec::HistoryState::Unavailable", "codec::HistoryUnavailable"], uncovered = { reason = "the data of unavailable, typed HistoryUnavailable" } }
+'{ "unavailable": { "reason": "evicted" } }' = { symbols = ["codec::HistoryState::Unavailable", "codec::HistoryUnavailable::Evicted"], uncovered = { reason = "the data member of the general A.1 form in this example; baseline_end.history keeps the named exception form" } }
+'{ "unsupported": { "what": "utf8" } }' = { symbols = ["codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "the what value for invalid UTF-8" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - **Absent means "not provided".** `null` is accepted only where the field's schema permits it, and then it has that field's defined meaning. A required field is never `null`. **In an RFC 7396 merge patch, `null` deletes the member and absence leaves it unchanged,** as that RFC defines.
+[rows."220"]
+"null" = "n/a: a JSON literal value"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - **Duplicate object keys**, invalid UTF-8 or invalid JSON are `protocol_error { malformed_frame }`, and the connection closes.
+[rows."221"]
+"protocol_error { malformed_frame }" = ["codec::ProtocolErrorCode::MalformedFrame", "codec::CloseReason::ProtocolError"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - **Invalid framing** closes the connection with a typed `protocol_error`:
+[rows."222"]
+"protocol_error" = ["codec::CloseReason::ProtocolError"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `frame_too_large`: the length exceeds the bound **of that frame's type**. A control frame is bound by `welcome.limits.max_frame_bytes`. On a route, `screen` is bound by `route_limits.max_screen_frame_bytes`, `history` by `route_limits.max_history_page_bytes`, and every other frame by `route_limits.max_frame_bytes`;
+[rows."223"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"history" = ["codec::ToClient::History"]
+"route_limits.max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes", "codec::RouteLimits"]
+"route_limits.max_history_page_bytes" = ["codec::RouteLimits::max_history_page_bytes", "codec::RouteLimits"]
+"route_limits.max_screen_frame_bytes" = ["codec::RouteLimits", "codec::RouteLimits::max_screen_frame_bytes"]
+"screen" = ["codec::ToClient::Screen"]
+"welcome.limits.max_frame_bytes" = { symbols = ["hub::Welcome::limits", "hub::Limits::max_frame_bytes"], uncovered = { welcome = "the Hub's welcome message, typed Welcome" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `malformed_frame`: the body is not what the frame type requires;
+[rows."224"]
+"malformed_frame" = ["codec::ProtocolErrorCode::MalformedFrame"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `unknown_frame`: an unknown frame type without the ignorable bit (A.4);
+[rows."225"]
+"unknown_frame" = ["codec::ProtocolErrorCode::UnknownFrame"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `handshake_order`;
+[rows."226"]
+"handshake_order" = ["codec::ProtocolErrorCode::HandshakeOrder"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `duplicate_request_id`;
+[rows."227"]
+"duplicate_request_id" = ["codec::ProtocolErrorCode::DuplicateRequestId"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# - `invalid_input`: a route frame that cannot be parsed. **Only an unparseable frame ends a route.** An unknown enum value inside a parseable input is refused with `input_refused { reason: unsupported { what } }`, and invalid UTF-8 in a `text` frame with `input_refused { reason: unsupported { what: "utf8" } }`. Both have zero effect, and the route stays open.
+[rows."228"]
+"input_refused { reason: unsupported { what } }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+'input_refused { reason: unsupported { what: "utf8" } }' = { symbols = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "the what value for invalid UTF-8" } }
+"invalid_input" = ["codec::ProtocolErrorCode::InvalidInput"]
+"text" = ["codec::ToWorker::Text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.1 JSON rules (the control stream and JSON route bodies)
+# On a route, the same codes end the route (TS-9 `write_failed` for the worker's own failure; `route_closed { protocol_error { code } }` for the client's).
+[rows."230"]
+"route_closed { protocol_error { code } }" = ["codec::ToClient::RouteClosed", "codec::CloseReason::ProtocolError", "codec::CloseReason::ProtocolError::code"]
+"write_failed" = ["codec::RouteEndReason::WriteFailed"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# **Every reason set in this contract is non-exhaustive.** A receiver shows an unknown reason as "other". An unknown `Lost` reason maps to `lost` (`indeterminate`), and an unknown ended cause maps to `ended`.
+[rows."234"]
+"Lost" = ["core::SessionState::Lost"]
+"ended" = ["codec::SessionState::Ended"]
+"indeterminate" = ["codec::LifecycleClass::Indeterminate"]
+"lost" = ["codec::SessionState::Lost"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# - **`watch_closed.reason`:** `owner_unloaded`, `owner_failed`, `kind_removed`, `permission_revoked`, `item_too_large`.
+[rows."235"]
+"item_too_large" = ["hub::WatchClosedReason::ItemTooLarge"]
+"kind_removed" = ["hub::WatchClosedReason::KindRemoved"]
+"owner_failed" = ["hub::WatchClosedReason::OwnerFailed"]
+"owner_unloaded" = ["hub::WatchClosedReason::OwnerUnloaded"]
+"permission_revoked" = ["hub::WatchClosedReason::PermissionRevoked"]
+"watch_closed.reason" = ["hub::WatchFrame::WatchClosed", "hub::WatchFrame::WatchClosed::reason"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# - **`close.reason`:** HS-9.
+[rows."236"]
+"close.reason" = { symbols = ["hub::Close::reason", "hub::CloseReason"], uncovered = { close = "the handshake close frame, typed Close" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# - **`route_closed.reason`:** TS-8, plus `protocol_error { code }`.
+[rows."237"]
+"protocol_error { code }" = ["codec::CloseReason::ProtocolError", "codec::CloseReason::ProtocolError::code"]
+"route_closed.reason" = ["codec::ToClient::RouteClosed", "codec::RouteClosed::reason"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# - **`route_ended.reason`:** TS-9.
+[rows."238"]
+"route_ended.reason" = { symbols = ["hub::RouteEndedPayload::reason", "codec::RouteEndReason"], uncovered = { route_ended = "the event route.ended, whose payload is RouteEndedPayload" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2 Reason sets
+# - **`snapshot_begin.reason`:** absent for the first baseline, and one of `overflow`, `source_reset` or `owner_reloaded` for a resync.
+[rows."239"]
+"overflow" = ["hub::SnapshotReason::Overflow"]
+"owner_reloaded" = ["hub::SnapshotReason::OwnerReloaded"]
+"snapshot_begin.reason" = ["hub::WatchFrame::SnapshotBegin", "hub::WatchFrame::SnapshotBegin::reason"]
+"source_reset" = ["hub::SnapshotReason::SourceReset"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2b More reason sets
+# - **History `unavailable`:** `evicted`, `restart`, `oversize`, `capture_failed`. **`incomplete`:** `truncated`, `capture_failed`.
+[rows."242"]
+"capture_failed" = ["codec::HistoryUnavailable::CaptureFailed", "codec::HistoryIncomplete::CaptureFailed"]
+"evicted" = ["codec::HistoryUnavailable::Evicted"]
+"incomplete" = ["codec::HistoryState::Incomplete"]
+"oversize" = ["codec::HistoryUnavailable::Oversize"]
+"restart" = ["codec::HistoryUnavailable::Restart"]
+"truncated" = ["codec::HistoryIncomplete::Truncated"]
+"unavailable" = ["codec::HistoryState::Unavailable"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2b More reason sets
+# - **`attach_failed`:** `session_not_running`, `screen_unavailable`, `not_attachable`, `snapshot_too_large`, `bad_peer` (Core OU-2b).
+[rows."243"]
+"attach_failed" = ["codec::CloseReason::AttachFailed"]
+"bad_peer" = ["codec::AttachFailedReason::BadPeer"]
+"not_attachable" = ["codec::AttachFailedReason::NotAttachable"]
+"screen_unavailable" = ["codec::AttachFailedReason::ScreenUnavailable"]
+"session_not_running" = ["codec::AttachFailedReason::SessionNotRunning"]
+"snapshot_too_large" = ["codec::AttachFailedReason::SnapshotTooLarge"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2c `lifecycle_class` of a session
+# ### A.2c `lifecycle_class` of a session
+[rows."245"]
+"lifecycle_class" = ["codec::LifecycleClass", "codec::SessionState::lifecycle_class"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2c `lifecycle_class` of a session
+# | `state` | Meaning | `lifecycle_class` | Input | `restart` | `delete` |
+[rows."247"]
+"delete" = ["hub.action:session.delete"]
+"lifecycle_class" = ["hub::SessionRow::lifecycle_class", "codec::LifecycleClass"]
+"restart" = ["hub.action:session.restart"]
+"state" = ["hub::SessionRow::state", "codec::SessionState"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2c `lifecycle_class` of a session
+# | `starting` (including Core `Created`), `running`, `stopping` | live | `current` | yes (on a live route) | no | no (`wrong_state`) |
+[rows."249"]
+"Created" = ["core::SessionState::Created"]
+"current" = ["codec::LifecycleClass::Current"]
+"running" = ["codec::SessionState::Running"]
+"starting" = ["codec::SessionState::Starting"]
+"stopping" = ["codec::SessionState::Stopping"]
+"wrong_state" = ["hub::ErrorCode::WrongState"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2c `lifecycle_class` of a session
+# | `ended` | the process is known to have ended, including a worker that was lost with a **known** termination (`failure_reason: worker_lost`; Core AD-2 `WorkerGone` and `StartInterrupted`) | `ended` | no | if `restartable` | yes |
+[rows."250"]
+"StartInterrupted" = ["core::LostReason::StartInterrupted"]
+"WorkerGone" = ["core::LostReason::WorkerGone"]
+"ended" = ["codec::SessionState::Ended", "codec::LifecycleClass::Ended"]
+"failure_reason: worker_lost" = { symbols = ["hub::SessionRow::failure_reason"], uncovered = { worker_lost = "a non-exhaustive string value of failure_reason" } }
+"restartable" = ["hub::SessionRow::restartable"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.2c `lifecycle_class` of a session
+# | `lost` | adoption is **unresolved**: the worker may still be alive (Core AD-2 `WorkerUnreachable`, `WorkerVersion`, `RegistryCorrupt`) | `indeterminate` | no | no | yes: an operator cleanup, carried out as Core `Remove` (Core LC-7 and AD-2 end a stray worker only after verifying its identity) |
+[rows."251"]
+"RegistryCorrupt" = ["core::LostReason::RegistryCorrupt"]
+"Remove" = ["core::Op::Remove"]
+"WorkerUnreachable" = ["core::LostReason::WorkerUnreachable"]
+"WorkerVersion" = ["core::LostReason::WorkerVersion"]
+"indeterminate" = ["codec::LifecycleClass::Indeterminate"]
+"lost" = ["codec::SessionState::Lost"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x01` | `attached` | JSON `{ features: [..], terminal_format, limits }`, where `limits` restates the attach's `route_limits` as the worker applies them. `features` is the intersection of the client's `route_features` and the worker's features. `terminal_format` is the format negotiated at attach (TS-1). `limits` are the route's **own** limits, announced by the worker that serves it. They are authoritative for that route over the Hub-wide `welcome` values, because an adopted worker may be one version older (Core AD-4). |
+[rows."259"]
+"attached" = ["codec::ToClient::Attached"]
+"features" = ["codec::Attached::features"]
+"limits" = ["codec::Attached::limits"]
+"route_features" = ["hub::AttachArgs::route_features"]
+"route_limits" = ["hub::AttachResult::route_limits", "codec::RouteLimits"]
+"terminal_format" = ["codec::Attached::terminal_format"]
+"welcome" = ["hub::Welcome"]
+"{ features: [..], terminal_format, limits }" = ["codec::Attached::features", "codec::Attached::limits", "codec::Attached::terminal_format"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x02` | `baseline_begin` | JSON `{ rows, cols, modes: ModeFlags }` |
+[rows."260"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"{ rows, cols, modes: ModeFlags }" = ["codec::BaselineBegin::rows", "codec::BaselineBegin::cols", "codec::BaselineBegin::modes", "codec::ModeFlags"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x03` | `screen` | the Core screen payload (opaque bytes, `terminal_format`) |
+[rows."261"]
+"screen" = ["codec::ToClient::Screen"]
+"terminal_format" = ["codec::Attached::terminal_format"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x04` | `history` | one Core history payload page (opaque bytes) |
+[rows."262"]
+"history" = ["codec::ToClient::History"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x05` | `baseline_end` | JSON `{ history: "not_requested" | "complete" | { "unavailable": reason } | { "incomplete": reason } }` |
+[rows."263"]
+"baseline_end" = ["codec::ToClient::BaselineEnd"]
+'{ history: "not_requested" | "complete" | { "unavailable": reason } | { "incomplete": reason } }' = { symbols = ["codec::BaselineEnd::history", "codec::HistoryState::NotRequested", "codec::HistoryState::Complete", "codec::HistoryState::Unavailable", "codec::HistoryState::Incomplete", "codec::HistoryUnavailable", "codec::HistoryIncomplete"], uncovered = { reason = "the data of unavailable and incomplete, typed HistoryUnavailable and HistoryIncomplete" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x06` | `live` | empty |
+[rows."264"]
+"live" = ["codec::ToClient::Live"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x07` | `output` | the Core output payload (opaque bytes) |
+[rows."265"]
+"output" = ["codec::ToClient::Output"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0E` | `output_deflate` | a raw DEFLATE stream (RFC 1951) of one `output` payload. Sent only when the route negotiated the feature `output_deflate` (TS-1 `route_features`); the worker chooses per frame. The inflated payload is at most the `output` frame bound minus the one type byte (TS-3 counts the type byte); a larger or corrupt stream is `protocol_error { invalid_input }` (parity CG-7: legacy compressed large output, which matters over TURN) |
+[rows."266"]
+"output" = ["codec::ToClient::Output"]
+"output_deflate" = ["codec::ToClient::OutputDeflate", "codec.route_feature:output_deflate"]
+"protocol_error { invalid_input }" = ["codec::CloseReason::ProtocolError", "codec::ProtocolErrorCode::InvalidInput"]
+"route_features" = ["hub::AttachArgs::route_features"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x08` | `modes` | JSON `{ modes: ModeFlags, rows, cols }` |
+[rows."267"]
+"modes" = ["codec::ToClient::Modes"]
+"{ modes: ModeFlags, rows, cols }" = ["codec::Modes::modes", "codec::ModeFlags", "codec::Modes::rows", "codec::Modes::cols"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x09` | `resync` | JSON `{ reason: "stalled" | "overflow" }`. `stalled`: the reader made no progress for `stall_deadline_ms` (TS-7). `overflow`: the route's queued output reached its byte bound (Core `route_queue_bytes`). |
+[rows."268"]
+"overflow" = ["codec::ResyncReason::Overflow"]
+"resync" = ["codec::ToClient::Resync"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"stall_deadline_ms" = ["codec::RouteLimits::stall_deadline_ms"]
+"stalled" = ["codec::ResyncReason::Stalled"]
+'{ reason: "stalled" | "overflow" }' = ["codec::Resync::reason", "codec::ResyncReason::Stalled", "codec::ResyncReason::Overflow"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0A` | `input_refused` | JSON `{ op?, reason, written_bytes?, path? }` (TS-5b; `path` only for a file whose path paste failed, TS-5f) |
+[rows."269"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"path" = ["codec::InputRefused::path"]
+"{ op?, reason, written_bytes?, path? }" = ["codec::InputRefused::op", "codec::InputRefused::reason", "codec::InputRefused::written_bytes", "codec::InputRefused::path"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0D` | `input_done` | JSON `{ op, written_bytes, path? }`, sent only for a `paste_commit` with `want_result: true` (TS-5b) and for every `file_commit`, with `path` (TS-5f) |
+[rows."270"]
+"file_commit" = ["codec::Input::FileCommit"]
+"input_done" = ["codec::ToClient::InputDone"]
+"paste_commit" = ["codec::Input::PasteCommit"]
+"path" = ["codec::InputDone::path"]
+"want_result: true" = { symbols = ["codec::Input::PasteCommit::want_result"], uncovered = { true = "a JSON literal value" } }
+"{ op, written_bytes, path? }" = ["codec::InputDone::op", "codec::InputDone::written_bytes", "codec::InputDone::path"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0C` | `terminal_query` | JSON `{ query_id, request_bytes_base64, kind?, shadow_answerable, answer_within_ms }`. `request_bytes_base64` is the exact query sequence, so a client can answer any query its emulator understands with `encoded`. `kind` is present **only** for Core's typed kinds, and it uses Core's `QueryKind` names at the frozen Core contract, in snake_case. The set is **non-exhaustive**, and a client declines an unknown kind: `{ "clipboard_read": { selection } }`, `"text_area_pixels"`, `"cell_pixels"`, `"screen_pixels"`, `"window_pixels"`, `"screen_chars"`, `"window_state"`, `{ "window_position": { area } }`, `"window_title"`, `"icon_label"`, `"color_scheme"`. Model queries carry no `kind`: the client reads `request_bytes_base64`. `shadow_answerable` says whether the Core fallback has an answer. `answer_within_ms` is the time left of the route's `query_client_deadline_ms` when the worker sends the frame. A client answers each kind from its own real terminal state, or declines; the worker then falls back to the shadow terminal (P9). `query_id` is Core's opaque id. |
+[rows."271"]
+'"cell_pixels"' = ["codec::QueryKind::CellPixels"]
+'"color_scheme"' = ["codec::QueryKind::ColorScheme"]
+'"icon_label"' = ["codec::QueryKind::IconLabel"]
+'"screen_chars"' = ["codec::QueryKind::ScreenChars"]
+'"screen_pixels"' = ["codec::QueryKind::ScreenPixels"]
+'"text_area_pixels"' = ["codec::QueryKind::TextAreaPixels"]
+'"window_pixels"' = ["codec::QueryKind::WindowPixels"]
+'"window_state"' = ["codec::QueryKind::WindowState"]
+'"window_title"' = ["codec::QueryKind::WindowTitle"]
+"QueryKind" = ["codec::QueryKind"]
+"answer_within_ms" = ["codec::TerminalQuery::answer_within_ms"]
+"encoded" = ["codec::QueryReply::Encoded"]
+"kind" = ["codec::TerminalQuery::kind"]
+"query_client_deadline_ms" = ["codec::RouteLimits::query_client_deadline_ms"]
+"query_id" = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+"request_bytes_base64" = ["codec::TerminalQuery::request_bytes_base64"]
+"shadow_answerable" = ["codec::TerminalQuery::shadow_answerable"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+'{ "clipboard_read": { selection } }' = ["codec::QueryKind::ClipboardRead", "codec::QueryKind::ClipboardRead::selection"]
+'{ "window_position": { area } }' = ["codec::QueryKind::WindowPosition::area", "codec::QueryKind::WindowPosition"]
+"{ query_id, request_bytes_base64, kind?, shadow_answerable, answer_within_ms }" = ["codec::TerminalQuery::answer_within_ms", "codec::TerminalQuery::kind", "codec::TerminalQuery::request_bytes_base64", "codec::TerminalQuery::shadow_answerable", "codec::TerminalQuery::query_id"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0F` | `output_dropped` | Sent **only when the route negotiated the feature `output_dropped`**, so a client without it never receives an unknown frame. **The worker offers the feature only on a route whose `max_frame_bytes` can carry the worst-case minimum `output_dropped` frame:** the type byte plus `{"notifications":N,"last":{"source":"osc777","truncated":true}}`, where N has as many decimal digits as the route's `route_queue_bytes` (no count can be larger, because each notification takes at least one discarded byte). On a smaller route it leaves `output_dropped` out of `attached.features`, and the guarantee does not apply. **An empty `title` or `body` is omitted, never sent as `""`.** So every report, shortened and marked, fits on a route that offers the feature. JSON `{ notifications: count, last: { source: "bell" | "osc9" | "osc777", title?, body?, truncated? } }`, sent only when `count` is at least 1, and always **before** that `resync`.<br>- **Policy actor:** the worker applies the session's notification policy (the Hub supplies it with the session; client SF-5c: `all`, `none`, or `matching` with literal substrings tested against the notification text, where a bell never matches). `count` is the number of discarded notifications that **pass** the policy, and `last` (**required**) is the last one that passes, so the client never needs to re-apply the policy to this frame.<br>- **Fits the route's frame bound:** the whole frame is at most the route's `max_frame_bytes`. When `last` would exceed it, the worker shortens `body` first and then `title`, at a UTF-8 character boundary, and sets `truncated: true`. `count` and `source` are never cut, so the frame always fits.<br>- It is an **exception frame** (TS-7): retained, ordered, never discarded. The attached client acts on it as it would have acted on the raw sequences: one notification, or a summary when `count` is above 1.<br>- OSC 52 is never reported.<br>*(Non-normative: one way to find them is to scan the discarded bytes with Core's parser.)* |
+[rows."272"]
+"all" = ["core::NotificationPolicy::All"]
+"attached.features" = ["codec::Attached::features"]
+"body" = ["codec::DroppedNotification::body"]
+"count" = "n/a: the prose name of the notifications count (OutputDropped::notifications), not a field name"
+"last" = ["codec::OutputDropped::last"]
+"matching" = ["core::NotificationPolicy::Matching"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"none" = ["core::NotificationPolicy::None"]
+"output_dropped" = ["codec::ToClient::OutputDropped", "codec.route_feature:output_dropped"]
+"resync" = ["codec::ToClient::Resync"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"source" = ["codec::DroppedNotification::source"]
+"title" = ["codec::DroppedNotification::title"]
+"truncated: true" = { symbols = ["codec::DroppedNotification::truncated"], uncovered = { true = "a JSON literal value" } }
+'{ notifications: count, last: { source: "bell" | "osc9" | "osc777", title?, body?, truncated? } }' = { symbols = ["codec::OutputDropped::notifications", "codec::OutputDropped::last", "codec::DroppedNotification::source", "codec::NotificationSource::Bell", "codec::NotificationSource::Osc9", "codec::NotificationSource::Osc777", "codec::DroppedNotification::title", "codec::DroppedNotification::body", "codec::DroppedNotification::truncated"], uncovered = { count = "a placeholder for the value of notifications" } }
+'{"notifications":N,"last":{"source":"osc777","truncated":true}}' = { symbols = ["codec::OutputDropped::notifications", "codec::OutputDropped::last", "codec::DroppedNotification::source", "codec::DroppedNotification::truncated", "codec::NotificationSource::Osc777"], uncovered = { true = "a JSON literal value" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x0B` | `route_closed` | JSON `{ reason, exit?: { code?, signal? } }` (TS-8). `exit` is present only when `reason` is `session_ended`. Example: `{ "reason": "session_ended", "exit": { "code": 0 } }`; `{ "reason": { "attach_failed": { "reason": "screen_unavailable" } } }` |
+[rows."273"]
+"exit" = ["codec::RouteClosed::exit"]
+"reason" = ["codec::RouteClosed::reason", "codec::CloseReason"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"session_ended" = ["codec::CloseReason::SessionEnded"]
+'{ "reason": "session_ended", "exit": { "code": 0 } }' = ["codec::RouteClosed::reason", "codec::CloseReason::SessionEnded", "codec::RouteClosed::exit", "codec::Exit::code"]
+'{ "reason": { "attach_failed": { "reason": "screen_unavailable" } } }' = ["codec::CloseReason::AttachFailed", "codec::AttachFailedReason::ScreenUnavailable", "codec::CloseReason::AttachFailed::reason"]
+"{ reason, exit?: { code?, signal? } }" = ["codec::RouteClosed::reason", "codec::RouteClosed::exit", "codec::Exit::code", "codec::Exit::signal"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x81` | `input` | JSON, one of the shapes in A.5 |
+[rows."279"]
+"input" = ["codec::ToWorker::Input"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x82` | `paste_chunk` | `[u64 big-endian op][bytes]`. In every binary input frame, `op` 0 means "no op"; a paste needs a nonzero `op`. |
+[rows."280"]
+"[u64 big-endian op][bytes]" = "n/a: a byte layout of a binary input frame (an op and the bytes)"
+"op" = ["codec::Op"]
+"paste_chunk" = ["codec::ToWorker::PasteChunk"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x83` | `bytes` | `[u64 big-endian op][bytes]`: raw bytes written as they are, for IME and passthrough |
+[rows."281"]
+"[u64 big-endian op][bytes]" = "n/a: a byte layout of a binary input frame (an op and the bytes)"
+"bytes" = ["codec::ToWorker::Bytes"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x84` | `text` | `[u64 big-endian op][UTF-8 bytes]`: text written as one transaction (invalid UTF-8 is refused with `unsupported { what: "utf8" }`) |
+[rows."282"]
+"[u64 big-endian op][UTF-8 bytes]" = "n/a: a byte layout of a binary input frame (an op and the UTF-8 bytes)"
+"text" = ["codec::ToWorker::Text"]
+'unsupported { what: "utf8" }' = { symbols = ["codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "the what value for invalid UTF-8" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# | `0x85` | `file_chunk` | `[u64 big-endian op][bytes]`: file content (TS-5f), never written to the PTY |
+[rows."283"]
+"[u64 big-endian op][bytes]" = "n/a: a byte layout of a binary input frame (an op and the bytes)"
+"file_chunk" = ["codec::ToWorker::FileChunk"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# - **Frame types:** bit `0x40` of a type marks it **ignorable**. A receiver drops an unknown ignorable frame, and an unknown frame **without** that bit is `protocol_error { unknown_frame }`. So a new worker-to-client notice uses `0x40` to `0x7F`, and a new client-to-worker hint uses `0xC0` to `0xFF`. A new frame that must be understood is sent only when the peer advertised its feature. **The worker learns the client's route features from the attach:** `attach` carries `route_features: [..]` (the route features the client understands), and the Hub passes them to the worker with the route handoff. **The client learns the worker's features from `attached.features`.**
+[rows."286"]
+"attach" = ["hub.action:session.attach"]
+"attached.features" = ["codec::Attached::features"]
+"protocol_error { unknown_frame }" = ["codec::CloseReason::ProtocolError", "codec::ProtocolErrorCode::UnknownFrame"]
+"route_features: [..]" = ["hub::AttachArgs::route_features"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# - **Input:** an unknown input `kind` in a `0x81` frame is answered `input_refused { op?, reason: unsupported { what } }`, and the route stays open.
+[rows."287"]
+"input_refused { op?, reason: unsupported { what } }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+"kind" = "n/a: the tag of the JSON Input enum (serde tag \"kind\"); no field holds it"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.4 Route frames (in TS-3 framing)
+# - **Queries:** an unknown query `kind` is answered by the client with `decline` (then the P9 fallback applies). An unknown reply variant is refused with `input_refused { reason: unsupported { what } }`.
+[rows."288"]
+"decline" = ["codec::QueryReply::Decline"]
+"input_refused { reason: unsupported { what } }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+"kind" = ["codec::TerminalQuery::kind"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# ### A.5 Input shapes (`0x81`), with `op` as a decimal string
+[rows."291"]
+"op" = ["codec::Op"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# **The semantic input model is Core contract section 5.1A, as frozen in Core contract v1.0, adopted verbatim.** This contract adds no key, mouse or mode vocabulary of its own. **Field aliases are forbidden**: the wire uses exactly Core's field and value names, and the Hub converts nothing. Any settlement of 5.1A before the Core freeze (for example, the produced text and alternate keys of a `Key`, raised by Sol with the Core writer) applies here unchanged. The shapes below are a summary; **5.1A governs.**
+[rows."293"]
+"Key" = ["core::InputPayload::Key"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "key", key: { "named": <NamedKey> } | { "char": "<scalar>" }, mods: [..], event: "press" | "repeat" | "release", text?, shifted_key?, base_layout_key? }`. The produced-text and alternate-key fields are exactly as Core 5.1A settled them. `NamedKey` and the meaning of each modifier are as in Core 5.1A (lowercase: `enter`, `arrow_up`, `f1`…`f35`, the keypad keys, the modifier keys; `mods` ⊆ `shift`, `alt`, `ctrl`, `meta`, `super`, `hyper`, `caps_lock`, `num_lock`).
+[rows."294"]
+"NamedKey" = ["codec::NamedKey"]
+"alt" = ["codec::Modifier::Alt"]
+"arrow_up" = ["codec.named_key:arrow_up"]
+"caps_lock" = ["codec::Modifier::CapsLock"]
+"ctrl" = ["codec::Modifier::Ctrl"]
+"enter" = ["codec.named_key:enter"]
+"f1" = ["codec.named_key:f1"]
+"f35" = ["codec.named_key:f35"]
+"hyper" = ["codec::Modifier::Hyper"]
+"meta" = ["codec::Modifier::Meta"]
+"mods" = ["codec::Input::Key::mods"]
+"num_lock" = ["codec::Modifier::NumLock"]
+"shift" = ["codec::Modifier::Shift"]
+"super" = ["codec::Modifier::Super"]
+'{ op, kind: "key", key: { "named": <NamedKey> } | { "char": "<scalar>" }, mods: [..], event: "press" | "repeat" | "release", text?, shifted_key?, base_layout_key? }' = { symbols = ["codec::Input::Key", "codec::Input::Key::op", "codec::Input::Key::key", "codec::Key::Named", "codec::NamedKey", "codec::Key::Char", "codec::Input::Key::mods", "codec::Input::Key::event", "codec::KeyEvent::Press", "codec::KeyEvent::Repeat", "codec::KeyEvent::Release", "codec::Input::Key::text", "codec::Input::Key::shifted_key", "codec::Input::Key::base_layout_key"], uncovered = { kind = "the tag of the JSON Input enum", scalar = "a placeholder for one Unicode scalar" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "mouse", action, button, row, col, x?, y?, mods, notches? }`: Core 5.1A. `row` and `col` are zero-based cells. `x` and `y` are zero-based pixels, used only with the `sgr_pixels` encoding. `action` is `wheel` exactly when `button` is a `wheel_*` value.
+[rows."295"]
+"action" = ["codec::Input::Mouse::action"]
+"button" = ["codec::Input::Mouse::button"]
+"col" = ["codec::Input::Mouse::col"]
+"row" = ["codec::Input::Mouse::row"]
+"sgr_pixels" = ["codec::MouseEncoding::SgrPixels"]
+"wheel" = ["codec::MouseAction::Wheel"]
+"wheel_*" = { symbols = ["codec::MouseButton"], uncovered = { wheel_ = "the prefix of the wheel_* MouseButton values (WheelUp, WheelDown, WheelLeft, WheelRight)" } }
+"x" = ["codec::Input::Mouse::x"]
+"y" = ["codec::Input::Mouse::y"]
+'{ op, kind: "mouse", action, button, row, col, x?, y?, mods, notches? }' = { symbols = ["codec::Input::Mouse", "codec::Input::Mouse::op", "codec::Input::Mouse::action", "codec::Input::Mouse::button", "codec::Input::Mouse::row", "codec::Input::Mouse::col", "codec::Input::Mouse::x", "codec::Input::Mouse::y", "codec::Input::Mouse::mods", "codec::Input::Mouse::notches"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "focus", focused }`.
+[rows."296"]
+'{ op, kind: "focus", focused }' = { symbols = ["codec::Input::Focus", "codec::Input::Focus::op", "codec::Input::Focus::focused"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "resize", rows, cols }`.
+[rows."298"]
+'{ op, kind: "resize", rows, cols }' = { symbols = ["codec::Input::Resize", "codec::Input::Resize::op", "codec::Input::Resize::rows", "codec::Input::Resize::cols"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "reply_terminal_query", query_id, reply }`. `reply` is a the JSON projection of a Core `ReplyTerminalQuery` variant (byte fields become `*_base64`):
+[rows."299"]
+"*_base64" = "n/a: a suffix pattern of the wire field names (for example data_base64, bytes_base64)"
+"ReplyTerminalQuery" = ["codec::Input::ReplyTerminalQuery"]
+"reply" = ["codec::Input::ReplyTerminalQuery::reply"]
+'{ op, kind: "reply_terminal_query", query_id, reply }' = { symbols = ["codec::Input::ReplyTerminalQuery", "codec::Input::ReplyTerminalQuery::op", "codec::Input::ReplyTerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::reply"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "clipboard": { selection, data_base64 } }` (the request's `selection` exactly);
+[rows."300"]
+"selection" = ["codec::QueryReply::Clipboard::selection", "codec::QueryKind::ClipboardRead::selection"]
+'{ "clipboard": { selection, data_base64 } }' = ["codec::QueryReply::Clipboard", "codec::QueryReply::Clipboard::data_base64", "codec::QueryReply::Clipboard::selection"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "pixels": { width, height } }`;
+[rows."301"]
+'{ "pixels": { width, height } }' = ["codec::QueryReply::Pixels::height", "codec::QueryReply::Pixels", "codec::QueryReply::Pixels::width"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "chars": { rows, cols } }`;
+[rows."302"]
+'{ "chars": { rows, cols } }' = ["codec::QueryReply::Chars", "codec::QueryReply::Chars::cols", "codec::QueryReply::Chars::rows"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "window_state": { iconified } }`;
+[rows."303"]
+'{ "window_state": { iconified } }' = ["codec::QueryReply::WindowState", "codec::QueryReply::WindowState::iconified"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "position": { x, y } }` (u16 xterm wire values);
+[rows."304"]
+'{ "position": { x, y } }' = ["codec::QueryReply::Position", "codec::QueryReply::Position::x", "codec::QueryReply::Position::y"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "text": { text } }` (for `window_title` and `icon_label`);
+[rows."305"]
+"icon_label" = ["codec::QueryKind::IconLabel"]
+"window_title" = ["codec::QueryKind::WindowTitle"]
+'{ "text": { text } }' = ["codec::QueryReply::Text", "codec::QueryReply::Text::text"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "color_scheme": "dark" | "light" }`;
+[rows."306"]
+'{ "color_scheme": "dark" | "light" }' = ["codec::QueryReply::ColorScheme", "codec::ColorScheme::Dark", "codec::ColorScheme::Light"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ "encoded": { bytes_base64 } }`: the complete reply bytes chosen by the client, for **any** query, including model queries with no `kind`, at most `route_limits.max_query_reply_bytes`;
+[rows."307"]
+"kind" = ["codec::TerminalQuery::kind"]
+"route_limits.max_query_reply_bytes" = ["codec::RouteLimits::max_query_reply_bytes", "codec::RouteLimits"]
+'{ "encoded": { bytes_base64 } }' = ["codec::QueryReply::Encoded::bytes_base64", "codec::QueryReply::Encoded"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `"decline"`: it triggers the fallback (P9 step 3); it is never a final answer. The client never sends `shadow`; only the worker's fallback writes the shadow answer.
+[rows."308"]
+'"decline"' = ["codec::QueryReply::Decline"]
+"shadow" = "n/a: a reply that the client never sends; the text names it to forbid it, and no QueryReply variant holds it"
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# **Typed variants are encoded by Core. `encoded` bytes are produced by the selected client.** In both cases, raw `output` is untouched, and no automatic reply ever travels as `text` or `bytes`. **A reply is fire-and-forget too:** only a refusal is sent, as `input_refused { op?, reason }` with `reason` ∈ `already_replied`, `query_expired`, `unknown_query`, `wrong_route`, `too_large` (non-exhaustive).
+[rows."310"]
+"already_replied" = ["codec::RefusalReason::AlreadyReplied"]
+"bytes" = ["codec::ToWorker::Bytes"]
+"encoded" = ["codec::QueryReply::Encoded"]
+"input_refused { op?, reason }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason"]
+"output" = ["codec::ToClient::Output"]
+"query_expired" = ["codec::RefusalReason::QueryExpired"]
+"reason" = ["codec::InputRefused::reason"]
+"text" = ["codec::ToWorker::Text"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+"unknown_query" = ["codec::RefusalReason::UnknownQuery"]
+"wrong_route" = ["codec::RefusalReason::WrongRoute"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "paste_begin", total_bytes?, require_bracketed? }`, then `paste_chunk` frames, then `{ op, kind: "paste_commit", want_result? }` or `{ op, kind: "paste_abort" }`.
+[rows."311"]
+"paste_chunk" = ["codec::ToWorker::PasteChunk"]
+'{ op, kind: "paste_abort" }' = { symbols = ["codec::Input::PasteAbort", "codec::Input::PasteAbort::op"], uncovered = { kind = "the tag of the JSON Input enum" } }
+'{ op, kind: "paste_begin", total_bytes?, require_bracketed? }' = { symbols = ["codec::Input::PasteBegin", "codec::Input::PasteBegin::op", "codec::Input::PasteBegin::total_bytes", "codec::Input::PasteBegin::require_bracketed"], uncovered = { kind = "the tag of the JSON Input enum" } }
+'{ op, kind: "paste_commit", want_result? }' = { symbols = ["codec::Input::PasteCommit", "codec::Input::PasteCommit::op", "codec::Input::PasteCommit::want_result"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# - `{ op, kind: "file_begin", name, mime?, total_bytes? }`, then `file_chunk` frames, then `{ op, kind: "file_commit" }` or `{ op, kind: "file_abort" }` (TS-5f). Every other shape takes an optional `op`.
+[rows."312"]
+"file_chunk" = ["codec::ToWorker::FileChunk"]
+"op" = ["codec::Op"]
+'{ op, kind: "file_abort" }' = { symbols = ["codec::Input::FileAbort", "codec::Input::FileAbort::op"], uncovered = { kind = "the tag of the JSON Input enum" } }
+'{ op, kind: "file_begin", name, mime?, total_bytes? }' = { symbols = ["codec::Input::FileBegin", "codec::Input::FileBegin::op", "codec::Input::FileBegin::name", "codec::Input::FileBegin::mime", "codec::Input::FileBegin::total_bytes"], uncovered = { kind = "the tag of the JSON Input enum" } }
+'{ op, kind: "file_commit" }' = { symbols = ["codec::Input::FileCommit", "codec::Input::FileCommit::op"], uncovered = { kind = "the tag of the JSON Input enum" } }
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.5 Input shapes (`0x81`), with `op` as a decimal string
+# **Input not reported by the modes:** Core `NotWritten(NotReported)` (for example a mouse event with tracking off, or a key release in legacy mode) sends **no frame**, as on a real terminal. `NotWritten(Unsupported { what })` becomes `input_refused { op?, reason: unsupported { what } }`.
+[rows."316"]
+"NotWritten(NotReported)" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::NotReported"]
+"NotWritten(Unsupported { what })" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::Unsupported", "core::NotWrittenReason::Unsupported::what"]
+"input_refused { op?, reason: unsupported { what } }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason", "codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.6 `ModeFlags`
+# ### A.6 `ModeFlags`
+[rows."318"]
+"ModeFlags" = ["codec::ModeFlags"]
+
+# Botster route codec v1 — immutable extract of the Hub→client contract (revision 37) > Byte path and route clauses > A.6 `ModeFlags`
+# **It is Core 5.1A's `ModeFlags`, verbatim:** `alt_screen`, `cursor_visible`, `bracketed_paste`, `application_cursor_keys`, `application_keypad`, `focus_reporting` (all bool); `kitty_flags` (a u8 bitset: 1, 2, 4, 8, 16 as the kitty protocol defines them); `mouse_tracking` ∈ `none`, `x10`, `normal`, `button_event`, `any_event`; `mouse_encoding` ∈ `x10`, `utf8`, `sgr`, `urxvt`, `sgr_pixels`; and `other_modes` (an object from mode name to bool, for modes outside this list; a receiver ignores names it does not know). On the wire it is a JSON object with these fields.
+[rows."319"]
+"ModeFlags" = ["codec::ModeFlags"]
+"alt_screen" = ["codec::ModeFlags::alt_screen"]
+"any_event" = ["codec::MouseTracking::AnyEvent"]
+"application_cursor_keys" = ["codec::ModeFlags::application_cursor_keys"]
+"application_keypad" = ["codec::ModeFlags::application_keypad"]
+"bracketed_paste" = ["codec::ModeFlags::bracketed_paste"]
+"button_event" = ["codec::MouseTracking::ButtonEvent"]
+"cursor_visible" = ["codec::ModeFlags::cursor_visible"]
+"focus_reporting" = ["codec::ModeFlags::focus_reporting"]
+"kitty_flags" = ["codec::ModeFlags::kitty_flags"]
+"mouse_encoding" = ["codec::ModeFlags::mouse_encoding"]
+"mouse_tracking" = ["codec::ModeFlags::mouse_tracking"]
+"none" = ["codec::MouseTracking::None"]
+"normal" = ["codec::MouseTracking::Normal"]
+"other_modes" = ["codec::ModeFlags::other_modes"]
+"sgr" = ["codec::MouseEncoding::Sgr"]
+"sgr_pixels" = ["codec::MouseEncoding::SgrPixels"]
+"urxvt" = ["codec::MouseEncoding::Urxvt"]
+"utf8" = ["codec::MouseEncoding::Utf8"]
+"x10" = ["codec::MouseTracking::X10", "codec::MouseEncoding::X10"]

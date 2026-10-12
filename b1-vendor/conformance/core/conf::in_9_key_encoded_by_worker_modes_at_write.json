@@ -1,0 +1,179 @@
+{
+  "id": "conf::in_9_key_encoded_by_worker_modes_at_write",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "oracle_encode",
+      "pty_input",
+      "pty_blocked",
+      "pty_output"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3168",
+        "scripted": {
+          "modes": {
+            "application_cursor_keys": true
+          }
+        }
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ModesChanged": {
+            "id": "s1",
+            "flags": {
+              "application_cursor_keys": true
+            }
+          }
+        }
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "application_cursor_keys": true
+        }
+      },
+      "bind": "$e"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n",
+                  "pty_bytes_written": "$n"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log",
+          "$e"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-5"
+}

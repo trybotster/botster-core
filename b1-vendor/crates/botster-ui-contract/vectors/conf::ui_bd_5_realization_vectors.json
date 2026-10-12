@@ -1,0 +1,1071 @@
+{
+  "id": "conf::ui_bd_5_realization_vectors",
+  "contract": "ui",
+  "clause": "UI-BD-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the section 14 worked example is admitted",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "workspaces",
+        "title": "Workspaces",
+        "selections": [
+          {
+            "id": "sel_ws"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "row",
+          "children": [
+            {
+              "type": "list",
+              "id": "workspace_list",
+              "source": {
+                "kind": "botster-workspaces.workspace",
+                "order": [
+                  {
+                    "field": "/name",
+                    "dir": "asc"
+                  }
+                ]
+              },
+              "selects": "sel_ws",
+              "item": {
+                "fields": [
+                  {
+                    "id": "ws_name",
+                    "path": "/name"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No workspaces yet"
+              },
+              "error": {
+                "title": "Workspaces unavailable"
+              }
+            },
+            {
+              "type": "stack",
+              "id": "right",
+              "direction": "column",
+              "children": [
+                {
+                  "type": "detail",
+                  "id": "ws_detail",
+                  "source": {
+                    "sel": "sel_ws"
+                  },
+                  "fields": [
+                    {
+                      "id": "ws_detail_name",
+                      "label": "Name",
+                      "path": "/name"
+                    }
+                  ],
+                  "empty": {
+                    "title": "Select a workspace"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "id": "ws_actions",
+                  "items": [
+                    {
+                      "id": "act_rename",
+                      "label": "Rename",
+                      "handler": "rename",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "args_schema": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "ui": {
+                              "placeholder": "Release planning",
+                              "help": "A name for this grouping."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "id": "act_delete",
+                      "label": "Delete",
+                      "handler": "delete",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "confirm": {
+                        "message": "Delete this workspace grouping. Sessions and Git worktrees stay available. This action cannot be undone.",
+                        "tone": "danger"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "list",
+                  "id": "members_current",
+                  "source": {
+                    "kind": "botster-workspaces.membership",
+                    "where": {
+                      "all": [
+                        {
+                          "eq": [
+                            {
+                              "path": "/workspace_id"
+                            },
+                            {
+                              "sel": "sel_ws/id"
+                            }
+                          ]
+                        },
+                        {
+                          "eq": [
+                            {
+                              "ref": "r_session/lifecycle_class"
+                            },
+                            {
+                              "lit": "current"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "refs": {
+                    "r_session": {
+                      "kind": "session",
+                      "key": {
+                        "hub_id": "/hub_id",
+                        "id": "/session_id"
+                      },
+                      "absent": {
+                        "text": "Session unavailable",
+                        "tone": "warning"
+                      },
+                      "activate": {
+                        "open": "r_session"
+                      }
+                    }
+                  },
+                  "item": {
+                    "fields": [
+                      {
+                        "id": "member_title",
+                        "value": {
+                          "ref": "r_session/label"
+                        }
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "id": "act_remove",
+                        "label": "Remove",
+                        "handler": "remove_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "confirm": {
+                          "message": "Remove this session from the workspace?",
+                          "tone": "neutral"
+                        }
+                      },
+                      {
+                        "id": "act_move",
+                        "label": "Move",
+                        "handler": "move_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "args_schema": {
+                          "type": "object",
+                          "required": [
+                            "workspace_id"
+                          ],
+                          "properties": {
+                            "workspace_id": {
+                              "type": "string",
+                              "ui": {
+                                "options_source": {
+                                  "kind": "botster-workspaces.workspace",
+                                  "where": {
+                                    "ne": [
+                                      {
+                                        "path": "/id"
+                                      },
+                                      {
+                                        "sel": "sel_ws/id"
+                                      }
+                                    ]
+                                  },
+                                  "value_field": "/id",
+                                  "label_field": "/name",
+                                  "empty": {
+                                    "title": "No other workspace",
+                                    "body": "Create another workspace before you move a session."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "empty": {
+                    "title": "No sessions yet"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "botster-workspaces.workspace": {
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/name": "string"
+            }
+          },
+          "botster-workspaces.membership": {
+            "projection_allowlist": [
+              "/id",
+              "/workspace_id",
+              "/session_id",
+              "/hub_id"
+            ],
+            "field_types": {
+              "/id": "string"
+            }
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/label",
+              "/lifecycle_class",
+              "/owner"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/label": "string"
+            }
+          }
+        },
+        "handlers": {
+          "rename": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "workspace_id",
+                "name"
+              ],
+              "properties": {
+                "workspace_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "delete": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "workspace_id"
+              ],
+              "properties": {
+                "workspace_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "remove_session": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "membership_id"
+              ],
+              "properties": {
+                "membership_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "move_session": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "membership_id",
+                "workspace_id"
+              ],
+              "properties": {
+                "membership_id": {
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "views": [
+          "workspaces"
+        ]
+      },
+      "because": "UI UI-BD-5"
+    },
+    {
+      "name": "workspace selected: the same inputs give this tree (members, refs, rows)",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "workspaces",
+        "title": "Workspaces",
+        "selections": [
+          {
+            "id": "sel_ws"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "row",
+          "children": [
+            {
+              "type": "list",
+              "id": "workspace_list",
+              "source": {
+                "kind": "botster-workspaces.workspace",
+                "order": [
+                  {
+                    "field": "/name",
+                    "dir": "asc"
+                  }
+                ]
+              },
+              "selects": "sel_ws",
+              "item": {
+                "fields": [
+                  {
+                    "id": "ws_name",
+                    "path": "/name"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No workspaces yet"
+              },
+              "error": {
+                "title": "Workspaces unavailable"
+              }
+            },
+            {
+              "type": "stack",
+              "id": "right",
+              "direction": "column",
+              "children": [
+                {
+                  "type": "detail",
+                  "id": "ws_detail",
+                  "source": {
+                    "sel": "sel_ws"
+                  },
+                  "fields": [
+                    {
+                      "id": "ws_detail_name",
+                      "label": "Name",
+                      "path": "/name"
+                    }
+                  ],
+                  "empty": {
+                    "title": "Select a workspace"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "id": "ws_actions",
+                  "items": [
+                    {
+                      "id": "act_rename",
+                      "label": "Rename",
+                      "handler": "rename",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "args_schema": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "ui": {
+                              "placeholder": "Release planning",
+                              "help": "A name for this grouping."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "id": "act_delete",
+                      "label": "Delete",
+                      "handler": "delete",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "confirm": {
+                        "message": "Delete this workspace grouping. Sessions and Git worktrees stay available. This action cannot be undone.",
+                        "tone": "danger"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "list",
+                  "id": "members_current",
+                  "source": {
+                    "kind": "botster-workspaces.membership",
+                    "where": {
+                      "all": [
+                        {
+                          "eq": [
+                            {
+                              "path": "/workspace_id"
+                            },
+                            {
+                              "sel": "sel_ws/id"
+                            }
+                          ]
+                        },
+                        {
+                          "eq": [
+                            {
+                              "ref": "r_session/lifecycle_class"
+                            },
+                            {
+                              "lit": "current"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "refs": {
+                    "r_session": {
+                      "kind": "session",
+                      "key": {
+                        "hub_id": "/hub_id",
+                        "id": "/session_id"
+                      },
+                      "absent": {
+                        "text": "Session unavailable",
+                        "tone": "warning"
+                      },
+                      "activate": {
+                        "open": "r_session"
+                      }
+                    }
+                  },
+                  "item": {
+                    "fields": [
+                      {
+                        "id": "member_title",
+                        "value": {
+                          "ref": "r_session/label"
+                        }
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "id": "act_remove",
+                        "label": "Remove",
+                        "handler": "remove_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "confirm": {
+                          "message": "Remove this session from the workspace?",
+                          "tone": "neutral"
+                        }
+                      },
+                      {
+                        "id": "act_move",
+                        "label": "Move",
+                        "handler": "move_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "args_schema": {
+                          "type": "object",
+                          "required": [
+                            "workspace_id"
+                          ],
+                          "properties": {
+                            "workspace_id": {
+                              "type": "string",
+                              "ui": {
+                                "options_source": {
+                                  "kind": "botster-workspaces.workspace",
+                                  "where": {
+                                    "ne": [
+                                      {
+                                        "path": "/id"
+                                      },
+                                      {
+                                        "sel": "sel_ws/id"
+                                      }
+                                    ]
+                                  },
+                                  "value_field": "/id",
+                                  "label_field": "/name",
+                                  "empty": {
+                                    "title": "No other workspace",
+                                    "body": "Create another workspace before you move a session."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "empty": {
+                    "title": "No sessions yet"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "botster-workspaces.workspace": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha"
+            },
+            {
+              "id": "w2",
+              "name": "Beta"
+            }
+          ]
+        },
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            },
+            {
+              "id": "m2",
+              "workspace_id": "w1",
+              "session_id": "s2",
+              "hub_id": "h1"
+            },
+            {
+              "id": "m3",
+              "workspace_id": "w2",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build",
+              "lifecycle_class": "current"
+            },
+            {
+              "id": "s2",
+              "label": "Old",
+              "lifecycle_class": "retired"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel_ws": "w1"
+        }
+      },
+      "expect_nodes": {
+        "page": {
+          "type": "stack",
+          "props": {
+            "direction": "row"
+          }
+        },
+        "botster-ui-descendant-v1:14:workspace_list9:container": {
+          "type": "list",
+          "props": {
+            "selects": "sel_ws"
+          }
+        },
+        "botster-ui-descendant-v1:14:workspace_list2:w1": {
+          "type": "list_item",
+          "props": {
+            "selected": true
+          }
+        },
+        "botster-ui-descendant-v1:14:workspace_list2:w2": {
+          "props": {
+            "selected": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:9:ws_detail9:container": {
+          "type": "panel",
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:14:ws_detail_name9:container"
+            }
+          ]
+        },
+        "botster-ui-descendant-v1:14:ws_detail_name5:value": {
+          "type": "text",
+          "props": {
+            "text": "Alpha"
+          }
+        },
+        "botster-ui-descendant-v1:10:ws_actions9:container": {
+          "type": "toolbar",
+          "children": [
+            {
+              "id": "act_rename"
+            },
+            {
+              "id": "act_delete"
+            }
+          ]
+        },
+        "act_rename": {
+          "props": {
+            "action": {
+              "id": "act_rename",
+              "payload": {
+                "args": {
+                  "workspace_id": "w1"
+                }
+              }
+            }
+          }
+        },
+        "act_delete": {
+          "props": {
+            "confirm": {
+              "tone": "danger"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:15:members_current9:container": {
+          "type": "list",
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:15:members_current2:m1"
+            }
+          ]
+        },
+        "botster-ui-descendant-v1:47:botster-ui-descendant-v1:15:members_current2:m112:member_title": {
+          "props": {
+            "text": "Build"
+          }
+        },
+        "botster-ui-descendant-v1:47:botster-ui-descendant-v1:15:members_current2:m18:act_move": {
+          "props": {
+            "action": {
+              "id": "act_move",
+              "payload": {
+                "target": "m1",
+                "args": {
+                  "membership_id": "m1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:15:members_current2:m2",
+        "botster-ui-descendant-v1:15:members_current2:m3"
+      ],
+      "because": "UI UI-BD-5"
+    },
+    {
+      "name": "nothing selected: detail empty, actions disabled",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "workspaces",
+        "title": "Workspaces",
+        "selections": [
+          {
+            "id": "sel_ws"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "row",
+          "children": [
+            {
+              "type": "list",
+              "id": "workspace_list",
+              "source": {
+                "kind": "botster-workspaces.workspace",
+                "order": [
+                  {
+                    "field": "/name",
+                    "dir": "asc"
+                  }
+                ]
+              },
+              "selects": "sel_ws",
+              "item": {
+                "fields": [
+                  {
+                    "id": "ws_name",
+                    "path": "/name"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No workspaces yet"
+              },
+              "error": {
+                "title": "Workspaces unavailable"
+              }
+            },
+            {
+              "type": "stack",
+              "id": "right",
+              "direction": "column",
+              "children": [
+                {
+                  "type": "detail",
+                  "id": "ws_detail",
+                  "source": {
+                    "sel": "sel_ws"
+                  },
+                  "fields": [
+                    {
+                      "id": "ws_detail_name",
+                      "label": "Name",
+                      "path": "/name"
+                    }
+                  ],
+                  "empty": {
+                    "title": "Select a workspace"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "id": "ws_actions",
+                  "items": [
+                    {
+                      "id": "act_rename",
+                      "label": "Rename",
+                      "handler": "rename",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "args_schema": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "ui": {
+                              "placeholder": "Release planning",
+                              "help": "A name for this grouping."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "id": "act_delete",
+                      "label": "Delete",
+                      "handler": "delete",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "confirm": {
+                        "message": "Delete this workspace grouping. Sessions and Git worktrees stay available. This action cannot be undone.",
+                        "tone": "danger"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "list",
+                  "id": "members_current",
+                  "source": {
+                    "kind": "botster-workspaces.membership",
+                    "where": {
+                      "all": [
+                        {
+                          "eq": [
+                            {
+                              "path": "/workspace_id"
+                            },
+                            {
+                              "sel": "sel_ws/id"
+                            }
+                          ]
+                        },
+                        {
+                          "eq": [
+                            {
+                              "ref": "r_session/lifecycle_class"
+                            },
+                            {
+                              "lit": "current"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "refs": {
+                    "r_session": {
+                      "kind": "session",
+                      "key": {
+                        "hub_id": "/hub_id",
+                        "id": "/session_id"
+                      },
+                      "absent": {
+                        "text": "Session unavailable",
+                        "tone": "warning"
+                      },
+                      "activate": {
+                        "open": "r_session"
+                      }
+                    }
+                  },
+                  "item": {
+                    "fields": [
+                      {
+                        "id": "member_title",
+                        "value": {
+                          "ref": "r_session/label"
+                        }
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "id": "act_remove",
+                        "label": "Remove",
+                        "handler": "remove_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "confirm": {
+                          "message": "Remove this session from the workspace?",
+                          "tone": "neutral"
+                        }
+                      },
+                      {
+                        "id": "act_move",
+                        "label": "Move",
+                        "handler": "move_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "args_schema": {
+                          "type": "object",
+                          "required": [
+                            "workspace_id"
+                          ],
+                          "properties": {
+                            "workspace_id": {
+                              "type": "string",
+                              "ui": {
+                                "options_source": {
+                                  "kind": "botster-workspaces.workspace",
+                                  "where": {
+                                    "ne": [
+                                      {
+                                        "path": "/id"
+                                      },
+                                      {
+                                        "sel": "sel_ws/id"
+                                      }
+                                    ]
+                                  },
+                                  "value_field": "/id",
+                                  "label_field": "/name",
+                                  "empty": {
+                                    "title": "No other workspace",
+                                    "body": "Create another workspace before you move a session."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "empty": {
+                    "title": "No sessions yet"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "botster-workspaces.workspace": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha"
+            },
+            {
+              "id": "w2",
+              "name": "Beta"
+            }
+          ]
+        },
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            },
+            {
+              "id": "m2",
+              "workspace_id": "w1",
+              "session_id": "s2",
+              "hub_id": "h1"
+            },
+            {
+              "id": "m3",
+              "workspace_id": "w2",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build",
+              "lifecycle_class": "current"
+            },
+            {
+              "id": "s2",
+              "label": "Old",
+              "lifecycle_class": "retired"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:9:ws_detail9:container": {
+          "slots": {
+            "empty": [
+              {
+                "props": {
+                  "title": "Select a workspace"
+                }
+              }
+            ]
+          }
+        },
+        "act_rename": {
+          "props": {
+            "disabled": true,
+            "disabled_reason": {
+              "copy": "nothing_selected"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:15:members_current9:container": {
+          "children": [
+            {
+              "props": {
+                "title": "No sessions yet"
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RC-5"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+# The crate symbols of each code span of core-contract-v1.17-erratum-3-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Core contract v1.17, erratum 3 (candidate 3): due deadlines and the `pump_events` budget
+[rows."1"]
+"pump_events" = ["core::CoreLimits::pump_events"]
+
+# The base is the Core contract of `frozen/current` (manifest final17), which is unchanged except for the reading below. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 2** (`814f0693…444a`, commit `9f20fd5`), which the Amendment reviewer rejected (verdict `3e350c9`). Item 5 now orders only **runnable** steps: a step parked on mandatory-queue room is bypassed, so it never blocks a...
+[rows."5"]
+"Silent" = ["core::Event::Silent"]
+
+# **Why.** TM-3 says "A deadline that is due at a `pump` is processed in that `pump`", and Core A5-2 repeats it. TM-4 posts `Silent` "by the first `pump` with `now ≥ last_output_at + threshold`". But 9B says "One `pump` posts at most [`pum...
+[rows."13"]
+"PumpReport.more = true" = { symbols = ["core::PumpReport::more"], uncovered = { true = "a JSON literal value" } }
+"Silent" = ["core::Event::Silent"]
+"WakeHandle" = ["core::WakeHandle"]
+"now ≥ last_output_at + threshold" = { symbols = ["core::Now", "core::TerminalState::last_output_at"], uncovered = { threshold = "the threshold argument of set_silence_threshold" } }
+"pump" = ["core::CoreApi::pump"]
+"pump_events" = ["core::CoreLimits::pump_events"]
+"pump_events = 1" = ["core::CoreLimits::pump_events"]
+
+# | E3-1 | **A due deadline's effect is never skipped, reordered, or left waiting for a host timer, and `pump_events` still bounds every `pump`.**<br>1. **An effect that posts no event is processed in the `pump` at which it is due**, whate...
+[rows."17"]
+"PumpReport.more = true" = { symbols = ["core::PumpReport::more"], uncovered = { true = "a JSON literal value" } }
+"SessionState" = ["core::SessionState"]
+"Silent" = ["core::Event::Silent"]
+"Silent{since}" = ["core::Event::Silent::since"]
+"WakeHandle" = ["core::WakeHandle"]
+"poll_events" = ["core::CoreApi::poll_events"]
+"pump" = ["core::CoreApi::pump"]
+"pump_events" = ["core::CoreLimits::pump_events"]
+"since" = ["core::Event::Silent::since"]
+"stop_grace" = ["core::CoreLimits::stop_grace"]

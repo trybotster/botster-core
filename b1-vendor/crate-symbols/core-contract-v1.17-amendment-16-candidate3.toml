@@ -1,0 +1,121 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-16-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Core contract v1.17, Amendment 16 (candidate 3): `StopService` of a `Lost` service completes with the loss
+[rows."1"]
+"Lost" = ["core::ServiceState::Lost"]
+"StopService" = ["core::Op::StopService"]
+
+# The base is the Core contract of `frozen/current` (manifest final33), which is unchanged except where A16-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 2** (`1e74e1d6…8794`, commit `a06a3a4`), which the Amendment reviewer rejected (verdict `e366795`):
+[rows."5"]
+"a06a3a4" = "n/a: a commit or file hash"
+"e366795" = "n/a: a commit or file hash"
+
+# 1. "No event is posted" could be read as no `Completed`. It now says no `ServiceState` event; the operation's `Completed` is posted as for every operation (AM-3).
+[rows."6"]
+"Completed" = ["core::Event::Completed"]
+"ServiceState" = ["core::Event::ServiceState"]
+
+# Candidate 2 superseded candidate 1 (`82b0ca58…aada`, commit `8d7a39e`), which the Amendment reviewer rejected (verdict `bd9dcee`):
+[rows."9"]
+"82b0ca58…aada" = "n/a: a commit or file hash"
+"bd9dcee" = "n/a: a commit or file hash"
+
+# 1. `Lost` has two reasons (A2-1 `ServiceState`): `GuardianLost` and `EpochExhausted`. Under `EpochExhausted` the same guardian and service continue (SV-6), so "the guardian is gone" was wrong for it. Candidate 2 gives each reason its own...
+[rows."10"]
+"EpochExhausted" = ["core::LostReason::EpochExhausted"]
+"GuardianLost" = ["core::LostReason::GuardianLost"]
+"Lost" = ["core::ServiceState::Lost"]
+"ServiceState" = ["core::ServiceState"]
+
+# 2. Candidate 1 did not say whether the `Lost` result carries `payload_may_remain`. It does: the result repeats the state's `Lost` payload.
+[rows."11"]
+"Lost" = ["core::ServiceState::Lost"]
+"payload_may_remain" = ["core::ServiceState::Lost::payload_may_remain"]
+
+# - Core A2-1 admits `StopService` in `Started`, `Reconnected`, `Exited` and `Lost`. Its `Ok` value is "`ServiceExit` (the `Exited` payload, SV-5)", its sync errors are `UnknownService` and `WrongState`, and its async error is `RegistryFai...
+[rows."16"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"Ok" = ["core::OpResult::Ok"]
+"Reconnected" = ["core::ServiceState::Reconnected"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"ServiceExit" = ["core::ServiceExit"]
+"Started" = ["core::ServiceState::Started"]
+"StopService" = ["core::Op::StopService"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+
+# - A `Lost` service has not exited as far as Core knows. `ServiceState` gives `Lost{reason, payload_may_remain}` with `reason` `GuardianLost` (the guardian died, SV-8) or `EpochExhausted` (the epoch counter is exhausted, SV-6, while the s...
+[rows."17"]
+"EpochExhausted" = ["core::LostReason::EpochExhausted"]
+"GuardianLost" = ["core::LostReason::GuardianLost"]
+"Lost" = ["core::ServiceState::Lost"]
+"Lost{reason, payload_may_remain}" = ["core::ServiceState::Lost", "core::ServiceState::Lost::payload_may_remain", "core::ServiceState::Lost::reason"]
+"ServiceState" = ["core::ServiceState"]
+"StopService" = ["core::Op::StopService"]
+"reason" = ["core::ServiceState::Lost::reason"]
+
+# - The session operation already handles this case: `Stop` is admitted in `Lost`, and its `Ok` value is "`SessionEnd` = `Exited(Exit)` or `Lost(reason)`". `StopService` follows the same pattern.
+[rows."18"]
+"Exited(Exit)" = ["core::SessionEnd::Exited", "core::Exit"]
+"Lost" = ["core::SessionState::Lost"]
+"Lost(reason)" = { symbols = ["core::SessionEnd::Lost", "core::LostReason"], uncovered = { reason = "the LostReason payload" } }
+"Ok" = ["core::OpResult::Ok"]
+"SessionEnd" = ["core::SessionEnd"]
+"Stop" = ["core::Op::Stop"]
+"StopService" = ["core::Op::StopService"]
+
+# | A16-1 | **`StopService` completes with `ServiceEnd`**, which is **`Exited(ServiceExit)` or `Lost{reason, payload_may_remain}`**, as `Stop` completes with `SessionEnd`. A `Lost` result carries the same two fields as the service's `Lost`...
+[rows."22"]
+"Completed" = ["core::Event::Completed"]
+"Exited" = ["core::ServiceState::Exited"]
+"Exited(ServiceExit)" = ["core::ServiceEnd::Exited", "core::ServiceExit"]
+"Lost" = ["core::ServiceState::Lost"]
+"Lost{EpochExhausted, payload_may_remain}" = ["core::ServiceEnd::Lost::payload_may_remain", "core::LostReason::EpochExhausted"]
+"Lost{GuardianLost, payload_may_remain}" = ["core::ServiceEnd::Lost::payload_may_remain", "core::LostReason::GuardianLost"]
+"Lost{reason, payload_may_remain}" = ["core::ServiceEnd::Lost::reason", "core::ServiceEnd::Lost::payload_may_remain"]
+"Reconnected" = ["core::ServiceState::Reconnected"]
+"RemoveService" = ["core::Op::RemoveService"]
+"ServiceEnd" = ["core::ServiceEnd"]
+"ServiceState" = ["core::ServiceState"]
+"ServiceState{Exited{code, signal, cause, descendants_may_remain}}" = ["core::ServiceState::Exited", "core::ServiceExit::code", "core::ServiceExit::signal", "core::ServiceExit::cause", "core::ServiceExit::descendants_may_remain"]
+"SessionEnd" = ["core::SessionEnd"]
+"Started" = ["core::ServiceState::Started"]
+"Stop" = ["core::Op::Stop"]
+"StopService" = ["core::Op::StopService"]
+"stop_grace" = ["core::ServiceLimits::stop_grace"]
+
+# 1. **Core A2-1, the `StopService` row, `Ok` value:** "`ServiceExit` (the `Exited` payload, SV-5)" reads "`ServiceEnd`".
+[rows."26"]
+"Exited" = ["core::ServiceState::Exited"]
+"Ok" = ["core::OpResult::Ok"]
+"ServiceEnd" = ["core::ServiceEnd"]
+"ServiceExit" = ["core::ServiceExit"]
+"StopService" = ["core::Op::StopService"]
+
+# 2. **Core A2-1, "Value types used in the table":** a new entry "`ServiceEnd` = `Exited(ServiceExit)` or `Lost{reason, payload_may_remain}` (A16-1)", after `SessionEnd`.
+[rows."27"]
+"Exited(ServiceExit)" = ["core::ServiceEnd::Exited", "core::ServiceExit"]
+"Lost{reason, payload_may_remain}" = ["core::ServiceEnd::Lost::reason", "core::ServiceEnd::Lost::payload_may_remain"]
+"ServiceEnd" = ["core::ServiceEnd"]
+"SessionEnd" = ["core::SessionEnd"]
+
+# 3. **SV-9, `begin(StopService(id))`:** reads with A16-1 for a `Lost` service (no signal under `GuardianLost`; unchanged under `EpochExhausted`).
+[rows."28"]
+"EpochExhausted" = ["core::LostReason::EpochExhausted"]
+"GuardianLost" = ["core::LostReason::GuardianLost"]
+"Lost" = ["core::ServiceState::Lost"]
+"begin(StopService(id))" = ["core::Op::StopService::id", "core::CoreApi::begin"]
+
+# 4. **The service state model:** `Lost{EpochExhausted}` moves to `Exited` only through `StopService` (A16-1). Every other `Lost` stays `Lost` until `RemoveService` (SV-10).
+[rows."29"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"Lost{EpochExhausted}" = ["core::ServiceState::Lost", "core::LostReason::EpochExhausted"]
+"RemoveService" = ["core::Op::RemoveService"]
+"StopService" = ["core::Op::StopService"]

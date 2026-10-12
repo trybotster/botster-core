@@ -1,0 +1,142 @@
+{
+  "id": "conf::ui_sa_5_warning_in_menu_and_tui",
+  "contract": "ui",
+  "clause": "UI-SA-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an action in the overflow menu still shows its warning",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "keep",
+                  "label": "Keep",
+                  "handler": "keep",
+                  "priority": "primary"
+                },
+                {
+                  "id": "tunnel",
+                  "label": "Stop tunnel",
+                  "handler": "tunnel",
+                  "priority": "secondary"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "warning": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again."
+                },
+                "keep": {
+                  "allowed": true
+                }
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:6:tunnel7:warning": {
+          "type": "text",
+          "props": {
+            "text": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again.",
+            "tone": "warning"
+          }
+        }
+      },
+      "because": "UI UI-SA-5"
+    },
+    {
+      "name": "a renderer that declares no feature and has little room still shows the full warning",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "tunnel",
+                  "label": "Stop tunnel",
+                  "handler": "tunnel"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "warning": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [],
+        "widgets": [],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "short",
+        "pointer": "none"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:6:tunnel7:warning": {
+          "type": "text",
+          "props": {
+            "text": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again.",
+            "tone": "warning"
+          }
+        }
+      },
+      "because": "UI UI-SA-5"
+    }
+  ]
+}

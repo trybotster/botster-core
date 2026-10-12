@@ -1,0 +1,65 @@
+{
+ "id": "conf::lb_18_hello_and_ready_fields",
+ "contract": "lb",
+ "clause": "LB-18",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "bindings": [
+      {
+       "interface": "msg@1.0.0",
+       "interface_version": "1.0.0",
+       "provider": null
+      }
+     ],
+     "priorities": [
+      {
+       "name": "high",
+       "rank": 2
+      },
+      {
+       "name": "normal",
+       "rank": 1
+      },
+      {
+       "name": "low",
+       "rank": 0
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "fs_watches": [],
+     "session_actions": [],
+     "timers": [],
+     "watches": []
+    }
+   },
+   "because": "LB LB-18"
+  }
+ ]
+}

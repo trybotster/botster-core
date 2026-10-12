@@ -1,0 +1,498 @@
+{
+  "id": "conf::ui_rz_2d_local_state_is_source_of_truth",
+  "contract": "ui",
+  "clause": "UI-RZ-2d",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an empty draft",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-2d"
+    },
+    {
+      "name": "a draft in local_state is the value",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s": {
+            "value": "typed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "props": {
+            "value": "typed"
+          }
+        }
+      },
+      "same_ids_as": "an empty draft",
+      "because": "UI UI-RZ-2d"
+    },
+    {
+      "name": "the same local_state gives the same tree",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s": {
+            "value": "typed"
+          }
+        }
+      },
+      "same_tree_as": "a draft in local_state is the value",
+      "because": "UI UI-RZ-2d"
+    },
+    {
+      "name": "a form operand reads the published draft: visible_when shows the field",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "t": {
+                        "type": "string"
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/t"
+                              },
+                              {
+                                "lit": "show"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "t"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "t": {
+                    "type": "string"
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "eq": [
+                          {
+                            "form": "/t"
+                          },
+                          {
+                            "lit": "show"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "t"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:t": {
+            "value": "show"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b": {
+          "type": "form_field"
+        }
+      },
+      "because": "UI UI-RZ-2d"
+    },
+    {
+      "name": "a form operand reads the published draft: another value hides the field",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "t": {
+                        "type": "string"
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/t"
+                              },
+                              {
+                                "lit": "show"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "t"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "t": {
+                    "type": "string"
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "eq": [
+                          {
+                            "form": "/t"
+                          },
+                          {
+                            "lit": "show"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "t"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:t": {
+            "value": "hide"
+          }
+        }
+      },
+      "because": "UI UI-RZ-2d",
+      "expect_absent": [
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b"
+      ]
+    },
+    {
+      "name": "on a conflict the output of realize wins: a draft that left the options is reported for unset",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha",
+              "team": "t1"
+            },
+            {
+              "id": "w2",
+              "name": "Beta",
+              "team": "t2"
+            },
+            {
+              "id": "w3",
+              "name": "Gamma",
+              "team": "t1"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:team": {
+            "value": "t2"
+          },
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws": {
+            "value": "w1"
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws"
+          ],
+          "stamped_errors": [
+            {
+              "draft_key": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws",
+              "code": "option_unavailable"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-NV-4"
+    }
+  ]
+}

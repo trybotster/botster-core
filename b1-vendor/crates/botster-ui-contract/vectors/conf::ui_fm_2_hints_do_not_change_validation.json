@@ -1,0 +1,474 @@
+{
+  "id": "conf::ui_fm_2_hints_do_not_change_validation",
+  "contract": "ui",
+  "clause": "UI-FM-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "every hint is ignored by the schema comparison",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "placeholder": "p",
+                          "help": "h",
+                          "read_only": true,
+                          "group": "g",
+                          "advanced": true,
+                          "order": 2,
+                          "widget": "textarea"
+                        }
+                      },
+                      "t": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/s"
+                              },
+                              {
+                                "lit": "x"
+                              }
+                            ]
+                          },
+                          "required_when": {
+                            "eq": [
+                              {
+                                "form": "/s"
+                              },
+                              {
+                                "lit": "y"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "placeholder": "p",
+                      "help": "h",
+                      "read_only": true,
+                      "group": "g",
+                      "advanced": true,
+                      "order": 2,
+                      "widget": "textarea"
+                    }
+                  },
+                  "t": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "eq": [
+                          {
+                            "form": "/s"
+                          },
+                          {
+                            "lit": "x"
+                          }
+                        ]
+                      },
+                      "required_when": {
+                        "eq": [
+                          {
+                            "form": "/s"
+                          },
+                          {
+                            "lit": "y"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "s": {
+                  "type": "string"
+                },
+                "t": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-2"
+    },
+    {
+      "name": "a widget hint that the renderer has is drawn",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "textarea"
+        }
+      },
+      "because": "UI UI-RZ-2"
+    },
+    {
+      "name": "a widget hint that the renderer lacks falls back to the JSON type",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "widgets": [
+          "text"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input"
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "no hint: the widget follows the JSON type",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      },
+                      "b": {
+                        "type": "boolean"
+                      },
+                      "n": {
+                        "type": "integer"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  },
+                  "b": {
+                    "type": "boolean"
+                  },
+                  "n": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input"
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b6:widget": {
+          "type": "checkbox"
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:n6:widget": {
+          "type": "text_input",
+          "props": {
+            "input": "number"
+          }
+        }
+      },
+      "because": "UI UI-RZ-2"
+    },
+    {
+      "name": "a password widget without a masked input refuses the form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "widgets": [
+          "text"
+        ]
+      },
+      "expect_diagnostics": [
+        "masked_input_unavailable"
+      ],
+      "because": "UI UI-FM-2",
+      "expect_absent": [
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s",
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget"
+      ]
+    },
+    {
+      "name": "a password widget with a masked input",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input",
+          "props": {
+            "masked": true
+          }
+        }
+      },
+      "because": "UI UI-FM-2"
+    }
+  ]
+}

@@ -1,0 +1,286 @@
+{
+ "id": "conf::st_9_delete_durable_across_kill9",
+ "contract": "hp",
+ "clause": "ST-9",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "hub_restart",
+   "invoke",
+   "service_connected"
+  ]
+ },
+ "setup": {
+  "given": "the Hub process is killed with signal 9 after the delete"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "store.put",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "$r1"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP ST-9"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "store.delete",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "expected_revision": "$r1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP ST-9"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "hub_restart"
+   }
+  },
+  {
+   "control": {
+    "op": "service_connected"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 3,
+     "call": "store.get",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 3,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "not_found"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP ST-9"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

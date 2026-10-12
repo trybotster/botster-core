@@ -1,0 +1,178 @@
+{
+  "id": "conf::in_9_omitted_repeat_is_one_event_for_every_event_kind",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "61",
+                  "mouse": "4d",
+                  "focus_in": "49",
+                  "focus_out": "4f",
+                  "paste": "1b5b3230307e68656c6c6f1b5b3230317e"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$p"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$p",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "repeat",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$r"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$r",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-9"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "release",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$e"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$e",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-9"
+    }
+  ]
+}

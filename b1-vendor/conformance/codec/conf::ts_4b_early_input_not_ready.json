@@ -1,0 +1,83 @@
+{
+  "id": "conf::ts_4b_early_input_not_ready",
+  "contract": "codec",
+  "clause": "TS-4b",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "6561726c79"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "5",
+        "reason": "not_ready"
+      },
+      "ignore": [
+        {
+          "frame": "attached"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5"
+    },
+    {
+      "route_expect_pty": [],
+      "because": [
+        "Codec TS-5",
+        "Codec TS-5b"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "6c617465"
+        }
+      }
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "6c617465"
+        }
+      ],
+      "because": [
+        "Codec TS-4b",
+        "Codec BP-2"
+      ]
+    }
+  ]
+}

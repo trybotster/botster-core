@@ -1,0 +1,29 @@
+[package]
+name = "botster-conformance-probe"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The smoke test runs the binary, so it belongs to the slow tier (design section 9).
+slow = []
+
+[dependencies]
+# The probe script type is shared with the Core testkit and FakeCore, so one script drives all three (design 6.2, Core A5-1).
+botster-probe-script.workspace = true
+botster-route-codec.workspace = true
+serde_json.workspace = true
+# Safe signal calls: the workspace forbids unsafe. signal-hook (maintained, widely used) gives a no-op SIGTERM handler and raise (design 6.2).
+signal-hook = "0.3"
+# Safe termios calls (R-48): a terminal stdin is set to non-canonical mode with no echo. rustix is already in the lock (through tempfile).
+# Control mode (`event`, `stdio`): `poll` on stdin and the control socket, and plain reads of the stdin descriptor (no user-space buffer).
+rustix = { version = "1", features = ["termios", "event", "stdio"] }
+
+[dev-dependencies]
+# Safe kill and killpg, and openpty and tcgetattr, for the slow tests (each test reaps its own process group, BUILD.md rule 10).
+# fcntl (a non-blocking controller write fills the terminal) and poll (the accept deadline) for the control-mode tests.
+nix = { version = "0.30", default-features = false, features = ["signal", "term", "fs", "poll"] }

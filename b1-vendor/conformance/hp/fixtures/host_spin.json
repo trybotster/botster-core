@@ -1,0 +1,44 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h2",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h3",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "spin": {
+     "stoppable": true
+    }
+   }
+  ],
+  "h2": [
+   {
+    "spin": {
+     "stoppable": false
+    }
+   }
+  ],
+  "h3": [
+   {
+    "return": {
+     "ok": "alive"
+    }
+   }
+  ]
+ }
+}

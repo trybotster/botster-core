@@ -1,0 +1,72 @@
+{
+  "id": "conf::id_2_instance_survives_adoption",
+  "contract": "core",
+  "clause": "ID-2",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "instance": "$i",
+            "state": "Created"
+          }
+        }
+      },
+      "because": "Core EV-9"
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$ad"
+    },
+    {
+      "expect_eventually": {
+        "SessionState": {
+          "id": "s1",
+          "instance": "$i",
+          "state": "Created"
+        }
+      },
+      "because": "Core ID-2",
+      "ignore": [
+        {
+          "$any": true
+        }
+      ],
+      "on": {
+        "handle": "h2"
+      }
+    }
+  ]
+}

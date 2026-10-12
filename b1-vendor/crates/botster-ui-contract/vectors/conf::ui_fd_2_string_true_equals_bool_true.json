@@ -1,0 +1,130 @@
+{
+  "id": "conf::ui_fd_2_string_true_equals_bool_true",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the string true and the boolean true show the same label and tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "true": {
+                    "label": "On",
+                    "tone": "success"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": "true"
+            },
+            {
+              "id": "r1",
+              "v": true
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "On",
+            "tone": "success"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "On",
+            "tone": "success"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "the string false and the boolean false show the same label and tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "false": {
+                    "label": "Off",
+                    "tone": "danger"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": "false"
+            },
+            {
+              "id": "r1",
+              "v": false
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Off",
+            "tone": "danger"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "Off",
+            "tone": "danger"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    }
+  ]
+}

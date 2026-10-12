@@ -1,0 +1,95 @@
+{
+ "id": "conf::lb_12_observation_event_grants",
+ "contract": "lb",
+ "clause": "LB-12",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest",
+    "capabilities": [
+     {
+      "surface": "events",
+      "scope": "events_hub"
+     },
+     {
+      "surface": "session_actions",
+      "scope": "session_observe:own"
+     },
+     {
+      "surface": "events",
+      "scope": "events_terminal:own"
+     }
+    ]
+   },
+   "files": {
+    "main.lua": "botster.events.on({ owner = \"hub\", name = \"session.activity\" }, { subjects = \"own\" }, function() return {} end)\nbotster.events.on({ owner = \"terminal\", name = \"title\" }, { subjects = \"own\" }, function() return {} end)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "events": {
+      "subscribed": {
+       "$set": [
+        {
+         "handler_id": "$h1",
+         "pattern": {
+          "owner": "hub",
+          "name": "session.activity"
+         },
+         "subjects": "own"
+        },
+        {
+         "handler_id": "$h2",
+         "pattern": {
+          "owner": "terminal",
+          "name": "title"
+         },
+         "subjects": "own"
+        }
+       ]
+      }
+     },
+     "grants": {
+      "$set": [
+       {
+        "surface": "events",
+        "scope": "events_hub"
+       },
+       {
+        "surface": "session_actions",
+        "scope": "session_observe:own"
+       },
+       {
+        "surface": "events",
+        "scope": "events_terminal:own"
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "LB LB-12",
+    "LB LB-6"
+   ]
+  }
+ ]
+}

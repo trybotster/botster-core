@@ -1,0 +1,142 @@
+{
+  "id": "conf::ui_em_8_token_url_hidden_until_activation",
+  "contract": "ui",
+  "clause": "UI-EM-8",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {},
+      "package": "botster-graph",
+      "views": []
+    },
+    "app_origin": "https://app.example.test"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "graph",
+          "title": "Graph",
+          "requires": [
+            "ui_embed"
+          ],
+          "root": {
+            "type": "embed",
+            "id": "page",
+            "title": "Knowledge graph",
+            "page": {
+              "asset": {
+                "name": "graph"
+              }
+            },
+            "empty": {
+              "title": "No page"
+            },
+            "error": {
+              "title": "Page unavailable"
+            }
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-6",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "link": {
+            "open_in_browser": true,
+            "reveals_url": false
+          }
+        },
+        "because": "UI UI-EM-8",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 0
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 1,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "url": "https://assets.example.test:7443/botster-graph/ast_1?t=TOKEN_SENTINEL_1",
+              "expires_at": 1790840000001
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "link": {
+            "reveals_url": true
+          }
+        },
+        "because": "UI UI-EM-8",
+        "node_id": "page"
+      }
+    }
+  ]
+}

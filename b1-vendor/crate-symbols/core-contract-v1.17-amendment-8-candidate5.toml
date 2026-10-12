@@ -1,0 +1,99 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-8-candidate5.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Core contract of `frozen/current` (manifest final14, with Core Amendment 7 accepted for final15). It is unchanged except where A8-3 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 4** (`b2c545f2…2485`, commit `0d0bd7e`), which the Amendment reviewer rejected (verdict `a9d0411`):
+[rows."5"]
+"a9d0411" = "n/a: a commit or file hash"
+"b2c545f2…2485" = "n/a: a commit or file hash"
+
+# 1. Held bytes count each capture in exactly one way: `max_snapshot_bytes` until the host polls its `Completed`, and then its `total_bytes` (success) or nothing (failure). Tests cover before and after the poll for both outcomes.
+[rows."6"]
+"Completed" = ["core::Event::Completed"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+"total_bytes" = ["core::Capture::total_bytes"]
+
+# 2. The ST-6b qualification and the every-byte-offset rule include an ordinary oversize snapshot. The corpus is constrained so that every snapshot fits in `max_snapshot_bytes`.
+[rows."7"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+
+# Candidate 4 superseded candidate 3 (`8e22e406…2037`, commit `95e7eea`; withdrawn before review). The only change: A8-3 item 3 (the 9.3 `SnapshotTooLarge` text) uses the same "for any reason" wording as A8-2.
+[rows."9"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge"]
+
+# Candidate 2 superseded candidate 1 (`f0a0e3d9…5768`, commit `16fcdad`), which the Amendment reviewer rejected (verdict `b6dedbb`):
+[rows."13"]
+"b6dedbb" = "n/a: a commit or file hash"
+"f0a0e3d9…5768" = "n/a: a commit or file hash"
+
+# 1. A8-1 states every way capacity returns, including a completed or failed capture, when the host polls its `Completed` (AM-4). It also replaces 9.3's `CaptureLimit` resume text.
+[rows."14"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"Completed" = ["core::Event::Completed"]
+
+# - A8-2 was found by the Stage 1 Core lead's libghostty audit (`botster-core@765f43a`).
+[rows."19"]
+"botster-core@765f43a" = "n/a: a commit of the botster-core repository"
+
+# **Why.** 9B: `snapshot_retained_bytes` is "Bytes held by open captures, Core-wide. Over it: `CaptureLimit`". `CaptureLimit` is synchronous (9.3, A2-1). At `begin`, a capture's size is not known yet. A sync check against the bytes already...
+[rows."23"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"begin" = ["core::CoreApi::begin"]
+"snapshot_retained_bytes" = ["core::CoreLimits::snapshot_retained_bytes"]
+
+# | A8-1 | **`CaptureSnapshot` reserves `max_snapshot_bytes` at `begin`.**<br>- **Held bytes** count every capture in **exactly one** of two ways:<br>&nbsp;&nbsp;- a `CaptureSnapshot` operation whose `Completed` the host **has not yet poll...
+[rows."27"]
+"Capture.total_bytes" = ["core::Capture::total_bytes"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"CaptureSnapshot" = ["core::Op::CaptureSnapshot"]
+"Completed" = ["core::Event::Completed"]
+"begin" = ["core::CoreApi::begin"]
+"begin(CaptureSnapshot)" = ["core::Op::CaptureSnapshot", "core::CoreApi::begin"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+"model_rev" = ["core::Capture::model_rev"]
+"pump" = ["core::CoreApi::pump"]
+"release" = ["core::CoreApi::release"]
+"release_owner" = ["core::CoreApi::release_owner"]
+"snapshot_retained_bytes" = ["core::CoreLimits::snapshot_retained_bytes"]
+"snapshot_retained_bytes = k × max_snapshot_bytes" = { symbols = ["core::CoreLimits::snapshot_retained_bytes", "core::CoreLimits::max_snapshot_bytes"], uncovered = { k = "a multiplier in the formula" } }
+"total_bytes" = ["core::Capture::total_bytes"]
+
+# **Why.** ST-6b allows two ways to meet the resume invariant: the snapshot carries the parser's pending state, or the cut is taken only at a parser ground state. Suppose a program writes an escape string that does not end (an endless OSC ...
+[rows."31"]
+"cancel" = ["core::CoreApi::cancel"]
+
+# | A8-2 | **A snapshot that cannot be formed within its bounds is `SnapshotTooLarge`**, the outcome that already exists for an oversize snapshot. A snapshot cannot be formed within its bounds when either:<br>- it would exceed `max_snapsho...
+[rows."35"]
+"CaptureSnapshot" = ["core::Op::CaptureSnapshot"]
+"CoreLimits" = ["core::CoreLimits"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge", "core::RouteCloseReason::SnapshotTooLarge"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+"snapshot_format" = ["core::SnapshotFormat"]
+
+# 1. **9B, `snapshot_retained_bytes`:** "Over it: `CaptureLimit`" reads with A8-1 (a reservation at `begin`).
+[rows."39"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"begin" = ["core::CoreApi::begin"]
+"snapshot_retained_bytes" = ["core::CoreLimits::snapshot_retained_bytes"]
+
+# 2a. **9.3, `CaptureLimit`, the resume text** "a capture is released or expires (`pump`)" becomes "the host polls a capture's `Completed`, or a capture is released, or a capture expires (`pump`) (A8-1)".
+[rows."41"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"Completed" = ["core::Event::Completed"]
+"pump" = ["core::CoreApi::pump"]
+
+# 2b. **ST-6b, the resume invariant:** it holds for every snapshot that is offered. A snapshot is not offered only under A8-2: it would exceed `max_snapshot_bytes`, or the model can no longer carry its pending parser state, for any reason,...
+[rows."42"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+
+# 3. **9.3, `SnapshotTooLarge`:** "A capture or a route baseline exceeds `max_snapshot_bytes`" becomes "A capture or a route baseline cannot be formed within its bounds (A8-2): it would exceed `max_snapshot_bytes`, or the model can no long...
+[rows."43"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+
+# 4. **OU-9, "A snapshot larger than `max_snapshot_bytes` cannot be offered"** reads with A8-2 and includes the uncarriable pending state.
+[rows."44"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]

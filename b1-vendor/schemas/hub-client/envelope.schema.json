@@ -1,0 +1,1828 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Frame",
+  "description": "Any frame of the control stream, in either direction.\n\nClause: HC EN-1, EN-2.",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ClientFrame"
+    },
+    {
+      "$ref": "#/$defs/ServerFrame"
+    }
+  ],
+  "$defs": {
+    "ClientFrame": {
+      "description": "The frames of a client. An unknown `type` is a protocol error and closes the connection (EN-6).\n\nClause: HC EN-1, EN-6.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Hello"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "hello"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Req"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "req"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Cancel"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "cancel"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "VersionRange": {
+      "description": "The protocol versions that a client supports.\n\nClause: HC HS-1, HS-2.",
+      "type": "object",
+      "properties": {
+        "min": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "max": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "min",
+        "max"
+      ]
+    },
+    "ClientInfo": {
+      "description": "The client's name and version.\n\nClause: HC HS-1.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ]
+    },
+    "Hello": {
+      "description": "The first envelope frame of a client.\n\nClause: HC HS-1.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "description": "`botster-hub`.",
+          "type": "string"
+        },
+        "versions": {
+          "$ref": "#/$defs/VersionRange"
+        },
+        "client": {
+          "$ref": "#/$defs/ClientInfo"
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "terminal_formats": {
+          "description": "The route formats that the client can decode, in preference order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "protocol",
+        "versions",
+        "client",
+        "features",
+        "terminal_formats"
+      ]
+    },
+    "RequestId": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18}|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|1844674407370955[0-0][0-9]{3}|18446744073709551[0-5][0-9]{2}|184467440737095516[0-0][0-9]{1}|1844674407370955161[0-4][0-9]{0}|18446744073709551615)$"
+    },
+    "Verb": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "describe",
+            "list",
+            "get",
+            "watch",
+            "unwatch",
+            "create",
+            "update",
+            "delete",
+            "invoke"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Req": {
+      "description": "A request frame. `action` is required when `verb` is `invoke` and absent for every other verb (A4 EN-1a); that rule is checked by `Req::check`.\n\nClause: HC EN-1, A4 EN-1a, EN-8a.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "verb": {
+          "$ref": "#/$defs/Verb"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "target": {
+          "description": "A resource id where the verb needs one (for `unwatch`, the watch id).",
+          "type": "string"
+        },
+        "action": {
+          "description": "The action name, the key of `describe` `actions` (DS-1). Only with `verb: invoke`.",
+          "type": "string"
+        },
+        "args": true,
+        "idempotency_key": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "descriptor_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "verb",
+        "kind"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "verb": {
+                "const": "invoke"
+              }
+            },
+            "required": [
+              "verb"
+            ]
+          },
+          "then": {
+            "required": [
+              "action"
+            ]
+          },
+          "else": {
+            "not": {
+              "required": [
+                "action"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Cancel": {
+      "description": "`cancel { id }`: best effort, and the request still gets one `res`.\n\nClause: HC EN-1, EN-3b.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        }
+      },
+      "required": [
+        "id"
+      ]
+    },
+    "ServerFrame": {
+      "description": "The frames of the Hub. An unknown `type` is a protocol error (EN-6).\n\nClause: HC EN-2, EN-6.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Welcome"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "welcome"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Res"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "res"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/WatchFrame"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "watch"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/EventFrame"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "event"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/Close"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "close"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "Limits": {
+      "description": "The numbers of `welcome`. A client uses only these values. `max_chunk_bytes` bounds the chunk payload, without the `flags` byte,\non every DataChannel, the route channels included (TR-3, A8-3).\n\nClause: HC HS-3, BD-3, TR-3, A8-3.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_chunk_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_outstanding": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_watches": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "route_connect_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "idempotency_window_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cursor_idle_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "operation_retention_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_paste_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "query_client_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "max_chunk_bytes",
+        "max_outstanding",
+        "max_watches",
+        "route_connect_seconds",
+        "idempotency_window_seconds",
+        "cursor_idle_seconds",
+        "operation_retention_seconds",
+        "max_paste_bytes",
+        "max_file_bytes",
+        "query_client_deadline_ms"
+      ]
+    },
+    "Welcome": {
+      "description": "The Hub's answer to `hello`.\n\nClause: HC HS-3, HS-5.",
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "incarnation": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "terminal_format": {
+          "description": "Advisory: the route format is chosen per route at attach (TS-1). Absent when no listed format is supported now.",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits"
+        }
+      },
+      "required": [
+        "hub_id",
+        "incarnation",
+        "version",
+        "features",
+        "limits"
+      ]
+    },
+    "Error": {
+      "description": "The error object of a `res`, a tool result and an operation.\n\nClause: HC section 11, A.1b (`detail`), EN-3b.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "effect": {
+          "description": "Present on every error that answers a mutating request.",
+          "$ref": "#/$defs/ErrorEffect"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "description": "A kind-specific sub-code, listed in the kind's `describe`.",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The data that the contract names next to a code (`sessions`, `candidates`, `interface`, `range`, `key`).",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "field_errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          }
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "code",
+        "category",
+        "retryable",
+        "message"
+      ]
+    },
+    "ErrorCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "invalid_arguments",
+            "not_found",
+            "unsupported",
+            "conflict",
+            "wrong_state",
+            "permission_denied",
+            "too_many_requests",
+            "busy",
+            "response_too_large",
+            "plugin_failed",
+            "remote_hub_unsupported",
+            "hub_shutdown",
+            "expired_cursor",
+            "stale_descriptor",
+            "cancelled",
+            "internal"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Category": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "caller",
+            "state",
+            "auth",
+            "capacity",
+            "fault"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ErrorEffect": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "none",
+            "unknown",
+            "partial"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "FieldError": {
+      "description": "One entry of `field_errors`: a JSON Pointer, an optional stable field id, a code and a message.\n\nClause: HC section 11, SF-2.",
+      "type": "object",
+      "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "field_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "code",
+        "message"
+      ]
+    },
+    "Res": {
+      "description": "`res { id, ok } | res { id, err }`. A frame with both or neither is refused.\n\nClause: HC EN-2, EN-3.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "ok": true,
+        "err": {
+          "$ref": "#/$defs/Error"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "ok": {
+              "not": {
+                "type": "null"
+              }
+            }
+          },
+          "required": [
+            "ok"
+          ],
+          "not": {
+            "required": [
+              "err"
+            ]
+          }
+        },
+        {
+          "required": [
+            "err"
+          ],
+          "not": {
+            "required": [
+              "ok"
+            ]
+          }
+        }
+      ]
+    },
+    "SnapshotReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "overflow",
+            "source_reset",
+            "owner_reloaded"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Change": {
+      "description": "One change of a delta or a batch.\n\nClause: HC WT-2, WT-3.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "value": true,
+            "frame": {
+              "type": "string",
+              "const": "upsert"
+            }
+          },
+          "required": [
+            "frame",
+            "id",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "patch": true,
+            "frame": {
+              "type": "string",
+              "const": "patch"
+            }
+          },
+          "required": [
+            "frame",
+            "id",
+            "patch"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "remove"
+            }
+          },
+          "required": [
+            "frame",
+            "id"
+          ]
+        }
+      ]
+    },
+    "WatchClosedReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "owner_unloaded",
+            "owner_failed",
+            "kind_removed",
+            "permission_revoked",
+            "item_too_large"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "WatchFrame": {
+      "description": "The frames of one watch. Frames of one watch are ordered by the transport and carry no sequence number (WT-2).\n\nClause: HC WT-1 to WT-5, EN-2.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/SnapshotReason"
+            },
+            "frame": {
+              "type": "string",
+              "const": "snapshot_begin"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "items": {
+              "type": "array",
+              "items": true
+            },
+            "frame": {
+              "type": "string",
+              "const": "snapshot_items"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "items"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "snapshot_end"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "value": true,
+            "frame": {
+              "type": "string",
+              "const": "upsert"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "id",
+            "value"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "patch": true,
+            "frame": {
+              "type": "string",
+              "const": "patch"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "id",
+            "patch"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "remove"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "batch_begin"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Change"
+              }
+            },
+            "frame": {
+              "type": "string",
+              "const": "batch_items"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "changes"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "batch_end"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "watch_id": {
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/WatchClosedReason"
+            },
+            "frame": {
+              "type": "string",
+              "const": "watch_closed"
+            }
+          },
+          "required": [
+            "frame",
+            "watch_id",
+            "reason"
+          ]
+        }
+      ]
+    },
+    "EventGap": {
+      "description": "The loss marker, at the position of the first lost copy. `count` and `lost_bytes` are separate exact counters.\n\nClause: HC EV-4.",
+      "type": "object",
+      "properties": {
+        "frame": {
+          "$ref": "#/$defs/GapTag"
+        },
+        "stream_id": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "subject": true,
+        "count": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "lost_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "recovery": {
+          "$ref": "#/$defs/Recovery"
+        },
+        "state_read": {
+          "description": "Only with `recovery: state`.",
+          "$ref": "#/$defs/StateRead"
+        },
+        "aggregated": {
+          "description": "The per-unit counts of an aggregated gap (HP EV-12 owns the shape)."
+        }
+      },
+      "required": [
+        "frame",
+        "stream_id",
+        "owner",
+        "name",
+        "count",
+        "recovery"
+      ]
+    },
+    "GapTag": {
+      "description": "The tag of an `event_gap` frame.\n\nClause: HC EV-4.",
+      "type": "string",
+      "enum": [
+        "gap"
+      ]
+    },
+    "Recovery": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "state",
+            "unavailable",
+            "partial"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "StateRead": {
+      "description": "The exact read-only read that recovers state after a gap. A descriptor never creates authority.\n\nClause: HC EV-4.",
+      "type": "object",
+      "properties": {
+        "surface": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "reference": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "grant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface",
+        "grant"
+      ]
+    },
+    "Event": {
+      "description": "An event on a stream.\n\nClause: HC EV-1, EV-2.",
+      "type": "object",
+      "properties": {
+        "stream_id": {
+          "type": "string"
+        },
+        "owner": {
+          "description": "`hub`, `terminal` or a plugin key.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "subject": true,
+        "priority": {
+          "$ref": "#/$defs/EventPriority"
+        },
+        "source": {
+          "$ref": "#/$defs/EventSource"
+        },
+        "payload": true,
+        "at": {
+          "description": "Stamped by the Hub.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "stream_id",
+        "owner",
+        "name",
+        "priority",
+        "source",
+        "payload",
+        "at"
+      ]
+    },
+    "EventPriority": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "high",
+            "normal",
+            "low"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "EventSource": {
+      "description": "Where an event came from. `instance` tells a restarted source from the old one. An absent `hub_id` means the local Hub.\n\nClause: HC EV-1.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "session": {
+          "type": "string"
+        },
+        "hub_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "instance"
+      ]
+    },
+    "SourceKind": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "hub",
+            "plugin",
+            "terminal"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "EventFrame": {
+      "description": "The body of a server `event` frame: an event, or a gap marker.\n\nClause: HC EV-2, EV-4.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EventGap"
+        },
+        {
+          "$ref": "#/$defs/Event"
+        }
+      ]
+    },
+    "CloseReason": {
+      "anyOf": [
+        {
+          "description": "The reason of a typed `close`. Unit reasons are strings and reasons with data are one-key objects (A.1b). The set is non-exhaustive (A.2).\n\nClause: HC HS-9, A.1b, A.2.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "handshake_order",
+                "auth_failed",
+                "route_token_used",
+                "route_token_invalid",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "version_unsupported": {
+                  "$ref": "#/$defs/VersionUnsupportedData"
+                }
+              },
+              "required": [
+                "version_unsupported"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "protocol_error": {
+                  "$ref": "#/$defs/ProtocolErrorData"
+                }
+              },
+              "required": [
+                "protocol_error"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "busy": {
+                  "$ref": "#/$defs/BusyData"
+                }
+              },
+              "required": [
+                "busy"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "hub_shutdown": {
+                  "$ref": "#/$defs/HubShutdownData"
+                }
+              },
+              "required": [
+                "hub_shutdown"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "handshake_order",
+              "version_unsupported",
+              "protocol_error",
+              "busy",
+              "hub_shutdown",
+              "auth_failed",
+              "route_token_used",
+              "route_token_invalid"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "handshake_order",
+                "version_unsupported",
+                "protocol_error",
+                "busy",
+                "hub_shutdown",
+                "auth_failed",
+                "route_token_used",
+                "route_token_invalid"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "VersionUnsupportedData": {
+      "description": "`close { version_unsupported { hub_min, hub_max } }` data.\n\nClause: HC HS-2.",
+      "type": "object",
+      "properties": {
+        "hub_min": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "hub_max": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "hub_min",
+        "hub_max"
+      ]
+    },
+    "ProtocolErrorData": {
+      "description": "`close { protocol_error { code } }` data.\n\nClause: HC HS-9, A.1.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ProtocolErrorCode"
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "ProtocolErrorCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "frame_too_large",
+            "malformed_frame",
+            "unknown_frame",
+            "handshake_order",
+            "duplicate_request_id",
+            "invalid_input"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "BusyData": {
+      "description": "`close { busy { retry_after_ms } }` data.\n\nClause: HC HS-8.",
+      "type": "object",
+      "properties": {
+        "retry_after_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "retry_after_ms"
+      ]
+    },
+    "HubShutdownData": {
+      "description": "`close { hub_shutdown { lock_released } }` data. `lock_released` is true only after the lock is released and the listener is removed.\n\nClause: HC HS-9.",
+      "type": "object",
+      "properties": {
+        "lock_released": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "lock_released"
+      ]
+    },
+    "Close": {
+      "description": "`close { reason }`.\n\nClause: HC HS-9.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/CloseReason"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "DescribeResult": {
+      "description": "The `ok` value of `describe`. `ui_contract_view` names the view vocabulary version (section 7b).\n\nClause: HC DS-1, section 7b.",
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/KindDescriptor"
+          }
+        },
+        "ui_contract_view": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kinds"
+      ]
+    },
+    "KindDescriptor": {
+      "description": "The descriptor of one kind: the row of the watchable kind `kind`, and an element of the `describe` result.\n\nClause: HC DS-1, DS-2, DS-3.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "owner": {
+          "description": "`hub` or a package key.",
+          "type": "string"
+        },
+        "descriptor_id": {
+          "description": "Changes whenever the owning plugin reloads or the kind's schema changes (DS-6).",
+          "type": "string"
+        },
+        "schema_version": {
+          "description": "`\"M.m\"` (section 12, Versioning).",
+          "type": "string"
+        },
+        "schema": {
+          "description": "The kind's JSON Schema (draft 2020-12)."
+        },
+        "core_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "verbs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/VerbDescriptor"
+          }
+        },
+        "actions": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/ActionDescriptor"
+          }
+        },
+        "watchable": {
+          "type": "boolean"
+        },
+        "durable": {
+          "type": "boolean"
+        },
+        "projection_allowlist": {
+          "description": "The fields that views and watches of this kind may read (DS-1, UI-AD-1).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "list": {
+          "$ref": "#/$defs/ListMode"
+        },
+        "range_filters": {
+          "description": "The range filters that the kind declares for `list` (VB-1), by field name.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "owner",
+        "descriptor_id",
+        "schema_version",
+        "schema",
+        "core_fields",
+        "verbs",
+        "actions",
+        "watchable",
+        "durable",
+        "projection_allowlist"
+      ]
+    },
+    "VerbDescriptor": {
+      "description": "A verb of a kind, as `describe` lists it.\n\nClause: HC DS-1, DS-5.",
+      "type": "object",
+      "properties": {
+        "effect": {
+          "$ref": "#/$defs/EffectClass"
+        },
+        "permission": {
+          "type": "string"
+        },
+        "allowed": {
+          "description": "A hint for this caller. The Hub enforces every call (DS-5).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "effect",
+        "permission",
+        "allowed"
+      ]
+    },
+    "EffectClass": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "read",
+            "immediate",
+            "committed",
+            "accepted"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ActionDescriptor": {
+      "description": "An action of a kind. `owner`, `descriptor_id` and the VW-8 fields appear on an action that a plugin contributes to another owner's kind.\n\nClause: HC DS-1, DS-5, DS-6, EN-7.",
+      "type": "object",
+      "properties": {
+        "args_schema": true,
+        "result_schema": true,
+        "effect": {
+          "$ref": "#/$defs/EffectClass"
+        },
+        "durable_operation": {
+          "description": "Per action, never inferred from the resource (EN-7).",
+          "type": "boolean"
+        },
+        "idempotent": {
+          "type": "boolean"
+        },
+        "permission": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "description": "Disabled actions are listed with `allowed: false` and their reasons (DS-6).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DescribedReason"
+          }
+        },
+        "owner": {
+          "type": "string"
+        },
+        "descriptor_id": {
+          "type": "string"
+        },
+        "warning": {
+          "type": "string"
+        },
+        "label_pointer": {
+          "type": "string"
+        },
+        "status_pointer": {
+          "type": "string"
+        },
+        "url_pointer": {
+          "type": "string"
+        },
+        "applies_to": {
+          "$ref": "#/$defs/AppliesTo"
+        }
+      },
+      "required": [
+        "args_schema",
+        "result_schema",
+        "effect",
+        "durable_operation",
+        "idempotent",
+        "permission",
+        "allowed",
+        "reasons"
+      ]
+    },
+    "DescribedReason": {
+      "description": "One reason an action is disabled: a section 11 code or a kind `reason`.\n\nClause: HC A2 H-13, DS-6.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ]
+    },
+    "AppliesTo": {
+      "description": "The closed equality filter of a contributed session action (HP VW-8): the fields that must equal the session's.\n\nClause: HC section 6 (`session` row), DS-1.",
+      "type": "object",
+      "properties": {
+        "session_type_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "interaction": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "has_port": {
+          "type": "boolean"
+        }
+      }
+    },
+    "ListMode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "current_read"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ListArgs": {
+      "description": "The arguments of `list`.\n\nClause: HC VB-1, A2 VB-1 (H-32).",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "ListResult": {
+      "description": "The `ok` value of `list`.\n\nClause: HC VB-1.",
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": true
+        },
+        "next_cursor": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "items"
+      ]
+    },
+    "UpdateArgs": {
+      "description": "The arguments of `update`: an RFC 7396 merge patch and the optional `if_rev`.\n`req` has no field for `if_rev`, so it travels in `args` (pending steward ruling H2).\n\nClause: HC VB-4, A.1.",
+      "type": "object",
+      "properties": {
+        "patch": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "if_rev": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "patch"
+      ]
+    },
+    "WatchArgs": {
+      "description": "The arguments of `watch` on a kind: the optional filter. For `watch(event, …)` the filter is an `EventFilter`.\n\nClause: HC WT-1, EV-2.",
+      "type": "object",
+      "properties": {
+        "filter": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "WatchOpened": {
+      "description": "The `ok` value of `watch`. For an event stream the id is the `stream_id` (H-14).\n\nClause: HC WT-1, A2 H-14.",
+      "type": "object",
+      "properties": {
+        "watch_id": {
+          "type": "string"
+        },
+        "stream_id": {
+          "type": "string"
+        }
+      }
+    },
+    "EventFilter": {
+      "description": "The filter of `watch(event, …)`: `owner` or `name` may be `*`, and `name` may end in `.*` (HP EV-2). `min_priority` defaults to `low`.\n\nClause: HC EV-2.",
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "subjects": {
+          "type": "array",
+          "items": true
+        },
+        "min_priority": {
+          "$ref": "#/$defs/EventPriority"
+        }
+      },
+      "required": [
+        "owner",
+        "name"
+      ]
+    },
+    "NoticePayload": {
+      "description": "The payload of `hub/notice`, and of the push copy.\n\nClause: HC SF-5, SF-5b.",
+      "type": "object",
+      "properties": {
+        "notice_id": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "reaction": {
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/Severity"
+        },
+        "text": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        },
+        "ttl_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "notice_id",
+        "package",
+        "reaction",
+        "severity",
+        "text",
+        "ttl_ms"
+      ]
+    },
+    "Severity": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "info",
+            "success",
+            "warning",
+            "error"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "SessionNotification": {
+      "description": "The payload of `hub/session_notification`.\n\nClause: HC SF-5d.",
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/SessionRef"
+        },
+        "source": {
+          "$ref": "#/$defs/NotificationSource"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "at": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "session",
+        "source",
+        "at"
+      ]
+    },
+    "SessionRef": {
+      "description": "A session identity: `{hub_id, session_id}`.\n\nClause: HC P5.",
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "session_id"
+      ]
+    },
+    "NotificationSource": {
+      "description": "The source of a notification in `output_dropped`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "string",
+      "enum": [
+        "bell",
+        "osc9",
+        "osc777"
+      ]
+    },
+    "RouteEndedSubject": {
+      "description": "The subject of `hub/route.ended`.\n\nClause: HC TS-9.",
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "route_id"
+      ]
+    },
+    "RouteEndedPayload": {
+      "description": "The payload of `hub/route.ended` on the implicit `routes` stream.\n\nClause: HC TS-9.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/RouteEndReason"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "RouteEndReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_connected",
+            "handoff_failed",
+            "transport_lost",
+            "write_failed",
+            "stalled",
+            "session_lost"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

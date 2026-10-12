@@ -1,0 +1,224 @@
+{
+ "id": "conf::ev_10_core_ingest_independent_of_plugins",
+ "contract": "hp",
+ "clause": "EV-10",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "core_feed_unread",
+   "invoke",
+   "terminal_feed"
+  ]
+ },
+ "setup": {
+  "given": "the session s1 is spawned by the plugin; the plugin's handler h1 runs and its normal queue holds two copies; Core's metadata feed of s1 has items",
+  "limits": {
+   "event_queue_normal": 2
+  },
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_terminal"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "terminal",
+         "name": "title"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t0"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t1"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t2"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t3"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t4"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t5"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t6"
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "t7"
+   }
+  },
+  {
+   "control": {
+    "op": "core_feed_unread",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    }
+   },
+   "expect": {
+    "unread": 0
+   },
+   "because": "HP EV-10"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

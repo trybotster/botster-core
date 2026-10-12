@@ -1,0 +1,203 @@
+{
+ "id": "conf::ld_6_unload_removes_everything",
+ "contract": "hp",
+ "clause": "LD-6",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "published",
+   "unload",
+   "status",
+   "open_subscription"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      }
+     ],
+     "entity_providers": [
+      {
+       "kind": "ticket",
+       "schema": {},
+       "schema_version": "1.0",
+       "verbs": [
+        "list"
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "name": "t1",
+       "description": "d",
+       "input_schema": {},
+       "handler": "h1"
+      }
+     ],
+     "prompts": [
+      {
+       "name": "p1",
+       "description": "d",
+       "arguments": {},
+       "handler": "h1"
+      }
+     ],
+     "timers": [
+      {
+       "timer_id": "tm1",
+       "delay_ms": 100,
+       "handler_id": "he"
+      }
+     ],
+     "events": {
+      "declared": [
+       {
+        "name": "ev1",
+        "payload_schema": {},
+        "audience": [
+         "plugins"
+        ],
+        "public": false
+       }
+      ],
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "x"
+        }
+       }
+      ],
+      "gap_handler": "he"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "handlers": [
+     "h1",
+     "he"
+    ],
+    "tools": [
+     "t1"
+    ],
+    "prompts": [
+     "p1"
+    ],
+    "resources": [],
+    "timers": [
+     "tm1"
+    ],
+    "subscriptions": [
+     "he"
+    ],
+    "declared_events": [
+     "ev1"
+    ],
+    "entity_providers": [
+     "ticket"
+    ],
+    "held_subscriptions": []
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "open_subscription",
+    "family": "ticket"
+   }
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "held_subscriptions": [
+     "ticket"
+    ]
+   },
+   "because": "HP LD-6"
+  },
+  {
+   "control": {
+    "op": "unload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Shutdown"
+   },
+   "because": "HP LD-6"
+  },
+  {
+   "close_channel": {}
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "handlers": [],
+    "tools": [],
+    "prompts": [],
+    "resources": [],
+    "timers": [],
+    "subscriptions": [],
+    "declared_events": [],
+    "entity_providers": [],
+    "held_subscriptions": []
+   },
+   "because": "HP LD-6"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "unloaded"
+   },
+   "because": "HP LD-6"
+  }
+ ]
+}

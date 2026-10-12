@@ -1,0 +1,184 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # The CI seed set (docs/foundation-design.md section 6.1).
+  BOTSTER_SEEDS: "0-31"
+  # The base of the diff checks (frozen, ledger, mutants): a pull request names its base branch, a push names the commit before it.
+  BOTSTER_CI_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || '' }}
+  BOTSTER_CI_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
+
+jobs:
+  # Every job runs `cargo xtask ci --job <its name>`, and `cargo xtask ci` runs them all: the local gate and this workflow
+  # cannot drift (docs/BUILD.md "How each stage runs"; xtask/src/ci.rs tests this file). Add a step to xtask, never here.
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job manifest
+
+  # frozen/ is add-only (README rule 1).
+  frozen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job frozen
+
+  taint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job taint
+
+  ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job ledger
+
+  rust:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # `gh run list` and `gh run download` read the artifact of the last main run.
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - run: cargo xtask ci --job rust
+      - name: Upload the test times
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-times
+          path: target/test-times.json
+      - name: Upload the JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit
+          path: target/nextest/ci/junit.xml
+          if-no-files-found: ignore
+
+  # The slow tier: the few named real-process tests (docs/foundation-design.md section 9).
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - run: cargo xtask ci --job slow
+
+  codegen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job codegen
+
+  # The TypeScript packages (docs/foundation-design.md section 8, step 2).
+  ts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      - run: cargo xtask ci --job ts
+
+  # Landing (pull request to main), docs/tooling.md "Where the adopted tools run".
+  #
+  # Fuzzing: one libFuzzer run of 60 s per decoder harness. The harness is also a property test in the default tier. Only this job
+  # uses the nightly toolchain. The plugin frame decoder and manifest parser harnesses join the list when the plugin-contract feature adds them.
+  fuzz:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job fuzz
+
+  # Mutation tests of the code that the pull request changes. A surviving mutant fails the job and is a review finding;
+  # an accepted equivalent mutant goes in .cargo/mutants.toml with its reason (README "Building").
+  mutants:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo xtask ci --job mutants
+      - name: Upload the mutants report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-out
+          path: |
+            mutants.out
+            mutants-fakes
+          if-no-files-found: ignore

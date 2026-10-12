@@ -1,0 +1,42 @@
+{
+  "id": "conf::ui_sl_9_deep_link_url_form",
+  "contract": "ui",
+  "clause": "UI-SL-9",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "web origin, hub id, package key, view and the slot",
+      "url": {
+        "op": "web_url",
+        "expect": "https://web.example/hubs/hub1/v/acme-tickets/board?sel_t=t1",
+        "origin": "https://web.example",
+        "hub_id": "hub1",
+        "package": "acme-tickets",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "t1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "a package key with an at sign and a row key with a slash are percent-encoded",
+      "url": {
+        "op": "web_url",
+        "expect": "https://web.example/hubs/hub1/v/acme%40v1/board?sel_t=h1%2Fs1",
+        "origin": "https://web.example",
+        "hub_id": "hub1",
+        "package": "acme@v1",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "h1/s1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    }
+  ]
+}

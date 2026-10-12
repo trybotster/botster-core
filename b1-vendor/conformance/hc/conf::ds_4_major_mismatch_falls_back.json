@@ -1,0 +1,137 @@
+{
+  "id": "conf::ds_4_major_mismatch_falls_back",
+  "contract": "hc",
+  "clause": "DS-4",
+  "subject": "client",
+  "setup": {
+    "client": {
+      "hand_built": {
+        "session": "1"
+      }
+    }
+  },
+  "steps": [
+    {
+      "client_act": {
+        "connect": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "hello",
+        "protocol": "botster-hub"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "send": {
+        "type": "welcome",
+        "hub_id": "hub-1",
+        "incarnation": "i1",
+        "version": 2,
+        "features": [],
+        "terminal_format": "ghostsnp/2+raw",
+        "limits": {
+          "max_frame_bytes": 16384,
+          "max_chunk_bytes": 1024,
+          "max_outstanding": 8,
+          "max_watches": 64,
+          "route_connect_seconds": 10,
+          "idempotency_window_seconds": 60,
+          "cursor_idle_seconds": 30,
+          "operation_retention_seconds": 600,
+          "max_paste_bytes": 1024,
+          "max_file_bytes": 1024,
+          "query_client_deadline_ms": 100
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_act": {
+        "describe": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "req",
+        "id": "$d",
+        "verb": "describe",
+        "kind": "kind"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC DS-1"
+    },
+    {
+      "send": {
+        "type": "res",
+        "id": "$d",
+        "ok": {
+          "kinds": [
+            {
+              "kind": "session",
+              "owner": "hub",
+              "descriptor_id": "d-session-1",
+              "schema_version": "2.0",
+              "schema": {
+                "type": "object"
+              },
+              "core_fields": [
+                "id",
+                "state"
+              ],
+              "verbs": {
+                "get": {
+                  "effect": "read",
+                  "permission": "session.get",
+                  "allowed": true
+                },
+                "list": {
+                  "effect": "read",
+                  "permission": "session.list",
+                  "allowed": true
+                }
+              },
+              "actions": {},
+              "watchable": true,
+              "durable": true,
+              "projection_allowlist": [
+                "id",
+                "state"
+              ]
+            }
+          ]
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "generic_screen": {
+            "kind": "session"
+          }
+        },
+        "because": "HC DS-4"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "notice_logged": {
+            "kind": "session"
+          }
+        },
+        "because": "HC DS-4"
+      }
+    },
+    {
+      "client_idle": {}
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-1.4"
+}

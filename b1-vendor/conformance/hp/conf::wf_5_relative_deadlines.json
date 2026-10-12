@@ -1,0 +1,127 @@
+{
+ "id": "conf::wf_5_relative_deadlines",
+ "contract": "hp",
+ "clause": "WF-5",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "setup": {
+  "fixture": "host_hold"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1",
+     "deadline_ms": 100
+    }
+   }
+  },
+  {
+   "advance_clock": {
+    "ms": 99
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Result"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP WF-5"
+  },
+  {
+   "advance_clock": {
+    "ms": 1
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false
+     }
+    }
+   },
+   "because": [
+    "HP WF-5",
+    "HP LM-4"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h2",
+     "deadline_ms": 100
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "request_id": 6,
+     "result": {
+      "ok": true,
+      "value": 2
+     }
+    }
+   },
+   "because": "HP WF-5"
+  }
+ ]
+}

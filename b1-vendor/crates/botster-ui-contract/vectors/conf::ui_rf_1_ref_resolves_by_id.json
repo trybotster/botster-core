@@ -1,0 +1,340 @@
+{
+  "id": "conf::ui_rf_1_ref_resolves_by_id",
+  "contract": "ui",
+  "clause": "UI-RF-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a structured key resolves by the target's own id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "mem",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "title",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:34:botster-ui-descendant-v1:3:mem2:m15:title": {
+          "props": {
+            "text": "Build"
+          }
+        }
+      },
+      "because": "UI UI-RF-1"
+    },
+    {
+      "name": "a plain path key resolves by id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "t",
+                "value": {
+                  "ref": "r/name"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "none"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "Found"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:t": {
+          "props": {
+            "text": "Found"
+          }
+        }
+      },
+      "because": "UI UI-RF-1"
+    },
+    {
+      "name": "a target on another hub is absent with a reason",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "mem",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "title",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build"
+            }
+          ],
+          "hub_id": "h2"
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:34:botster-ui-descendant-v1:3:mem2:m15:title": {
+          "props": {
+            "text": "Session unavailable",
+            "tone": "warning",
+            "absent_reason": "remote_hub_unsupported"
+          }
+        }
+      },
+      "because": "UI UI-RF-1"
+    },
+    {
+      "name": "a key that names no row is absent: not_found",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "mem",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "title",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "other",
+              "label": "x"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:34:botster-ui-descendant-v1:3:mem2:m15:title": {
+          "props": {
+            "absent_reason": "not_found"
+          }
+        }
+      },
+      "because": "UI UI-RF-1"
+    },
+    {
+      "name": "a target kind with no baseline is absent: no_baseline",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "mem",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "title",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": false,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:34:botster-ui-descendant-v1:3:mem2:m15:title": {
+          "props": {
+            "absent_reason": "no_baseline"
+          }
+        }
+      },
+      "because": "UI UI-RF-1"
+    }
+  ]
+}

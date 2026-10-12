@@ -1,0 +1,204 @@
+{
+  "id": "conf::ui_nv_5_input_shapes",
+  "contract": "ui",
+  "clause": "UI-NV-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "every item of local_state in its shape",
+      "because": "UI UI-NV-5",
+      "parse": {
+        "type": "LocalState",
+        "value": {
+          "selections": {
+            "s": "r1"
+          },
+          "drafts": {
+            "k": {
+              "value": 1
+            },
+            "k2": {
+              "unset": true
+            },
+            "k3": {
+              "clear": true
+            }
+          },
+          "overlays": [
+            {
+              "form": {
+                "button": "b"
+              }
+            },
+            {
+              "confirm": {
+                "button": "b"
+              }
+            }
+          ],
+          "errors": {
+            "fields": {
+              "k": {
+                "code": "c",
+                "message": "m"
+              }
+            },
+            "forms": {
+              "f": "m"
+            },
+            "actions": {
+              "b": "m"
+            }
+          },
+          "focus": "n",
+          "scroll": {
+            "n": {
+              "any": 1
+            }
+          }
+        },
+        "valid": true
+      }
+    },
+    {
+      "name": "an overlay keyed by action instead of button is not a shape",
+      "because": "UI UI-NV-5",
+      "parse": {
+        "type": "LocalState",
+        "value": {
+          "overlays": [
+            {
+              "form": {
+                "action": "ren"
+              }
+            }
+          ]
+        },
+        "valid": false
+      }
+    },
+    {
+      "name": "a field error that is a bare string is not a shape",
+      "because": "UI UI-NV-5",
+      "parse": {
+        "type": "LocalState",
+        "value": {
+          "errors": {
+            "fields": {
+              "k": "text"
+            }
+          }
+        },
+        "valid": false
+      }
+    },
+    {
+      "name": "a draft with none of value, unset, clear is not a shape",
+      "because": "UI UI-NV-5",
+      "parse": {
+        "type": "LocalState",
+        "value": {
+          "drafts": {
+            "k": {
+              "bogus": true
+            }
+          }
+        },
+        "valid": false
+      }
+    },
+    {
+      "name": "baseline false gives the loading state",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": false,
+          "hub_id": "h1",
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "loading"
+          }
+        }
+      }
+    },
+    {
+      "name": "a snapshot error gives the error state with the message as detail",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [],
+          "error": {
+            "message": "Watch ended"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "error",
+            "detail": "Watch ended"
+          }
+        }
+      }
+    }
+  ]
+}

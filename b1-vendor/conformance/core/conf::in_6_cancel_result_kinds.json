@@ -1,0 +1,200 @@
+{
+  "id": "conf::in_6_cancel_result_kinds",
+  "contract": "core",
+  "clause": "IN-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_chunk",
+      "control_queue"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "pty_chunk",
+        "session": "s1",
+        "bytes": 1
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6162636465"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w"
+        }
+      },
+      "expect": "Admitted",
+      "because": "Core IN-6"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w"
+        }
+      },
+      "expect": "AlreadyAdmitted",
+      "because": "Core IN-6"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core IN-6"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w"
+        }
+      },
+      "expect": "TooLate",
+      "because": "Core IN-6"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": 99999
+        }
+      },
+      "expect": "UnknownOp",
+      "because": "Core IN-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c2"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$c2"
+        }
+      },
+      "expect": {
+        "Refused": "NotCancellable"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "control_queue",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6162"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w2"
+    },
+    {
+      "call": {
+        "method": "cancel",
+        "args": {
+          "op": "$w2"
+        }
+      },
+      "expect": {
+        "Refused": "Full"
+      },
+      "because": "Core IN-6"
+    }
+  ]
+}

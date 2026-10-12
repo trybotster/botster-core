@@ -1,0 +1,411 @@
+{
+ "id": "conf::ca_14_ensure_worktree_request_branch_base_ref_reuse",
+ "contract": "hp",
+ "clause": "CA-14",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "controls": {
+   "await_operation": {}
+  },
+  "calls": {
+   "session_types.ensure_worktree_and_spawn": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op2",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s2"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "invalid_request",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "operations.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "spawn",
+       "state": "installed",
+       "terminal": true,
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "worktree": {
+        "worktree_id": "w9",
+        "target_id": "t1",
+        "label": "w",
+        "path": "wt/w9",
+        "status": "ready",
+        "metadata": {}
+       }
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op2",
+       "kind": "spawn",
+       "state": "installed",
+       "terminal": true,
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s2"
+       },
+       "worktree": {
+        "worktree_id": "w9",
+        "target_id": "t1",
+        "label": "w",
+        "path": "wt/w9",
+        "status": "ready",
+        "metadata": {}
+       }
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "session_types.ensure_worktree_and_spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1",
+      "worktree": {
+       "branch": "feat",
+       "base_ref": "main"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "session": {
+        "hub_id": "$h",
+        "session_id": "$sid"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-14"
+  },
+  {
+   "control": {
+    "op": "await_operation",
+    "operation_id": "$op",
+    "terminal": true
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "terminal": true,
+       "worktree": {
+        "worktree_id": "$w1"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "session_types.ensure_worktree_and_spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1",
+      "worktree": {
+       "branch": "feat",
+       "reuse_worktree_id": "$w1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op2",
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-14"
+  },
+  {
+   "control": {
+    "op": "await_operation",
+    "operation_id": "$op2",
+    "terminal": true
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op2"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "terminal": true,
+       "worktree": {
+        "worktree_id": "$w1"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-14"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "session_types.ensure_worktree_and_spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1",
+      "worktree": {
+       "branch": "feat",
+       "path": "x"
+      }
+     }
+    }
+   },
+   "violates_args": "CA-14: the worktree request is {branch, base_ref?, reuse_worktree_id?}"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-14"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

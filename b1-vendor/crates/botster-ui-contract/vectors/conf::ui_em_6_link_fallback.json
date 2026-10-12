@@ -1,0 +1,168 @@
+{
+  "id": "conf::ui_em_6_link_fallback",
+  "contract": "ui",
+  "clause": "UI-EM-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a renderer that does not embed gets the title and the asset reference, with no host, path or token",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "title": "Graph",
+            "asset_id": "a1",
+            "src": {
+              "$absent": true
+            },
+            "href": {
+              "$absent": true
+            },
+            "url": {
+              "$absent": true
+            },
+            "token": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-6"
+    },
+    {
+      "name": "an asset by name stays a name: the verb resolves it on activation",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "title": "Graph",
+            "name": "graph",
+            "asset_id": {
+              "$absent": true
+            },
+            "src": {
+              "$absent": true
+            },
+            "href": {
+              "$absent": true
+            },
+            "url": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-7"
+    }
+  ]
+}

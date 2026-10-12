@@ -1,0 +1,227 @@
+{
+  "id": "conf::sv_6_epoch_commits_only_after_all_lanes",
+  "contract": "core",
+  "clause": "SV-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_connect",
+      "service_send_frame"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "lanes": [
+          0
+        ]
+      }
+    },
+    {
+      "control": {
+        "op": "service_send_frame",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "lane": 0,
+        "type": 1,
+        "payload_hex": "a1"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "expect_quiet_until": {
+        "ServiceState": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "state": {
+            "Reconnected": {
+              "epoch": {
+                "$any": true
+              }
+            }
+          }
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "Create": {
+              "session": "fence1",
+              "request": {
+                "program": [
+                  {
+                    "hold": {}
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "bind": "$bar1"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar1",
+          "result": {
+            "ok": {
+              "record": {
+                "id": "fence1",
+                "state": "Created"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "error": "NotConnected"
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_recv",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "lanes": [
+          1
+        ]
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "state": {
+              "Reconnected": {
+                "epoch": 1
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

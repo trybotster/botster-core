@@ -1,0 +1,232 @@
+{
+ "id": "conf::ca_15_refusal_leaves_no_row",
+ "contract": "hp",
+ "clause": "CA-15",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "no session exists; the plugin lacks the grant that spawn needs for the second call",
+  "calls": {
+   "session_types.spawn": [
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "not_found",
+       "message": "not_found",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "capability_denied",
+       "message": "capability_denied",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "sessions.list": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": []
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "nope"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "not_found"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "capability_denied"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "sessions.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": []
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-15"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

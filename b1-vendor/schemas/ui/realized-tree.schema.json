@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RealizedTree",
+  "description": "The result of `realize` (UI-NV-4).",
+  "type": "object",
+  "properties": {
+    "root": {
+      "$ref": "#/$defs/UiNode"
+    },
+    "overlays": {
+      "description": "The dialogs to show (UI-RZ-2b, UI-NV-4).",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/UiNode"
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Diagnostic"
+      }
+    },
+    "local_changes": {
+      "$ref": "#/$defs/LocalChanges"
+    }
+  },
+  "required": [
+    "root"
+  ],
+  "$defs": {
+    "UiNode": {
+      "description": "A realized node (UI-RZ-2). `id` is an opaque string (UI-ID-3).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/UiNodeKind"
+        },
+        "slots": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/UiNode"
+            }
+          }
+        },
+        "props": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/UiNode"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ]
+    },
+    "UiNodeKind": {
+      "description": "Shared semantic UI node kind.",
+      "oneOf": [
+        {
+          "description": "Vertical or horizontal stack layout.",
+          "type": "string",
+          "const": "stack"
+        },
+        {
+          "description": "Inline layout.",
+          "type": "string",
+          "const": "inline"
+        },
+        {
+          "description": "Form container.",
+          "type": "string",
+          "const": "form"
+        },
+        {
+          "description": "Form section grouping.",
+          "type": "string",
+          "const": "form_section"
+        },
+        {
+          "description": "Schema-driven form field.",
+          "type": "string",
+          "const": "form_field"
+        },
+        {
+          "description": "Panel region.",
+          "type": "string",
+          "const": "panel"
+        },
+        {
+          "description": "Application metric.",
+          "type": "string",
+          "const": "metric"
+        },
+        {
+          "description": "Responsive metric collection.",
+          "type": "string",
+          "const": "metric_grid"
+        },
+        {
+          "description": "Semantic command/filter/search/action container.",
+          "type": "string",
+          "const": "toolbar"
+        },
+        {
+          "description": "Compact status display with state semantics.",
+          "type": "string",
+          "const": "status_badge"
+        },
+        {
+          "description": "Lightweight content grouping.",
+          "type": "string",
+          "const": "section"
+        },
+        {
+          "description": "Scrollable region.",
+          "type": "string",
+          "const": "scroll_area"
+        },
+        {
+          "description": "Text node.",
+          "type": "string",
+          "const": "text"
+        },
+        {
+          "description": "Icon node.",
+          "type": "string",
+          "const": "icon"
+        },
+        {
+          "description": "Badge node.",
+          "type": "string",
+          "const": "badge"
+        },
+        {
+          "description": "Status dot node.",
+          "type": "string",
+          "const": "status_dot"
+        },
+        {
+          "description": "Empty state node.",
+          "type": "string",
+          "const": "empty_state"
+        },
+        {
+          "description": "List container.",
+          "type": "string",
+          "const": "list"
+        },
+        {
+          "description": "List item.",
+          "type": "string",
+          "const": "list_item"
+        },
+        {
+          "description": "Tree container.",
+          "type": "string",
+          "const": "tree"
+        },
+        {
+          "description": "Tree item.",
+          "type": "string",
+          "const": "tree_item"
+        },
+        {
+          "description": "Table container.",
+          "type": "string",
+          "const": "table"
+        },
+        {
+          "description": "Button/action node.",
+          "type": "string",
+          "const": "button"
+        },
+        {
+          "description": "Icon-only button/action node.",
+          "type": "string",
+          "const": "icon_button"
+        },
+        {
+          "description": "Menu container.",
+          "type": "string",
+          "const": "menu"
+        },
+        {
+          "description": "Menu item.",
+          "type": "string",
+          "const": "menu_item"
+        },
+        {
+          "description": "Dialog node.",
+          "type": "string",
+          "const": "dialog"
+        },
+        {
+          "description": "Text input node.",
+          "type": "string",
+          "const": "text_input"
+        },
+        {
+          "description": "Textarea node.",
+          "type": "string",
+          "const": "textarea"
+        },
+        {
+          "description": "Checkbox node.",
+          "type": "string",
+          "const": "checkbox"
+        },
+        {
+          "description": "Select node.",
+          "type": "string",
+          "const": "select"
+        },
+        {
+          "description": "Select option node.",
+          "type": "string",
+          "const": "select_option"
+        },
+        {
+          "description": "Terminal view placeholder.",
+          "type": "string",
+          "const": "terminal_view"
+        },
+        {
+          "description": "Connection-code view placeholder.",
+          "type": "string",
+          "const": "connection_code_view"
+        },
+        {
+          "description": "Sandboxed iframe or webview placeholder for generated HTML surfaces.",
+          "type": "string",
+          "const": "iframe"
+        },
+        {
+          "description": "Owner-namespaced custom component with a validated renderer fallback.",
+          "type": "string",
+          "const": "custom"
+        },
+        {
+          "description": "The embedded plugin page (UI-RZ-2f, ui-contract 1.2). Added by the clause, not part of the stolen kinds.",
+          "type": "string",
+          "const": "embed"
+        }
+      ]
+    },
+    "Diagnostic": {
+      "description": "A diagnostic of a realization (UI-NV-4). A diagnostic never fails the realization.",
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "description": "The node id that the diagnostic names, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "code": {
+          "type": "string"
+        },
+        "detail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "LocalChanges": {
+      "description": "What `realize` changed in the local state; the renderer applies it before the next draw (UI-NV-4, UI-RZ-2d).\nAn empty list is omitted.",
+      "type": "object",
+      "properties": {
+        "cleared_selections": {
+          "description": "Slots whose row left its kind, or that the document no longer declares (UI-SL-2).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "unset_drafts": {
+          "description": "Draft keys whose shown value is no longer in its options (UI-FM-4). The renderer sets each to `{ unset: true }`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stamped_errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/StampedError"
+          }
+        },
+        "dropped_view_state": {
+          "description": "Node ids of `focus` or `scroll` entries whose node left the tree.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "StampedError": {
+      "description": "An error that `realize` itself found (UI-NV-4 `stamped_errors`).",
+      "type": "object",
+      "properties": {
+        "draft_key": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "draft_key",
+        "code"
+      ]
+    }
+  }
+}

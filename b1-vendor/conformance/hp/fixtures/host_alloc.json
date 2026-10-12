@@ -1,0 +1,50 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h2",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h3",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "alloc": 900000
+   },
+   {
+    "return": {
+     "ok": "under"
+    }
+   }
+  ],
+  "h2": [
+   {
+    "alloc": 2000000
+   },
+   {
+    "return": {
+     "ok": "over"
+    }
+   }
+  ],
+  "h3": [
+   {
+    "return": {
+     "ok": "alive"
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PumpReport",
+  "description": "What `pump` reports.\n\nClause: Core A2-7, Core TM-6.",
+  "type": "object",
+  "properties": {
+    "more": {
+      "description": "Runnable work remains. Blocked work does not count (TM-6).",
+      "type": "boolean"
+    },
+    "events_posted": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "more",
+    "events_posted"
+  ]
+}

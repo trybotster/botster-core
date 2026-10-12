@@ -1,0 +1,149 @@
+{
+  "id": "conf::a2_2_never_sent_write_is_not_written_zero",
+  "contract": "core",
+  "clause": "A2-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "process_end_worker",
+      "scheduler_hold"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "61"
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w"
+    },
+    {
+      "control": {
+        "op": "scheduler_hold",
+        "for_op": "$w"
+      }
+    },
+    {
+      "control": {
+        "op": "process_end_worker",
+        "session": "s1"
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": {
+                    "NotWritten": "SessionEnded"
+                  },
+                  "payload_bytes_written": 0,
+                  "pty_bytes_written": 0
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-2",
+        "Core IN-7"
+      ]
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": {
+          "Lost": "WorkerGone"
+        }
+      },
+      "because": [
+        "Core AD-2",
+        "Core A5-3"
+      ]
+    }
+  ]
+}

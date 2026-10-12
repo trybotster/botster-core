@@ -1,0 +1,208 @@
+{
+  "id": "conf::a5_2_deferred_completion_keeps_slot_until_polled",
+  "contract": "core",
+  "clause": "A5-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "scheduler_hold",
+      "scheduler_release"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "pending_ops": 2
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$a"
+    },
+    {
+      "control": {
+        "op": "scheduler_hold",
+        "for_op": "$a"
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "state": "Running"
+      },
+      "because": [
+        "Core A5-2",
+        "Core EV-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "scheduler_release",
+        "for_op": "$a"
+      },
+      "because": "Core A5-2"
+    },
+    {
+      "pump_idle": {}
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$x",
+      "expect_error": {
+        "code": "PendingLimit"
+      },
+      "because": [
+        "Core A5-2",
+        "Core EV-5",
+        "Core AM-4"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$a",
+            "result": {
+              "ok": {
+                "end": {
+                  "Exited": {
+                    "cause": "HostStop"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A5-2",
+        "Core EV-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$y",
+      "because": [
+        "Core A5-2",
+        "Core AM-4"
+      ]
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$y",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    }
+  ]
+}

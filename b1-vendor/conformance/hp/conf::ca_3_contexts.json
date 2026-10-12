@@ -1,0 +1,331 @@
+{
+ "id": "conf::ca_3_contexts",
+ "contract": "hp",
+ "clause": "CA-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "calls": {
+   "config.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "values": {},
+       "missing_required": [],
+       "diagnostics": []
+      }
+     }
+    }
+   ],
+   "hub.identity": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "Hub"
+      }
+     }
+    }
+   ],
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "config.get",
+     "context": "bootstrap",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "missing_required": []
+      }
+     }
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "store.put",
+     "context": "bootstrap",
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "config.get",
+     "context": "bootstrap",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1"
+      }
+     }
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "log.write",
+     "context": "autonomous",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": {
+        "$type": "integer"
+       }
+      }
+     }
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 6,
+     "call": "hub.identity",
+     "context": "autonomous",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 6,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

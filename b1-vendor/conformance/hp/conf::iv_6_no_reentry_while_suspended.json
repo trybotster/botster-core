@@ -1,0 +1,280 @@
+{
+ "id": "conf::iv_6_no_reentry_while_suspended",
+ "contract": "hp",
+ "clause": "IV-6",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions",
+   "hold_commits",
+   "release_commits",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "hold_commits"
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "batch": [
+     {
+      "handler": "h1",
+      "payload": {
+       "n": 1
+      }
+     },
+     {
+      "handler": "h1",
+      "payload": {
+       "n": 2
+      }
+     },
+     {
+      "handler": "h1",
+      "payload": {
+       "n": 3
+      }
+     }
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "store.put",
+     "context": {
+      "request": "$ra"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "control": {
+    "op": "release_commits"
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rb",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rb",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rc",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rc",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": {
+      "$type": "u64"
+     },
+     "answer": {
+      "ok": true
+     }
+    },
+    {
+     "ticket": {
+      "$type": "u64"
+     },
+     "answer": {
+      "ok": true
+     }
+    },
+    {
+     "ticket": {
+      "$type": "u64"
+     },
+     "answer": {
+      "ok": true
+     }
+    }
+   ],
+   "because": "HP IV-6"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    }
+   ]
+  }
+ }
+}

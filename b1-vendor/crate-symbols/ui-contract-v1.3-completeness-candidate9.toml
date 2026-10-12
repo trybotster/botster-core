@@ -1,0 +1,171 @@
+# The crate symbols of each code span of ui-contract-v1.3-completeness-candidate9.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Supersedes candidate 8 (`39fc6b48…14f7`) by Web's member-order note: RFC 8785 member order is UTF-16 code unit order and must not be "fixed" to UTF-8. Candidate 8 superseded candidate 7 (`1378b058…1e89`) by one vector note: the raw-text ...
+[rows."4"]
+"508ef922…bb8c" = "n/a: a commit or file hash"
+"aaf64ea9…29f0" = "n/a: a commit or file hash"
+"aca11d54…4ad9" = "n/a: a commit or file hash"
+"desc" = ["ui::Dir::Desc"]
+
+# Base: ui 1.0 frozen (`ui-contract-v1-frozen-20260930.md`, `2063e897…7661`), ui 1.1 frozen (`ui-contract-v1.1-amendment-frozen-20260930.md`, `a932deeb…22ba`), ui 1.2 successor 2 (`ui-contract-v1.2-embed-successor-candidate2.md`, `434bf908...
+[rows."5"]
+"a932deeb…22ba" = "n/a: a commit or file hash"
+"ui-contract-v1-frozen-20260930.md" = "n/a: a repository path"
+"ui-contract-v1.1-amendment-frozen-20260930.md" = "n/a: a repository path"
+"ui-contract-v1.2-embed-successor-candidate2.md" = "n/a: a repository path"
+
+# Source: `audits/completeness-sweep-B1-20260930.md` U-1 to U-11; `audits/completeness-sweep-A-20260930.md` G-17, G-32.
+[rows."6"]
+"audits/completeness-sweep-A-20260930.md" = "n/a: a repository path"
+"audits/completeness-sweep-B1-20260930.md" = "n/a: a repository path"
+
+# **Version.** MINOR 1.3, feature `ui_1_3`. Items U-4, U-5, U-10 fix a compare or lookup rule that was missing; the realized tree for an unambiguous document does not change. U-7 adds an optional field. All other items state a rule where n...
+[rows."7"]
+"ui_1_3" = ["ui.feature:ui_1_3"]
+
+# **Replaces the sentence in UI-AC-1** "The result is `{ ok, field_errors?, message? }` keyed by node id" and extends UI-AC-6.
+[rows."11"]
+"{ ok, field_errors?, message? }" = ["hub::Outcome::Ok::ok", "ui::ActionError::field_errors", "ui::ActionOk::message", "ui::ActionError::message"]
+
+# | UI-AC-1b | **Where result fields live (client envelope).** An action is a client `invoke`. The answer is the client envelope `res { ok: value }` or `res { err: Error }` (client SF-2). **On success,** the `ok` value of a `ui_action` MAY...
+[rows."15"]
+"Error.field_errors" = ["hub::Error::field_errors"]
+"Error.message" = ["hub::Error::message"]
+"field_id" = ["hub::FieldError::field_id"]
+"invoke" = ["hub::Verb::Invoke"]
+"message?: string" = { symbols = ["ui::ActionOk::message"], uncovered = { string = "a primitive type name" } }
+"navigate?: { view, select? }" = ["ui::ActionOk::navigate", "ui::Navigate::view", "ui::Navigate::select"]
+"ok" = ["hub::Outcome::Ok::ok"]
+"res { err: Error }" = ["hub::Res", "hub::Outcome::Err::err", "hub::Error"]
+"res { ok: value }" = { symbols = ["hub::Res", "hub::Outcome::Ok::ok"], uncovered = { value = "the placeholder for the ok value" } }
+"ui_action" = ["plugin::HandlerKind::UiAction"]
+
+# | UI-AC-2b | **`accepted` effect.** For an action whose effect is `accepted`, the answer is `{ operation }`. The client shows a **pending** state on the action (disabled, with a progress indicator or text) while the operation's `terminal...
+[rows."16"]
+"abandoned" = ["hub.operation_state:safe_write:abandoned"]
+"accepted" = ["hub::EffectClass::Accepted"]
+"cancelled" = ["hub.operation_state:hub.shutdown:cancelled", "hub.operation_state:hub.restart:cancelled", "hub.operation_state:hub.swap:cancelled", "hub.operation_state:hub.upgrade_packages:cancelled", "hub.operation_state:hub.rollback_packages:cancelled", "hub.operation_state:session.stop:cancelled", "hub.operation_state:worktree.create:cancelled", "hub.operation_state:worktree.delete:cancelled", "hub.operation_state:package.install:cancelled", "hub.operation_state:package.remove:cancelled", "hub.operation_state:package.enable:cancelled", "hub.operation_state:package.disable:cancelled", "hub.operation_state:package.reload:cancelled", "hub.operation_state:package.entrypoint:cancelled", "hub.operation_state:package.upgrade:cancelled", "hub.operation_state:package.rollback:cancelled", "hub.operation_state:catalog.refresh:cancelled", "hub.operation_state:spawn_target.rescan_packages:cancelled", "hub.operation_state:hub.update:cancelled", "hub.operation_state:spawn:cancelled", "hub.operation_state:safe_write:cancelled"]
+"delivered" = ["hub.operation_state:safe_write:delivered"]
+"failed" = ["hub.operation_state:hub.shutdown:failed", "hub.operation_state:hub.restart:failed", "hub.operation_state:hub.swap:failed", "hub.operation_state:hub.upgrade_packages:failed", "hub.operation_state:hub.rollback_packages:failed", "hub.operation_state:session.stop:failed", "hub.operation_state:worktree.create:failed", "hub.operation_state:worktree.delete:failed", "hub.operation_state:package.install:failed", "hub.operation_state:package.remove:failed", "hub.operation_state:package.enable:failed", "hub.operation_state:package.disable:failed", "hub.operation_state:package.reload:failed", "hub.operation_state:package.entrypoint:failed", "hub.operation_state:package.upgrade:failed", "hub.operation_state:package.rollback:failed", "hub.operation_state:catalog.refresh:failed", "hub.operation_state:spawn_target.rescan_packages:failed", "hub.operation_state:hub.update:failed", "hub.operation_state:spawn:failed", "hub.operation_state:safe_write:failed"]
+"installed" = ["hub.operation_state:spawn:installed"]
+"message" = "n/a: an optional member of an operation result that UI-AC-2b shows when present; no HC A.7b result declares it"
+"reason" = ["hub::OperationState::reason"]
+"replaced" = ["hub.operation_state:safe_write:replaced"]
+"state" = ["hub::OperationRow::state"]
+"succeeded" = ["hub.operation_state:hub.shutdown:succeeded", "hub.operation_state:hub.restart:succeeded", "hub.operation_state:hub.swap:succeeded", "hub.operation_state:hub.upgrade_packages:succeeded", "hub.operation_state:hub.rollback_packages:succeeded", "hub.operation_state:session.stop:succeeded", "hub.operation_state:worktree.create:succeeded", "hub.operation_state:worktree.delete:succeeded", "hub.operation_state:package.install:succeeded", "hub.operation_state:package.remove:succeeded", "hub.operation_state:package.enable:succeeded", "hub.operation_state:package.disable:succeeded", "hub.operation_state:package.reload:succeeded", "hub.operation_state:package.entrypoint:succeeded", "hub.operation_state:package.upgrade:succeeded", "hub.operation_state:package.rollback:succeeded", "hub.operation_state:catalog.refresh:succeeded", "hub.operation_state:spawn_target.rescan_packages:succeeded", "hub.operation_state:hub.update:succeeded"]
+"terminal" = ["hub::OperationRow::terminal"]
+"terminal: bool" = { symbols = ["hub::OperationRow::terminal"], uncovered = { bool = "a primitive type name" } }
+"unknown" = ["hub.operation_state:safe_write:unknown"]
+"{ operation }" = ["hub::Receipt::operation"]
+
+# | UI-AC-7 | **Failure display.** (a) A failure of an action run **directly** (UI-AC-4, no form) or from a **row** shows its `Error.message` next to that action, or in the same panel, as an `error`-tone `text`; a failure of a form shows i...
+[rows."17"]
+"Error.message" = ["hub::Error::message"]
+"describe" = ["hub::Verb::Describe"]
+"effect: unknown" = ["hub::ErrorEffect::Unknown", "hub::Error::effect"]
+"error" = { symbols = ["ui::Tone::Danger"], uncovered = { error = "the tone word that UI 1.4 erratum 1 (UI-NV-8) maps to Tone::Danger" } }
+"field_errors" = ["ui::ActionError::field_errors"]
+"retryable: true" = { symbols = ["hub::Error::retryable"], uncovered = { true = "a JSON literal value" } }
+"stale_descriptor" = ["hub::ErrorCode::StaleDescriptor"]
+"text" = ["ui::UiNodeKind::Text"]
+
+# | UI-SL-8 | **Row activation follows the button rules.** `activate: { invoke: <action id> }` on a row or `Ref` follows UI-AC-3 and UI-AC-4 exactly (form first, then confirmation). An absent `default_from` operand (UI-FM-5) gives **no def...
+[rows."18"]
+"Ref" = ["ui::Ref"]
+"activate: { invoke: <action id> }" = { symbols = ["ui::Activate::Invoke"], uncovered = { action = "the placeholder for an action id", id = "the placeholder for an action id" } }
+"default_from" = { symbols = ["ui::FormPart::schema"], uncovered = { default_from = "a form schema keyword (UI-FM-5) that admission reads from FormPart::schema; no field types it" } }
+
+# | UI-RZ-4b | **Compare function for `order`.** Absent sorts first. Then by JSON type in this order: null, bool, number, string, other. `false` < `true`. Numbers compare as **IEEE-754 doubles in every implementation**: each converts the J...
+[rows."24"]
+"f64" = "n/a: a primitive type name"
+"false" = "n/a: a JSON literal value"
+"i64" = "n/a: a primitive type name"
+"order" = ["ui::Source::order"]
+"order: desc" = ["ui::Source::order", "ui::Dir::Desc"]
+"realize" = ["ui::realize"]
+"true" = "n/a: a JSON literal value"
+"u64" = "n/a: a primitive type name"
+
+# | UI-FD-2 | **`Field.map` key.** For a non-string value the key is the **RFC 8785 (JCS) text** of the value: `true`, `false`, `null`; a number uses RFC 8785 number serialization, so `1.0` and `1` are both `1`, `1e21` has one spelling and...
+[rows."25"]
+"\"true\"" = "n/a: a JSON literal value"
+"Field.map" = ["ui::Field::map"]
+"boolean" = "n/a: a JSON Schema type name"
+"false" = "n/a: a JSON literal value"
+"integer" = "n/a: a JSON Schema type name"
+"invalid_request{detail.code: non_canonical_map_key}" = ["plugin::ErrorKind::InvalidRequest", "plugin::Detail::code", "ui::AdmissionCode::NonCanonicalMapKey"]
+"invalid_request{detail.code: number_out_of_range}" = ["plugin::ErrorKind::InvalidRequest", "plugin::Detail::code", "ui::AdmissionCode::NumberOutOfRange"]
+"map" = ["ui::Field::map"]
+"null" = "n/a: a JSON literal value"
+"number" = "n/a: a JSON Schema type name"
+"status_badge" = ["ui::UiNodeKind::StatusBadge"]
+"true" = "n/a: a JSON literal value"
+
+# | UI-PT-5 | **Part property types.** `form.submit` and `form.cancel`: `{ label?: string }` (literal; defaults are client copy). `actions.overflow`: `auto` or `never`, as for `toolbar`. `list.item`: `{ fields: [Field], actions?: [ActionRe...
+[rows."26"]
+"actions.overflow" = ["ui::Part::Actions", "ui::ActionsPart::overflow"]
+"alternatives" = ["ui::SectionPart::alternatives", "ui::StackPart::alternatives", "ui::PanelPart::alternatives", "ui::InlinePart::alternatives"]
+"auto" = ["ui::Overflow::Auto"]
+"bad_property_type" = ["ui::AdmissionCode::BadPropertyType"]
+"detail.source" = ["ui::Part::Detail", "ui::DetailPart::source"]
+"false" = "n/a: a JSON literal value"
+"form.cancel" = ["ui::Part::Form", "ui::FormPart::cancel"]
+"form.submit" = ["ui::Part::Form", "ui::FormPart::submit"]
+"list.item" = ["ui::Part::List", "ui::ListPart::item"]
+"never" = ["ui::Overflow::Never"]
+"toolbar" = ["ui::Part::Toolbar", "ui::ToolbarPart::overflow"]
+"{ fields: [Field], actions?: [ActionRef] }" = { symbols = ["ui::Item::fields", "ui::Field", "ui::Item::actions"], uncovered = { ActionRef = "the UI-PT-5 name of an action reference, typed as ui::Action" } }
+"{ kind, id: Operand }" = ["ui::DetailSource::ByKind::kind", "ui::DetailSource::ByKind::id", "ui::Operand"]
+"{ label?: string }" = { symbols = ["ui::ButtonSpec::label"], uncovered = { string = "a primitive type name" } }
+"{ sel }" = ["ui::Operand::Sel"]
+
+# | UI-AC-8 | **`disabled_reason`.** The `Action` grammar gains `disabled_reason?: string` (literal copy, UI-CP-3). UI-RC-5 uses it; without it the client shows "Nothing selected". **When an action is disabled for two reasons, the pending ...
+[rows."27"]
+"Action" = ["ui::Action"]
+"disabled_reason" = ["ui::Action::disabled_reason"]
+"disabled_reason?: string" = { symbols = ["ui::Action::disabled_reason"], uncovered = { string = "a primitive type name" } }
+
+# | UI-EM-14 | **Message payloads (exact).** **To the page:** `{ botster: 1, type, payload: { rows: [ { id: <row key>, fields: { "<path>": <value> } } ] } }`, where each key of `fields` is a declared path of `to_page.fields` and the value ...
+[rows."33"]
+"args?: { <name>: Operand }" = { symbols = ["ui::FromPage::args", "ui::Operand"], uncovered = { name = "the placeholder for an argument name" } }
+"fields" = "n/a: GAP(ui): a member of the page message envelope; no contract crate types the page messages"
+"from_page" = ["ui::Channel::from_page"]
+"invoke" = ["ui::FromPage::invoke"]
+"payload" = { symbols = ["ui::FromPage::invoke"], uncovered = { payload = "GAP(ui): a member of the page message envelope; no contract crate types the page messages" } }
+"payload: { row_key: <string> }" = { symbols = ["ui::FromPage::select"], uncovered = { payload = "GAP(ui): a member of the page message envelope; no contract crate types the page messages", row_key = "GAP(ui): the member of the select payload; no contract crate types the page messages", string = "a primitive type name" } }
+"select" = ["ui::FromPage::select"]
+"to_page" = ["ui::Channel::to_page"]
+"to_page.fields" = ["ui::Channel::to_page", "ui::ToPage::fields"]
+"{ botster: 1, type, payload: { rows: [ { id: <row key>, fields: { \"<path>\": <value> } } ] } }" = { symbols = ["ui::ToPage::type_", "ui::ToPage::fields", "ui::Path"], uncovered = { payload = "GAP(ui): a member of the page message envelope; no contract crate types the page messages", rows = "GAP(ui): a member of the to-page payload; no contract crate types the page messages", id = "GAP(ui): a member of a to-page row; no contract crate types the page messages", row = "the placeholder for a row key", key = "the placeholder for a row key", value = "the placeholder for a JSON value", botster = "the product and binary name" } }
+
+# | UI-EM-15 | **`open_asset` failures.** Any error of `open_asset` (`not_found`, `permission_denied`, `busy`, `unsupported` with no assets origin configured, `hub_shutdown`) shows the `error` state with a **reload** action. `busy` and `hu...
+[rows."34"]
+"busy" = ["hub::ErrorCode::Busy"]
+"error" = ["ui.prop:embed:state", "ui::EmbedPart::error"]
+"hub_shutdown" = ["hub::ErrorCode::HubShutdown"]
+"not_found" = ["hub::ErrorCode::NotFound"]
+"open_asset" = ["hub.action:package.open_asset"]
+"permission_denied" = ["hub::ErrorCode::PermissionDenied"]
+"unsupported" = ["hub::ErrorCode::Unsupported"]
+
+# | UI-SL-9 | **Web URL of a navigation target (replaces the ellipsis in UI-SL-6).** `<web origin>/hubs/<hub_id>/v/<package key>/<view>?<slot>=<row key>`. Each path segment and each query value is percent-encoded (a package key may contain...
+[rows."40"]
+"/hubs/<hub_id>" = "n/a: a path of the web URL; no contract crate types the web URL"
+"/ice" = "n/a: a reserved path segment of the web URL; no contract crate types the web URL"
+"/signal" = "n/a: a reserved path segment of the web URL; no contract crate types the web URL"
+"/v/<package key>/<view>?<slot>=<row key>" = { symbols = ["ui::NavigationTarget::view", "ui::NavigationTarget::select"], uncovered = { v = "a path segment of the web URL; no contract crate types the web URL", package = "the placeholder for a package key", key = "the placeholder for a key", slot = "the placeholder for a slot id", row = "the placeholder for a row key" } }
+"<web origin>/hubs/<hub_id>/v/<package key>/<view>?<slot>=<row key>" = { symbols = ["ui::NavigationTarget::view", "ui::NavigationTarget::select"], uncovered = { web = "the placeholder for the web origin", origin = "the placeholder for the web origin", hubs = "a path segment of the web URL; no contract crate types the web URL", v = "a path segment of the web URL; no contract crate types the web URL", package = "the placeholder for a package key", key = "the placeholder for a key", slot = "the placeholder for a slot id", row = "the placeholder for a row key", hub_id = "the placeholder for the hub id; no contract crate types the web URL" } }
+"resolve_route" = ["hub.action:navigation.resolve_route"]
+"route_path" = ["hub::ResolveRouteArgs::route_path"]
+"url?" = ["hub::NoticePayload::url"]
+
+# | UI-RZ-3b | **Vector crate.** The conformance vectors of UI-RZ-3 live in `vectors/` of the **`botster-ui-contract`** crate. | `conf::ui_rz_3b_vectors_live_in_botster_ui_contract` |
+[rows."41"]
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"vectors/" = "n/a: a directory of the botster-ui-contract crate (the conformance vectors); a path, not an API symbol"
+
+# The part set, the predicate grammar, node ids, forms, selection, the embed sandbox and channel rules, and every frozen clause not named above are unchanged. A client that supports only 1.0 to 1.2 shows a local diagnostic for a view that ...
+[rows."45"]
+"desc" = ["ui::Dir::Desc"]
+"requires: [\"ui_1_3\"]" = ["ui::ViewDocument::requires", "ui.feature:ui_1_3"]

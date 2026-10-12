@@ -1,0 +1,180 @@
+{
+ "id": "conf::pm_1_local_source_is_live_with_dev_reload",
+ "contract": "hp",
+ "clause": "PM-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "local_dir",
+   "local_dir_write"
+  ]
+ },
+ "setup": {
+  "given": "the operator installs and enables a local directory; a file of the directory then changes",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "local_dir",
+    "name": "d1",
+    "files": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "demo",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    }
+   },
+   "bind": {
+    "p": "/path"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "local",
+      "path": "$p"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "status": "live"
+   },
+   "because": "HP PM-6"
+  },
+  {
+   "control": {
+    "op": "local_dir_write",
+    "path": "$p",
+    "file": "main.lua",
+    "text": "-- changed\\n"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_c",
+     "resumed": false
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_c",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_c"
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-1"
+  }
+ ]
+}

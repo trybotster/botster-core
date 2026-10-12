@@ -1,0 +1,98 @@
+{
+ "id": "conf::lb_7_operation_notification_shape",
+ "contract": "lb",
+ "clause": "LB-7",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.operations.on(function(record, request)\n  return { operation_id = record.operation_id, origin = request.origin, terminal = record.terminal, kind = record.kind }\nend)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "operations": {
+      "subscribed": "$ho"
+     }
+    }
+   },
+   "because": [
+    "HP HS-1",
+    "LB LB-7"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-1",
+      "kind": "spawn",
+      "state": "running",
+      "terminal": false
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-1",
+       "origin": "operation",
+       "terminal": false,
+       "kind": "spawn"
+      }
+     }
+    }
+   },
+   "because": "LB LB-7"
+  }
+ ]
+}

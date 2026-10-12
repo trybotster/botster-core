@@ -1,0 +1,114 @@
+{
+  "id": "conf::en_6_unknown_verb_unsupported",
+  "contract": "hc",
+  "clause": "EN-6",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "teleport",
+        "kind": "session",
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "err": {
+          "code": "unsupported"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-6"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "get",
+        "kind": "no_such_kind",
+        "target": "x"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "err": {
+          "code": "unsupported"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-6"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "get",
+        "kind": "session",
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "id": "s1"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-6"
+    }
+  ]
+}

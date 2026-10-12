@@ -1,0 +1,50 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-4-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Hub→plugin contract v1.1, Amendment 4 (candidate 2): what `write_pending_bytes` bounds, and the refusal when it is full
+[rows."1"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# The base is the Hub→plugin contract of `frozen/current` (manifest final23): v1.1 joint J4e, with Amendments 1 to 3, which are unchanged except where A4-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 1** (`7ab9e7a0…ed4e`, commit `9284edb`), which the Amendment reviewer rejected (verdict `a0cc617`). SW-6 allows one session to hold a write being typed **and** a waiting write. The total now counts both, each once,...
+[rows."5"]
+"7ab9e7a0…ed4e" = "n/a: a commit or file hash"
+"a0cc617" = "n/a: a commit or file hash"
+
+# **Why.** SW-5: "After acceptance the Hub owns the pending text, in memory, bounded (`write_pending_bytes`, a Hub parameter). The Hub keeps at most one pending write per session." No clause says what the bound counts, or what a write that...
+[rows."9"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# - A single write's text is already bounded by `max_write_bytes` (SW-7), refused as `invalid_request{text_too_long}`, and there is one pending write per session.
+[rows."10"]
+"invalid_request{text_too_long}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:text_too_long"]
+"max_write_bytes" = ["plugin.limit:max_write_bytes"]
+
+# - So `write_pending_bytes` can only be meaningful as the total over all sessions.
+[rows."11"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# | A4-1 | **`write_pending_bytes` bounds the Hub-wide total of pending text.**<br>- **The total:** the sum of the text bytes after sanitizing (SW-7) of **every** safe write the Hub holds, each counted once. Under SW-6 a session holds at m...
+[rows."15"]
+"backpressured" = ["plugin::ErrorKind::Backpressured"]
+"backpressured{detail.code: write_pending_full}" = ["plugin::ErrorKind::Backpressured", "plugin.code:backpressured:write_pending_full", "plugin::Detail::code"]
+"busy" = ["hub.reason:session.safe_write:busy"]
+"invalid_request{text_too_long}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:text_too_long"]
+"max_write_bytes" = ["plugin.limit:max_write_bytes"]
+"none" = ["plugin::Effect::None"]
+"safe_write" = ["plugin.value:OPERATION_KINDS:safe_write"]
+"sessions.safe_write" = ["plugin.call:sessions.safe_write"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# 1. **SW-5:** "bounded (`write_pending_bytes`, a Hub parameter)" reads with A4-1.
+[rows."19"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# 2. **SW-1 and Appendix A, the `sessions.safe_write` row:** the refusals gain `backpressured(write_pending_full)`, beside the `backpressured(no_receipt_capacity)` that A2-12 already lists.
+[rows."20"]
+"backpressured(no_receipt_capacity)" = ["plugin::ErrorKind::Backpressured", "plugin.code:backpressured:no_receipt_capacity"]
+"backpressured(write_pending_full)" = ["plugin::ErrorKind::Backpressured", "plugin.code:backpressured:write_pending_full"]
+"sessions.safe_write" = ["plugin.call:sessions.safe_write"]

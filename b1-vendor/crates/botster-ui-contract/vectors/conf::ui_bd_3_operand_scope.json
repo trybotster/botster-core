@@ -1,0 +1,723 @@
+{
+  "id": "conf::ui_bd_3_operand_scope",
+  "contract": "ui",
+  "clause": "UI-BD-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "path in a part with no source",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": {
+                "path": "/v"
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context",
+        "path": "/root/children/0/value"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "row in an item field",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "value": {
+                  "row": "/name"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "row in a source where",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "eq": [
+                {
+                  "row": "/v"
+                },
+                {
+                  "lit": 1
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "form outside a form",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": {
+                "form": "/x"
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context",
+        "path": "/root/children/0/value"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "viewport outside when",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "value": {
+                  "viewport": "width"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "ref outside the part that declares it",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "a",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              },
+              "refs": {
+                "r": {
+                  "kind": "k",
+                  "key": "/v",
+                  "absent": {
+                    "text": "none"
+                  }
+                }
+              }
+            },
+            {
+              "type": "list",
+              "id": "b",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "g",
+                    "value": {
+                      "ref": "r/v"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "sel anywhere a slot is declared",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": {
+                "sel": "s/id"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "path inside item fields and where",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "truthy": {
+                "path": "/v"
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "viewport only in when",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-BD-3"
+    },
+    {
+      "name": "path in a column",
+      "because": "UI UI-BD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "t",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "C",
+              "path": "/v"
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "ref in the part that declares it",
+      "because": "UI UI-BD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "refs": {
+            "r": {
+              "kind": "k",
+              "key": "/v",
+              "absent": {
+                "text": "none"
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "g",
+                "value": {
+                  "ref": "r/v"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "row in a row action",
+      "because": "UI UI-BD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ],
+            "actions": [
+              {
+                "id": "go",
+                "label": "Go",
+                "handler": "h",
+                "args": {
+                  "a": {
+                    "row": "/id"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "form inside a form",
+      "because": "UI UI-BD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "truthy": {
+                              "form": "/a"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "truthy": {
+                          "form": "/a"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    }
+  ]
+}

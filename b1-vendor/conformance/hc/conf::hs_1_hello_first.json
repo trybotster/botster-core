@@ -1,0 +1,38 @@
+{
+  "id": "conf::hs_1_hello_first",
+  "contract": "hc",
+  "clause": "HS-1",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "describe",
+        "kind": "kind"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "close",
+        "reason": "handshake_order"
+      },
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "expect_closed": null,
+      "on": "c1",
+      "because": "HC HS-9"
+    }
+  ]
+}

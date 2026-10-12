@@ -1,0 +1,188 @@
+{
+  "id": "conf::sv_4_no_silent_skip",
+  "contract": "core",
+  "clause": "SV-4",
+  "subject": "core",
+  "requires": {
+    "features": [
+      "bound:cpu_seconds",
+      "bound:open_files"
+    ],
+    "controls": [
+      "unavailable_bound"
+    ]
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "processes"
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "address_space_bytes"
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {
+                "cpu_seconds": {
+                  "value": 10,
+                  "required": false
+                },
+                "open_files": {
+                  "value": 64,
+                  "required": false
+                },
+                "processes": {
+                  "value": 8,
+                  "required": false
+                },
+                "address_space_bytes": {
+                  "value": 1048576,
+                  "required": false
+                }
+              },
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_report",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      },
+      "bind_fields": {
+        "applied": "$app",
+        "unsupported": "$uns"
+      },
+      "because": [
+        "Core A4-1",
+        "Core SV-4"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          [
+            "cpu_seconds",
+            "open_files"
+          ],
+          "$app"
+        ]
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          "$app",
+          [
+            "cpu_seconds",
+            "open_files"
+          ]
+        ]
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          [
+            "processes",
+            "address_space_bytes"
+          ],
+          "$uns"
+        ]
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "check": {
+        "subset_of": [
+          "$uns",
+          [
+            "processes",
+            "address_space_bytes"
+          ]
+        ]
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

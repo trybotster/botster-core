@@ -1,0 +1,36 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The smoke test runs the binary, so it belongs to the slow tier (BUILD.md Testing rules 2 and 7).
+slow = []
+
+[[test]]
+name = "slow"
+required-features = ["slow"]
+
+[dependencies]
+anyhow.workspace = true
+botster-conformance.workspace = true
+botster-plugin-contract = { path = "../crates/botster-plugin-contract" }
+botster-hub-contract = { path = "../crates/botster-hub-contract", features = ["unstable"] }
+botster-core-contract = { path = "../crates/botster-core-contract", features = ["unstable"] }
+botster-probe-script.workspace = true
+botster-test-support.workspace = true
+botster-route-codec = { workspace = true, features = ["unstable"] }
+botster-ui-contract = { path = "../crates/botster-ui-contract", features = ["unstable"] }
+botster-cli-contract = { path = "../crates/botster-cli-contract" }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+proc-macro2.workspace = true
+sha2.workspace = true
+toml.workspace = true

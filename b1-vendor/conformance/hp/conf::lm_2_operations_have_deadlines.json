@@ -1,0 +1,150 @@
+{
+ "id": "conf::lm_2_operations_have_deadlines",
+ "contract": "hp",
+ "clause": "LM-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "unload",
+   "status",
+   "load_plugin"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "startup": 500
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1",
+     "deadline_ms": {
+      "$type": "u64"
+     }
+    }
+   },
+   "because": "HP LM-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "unload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Shutdown",
+    "payload": {
+     "deadline_ms": {
+      "$type": "u64"
+     }
+    }
+   },
+   "because": "HP LM-2"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "p2",
+    "as": "p2"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "plugin_key": "p2"
+    }
+   },
+   "because": "HP LM-2",
+   "on": "p2"
+  },
+  {
+   "advance_clock": {
+    "ms": 500
+   }
+  },
+  {
+   "control": {
+    "op": "status",
+    "plugin": "p2"
+   },
+   "expect": {
+    "state": "load_failed",
+    "code": "startup_timeout"
+   },
+   "because": [
+    "HP LM-2",
+    "HP HS-5"
+   ]
+  }
+ ]
+}

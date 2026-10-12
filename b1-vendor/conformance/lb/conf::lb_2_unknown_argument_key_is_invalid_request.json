@@ -1,0 +1,108 @@
+{
+ "id": "conf::lb_2_unknown_argument_key_is_invalid_request",
+ "contract": "lb",
+ "clause": "LB-2",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local r = botster.hub.identity{ bogus = 1 }\n      return { ok = r.ok, kind = r.error and r.error.kind, effect = r.error and r.error.effect }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "kind": "invalid_request",
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "hub.identity"
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "because": "LB LB-2"
+  }
+ ]
+}

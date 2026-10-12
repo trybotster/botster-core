@@ -1,0 +1,61 @@
+{
+  "id": "conf::ui_nv_6_parameterized_key",
+  "contract": "ui",
+  "clause": "UI-NV-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the key view_unavailable carries the view id and the diagnostic code as args",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "myview",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "L",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_3"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": []
+      },
+      "expect": {
+        "root": {
+          "type": "empty_state",
+          "props": {
+            "title": {
+              "copy": "view_unavailable",
+              "args": {
+                "view_id": "myview",
+                "reason": "unsupported_view_feature"
+              }
+            }
+          }
+        }
+      },
+      "expect_diagnostics": [
+        "unsupported_view_feature"
+      ]
+    }
+  ]
+}

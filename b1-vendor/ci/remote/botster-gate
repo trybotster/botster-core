@@ -1,0 +1,492 @@
+#!/usr/bin/env bash
+# The Botster merge gate: one run of the repo's gate command on the exact head of a worktree, on the Linux test host or on
+# this Mac, whichever has the resources (docs/BUILD.md "How each stage runs"). The result is the same either way: the
+# same command, in the same environment, on the same commit, against the same base. The log records where it ran.
+#
+#   botster-gate [--on auto|linux|mac] [--cpus N] [--deadline D] [--priority] [--allow-dirty] [<worktree>] [-- <command...>]
+#   botster-gate --queue                  show both queues
+#   botster-gate --clean <worktree>       remove the worktree's Mac gate tree (after landing)
+#
+# <worktree>     default: the current directory. Repos: botster-contracts (base main), botster-core (base v1).
+# <command>      default: env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask ci
+# --on           auto (default) picks by the rule below; linux or mac forces the machine.
+# --cpus         CPUs of a Linux job, 2 to 4 (default 4: the gate caps cargo and nextest at 4).
+# --deadline     botsterq deadline of a Mac job (default 45m).
+# --priority     testq --priority (CI only).
+# --allow-dirty  run with uncommitted changes to tracked files (never a merge gate). Untracked files never travel.
+#
+# Selection (auto):
+#   1. Linux, when the host answers, testq is not paused, nothing waits in its queue, the job's CPUs are free, and a
+#      Botster slot is free there (3, or 4 while testq has no HyperFlex job).
+#   2. else the Mac, when its 1-minute load is under 12 or its CPUs are at least 50% idle, and botsterq runs no job.
+#   3. else the shorter line: Linux if its waiting jobs are no more than botsterq's jobs, else the Mac.
+#   The Mac is the only choice when the host does not answer or the head has no ci/remote/job.sh.
+#
+# Both machines run the commit, never the live worktree, so untracked and ignored files (and a later checkout) cannot
+# change the result. The command runs with a cleared environment: HOME, PATH, USER, LOGNAME, LANG, CARGO_HOME and
+# RUSTUP_HOME when set, TZ=UTC, and BOTSTER_CI_BASE_REF set to the base commit recorded at the start. A gate with a SKIPPED
+# step is not a full gate: botster-gate exits 4.
+#
+# Linux: a holder process on the host owns the gate (see "The holder" below). It takes, in order, the branch lock (one
+# gate of a branch at a time: they share the target volume), a Botster slot (Botster's share: 3 slots, 12 of testq's 20
+# CPUs; a 4th, elastic slot only while no HyperFlex job is queued or running) and the job's lease, then the worktree's source lock while the client pushes the
+# head and the base to ~/testq/projects/<repo>/src/<name> (one git checkout per worktree), and it runs `testq submit`.
+# The client sends it a heartbeat every 10 s and runs `testq follow`. When the client ends (normally, Ctrl-C, a kill, or
+# no heartbeat for 180 s), the holder cancels the job if it still runs, waits until it has stopped and its
+# containers are gone, and only then frees the locks. The job also stops itself if the holder is gone (job.sh --lease).
+# Mac: `botsterq run --exclusive` in a detached gate tree of the worktree (~/botster-sessions/gate-trees/<repo>-<name>,
+# with its own target/), checked out at the head inside the job.
+#
+# The log: ~/botster-sessions/gates/<repo>-<branch>-<sha8>-<machine>-<time>-<pid>.log. The exit status is the gate's.
+#
+# BOTSTER_GATE_HOST   ssh destination of the test host (default structvr@192.168.1.185)
+set -euo pipefail
+
+host=${BOTSTER_GATE_HOST:-structvr@192.168.1.185}
+gates=${BOTSTER_GATE_LOGS:-$HOME/botster-sessions/gates}
+trees=${BOTSTER_GATE_TREES:-$HOME/botster-sessions/gate-trees}
+testq='~/testq/bin/testq'
+tsp='TS_SOCKET=~/testq/queue.sock ~/testq/bin/tsp'
+ssh=(ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o ConnectTimeout=5 -o BatchMode=yes)
+# Botster's share of testq: 3 slots always (12 of 20 CPUs, so HyperFlex keeps 8), plus 1 elastic slot that a gate may take
+# only while testq has no HyperFlex job queued or running (orchestrator, 2026-10-02). A gate on the elastic slot runs to
+# its end (testq never interrupts a running job); new gates stop taking it as soon as HyperFlex has a job.
+botster_share=3 botster_elastic=1
+
+on_host() { "${ssh[@]}" "$host" "$1"; }
+
+usage() { sed -n '6,16p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
+
+on=auto cpus=4 deadline=45m priority=0 dirty_ok=0 worktree=. clean=0
+while (( $# )); do
+  case $1 in
+    --queue)
+      echo "== Linux ($host) =="; on_host "$testq list" | tail -n 15 || echo "(unreachable)"
+      echo "== Mac (botsterq) =="; botsterq list
+      exit 0 ;;
+    --clean) clean=1 ;;
+    --on) on=${2:?}; shift ;;
+    --on=*) on=${1#--on=} ;;
+    --cpus) cpus=${2:?}; shift ;;
+    --cpus=*) cpus=${1#--cpus=} ;;
+    --deadline) deadline=${2:?}; shift ;;
+    --deadline=*) deadline=${1#--deadline=} ;;
+    --priority) priority=1 ;;
+    --allow-dirty) dirty_ok=1 ;;
+    --) shift; break ;;
+    -h | --help) usage ;;
+    -*) echo "botster-gate: unknown option $1" >&2; usage ;;
+    *) worktree=$1 ;;
+  esac
+  shift
+done
+(( $# )) || set -- env CARGO_BUILD_JOBS=4 NEXTEST_TEST_THREADS=4 cargo xtask ci
+[[ $on =~ ^(auto|linux|mac)$ ]] || usage
+[[ $cpus =~ ^[2-4]$ ]] || { echo "botster-gate: --cpus must be 2 to 4 (the Botster share)" >&2; exit 64; }
+
+worktree=$(cd "$worktree" && git rev-parse --show-toplevel)
+cd "$worktree"
+case $(git remote get-url origin) in
+  *trybotster/botster-contracts*) project=botster-contracts base=main ;;
+  *trybotster/botster-core*) project=botster-core base=v1 ;;
+  *) echo "botster-gate: $worktree is not botster-contracts or botster-core" >&2; exit 64 ;;
+esac
+# One name per worktree: the host source directory and the Mac gate tree.
+name=$(basename "$worktree" | tr -c 'a-zA-Z0-9_\n' '_' | tr 'A-Z' 'a-z' | sed 's/^[^a-z0-9]*//')
+name=${name:-tree}-$(printf %s "$worktree" | shasum | cut -c1-8)
+tree=$trees/$project-$name
+
+if (( clean )); then
+  if [ -d "$tree" ]; then git worktree remove --force "$tree" && echo "botster-gate: removed $tree"; fi
+  exit 0
+fi
+
+head=$(git rev-parse HEAD)
+branch=$(git rev-parse --abbrev-ref HEAD)
+# The target volume and the branch lock follow a branch. A detached head (for example the gate of a merge commit on the
+# base branch) uses its base branch's volume, so it builds incrementally; the log still names it detached-<sha8>.
+volume_branch=$branch
+if [ "$branch" = HEAD ]; then branch=detached-${head:0:8}; volume_branch=$base; fi
+git fetch -q origin "$base" 2>/dev/null || echo "botster-gate: could not fetch origin/$base; using the local ref" >&2
+base_sha=$(git rev-parse "refs/remotes/origin/$base")
+dirty=$(git status --porcelain --untracked-files=no)
+if [ -n "$dirty" ] && (( ! dirty_ok )); then
+  echo "botster-gate: tracked files have uncommitted changes; commit them (the gate runs on the exact head) or pass --allow-dirty" >&2
+  exit 65
+fi
+
+# --- where -------------------------------------------------------------------------------------------------------------
+# Linux state: "<used CPUs> <capacity> <waiting jobs> <Botster jobs> <HyperFlex jobs> <paused>", or nothing when the host does not answer.
+linux_state() {
+  on_host "$tsp -l | awk 'NR == 1 { if (match(\$0, /run=[0-9]+\\/[0-9]+/)) { split(substr(\$0, RSTART + 4, RLENGTH - 4), a, \"/\"); used = a[1]; cap = a[2] } }
+    NR > 1 && \$2 == \"queued\" { q++ }
+    NR > 1 && (\$2 == \"queued\" || \$2 == \"running\") && /\\[botster-/ { b++ }
+    NR > 1 && (\$2 == \"queued\" || \$2 == \"running\") && /\\[hyperflex:/ { h++ }
+    END { print used + 0, cap + 0, q + 0, b + 0, h + 0 }'; [ -e ~/testq/paused ] && echo paused || echo running" 2>/dev/null \
+    | paste -sd' ' - || true
+}
+mac_jobs() { botsterq list | awk 'NR > 1 && ($2 == "running" || $2 == "queued")' | wc -l | tr -d ' '; }
+mac_free() {
+  local load idle
+  load=$(sysctl -n vm.loadavg | awk '{ print $2 }')
+  idle=$(top -l 1 -n 0 | awk '/CPU usage/ { sub("%", "", $7); print $7 }')
+  (( $(mac_jobs) == 0 )) && awk -v l="$load" -v i="$idle" 'BEGIN { exit !(l < 12 || i >= 50) }'
+}
+
+machine=$on reason="forced with --on $on"
+if ! git cat-file -e "$head:ci/remote/job.sh" 2>/dev/null; then
+  [ "$on" = linux ] && { echo "botster-gate: $head has no ci/remote/job.sh; it cannot run on Linux" >&2; exit 64; }
+  machine=mac reason="the head has no ci/remote/job.sh"
+elif [ "$on" = auto ]; then
+  read -r used cap queued botster hyperflex paused <<<"$(linux_state)" || true
+  slots=$(( botster_share + (${hyperflex:-1} == 0 ? botster_elastic : 0) ))
+  if [ -z "${cap:-}" ] || [ "${cap:-0}" = 0 ]; then
+    machine=mac reason="the test host does not answer"
+  elif [ "$paused" != paused ] && (( queued == 0 && cap - used >= cpus && botster < slots )); then
+    machine=linux reason="testq has $(( cap - used ))/$cap CPUs free, $botster Botster jobs"
+  elif mac_free; then
+    machine=mac reason="testq is busy ($used/$cap CPUs, $queued waiting, $botster Botster jobs); the Mac is free"
+  elif (( queued <= $(mac_jobs) )); then
+    machine=linux reason="both busy; testq has $queued waiting, botsterq $(mac_jobs)"
+  else
+    machine=mac reason="both busy; testq has $queued waiting, botsterq $(mac_jobs)"
+  fi
+fi
+
+# --- the log -----------------------------------------------------------------------------------------------------------
+slug=$(printf %s "$branch" | tr '/' '-' | tr -c 'A-Za-z0-9_.\n-' '-')
+mkdir -p "$gates"
+log=$gates/$project-$slug-${head:0:8}-$machine-$(date +%Y%m%d-%H%M%S)-$$.log
+tmp=$(mktemp -d)
+run=$name-$(date +%Y%m%d%H%M%S)-$$
+started=$(date +%s)
+done= follow_pid= hb_pid= holder_pid= mac_pid=
+
+# The output goes to the terminal and the log; fd 5 keeps the terminal for the verdict, written after tee has drained.
+exec 5>&1
+exec > >(tee -a "$log") 2>&1
+tee_pid=$!
+
+# The verdict, once the gate's whole output is in the log: a full gate has no SKIPPED step (botster-contracts skips a job
+# whose tool is missing).
+finish() {
+  local status=$1
+  exec >&- 2>&-
+  wait "$tee_pid" 2>/dev/null
+  exec >&5 2>&5
+  if (( status == 0 )) && grep -Eq '^[a-z][a-z-]* +SKIPPED' "$log"; then
+    echo "botster-gate: a step was SKIPPED; this is not a full gate" | tee -a "$log"
+    status=4
+  fi
+  echo "botster-gate: exit $status after $(( $(date +%s) - started )) s on $machine ($project ${head:0:8})" | tee -a "$log"
+  rm -rf "$tmp"
+  exit "$status"
+}
+
+# Every exit path, on either machine. Nothing here may stop the cleanup early.
+on_exit() {
+  local status=$? line
+  trap - EXIT
+  trap '' INT TERM HUP
+  set +e
+  # The Mac run: botsterq cancels its job when its run process gets TERM.
+  if [ -n "$mac_pid" ]; then kill -TERM "$mac_pid" 2>/dev/null; wait "$mac_pid" 2>/dev/null; fi
+  [ -n "$follow_pid" ] && { kill "$follow_pid" 2>/dev/null; wait "$follow_pid" 2>/dev/null; }
+  [ -n "$hb_pid" ] && { kill "$hb_pid" 2>/dev/null; wait "$hb_pid" 2>/dev/null; }
+  # The holder owns the job on the host: on EOF it cancels a job that is still queued or running, waits until it has
+  # stopped, then frees the lease, the slot and the branch lock. Show what it reports while it does that.
+  if [ -n "$holder_pid" ]; then
+    exec 8>&-
+    while IFS= read -r -t 180 line <&4; do echo "botster-gate: $line"; done
+    kill "$holder_pid" 2>/dev/null; wait "$holder_pid" 2>/dev/null
+  fi
+  finish "$status"
+}
+trap on_exit EXIT
+on_signal() { trap '' INT TERM HUP; exit "$1"; }
+trap 'on_signal 129' HUP
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
+
+echo "botster-gate: $project $branch $head"
+echo "botster-gate: base origin/$base = $base_sha (BOTSTER_CI_BASE_REF)"
+[ -n "$dirty" ] && echo "botster-gate: plus uncommitted changes to tracked files (--allow-dirty; not a merge gate)"
+echo "botster-gate: machine $machine ($reason)"
+echo "botster-gate: command $*"
+echo "botster-gate: log $log"
+if [ "$machine" = linux ] && mac_only=$(git grep -l -E 'target_os *= *"macos"' "$head" -- crates conformance tests xtask 2>/dev/null); then
+  echo "botster-gate: WARNING: macOS-only code on Linux is not compiled; the Mac slow tier covers it:"
+  printf '  %s\n' ${mac_only//$head:/}
+fi
+[ -n "$dirty" ] && git diff --binary HEAD > "$tmp/dirty.patch"
+
+# --- Mac ---------------------------------------------------------------------------------------------------------------
+# The gate tree is a detached worktree of the same repository, with its own target/. The exclusive job creates it if
+# needed, checks it out at the head (botsterq may start the job much later), removes every untracked and ignored file
+# except target/, runs the repo's ci/remote/fetch-public.sh (or checks out the submodules), cleans every submodule,
+# applies an --allow-dirty patch, and runs the command with the cleared environment.
+if [ "$machine" = mac ]; then
+  mkdir -p "$trees"
+  status=0
+  botsterq run --exclusive --label "gate:$project:${head:0:8}" --deadline "$deadline" -- \
+    bash -c 'worktree=$1 tree=$2 head=$3 patch=$4 base_sha=$5; shift 5
+      [ -d "$tree" ] || git -C "$worktree" worktree add -q --detach "$tree" "$head" || exit 3
+      cd "$tree" && git checkout -q -f --detach "$head" && git clean -q -ffdx -e /target || exit 3
+      keep=(HOME="$HOME" PATH="$PATH" USER="${USER:-}" LOGNAME="${LOGNAME:-}" LANG="${LANG:-C.UTF-8}" TZ=UTC
+            BOTSTER_CI_BASE_REF="$base_sha")
+      [ -n "${CARGO_HOME:-}" ] && keep+=(CARGO_HOME="$CARGO_HOME")
+      [ -n "${RUSTUP_HOME:-}" ] && keep+=(RUSTUP_HOME="$RUSTUP_HOME")
+      # Public sources, as on Linux: the repo'"'"'s ci/remote/fetch-public.sh (botster-core: the libghostty submodule and its
+      # Zig packages), with the cleared environment; else the submodules at the pinned commits. Every submodule is then
+      # cleaned, so no file of an earlier build stays.
+      if [ -f ci/remote/fetch-public.sh ]; then
+        env -i "${keep[@]}" bash ci/remote/fetch-public.sh || exit 3
+      elif [ -f .gitmodules ]; then
+        git submodule update -q --init --force || exit 3
+      fi
+      [ -f .gitmodules ] && { git submodule foreach -q --recursive git clean -q -ffdx || exit 3; }
+      if [ -s "$patch" ]; then git apply --whitespace=nowarn "$patch" || exit 3; fi
+      exec env -i "${keep[@]}" "$@"' botster-gate "$worktree" "$tree" "$head" "$tmp/dirty.patch" "$base_sha" "$@" &
+  mac_pid=$!
+  wait "$mac_pid" || status=$?
+  mac_pid=
+  exit "$status"
+fi
+
+# --- Linux -------------------------------------------------------------------------------------------------------------
+src=testq/projects/$project/src/$name
+
+
+# The holder: the host-side owner of this gate, one bash process per gate, alive from before the job is submitted until
+# after it has stopped. Its open files are the locks: the branch lock (one gate of a branch at a time: they share its
+# target volume), one of the Botster slots (the share), the lease, and the worktree's source lock from the push until the
+# job is queued. It reads the client's lines on stdin: an empty line is a heartbeat, "srclock" takes the source lock,
+# "submit <args>" runs testq submit. When the client is gone (EOF, or 180 s without a heartbeat, also while the holder
+# waits for a lock) or the holder itself is signalled, end() runs: it finds the job (also a job whose submit was cut short),
+# cancels it until it is finished or cancelled before its start, removes containers left with its label and the snapshot
+# that a paused queue keeps for a cancelled job, removes this worktree's snapshots that no job names (under the source
+# lock), and only then exits, which frees the locks. If the job does not stop, the holder keeps the locks and says so.
+read -r -d '' holder <<'HOLDER' || true
+set -u
+project=$1 branch=$2 run=$3 share=$4 name=$5 elastic=$6
+locks=$HOME/testq/projects/botster-locks
+jobs_dir=$HOME/testq/projects/$project/jobs
+src=$HOME/testq/projects/$project/src/$name
+testq=$HOME/testq/bin/testq
+tsp() { TS_SOCKET=$HOME/testq/queue.sock "$HOME/testq/bin/tsp" "$@"; }
+# A write to a client that is gone fails instead of killing the holder.
+trap '' PIPE
+set -o pipefail
+id= printed= command= snapshot= submitting= srclocked= last=$SECONDS line= told= gone=
+
+say() { printf '%s\n' "$*" 2>/dev/null || true; }
+# The queued and running jobs, one "<id> <state> <command>" line each. Fails when the queue cannot be read: a failed read
+# never counts as "not queued".
+active_jobs() {
+  local list i st cmd
+  list=$(tsp -l | awk 'NR > 1 && ($2 == "queued" || $2 == "running") { print $1, $2 }') || return 1
+  while read -r i st; do
+    [ -n "$i" ] || continue
+    cmd=$(tsp -i "$i" | sed -n 's/^Command: //p') || return 1
+    [ -n "$cmd" ] || return 1
+    printf '%s %s %s\n' "$i" "$st" "$cmd"
+  done <<< "$list"
+}
+# This gate's job by its --run argument (a submit cut short before it printed the id): sets id and command.
+find_by_run() {
+  local jobs
+  jobs=$(active_jobs) || return 1
+  read -r id _ command <<< "$(printf '%s\n' "$jobs" | grep -F -- " --run=$run " | head -n 1)"
+  return 0
+}
+# Under the source lock no other submit of this worktree runs: a snapshot of it that no queued or running job names was
+# left by a cut-short submit. Nothing is removed when the queue cannot be read.
+sweep() {
+  local s jobs
+  jobs=$(active_jobs) || return 1
+  for s in "$jobs_dir/$name"-*; do
+    [[ -d $s && ${s##*/} =~ ^$name-[0-9]{14}-[0-9]+$ ]] || continue
+    [[ " $jobs " == *" $s "* ]] && continue
+    rm -rf -- "$s" || return 1
+    say "removed the leftover snapshot ${s##*/}"
+  done
+}
+# One line from the client: 0 with $line set, 1 when the client is gone (gone says why), 2 when nothing came within 5 s.
+# The client beats every 10 s; 180 s of silence means it is gone. A loaded Mac can stall the beat for tens of seconds.
+next() {
+  local rc=0
+  IFS= read -r -t 5 line || rc=$?
+  if [ "$rc" = 0 ]; then last=$SECONDS; return 0; fi
+  if [ "$rc" = 1 ]; then gone="the client closed its connection"; return 1; fi
+  if (( SECONDS - last >= 180 )); then gone="no heartbeat from the client for $(( SECONDS - last )) s"; return 1; fi
+  return 2
+}
+# Waits 2 s, and says every minute why the holder still keeps its locks.
+hold_on() {
+  if (( SECONDS - told >= 60 )); then say "$1; the holder keeps its locks until that is settled"; told=$SECONDS; fi
+  sleep 2
+}
+end() {
+  local line cur st container out asked=
+  told=$SECONDS
+  trap - EXIT
+  trap '' HUP INT TERM
+  if [ -z "$command" ] && [ -n "$submitting" ]; then
+    until find_by_run; do hold_on "cannot read the queue to find job $run"; done
+  fi
+  if [ -n "$command" ]; then
+    snapshot=$(awk '{ print $6 }' <<< "$command")
+    # The job is identified by its full command (its snapshot path is unique), never by its id alone: testq restarts
+    # ids when its server restarts.
+    while :; do
+      if ! out=$(active_jobs); then hold_on "cannot read the queue to see whether job $id stopped"; continue; fi
+      line=$(printf '%s\n' "$out" | grep -F -- " $command" | head -n 1)
+      [ -n "$line" ] || break
+      read -r cur st _ <<< "$line"
+      # testq marks a job cancelled before its start in its state directory, by snapshot; testq-launch then skips it.
+      # A paused queue keeps such a job listed: remove its snapshot now and stop waiting.
+      if [ "$st" = queued ] && [ -e "$HOME/testq/state/${snapshot##*/}.cancelled" ]; then
+        if [[ $snapshot =~ ^$jobs_dir/[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] && rm -rf -- "$snapshot"; then break; fi
+        hold_on "cannot remove the snapshot of cancelled job $cur"
+        continue
+      fi
+      if [ -z "$asked" ] || (( SECONDS - asked >= 10 )); then
+        "$testq" cancel "$cur" >/dev/null 2>&1 && [ -z "$asked" ] && say "cancelled job $cur (${gone:-the client ended})"
+        asked=$SECONDS
+      fi
+      hold_on "job $cur has not stopped yet"
+    done
+    # job.sh removes its containers; remove any that a killed job left, and free the locks only when none is left.
+    container=testq-$project-$(basename -- "$snapshot" | sha1sum | cut -c1-10)
+    while :; do
+      if out=$(docker ps --all --quiet --filter "label=testq.job=$container"); then
+        [ -z "$out" ] && break
+        docker rm --force $out >/dev/null 2>&1
+      fi
+      hold_on "containers of job $id are not gone yet"
+    done
+  fi
+  if [ -n "$srclocked" ]; then
+    until sweep; do hold_on "cannot read the queue to remove leftover snapshots"; done
+  fi
+  rm -f -- "$locks/leases/$run"
+  exit 0
+}
+trap end EXIT
+trap 'gone="the holder got a signal"; exit 0' HUP INT TERM
+
+mkdir -p "$locks/leases" "$jobs_dir"
+# Leases older than a day that nobody holds.
+find "$locks/leases" -type f -mmin +1440 -exec sh -c 'flock -n "$1" true && rm -f -- "$1"' _ {} \;
+exec 6>"$locks/branch-$(printf %s "$project:$branch" | sha1sum | cut -c1-16).lock"
+if ! flock -n 6; then
+  say "waiting: another gate of $project $branch runs on the host"
+  until flock -n 6; do next; [ $? = 1 ] && exit 0; done
+fi
+told=
+while :; do
+  for s in $(seq "$share"); do exec 9>"$locks/slot.$s"; flock -n 9 && break 2; exec 9>&-; done
+  # The elastic slots: only while testq has no HyperFlex job queued or running (a failed read counts as busy).
+  if (( elastic > 0 )) && tsp -l | awk 'NR > 1 && ($2 == "queued" || $2 == "running") && /\[hyperflex:/ { f = 1 } END { exit f }'; then
+    for s in $(seq $(( share + 1 )) $(( share + elastic ))); do exec 9>"$locks/slot.$s"; flock -n 9 && break 2; exec 9>&-; done
+  fi
+  [ -n "$told" ] || { say "waiting: the Botster share is full ($share slots, +$elastic while HyperFlex is idle)"; told=1; }
+  next; [ $? = 1 ] && exit 0
+done
+exec 7>"$locks/leases/$run"
+flock 7
+say "locked $locks/leases/$run"
+while :; do
+  next
+  case $? in
+    1) exit 0 ;;
+    2) continue ;;
+  esac
+  case $line in
+    srclock)
+      mkdir -p "$src"
+      exec 5>"$src.lock"
+      until flock -n 5; do next; [ $? = 1 ] && exit 0; done
+      srclocked=1
+      sweep
+      { [ -d "$src/.git" ] || git -C "$src" init -q; } && say "srclocked" ;;
+    "submit "*)
+      submitting=1
+      printed=$(eval "\"\$testq\" submit ${line#submit }")
+      # The job, found by --run whatever submit printed. A job that is not queued or running either was never queued
+      # (only a snapshot may be left: sweep it) or already ended (testq-launch removed its snapshot; the client follows
+      # the printed id for its status).
+      until find_by_run; do hold_on "cannot read the queue to find job $run"; done
+      if [ -z "$command" ]; then
+        [[ $printed =~ ^[0-9]+$ ]] && id=$printed
+        until sweep; do hold_on "cannot read the queue to remove leftover snapshots"; done
+      fi
+      exec 5>&-
+      srclocked=
+      say "id $id" ;;
+  esac
+done
+HOLDER
+mkfifo "$tmp/hold-in" "$tmp/hold-out"
+# Its connection tolerates 180 s without an answer, like its heartbeat deadline (ssh keeps the first value of an option).
+"${ssh[0]}" -o ServerAliveCountMax=12 "${ssh[@]:1}" "$host" "bash -c $(printf %q "$holder") holder $(printf '%q ' "$project" "$volume_branch" "$run" "$botster_share" "$name" "$botster_elastic")" \
+  < "$tmp/hold-in" > "$tmp/hold-out" 2>&1 &
+holder_pid=$!
+exec 8> "$tmp/hold-in"
+# The heartbeat stops with this client, even after a SIGKILL that skips on_exit ($$ is the client's pid).
+( while kill -0 $$ 2>/dev/null && printf '\n' >&8 2>/dev/null; do sleep 10; done ) >/dev/null 2>&1 &
+hb_pid=$!
+exec 4< "$tmp/hold-out"
+# Reads the holder's lines until one starts with <prefix>; prints the others. Fails when the holder ends.
+await() {
+  local line
+  while IFS= read -r line <&4; do
+    case $line in
+      "$1"*) reply=${line#"$1"}; return 0 ;;
+      *) echo "botster-gate: $line" ;;
+    esac
+  done
+  return 1
+}
+await "locked " || { echo "botster-gate: the holder on $host ended before it took a Botster slot"; exit 1; }
+lease=$reply
+
+# The source lock: two runs of this worktree never push over each other's tree, and the holder keeps it until testq has
+# snapshotted the tree and queued the job.
+printf 'srclock\n' >&8
+await "srclocked" || { echo "botster-gate: the holder on $host ended before it locked $src"; exit 1; }
+git push -q --force "$host:$src" "$head:refs/gate/head" "$base_sha:refs/remotes/origin/$base" 8>&- 4<&-
+on_host "cd $src && git checkout -q -f --detach $head && git clean -q -ffdx" 8>&- 4<&-
+[ -n "$dirty" ] && on_host "cd $src && git apply --whitespace=nowarn" < "$tmp/dirty.patch" 8>&- 4<&-
+
+submit=(submit)
+(( priority )) && submit+=(--priority)
+printf 'submit %s\n' "$(printf '%q ' "${submit[@]:1}" "$project" "$name" "$cpus" ci/remote/job.sh "--run=$run" \
+  "--branch=$volume_branch" "--base=$base_sha" "--lease=$lease" -- "$@")" >&8
+await "id " || { echo "botster-gate: the holder on $host ended before it submitted the job"; exit 1; }
+id=$reply
+[[ $id =~ ^[0-9]+$ ]] || { echo "botster-gate: testq submit failed"; exit 1; }
+
+
+echo "botster-gate: queued job $id on $host ($cpus CPUs)"
+on_host "$testq follow $id" < /dev/null 8>&- 4<&- &
+follow_pid=$!
+status=0
+wait "$follow_pid" || status=$?
+follow_pid=
+
+if [ "$(on_host "$tsp -s $id" 2>/dev/null)" = finished ]; then
+  done=1
+  if [ "$status" -eq 255 ]; then
+    status=$(on_host "$tsp -i $id" 2>/dev/null | sed -n 's/^Exit status: died with exit code //p')
+    status=${status:-1}
+    echo "botster-gate: lost the job's output; it finished with status $status"
+  fi
+else
+  echo "botster-gate: lost the job's output before it finished (status $status)"
+fi
+if [ "$status" -ne 0 ] && [ -n "$done" ] \
+    && rsync -a -e "${ssh[*]}" "$host:testq/projects/$project/artifacts/$run/" "$gates/artifacts-$run/" 2>/dev/null; then
+  echo "botster-gate: failure artifacts in $gates/artifacts-$run/"
+fi
+exit "$status"

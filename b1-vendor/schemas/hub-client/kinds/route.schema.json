@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "session": {
+      "$ref": "#/$defs/SessionRef"
+    },
+    "binding": {
+      "type": "string",
+      "description": "An open string (TB-0)."
+    },
+    "since": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "session",
+    "binding",
+    "since"
+  ],
+  "description": "The `route` row, limited to the owning caller.\n\nClause: HC section 6 (`route`), A.3, BP-7.",
+  "x-kind": "route",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "get": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-2"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    },
+    "delete": {
+      "effect": "immediate",
+      "reasons": [
+        "not_found"
+      ],
+      "clause": "A.7, A.3"
+    }
+  },
+  "x-actions": {},
+  "$defs": {
+    "SessionRef": {
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "session_id"
+      ],
+      "description": "A session identity: `{hub_id, session_id}`.\n\nClause: HC P5."
+    }
+  }
+}

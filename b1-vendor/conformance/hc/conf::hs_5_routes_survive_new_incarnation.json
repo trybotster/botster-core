@@ -1,0 +1,208 @@
+{
+  "id": "conf::hs_5_routes_survive_new_incarnation",
+  "contract": "hc",
+  "clause": "HS-5",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "crash",
+      "worker"
+    ]
+  },
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "worker_terminal_formats": [
+        "ghostsnp/2+raw"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "invoke",
+        "kind": "session",
+        "action": "attach",
+        "args": {
+          "history": "screen",
+          "route_features": []
+        },
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "route_id": "$rid",
+          "transport": {
+            "route_token": "$tok"
+          },
+          "route_limits": "$lim"
+        }
+      },
+      "on": "c1",
+      "because": "HC TS-1"
+    },
+    {
+      "route_connect": {
+        "as": "r1",
+        "route_id": "$rid",
+        "route_token": "$tok",
+        "session": "s1",
+        "limits": "$lim"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "live"
+      },
+      "ignore": [
+        {
+          "frame": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-4",
+        "Codec TS-4b"
+      ]
+    },
+    {
+      "control": {
+        "op": "crash"
+      }
+    },
+    {
+      "control": {
+        "op": "worker",
+        "session": "s1",
+        "route_id": "$rid",
+        "inner": "pty_output",
+        "args": {
+          "bytes_hex": "68690a"
+        }
+      }
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "68690a"
+      },
+      "route": "r1",
+      "because": [
+        "HC HS-5",
+        "Codec BP-2"
+      ]
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "list",
+        "kind": "route"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "items": [
+            {
+              "id": "$rid"
+            }
+          ]
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-5"
+    }
+  ]
+}

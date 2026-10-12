@@ -1,0 +1,230 @@
+{
+  "id": "conf::ts_7_stall_resync_then_close",
+  "contract": "codec",
+  "clause": "TS-7",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "advance_clock",
+      "pty_output",
+      "stall_reader"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "stall_deadline_ms": 1000,
+      "stall_close_after_ms": 1000,
+      "notification_policy": {
+        "matching": []
+      }
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [
+          "output_dropped"
+        ],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "717565756564071b5d393b7807",
+        "scripted": {
+          "notifications": [
+            {
+              "at": 6,
+              "source": "bell"
+            },
+            {
+              "at": 12,
+              "source": "osc9",
+              "body": "x"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "advance_clock",
+        "ms": 1001
+      }
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_quiet_until": {
+        "frame": "output_dropped"
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "reply_terminal_query",
+          "op": "999",
+          "query_id": "none",
+          "reply": "decline"
+        }
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "999",
+        "reason": "unknown_query"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-4c",
+        "Codec A.4",
+        "HC SF-5c",
+        "Codec A.5"
+      ]
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "717565756564206f7574707574"
+      }
+    },
+    {
+      "control": {
+        "op": "advance_clock",
+        "ms": 1001
+      }
+    },
+    {
+      "control": {
+        "op": "advance_clock",
+        "ms": 1001
+      }
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_closed": {
+        "ended": "stalled"
+      },
+      "on": "r1",
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "because": [
+        "Codec TS-7",
+        "Codec A.4",
+        "HC SF-5c"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@trybotster/hub-contract",
+  "version": "0.1.0",
+  "description": "Types, JSON Schemas and validators of the Botster Hub-to-client contract, generated from botster-hub-contract",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./route": {
+      "types": "./dist/route.d.ts",
+      "default": "./dist/route.js"
+    },
+    "./ui": {
+      "types": "./dist/ui.d.ts",
+      "default": "./dist/ui.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "ajv": "8.20.0"
+  },
+  "scripts": {
+    "codegen": "node scripts/codegen.mjs",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node ../../scripts/check-total.mjs vitest run",
+    "test:slow": "vitest run --config vitest.slow.config.ts --passWithNoTests",
+    "test:consumer": "node --test \"test-node/*.test.mjs\""
+  }
+}

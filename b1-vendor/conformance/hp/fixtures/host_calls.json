@@ -1,0 +1,35 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "call": {
+     "name": "store.get",
+     "args": {
+      "collection": "c",
+      "id": "a"
+     }
+    }
+   },
+   {
+    "call": {
+     "name": "hub.identity",
+     "args": {}
+    }
+   },
+   {
+    "return": {
+     "ok": "done"
+    }
+   }
+  ]
+ }
+}

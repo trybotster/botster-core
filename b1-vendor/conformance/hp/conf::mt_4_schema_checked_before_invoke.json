@@ -1,0 +1,199 @@
+{
+ "id": "conf::mt_4_schema_checked_before_invoke",
+ "contract": "hp",
+ "clause": "MT-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "mcp_call",
+   "mcp_response",
+   "settle"
+  ]
+ },
+ "setup": {
+  "given": "the tool echo requires an integer n",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp"
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "p1",
+       "kind": "mcp_prompt",
+       "descriptor": {}
+      },
+      {
+       "id": "r1",
+       "kind": "mcp_resource",
+       "descriptor": {}
+      }
+     ],
+     "tools": [
+      {
+       "name": "echo",
+       "description": "d",
+       "input_schema": {
+        "type": "object",
+        "required": [
+         "n"
+        ],
+        "properties": {
+         "n": {
+          "type": "integer"
+         }
+        },
+        "additionalProperties": true
+       },
+       "handler": "h1"
+      }
+     ],
+     "prompts": [],
+     "resources": []
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__echo",
+    "arguments": {
+     "n": "not-an-integer"
+    }
+   },
+   "bind": {
+    "tk1": "/ticket"
+   },
+   "because": "HP MT-4"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$tk1"
+   },
+   "expect": {
+    "is_error": true,
+    "error": {
+     "kind": "invalid_request"
+    }
+   },
+   "because": "HP MT-4"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP MT-4"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__echo",
+    "arguments": {
+     "n": 3
+    }
+   },
+   "bind": {
+    "tk2": "/ticket"
+   },
+   "because": "HP MT-4"
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1",
+     "origin": "mcp_tool",
+     "payload": {
+      "n": 3
+     },
+     "caller": {
+      "$type": "object"
+     }
+    }
+   },
+   "because": "HP MT-4"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {
+       "echoed": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$tk2"
+   },
+   "expect": {
+    "is_error": false,
+    "content": {
+     "echoed": 3
+    }
+   },
+   "because": "HP MT-5"
+  }
+ ]
+}

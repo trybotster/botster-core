@@ -1,0 +1,380 @@
+{
+  "id": "conf::ui_rz_2e_navigate_and_link_props",
+  "contract": "ui",
+  "clause": "UI-RZ-2e",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "admission of the fixture: navigate realizes as the activate prop with the operand resolved",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "navigate": {
+                  "view": "acme-tickets/detail",
+                  "select": {
+                    "sel_t": {
+                      "path": "/id"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "package": "acme-tickets",
+        "views": [
+          "detail",
+          "board"
+        ],
+        "kinds": {
+          "acme.ticket": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner",
+              "/web_url"
+            ]
+          }
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-SL-5"
+    },
+    {
+      "name": "navigate realizes as the activate prop with the operand resolved",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "navigate": {
+                  "view": "acme-tickets/detail",
+                  "select": {
+                    "sel_t": {
+                      "path": "/id"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One",
+              "owner": "u1",
+              "web_url": "https://example.com/t/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "navigate": {
+                "view": "acme-tickets/detail",
+                "select": {
+                  "sel_t": "t1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    },
+    {
+      "name": "url realizes as the activate prop with the resolved URL",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One",
+              "owner": "u1",
+              "web_url": "https://example.com/t/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "url": "https://example.com/t/1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    },
+    {
+      "name": "link realizes as a text node with the prop href when the value is valid",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "site",
+                    "path": "/web_url",
+                    "display": "link"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One",
+              "owner": "u1",
+              "web_url": "https://example.com/t/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:tickets2:t14:site": {
+          "type": "text",
+          "props": {
+            "href": "https://example.com/t/1"
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    },
+    {
+      "name": "link realizes as plain text, with no href, when the value is not valid",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "site",
+                    "path": "/web_url",
+                    "display": "link"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "web_url": "https://user:pw@example.com/"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:tickets2:t14:site": {
+          "type": "text",
+          "props": {
+            "href": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    }
+  ]
+}

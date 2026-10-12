@@ -1,0 +1,71 @@
+{
+ "id": "conf::ld_2_hello_has_own_data_only",
+ "contract": "hp",
+ "clause": "LD-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "load_plugin"
+  ]
+ },
+ "setup": {
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp"
+     }
+    ]
+   },
+   "other": {
+    "grants": [
+     {
+      "surface": "net"
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "plugin_key": "demo",
+     "grants": [
+      {
+       "surface": "mcp"
+      }
+     ]
+    }
+   },
+   "because": "HP LD-2"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "other",
+    "as": "other"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "plugin_key": "other",
+     "grants": [
+      {
+       "surface": "net"
+      }
+     ]
+    }
+   },
+   "because": "HP LD-2",
+   "on": "other"
+  }
+ ]
+}

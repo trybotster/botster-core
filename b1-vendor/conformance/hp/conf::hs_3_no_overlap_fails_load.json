@@ -1,0 +1,34 @@
+{
+ "id": "conf::hs_3_no_overlap_fails_load",
+ "contract": "hp",
+ "clause": "HS-3",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_calls"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "protocol_version": 9,
+     "min_protocol_version": 9
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Fault",
+    "payload": {
+     "epoch": 7,
+     "code": "unsupported_protocol"
+    }
+   },
+   "because": "HP HS-3"
+  }
+ ]
+}

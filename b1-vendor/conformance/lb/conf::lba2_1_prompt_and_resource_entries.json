@@ -1,0 +1,176 @@
+{
+ "id": "conf::lba2_1_prompt_and_resource_entries",
+ "contract": "lb",
+ "clause": "LBA2-1",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  prompts = {{ name = \"p1\", description = \"prompt\", arguments = { { name = \"topic\", required = true } }, id = \"my_prompt\",\n               call = function(args, request) return { messages = { { role = \"user\", content = { type = \"text\", text = args.topic } } } } end }},\n  resources = {{ uri_template = \"x://{id}\", name = \"r1\", mime_type = \"text/plain\", id = \"my_res\",\n                 call = function(args, request) return { contents = { { uri = args.uri, mime_type = \"text/plain\", text = \"body\" } } } end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "prompts": [
+      {
+       "name": "p1",
+       "description": "prompt",
+       "arguments": [
+        {
+         "name": "topic",
+         "required": true
+        }
+       ],
+       "handler": "my_prompt"
+      }
+     ],
+     "resources": [
+      {
+       "uri_template": "x://{id}",
+       "name": "r1",
+       "mime_type": "text/plain",
+       "handler": "my_res"
+      }
+     ],
+     "handlers": {
+      "$set": [
+       {
+        "id": "my_prompt",
+        "kind": "mcp_prompt",
+        "descriptor": {
+         "name": "p1",
+         "description": "prompt"
+        }
+       },
+       {
+        "id": "my_res",
+        "kind": "mcp_resource",
+        "descriptor": {
+         "uri_template": "x://{id}",
+         "name": "r1",
+         "mime_type": "text/plain"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "LB LBA2-1",
+    "HP MT-1"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "my_prompt",
+     "kind": "mcp_prompt",
+     "payload": {
+      "topic": "tea"
+     },
+     "origin": "mcp_prompt"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "messages": [
+        {
+         "role": "user",
+         "content": {
+          "type": "text",
+          "text": "tea"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": "LB LBA2-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "my_res",
+     "kind": "mcp_resource",
+     "payload": {
+      "uri": "x://7"
+     },
+     "origin": "mcp_resource"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "contents": [
+        {
+         "uri": "x://7",
+         "mime_type": "text/plain",
+         "text": "body"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": "LB LBA2-1"
+  }
+ ]
+}

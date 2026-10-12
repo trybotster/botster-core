@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalQuery",
+  "description": "Body of `0x0C terminal_query`.\n\nClause: Codec A.4, P9.",
+  "type": "object",
+  "properties": {
+    "query_id": {
+      "description": "Opaque to a client, which must not depend on its form (Core EV-8). The worker mints it as a u64 and sends it as a decimal\nstring, by the rule for a u64 identifier (Codec A.1, Core A19-1). So its widest value is `18446744073709551615`.\n\nClause: Core EV-8, Core A19-1, Codec A.1.",
+      "type": "string"
+    },
+    "request_bytes_base64": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/QueryKind"
+    },
+    "shadow_answerable": {
+      "type": "boolean"
+    },
+    "answer_within_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "query_id",
+    "request_bytes_base64",
+    "shadow_answerable",
+    "answer_within_ms"
+  ],
+  "$defs": {
+    "QueryKind": {
+      "anyOf": [
+        {
+          "description": "`terminal_query.kind` (A.4): Core's typed query kinds in snake_case. The set is non-exhaustive.\n\nClause: Codec A.4, P9.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "text_area_pixels",
+                "cell_pixels",
+                "screen_pixels",
+                "window_pixels",
+                "screen_chars",
+                "window_state",
+                "window_title",
+                "icon_label",
+                "color_scheme",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "clipboard_read": {
+                  "type": "object",
+                  "properties": {
+                    "selection": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selection"
+                  ]
+                }
+              },
+              "required": [
+                "clipboard_read"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "window_position": {
+                  "type": "object",
+                  "properties": {
+                    "area": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "area"
+                  ]
+                }
+              },
+              "required": [
+                "window_position"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    }
+  }
+}

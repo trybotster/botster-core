@@ -1,0 +1,182 @@
+{
+  "id": "conf::ui_ac_1b_failure_fields_in_error",
+  "contract": "ui",
+  "clause": "UI-AC-1b",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "botster-graph",
+      "views": []
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "tickets",
+          "title": "Tickets",
+          "selections": [
+            {
+              "id": "sel_node"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "tools",
+                "items": [
+                  {
+                    "id": "act_rename",
+                    "label": "Rename",
+                    "handler": "rename",
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "act_rename"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "form"
+          }
+        },
+        "because": "UI UI-AC-4",
+        "node_id": "act_rename"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "name",
+            "value": "x"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:49:botster-ui-descendant-v1:10:act_rename9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "submit": {}
+        },
+        "node_id": "botster-ui-descendant-v1:49:botster-ui-descendant-v1:10:act_rename9:container4:item"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "rename",
+            "count": 1,
+            "args": {
+              "name": "x"
+            }
+          }
+        },
+        "because": "UI UI-AC-1"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "err": {
+              "message": "Rename failed",
+              "field_errors": [
+                {
+                  "field_id": "name",
+                  "pointer": "/name",
+                  "code": "too_short",
+                  "message": "Name is too short"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "Name is too short",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-FM-7",
+        "node_id": "botster-ui-descendant-v1:83:botster-ui-descendant-v1:49:botster-ui-descendant-v1:10:act_rename9:container4:item4:name"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "Rename failed",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-AC-7",
+        "node_id": "botster-ui-descendant-v1:49:botster-ui-descendant-v1:10:act_rename9:container4:item"
+      }
+    }
+  ]
+}

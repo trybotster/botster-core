@@ -1,0 +1,172 @@
+{
+ "id": "conf::pm_4_size_bounded",
+ "contract": "hp",
+ "clause": "PM-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "package_bytes_max is 132: the complete small package is 112 bytes and the complete large package is 710 bytes",
+  "limits": {
+   "package_bytes_max": 132
+  },
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "big",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       },
+       "data": {
+        "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/b.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "small",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "big",
+    "settled": true
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "big"
+   },
+   "expect": {
+    "status": "errored"
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/b.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "small",
+    "settled": true
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "small"
+   },
+   "expect": {
+    "status": {
+     "$not": "errored"
+    }
+   },
+   "because": "HP PM-4"
+  }
+ ]
+}

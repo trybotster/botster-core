@@ -1,0 +1,24 @@
+job=8056
+rustc 1.97.0 (2d8144b78 2026-07-07)
+===== pre10: build exit 0
+----- pre10 rust O0
+memory allocation of 1 bytes failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+exit 134
+bash: line 9:   305 Aborted                 (core dumped) /w/$v-repro-O$opt
+----- pre10 rust O3
+rust repro ok total=134217727 big=16777216
+exit 0
+===== new: build exit 0
+----- new rust O0
+rust repro ok total=134217727 big=16777216
+exit 0
+----- new rust O3
+rust repro ok total=134217727 big=16777216
+exit 0
+===== new: zig build test-lib-vt (full)
+test-lib-vt exit 0
+Build Summary: 45/45 steps succeeded; 6616/6686 tests passed (70 skipped)
++- run test 3058 pass, 35 skip (3093 total) 10m MaxRSS:140M
++- run test 3558 pass, 35 skip (3593 total) 10m MaxRSS:134M
+ssh exit 0

@@ -1,0 +1,307 @@
+{
+ "id": "conf::a3_1_plugin_side_fakehub_scripts_host_results_only",
+ "contract": "hp",
+ "clause": "A3-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the plugin-side FakeHub answers http.request with the scripted result whatever the URL: a private address and a host outside the allowlist get no net_denied from it; a call that installs a package does not exist",
+  "grants": [
+   {
+    "surface": "net",
+    "scope": "net",
+    "allow": [
+     "https://api.example"
+    ]
+   }
+  ],
+  "calls": {
+   "http.request": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op2",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "operations.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "http",
+       "state": "done",
+       "terminal": true,
+       "status": 200,
+       "headers": [],
+       "body_b64": "",
+       "effect": "none"
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "http.request",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "method": "GET",
+      "url": "http://10.0.0.9/x",
+      "timeout_ms": 1000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP A3-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "http.request",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "method": "GET",
+      "url": "https://other.example/y",
+      "timeout_ms": 1000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op2",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP A3-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "op1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "state": "done",
+       "terminal": true,
+       "status": 200
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP A3-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "packages.install",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "source": {
+       "kind": "git",
+       "url": "https://git.example/a.git"
+      }
+     }
+    }
+   },
+   "violates_args": true
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "detail": {
+        "code": "unknown_call"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP A3-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

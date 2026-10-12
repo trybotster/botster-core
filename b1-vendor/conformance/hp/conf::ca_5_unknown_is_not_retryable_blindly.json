@@ -1,0 +1,120 @@
+{
+ "id": "conf::ca_5_unknown_is_not_retryable_blindly",
+ "contract": "hp",
+ "clause": "CA-5",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "setup": {
+  "fixture": "host_retry"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 5
+     },
+     "call": "store.put"
+    }
+   },
+   "because": "HP CA-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "timed_out",
+       "message": "timed out",
+       "retryable": false
+      }
+     },
+     "effect": "unknown"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false
+     }
+    }
+   },
+   "because": "HP CA-5"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP CA-5"
+  }
+ ]
+}

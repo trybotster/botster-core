@@ -1,0 +1,202 @@
+{
+ "id": "conf::wp_5_no_handler_invoked_per_request",
+ "contract": "hp",
+ "clause": "WP-5",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke",
+   "settle",
+   "web_request"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds net_serve and fs:web and declares the static route {route: /, root: web}; the root web holds index.html (<h1>hi</h1>), other.html, data.json, app.js, and a link escape that points to the file /outside/secret.txt (content OUTSIDE-SECRET)",
+  "grants": [
+   {
+    "surface": "net_serve"
+   },
+   {
+    "surface": "fs",
+    "scope": "fs:web"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/index.html"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      200,
+      499
+     ]
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/app.js"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      200,
+      499
+     ]
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/missing.html"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      200,
+      499
+     ]
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "HEAD",
+    "path": "/index.html"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      200,
+      499
+     ]
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP WP-5"
+  }
+ ]
+}

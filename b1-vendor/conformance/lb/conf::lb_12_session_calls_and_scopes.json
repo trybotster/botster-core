@@ -1,0 +1,447 @@
+{
+ "id": "conf::lb_12_session_calls_and_scopes",
+ "contract": "lb",
+ "clause": "LB-12",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local s = { hub_id = \"hub-1\", session_id = \"s1\" }\n      local c = botster.sessions.create_command{ argv = { \"ls\", \"-l\" } }\n      local ts = botster.sessions.terminal_state{ session = s }\n      local rc = botster.sessions.read_cursor{ session = s }\n      local rs = botster.sessions.read_screen{ session = s }\n      local st = botster.sessions.stop{ session = s }\n      local de = botster.sessions.delete{ session = s }\n      local up = botster.sessions.update{ session = s, label = \"new\" }\n      local re = botster.sessions.restart{ session = s }\n      return { create_state = c.value.state, create_terminal = c.value.terminal, create_session = c.value.session.session_id,\n               screen_text = rs.value.text, cursor_row = rc.value.cursor.row, stop_decision = st.value.decision,\n               all_ok = c.ok and ts.ok and rc.ok and rs.ok and st.ok and de.ok and up.ok and re.ok }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.create_command",
+     "args": {
+      "argv": [
+       "ls",
+       "-l"
+      ]
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-c",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.terminal_state",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "cursor": {
+        "row": 1,
+        "col": 2,
+        "visible": true
+       },
+       "modes": {
+        "bracketed_paste": false,
+        "kitty_flags": 0,
+        "alt_screen": false
+       },
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "model_rev": "m1"
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.read_cursor",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {
+       "cursor": {
+        "row": 1,
+        "col": 2,
+        "visible": true
+       },
+       "model_rev": "m1"
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.read_screen",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "result": {
+      "ok": true,
+      "value": {
+       "text": "screen",
+       "cursor": {
+        "row": 1,
+        "col": 2,
+        "visible": true
+       },
+       "model_rev": "m1"
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.stop",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "result": {
+      "ok": true,
+      "value": {
+       "decision": "stopping"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c6",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.delete",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c6",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c7",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.update",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "label": "new"
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c7",
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1",
+       "label": "new",
+       "state": "running",
+       "lifecycle_class": "current",
+       "exit": {},
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "session_type": {
+        "id": "t",
+        "source": "device"
+       },
+       "traits": [],
+       "restartable": false,
+       "activity": "idle",
+       "presentation": "default",
+       "metadata": {}
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c8",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.restart",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c8",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-r",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "create_state": "starting",
+       "create_terminal": false,
+       "create_session": "s1",
+       "screen_text": "screen",
+       "cursor_row": 1,
+       "stop_decision": "stopping",
+       "all_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  }
+ ]
+}

@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AdmissionContext",
+  "description": "What admission knows about the package and the Hub.",
+  "type": "object",
+  "properties": {
+    "kinds": {
+      "description": "The kinds that the package may watch (UI-BD-2). A kind that is not listed is not admitted.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/KindDescriptor"
+      },
+      "default": {}
+    },
+    "handlers": {
+      "description": "Registered handlers, by name (UI-AD-1).",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/HandlerDescriptor"
+      },
+      "default": {}
+    },
+    "package": {
+      "description": "The key of the package that the document belongs to (UI-AD-4, UI-EM-12).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "views": {
+      "description": "The ids of the package's views (UI-SL-5).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "supported_majors": {
+      "description": "The MAJOR versions that the Hub supports (UI-VR-3).",
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint32",
+        "minimum": 0
+      },
+      "default": [
+        1
+      ]
+    },
+    "features": {
+      "description": "The feature names that the Hub knows (UI-VR-4).",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "ui_1_1",
+        "ui_embed",
+        "ui_1_3",
+        "ui_1_4"
+      ]
+    }
+  },
+  "$defs": {
+    "KindDescriptor": {
+      "description": "The Hub's descriptor of a kind, as admission reads it (UI-AD-1, Hub to client DS-1).",
+      "type": "object",
+      "properties": {
+        "projection_allowlist": {
+          "description": "The `projection_allowlist` of the descriptor (UI-AD-1).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "owner": {
+          "description": "The package that owns the kind, when it is not a Hub kind (UI-EM-12).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "field_types": {
+          "description": "The JSON type of a field, by path, when the kind's schema states it (UI-FM-1, UI-AD-3).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "HandlerDescriptor": {
+      "description": "A registered `ui_action` handler and its canonical schema (UI-FM-1).",
+      "type": "object",
+      "properties": {
+        "schema": true
+      },
+      "required": [
+        "schema"
+      ]
+    }
+  }
+}

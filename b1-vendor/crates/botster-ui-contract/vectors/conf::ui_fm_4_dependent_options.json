@@ -1,0 +1,382 @@
+{
+  "id": "conf::ui_fm_4_dependent_options",
+  "contract": "ui",
+  "clause": "UI-FM-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a form operand in options_source.where",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "ws": {
+            "projection_allowlist": [
+              "/id",
+              "/name",
+              "/team"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "team": {
+                  "type": "string"
+                },
+                "ws": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-4"
+    },
+    {
+      "name": "options follow another field",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha",
+              "team": "t1"
+            },
+            {
+              "id": "w2",
+              "name": "Beta",
+              "team": "t2"
+            },
+            {
+              "id": "w3",
+              "name": "Gamma",
+              "team": "t3"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:team": {
+            "value": "t1"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws6:widget": {
+          "type": "select",
+          "props": {
+            "options": [
+              {
+                "value": "w1",
+                "label": "Alpha"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-FM-4"
+    },
+    {
+      "name": "another value gives other options",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha",
+              "team": "t1"
+            },
+            {
+              "id": "w2",
+              "name": "Beta",
+              "team": "t2"
+            },
+            {
+              "id": "w3",
+              "name": "Gamma",
+              "team": "t3"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:team": {
+            "value": "t2"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws6:widget": {
+          "props": {
+            "options": [
+              {
+                "value": "w2",
+                "label": "Beta"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-FM-4"
+    }
+  ]
+}

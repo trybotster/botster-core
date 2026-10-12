@@ -1,0 +1,158 @@
+{
+  "id": "conf::ui_vr_2_unknown_optional_ignored",
+  "contract": "ui",
+  "clause": "UI-VR-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an unknown tone and an unknown display are ignored and counted",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x",
+              "tone": "mauve"
+            },
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n",
+                    "display": "hologram"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "unknown_tone",
+        "unknown_display"
+      ],
+      "expect_nodes": {
+        "t": {
+          "props": {
+            "tone": {
+              "$absent": true
+            },
+            "text": "x"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "1"
+          }
+        }
+      },
+      "because": "UI UI-VR-2"
+    },
+    {
+      "name": "an unknown widget hint uses the default of the JSON type",
+      "because": "UI UI-VR-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "slider"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "go"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:105:botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item1:s6:widget": {
+          "type": "text_input"
+        }
+      }
+    },
+    {
+      "name": "an unknown optional property is ignored",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x",
+              "sparkle": true
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "t": {
+          "props": {
+            "text": "x"
+          }
+        }
+      },
+      "because": "UI UI-VR-2"
+    }
+  ]
+}

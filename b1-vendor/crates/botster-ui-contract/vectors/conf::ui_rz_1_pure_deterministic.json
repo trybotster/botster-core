@@ -1,0 +1,157 @@
+{
+  "id": "conf::ui_rz_1_pure_deterministic",
+  "contract": "ui",
+  "clause": "UI-RZ-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "rows in one input order",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-1"
+    },
+    {
+      "name": "the same rows in another input order give the same tree",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "c",
+              "n": 2
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "a",
+              "n": 3
+            }
+          ]
+        }
+      },
+      "same_tree_as": "rows in one input order",
+      "because": "UI UI-RZ-1"
+    },
+    {
+      "name": "the same inputs again give the same tree",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "same_tree_as": "rows in one input order",
+      "because": "UI UI-RZ-1"
+    }
+  ]
+}

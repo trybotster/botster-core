@@ -1,0 +1,323 @@
+{
+ "id": "conf::lb_14_process_and_plugin_call_async_and_typed",
+ "contract": "lb",
+ "clause": "LB-14",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.operations.on(function(record, request)\n  return { kind = record.kind, exit = record.exit_code, tail = record.stdout_tail_b64, truncated = record.truncated, ms = record.duration_ms }\nend)\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local p = botster.process.run{ argv = { \"echo\", \"hi\" }, timeout_ms = 1000, cwd = { target_id = \"tg1\", relative = \"sub\" } }\n      local c = botster.plugins.call{ interface = \"msg@1.0.0\", tool = \"post\", args = { n = 1 }, idempotency_key = \"k1\" }\n      local u = botster.plugins.call{ interface = \"msg@1.0.0\", tool = \"other\", args = {} }\n      local l = botster.plugins.call{ interface = \"msg@1.0.0\", tool = \"post\", args = {} }\n      return { proc_kind = p.value.kind, proc_state = p.value.state, proc_terminal = p.value.terminal,\n               call_kind = c.value.kind, call_terminal = c.value.terminal,\n               undeclared = { u.error.kind, u.error.detail.code }, unloaded = { l.error.kind, l.error.detail.code } }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "operations": {
+      "subscribed": "$ho"
+     }
+    }
+   },
+   "because": [
+    "LB LB-14",
+    "LB LB-7"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "process.run",
+     "args": {
+      "argv": [
+       "echo",
+       "hi"
+      ],
+      "timeout_ms": 1000,
+      "cwd": {
+       "target_id": "tg1",
+       "relative": "sub"
+      }
+     }
+    }
+   },
+   "because": "LB LB-14"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-p",
+       "kind": "process",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "plugins.call",
+     "args": {
+      "interface": "msg@1.0.0",
+      "tool": "post",
+      "args": {
+       "n": 1
+      },
+      "idempotency_key": "k1"
+     }
+    }
+   },
+   "because": "LB LB-14"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-c",
+       "kind": "plugin_call",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "plugins.call",
+     "args": {
+      "interface": "msg@1.0.0",
+      "tool": "other",
+      "args": {}
+     }
+    }
+   },
+   "because": "LB LB-14"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "capability_denied",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "undeclared_dependency"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "context": {
+      "request": 1
+     },
+     "call": "plugins.call",
+     "args": {
+      "interface": "msg@1.0.0",
+      "tool": "post",
+      "args": {}
+     }
+    }
+   },
+   "because": "LB LB-14"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "unavailable",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "provider_unloaded"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "proc_kind": "process",
+       "proc_state": "queued",
+       "proc_terminal": false,
+       "call_kind": "plugin_call",
+       "call_terminal": false,
+       "undeclared": [
+        "capability_denied",
+        "undeclared_dependency"
+       ],
+       "unloaded": [
+        "unavailable",
+        "provider_unloaded"
+       ]
+      }
+     }
+    }
+   },
+   "because": "LB LB-14"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-p",
+      "kind": "process",
+      "state": "done",
+      "terminal": true,
+      "exit_code": 0,
+      "stdout_tail_b64": "aGk=",
+      "stderr_tail_b64": "",
+      "truncated": false,
+      "duration_ms": 14
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "process",
+       "exit": 0,
+       "tail": "aGk=",
+       "truncated": false,
+       "ms": 14
+      }
+     }
+    }
+   },
+   "because": "LB LB-14"
+  }
+ ]
+}

@@ -1,0 +1,101 @@
+{
+ "id": "conf::er_1_closed_kinds",
+ "contract": "hp",
+ "clause": "ER-1",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_retry"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c",
+     "call": "store.put"
+    }
+   },
+   "because": "HP ER-1"
+  },
+  {
+   "send_frame_raw": {
+    "lane": 2,
+    "type": 33,
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c",
+     "effect": "unknown",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "weird_kind",
+       "message": "m",
+       "retryable": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "retryable": true
+      }
+     }
+    }
+   },
+   "because": "HP ER-1"
+  }
+ ]
+}

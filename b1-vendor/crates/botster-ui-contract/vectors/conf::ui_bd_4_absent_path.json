@@ -1,0 +1,463 @@
+{
+  "id": "conf::ui_bd_4_absent_path",
+  "contract": "ui",
+  "clause": "UI-BD-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "truthy of an absent path is false",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "truthy": {
+                "path": "/missing"
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {},
+      "expect_absent": [
+        "botster-ui-descendant-v1:1:l1:a"
+      ],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "eq of an absent path and a literal is false",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "eq": [
+                {
+                  "path": "/missing"
+                },
+                {
+                  "lit": "x"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {},
+      "expect_absent": [
+        "botster-ui-descendant-v1:1:l1:a"
+      ],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "ne of an absent path and a literal is true",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "ne": [
+                {
+                  "path": "/missing"
+                },
+                {
+                  "lit": "x"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "expect_absent": [],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "not of false is true",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "not": {
+                "eq": [
+                  {
+                    "path": "/missing"
+                  },
+                  {
+                    "lit": "x"
+                  }
+                ]
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "expect_absent": [],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "an absent operand on both sides: eq is true",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "eq": [
+                {
+                  "path": "/m1"
+                },
+                {
+                  "path": "/m2"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "expect_absent": [],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "an absent operand on both sides: ne is false",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "ne": [
+                {
+                  "path": "/m1"
+                },
+                {
+                  "path": "/m2"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {},
+      "expect_absent": [
+        "botster-ui-descendant-v1:1:l1:a"
+      ],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "null is present, not absent",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "where": {
+              "eq": [
+                {
+                  "path": "/v"
+                },
+                {
+                  "lit": null
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": null
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:1:l1:b"
+      ],
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "a field shown from an absent path is empty text, not an error",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/missing"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a1:f": {
+          "type": "text",
+          "props": {
+            "text": ""
+          }
+        }
+      },
+      "because": "UI UI-BD-4"
+    },
+    {
+      "name": "an absent path with an absent copy",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/missing",
+                "absent": "n/a"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a1:f": {
+          "props": {
+            "text": "n/a"
+          }
+        }
+      },
+      "because": "UI UI-BD-4"
+    }
+  ]
+}

@@ -1,0 +1,183 @@
+{
+ "id": "conf::lb_10_fs_watch_handler_id_stays_mandatory",
+ "contract": "lb",
+ "clause": "LB-10",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.fs.on_watch(\"w1\", function(p, request) return {} end)\nbotster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n      local r = botster.fs.watch{ root = \"docs\", path = \"a\", handler_id = \"w1\" }\n      return { ok = r.ok }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n      local r = botster.fs.watch{ root = \"docs\", path = \"a\" }\n      return { ok = r.ok, kind = r.error and r.error.kind }\n    end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "fs.watch",
+     "args": {
+      "root": "docs",
+      "path": "a",
+      "handler_id": "w1"
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "watch_id": "fw1"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "kind": "invalid_request"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "fs.watch",
+      "args": {
+       "root": "docs",
+       "path": "a",
+       "handler_id": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "because": "LB LB-10"
+  }
+ ]
+}

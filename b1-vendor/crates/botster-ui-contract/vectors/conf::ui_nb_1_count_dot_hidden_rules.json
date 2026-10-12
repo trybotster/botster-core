@@ -1,0 +1,537 @@
+{
+  "id": "conf::ui_nb_1_count_dot_hidden_rules",
+  "contract": "ui",
+  "clause": "UI-NB-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "count shows an integer greater than 0",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 3
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "value": 3
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count shows 1",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "value": 1
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count shows 1.0, an integer by value, and the suffix is (1)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 1.0
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": []
+      },
+      "expect": {
+        "display": "count",
+        "value": 1.0,
+        "suffix": "(1)"
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count shows an integer above i64::MAX",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 9223372036854775808
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "value": 9223372036854775808
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides 0.5 (not an integer)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 0.5
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides -1",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": -1
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides 0",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 0
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides a negative integer",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": -2
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides a string (type mismatch)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": "3"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "count hides a boolean (type mismatch)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot shows a true field",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "dot"
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot shows a nonzero integer (truthy)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": 2
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "dot"
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot shows a non-empty string (truthy)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": "yes"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "dot"
+      },
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot hides false",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": false
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot hides 0",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": 0
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "dot hides null",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "f": null
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    }
+  ]
+}

@@ -1,0 +1,265 @@
+{
+ "id": "conf::lb_10_timer_and_watch_handler_id_dispatch",
+ "contract": "lb",
+ "clause": "LB-10",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n      local with = botster.timers.arm{ timer_id = \"t1\", delay_ms = 50, handler_id = \"th2\" }\n      local bad = botster.timers.arm{ timer_id = \"t2\", delay_ms = 50, handler_id = \"nope\" }\n      local w = botster.store.watch{ collection = \"c\", handler_id = \"sw1\" }\n      return { with_ok = with.ok, bad_ok = bad.ok, bad_kind = bad.error and bad.error.kind,\n               bad_code = bad.error and bad.error.detail and bad.error.detail.code, watch_ok = w.ok }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n      local m = botster.timers.arm{ timer_id = \"t3\", delay_ms = 60 }\n      return { omitted_kind = m.error and m.error.kind, omitted_code = m.error and m.error.detail and m.error.detail.code }\n    end },\n    { kind = \"timer\", id = \"th1\", call = function(p) return {} end },\n    { kind = \"timer\", id = \"th2\", call = function(p) return {} end },\n    { kind = \"store_watch\", id = \"sw1\", call = function(p) return {} end },\n    { kind = \"store_watch\", id = \"sw2\", call = function(p) return {} end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "timers.arm",
+     "args": {
+      "timer_id": "t1",
+      "delay_ms": 50,
+      "handler_id": "th2"
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "timers.arm",
+     "args": {
+      "timer_id": "t2",
+      "delay_ms": 50,
+      "handler_id": "nope"
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "unknown_handler"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "store.watch",
+     "args": {
+      "collection": "c",
+      "handler_id": "sw1"
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {
+       "watch_id": "w1"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "with_ok": true,
+       "bad_ok": false,
+       "bad_kind": "invalid_request",
+       "bad_code": "unknown_handler",
+       "watch_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-10"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "omitted_kind": "invalid_request",
+       "omitted_code": "handler_id_required"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "timers.arm",
+      "args": {
+       "handler_id": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "handler_id_required"
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-10"
+  }
+ ]
+}

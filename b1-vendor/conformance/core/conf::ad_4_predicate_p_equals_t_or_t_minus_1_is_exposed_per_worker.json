@@ -1,0 +1,206 @@
+{
+  "id": "conf::ad_4_predicate_p_equals_t_or_t_minus_1_is_exposed_per_worker",
+  "contract": "core",
+  "clause": "AD-4",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "call": {
+        "method": "worker_protocol"
+      },
+      "expect": "$t",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "adoptable_worker_protocols"
+      },
+      "expect": "$set",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "worker_protocol": "$p"
+      },
+      "because": [
+        "Core LC-9",
+        "Core AD-4"
+      ]
+    },
+    {
+      "let": {
+        "$tp1": {
+          "add": [
+            "$t",
+            1
+          ]
+        },
+        "$tm1": {
+          "sub": [
+            "$t",
+            1
+          ]
+        },
+        "$in_set": {
+          "contains": [
+            "$set",
+            "$p"
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "method": "worker_protocol_compatibility",
+        "args": {
+          "protocol": "$p"
+        }
+      },
+      "expect": "$cp",
+      "because": "Core AD-4"
+    },
+    {
+      "let": {
+        "$is_c": {
+          "eq": [
+            "$cp",
+            "Compatible"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$is_c",
+          "$in_set"
+        ]
+      },
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "worker_protocol_compatibility",
+        "args": {
+          "protocol": "$t"
+        }
+      },
+      "expect": "Compatible",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "worker_protocol_compatibility",
+        "args": {
+          "protocol": "$tp1"
+        }
+      },
+      "expect": "Incompatible",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "worker_protocol_compatibility",
+        "args": {
+          "protocol": "$tm1"
+        }
+      },
+      "expect": "$cm1",
+      "because": "Core AD-4"
+    },
+    {
+      "let": {
+        "$is_cm": {
+          "eq": [
+            "$cm1",
+            "Compatible"
+          ]
+        },
+        "$in_set_m": {
+          "contains": [
+            "$set",
+            "$tm1"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$is_cm",
+          "$in_set_m"
+        ]
+      },
+      "because": "Core AD-4"
+    }
+  ]
+}

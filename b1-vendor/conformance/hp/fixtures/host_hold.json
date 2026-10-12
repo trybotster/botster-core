@@ -1,0 +1,42 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h2",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h3",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "hold": true
+   }
+  ],
+  "h2": [
+   {
+    "return": {
+     "ok": "$invocations"
+    }
+   }
+  ],
+  "h3": [
+   {
+    "return": {
+     "ok": "$entrypoint_runs"
+    }
+   }
+  ]
+ }
+}

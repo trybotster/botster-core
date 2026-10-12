@@ -1,0 +1,112 @@
+{
+ "id": "conf::ld_3_failed_candidate_keeps_old",
+ "contract": "hp",
+ "clause": "LD-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "reload",
+   "status"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Fault",
+    "payload": {
+     "epoch": "$e2",
+     "code": "candidate_failed"
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "loaded",
+    "reload_error": {
+     "$type": "string"
+    }
+   },
+   "because": "HP LD-3"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP LD-3"
+  }
+ ]
+}

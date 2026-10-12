@@ -1,0 +1,101 @@
+{
+ "id": "conf::lb_6_events_on_is_load_time_only",
+ "contract": "lb",
+ "clause": "LB-6",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.events.on({ owner = \"hub\", name = \"early\" }, function() return {} end)\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local r = botster.events.on({ owner = \"hub\", name = \"late\" }, function() return {} end)\n      return { ok = r.ok, error = r.error }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "$he",
+        "pattern": {
+         "owner": "hub",
+         "name": "early"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "HP HS-1",
+    "LB LB-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "error": {
+        "kind": "invalid_request",
+        "detail": {
+         "code": "registration_after_ready"
+        }
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  }
+ ]
+}

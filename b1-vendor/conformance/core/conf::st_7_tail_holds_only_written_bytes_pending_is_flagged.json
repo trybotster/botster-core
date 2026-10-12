@@ -1,0 +1,285 @@
+{
+  "id": "conf::st_7_tail_holds_only_written_bytes_pending_is_flagged",
+  "contract": "core",
+  "clause": "ST-7",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "size": {
+                "rows": 10,
+                "cols": 40
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "616263"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": {
+              "Client": "$r1"
+            }
+          }
+        }
+      },
+      "because": "Core IN-4"
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$f1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$f1",
+            "result": {
+              "ok": {
+                "facts": {
+                  "input": {
+                    "client_tail": {
+                      "$bytes_hex": ""
+                    },
+                    "input_records": [
+                      {
+                        "record": {
+                          "source": {
+                            "Client": {
+                              "$any": true
+                            }
+                          },
+                          "state": "pending",
+                          "pty_bytes": {
+                            "$one_of": [
+                              {
+                                "$absent": true
+                              },
+                              null
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ST-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": {
+              "Client": "$r1"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ST-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$f2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$f2",
+            "result": {
+              "ok": {
+                "facts": {
+                  "input": {
+                    "client_tail": {
+                      "$bytes_hex": "616263"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-7"
+    }
+  ]
+}

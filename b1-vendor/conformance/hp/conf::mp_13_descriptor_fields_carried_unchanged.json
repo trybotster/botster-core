@@ -1,0 +1,190 @@
+{
+ "id": "conf::mp_13_descriptor_fields_carried_unchanged",
+ "contract": "hp",
+ "clause": "MP-13",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_server",
+   "mcp_list",
+   "script_mcp"
+  ]
+ },
+ "setup": {
+  "given": "the server lists a tool with title, inputSchema, outputSchema and annotations",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "s",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "rich",
+      "title": "Rich",
+      "description": "d",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "q": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "q"
+       ]
+      },
+      "outputSchema": {
+       "type": "object",
+       "properties": {
+        "r": {
+         "type": "integer"
+        }
+       }
+      },
+      "annotations": {
+       "readOnlyHint": true,
+       "destructiveHint": false
+      },
+      "behavior": {
+       "kind": "structured",
+       "structuredContent": {
+        "r": 7
+       },
+       "content": [
+        {
+         "type": "text",
+         "text": "7"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": [
+     {
+      "name": "demo__s__rich",
+      "title": "Rich",
+      "description": "d",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "q": {
+         "type": "string"
+        }
+       },
+       "required": [
+        "q"
+       ]
+      },
+      "outputSchema": {
+       "type": "object",
+       "properties": {
+        "r": {
+         "type": "integer"
+        }
+       }
+      },
+      "annotations": {
+       "readOnlyHint": true,
+       "destructiveHint": false
+      }
+     }
+    ]
+   },
+   "because": "HP MP-13"
+  }
+ ]
+}

@@ -1,0 +1,165 @@
+{
+  "id": "conf::ui_ac_7_direct_and_row_failure_displayed",
+  "contract": "ui",
+  "clause": "UI-AC-7",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "go": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "rm": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ],
+      "kinds": {
+        "k": {
+          "projection_allowlist": [
+            "/id"
+          ],
+          "field_types": {
+            "/id": "string"
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "go",
+                    "handler": "go"
+                  }
+                ]
+              },
+              {
+                "type": "list",
+                "id": "l",
+                "source": {
+                  "kind": "k"
+                },
+                "item": {
+                  "fields": [
+                    {
+                      "id": "f",
+                      "path": "/id"
+                    }
+                  ],
+                  "actions": [
+                    {
+                      "id": "rm",
+                      "label": "rm",
+                      "handler": "rm"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "k": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "r1"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "err": {
+              "code": "internal",
+              "message": "It failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "It failed",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-AC-7",
+        "node_id": "botster-ui-descendant-v1:2:go5:error"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r12:rm"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 2,
+            "err": {
+              "code": "internal",
+              "message": "Row failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "Row failed",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-AC-7",
+        "node_id": "botster-ui-descendant-v1:64:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r12:rm5:error"
+      }
+    }
+  ]
+}

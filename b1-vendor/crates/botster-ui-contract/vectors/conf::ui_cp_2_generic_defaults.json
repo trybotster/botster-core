@@ -1,0 +1,181 @@
+{
+  "id": "conf::ui_cp_2_generic_defaults",
+  "contract": "ui",
+  "clause": "UI-CP-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "empty with no copy: the generic default",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "because": "UI UI-NV-6",
+      "expect": {
+        "root": {
+          "props": {
+            "state": "empty"
+          },
+          "children": [
+            {
+              "type": "empty_state",
+              "props": {
+                "title": {
+                  "copy": "generic_empty"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "error with no copy: the generic default",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [],
+          "error": {
+            "message": "boom"
+          }
+        }
+      },
+      "because": "UI UI-NV-6",
+      "expect": {
+        "root": {
+          "props": {
+            "state": "error"
+          },
+          "children": [
+            {
+              "props": {
+                "title": {
+                  "copy": "generic_error"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "an option source with no options and no copy shows the generic_empty key",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "o": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "k",
+                        "value_field": "/id",
+                        "label_field": "/id"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:106:botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:o6:widget5:empty": {
+          "props": {
+            "title": {
+              "copy": "generic_empty"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-6"
+    }
+  ]
+}

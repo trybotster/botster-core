@@ -1,0 +1,67 @@
+{
+  "id": "conf::lc_3_duplicate_id",
+  "contract": "core",
+  "clause": "LC-3",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$d",
+      "expect_error": {
+        "code": "IdInUse"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "pump": {}
+    },
+    {
+      "poll_events": {
+        "max": 64
+      },
+      "expect": [],
+      "because": "Core ER-0"
+    }
+  ]
+}

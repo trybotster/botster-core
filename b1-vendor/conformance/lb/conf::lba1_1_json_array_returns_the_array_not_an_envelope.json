@@ -1,0 +1,91 @@
+{
+ "id": "conf::lba1_1_json_array_returns_the_array_not_an_envelope",
+ "contract": "lb",
+ "clause": "LBA1-1",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local a = botster.json.array{ \"a\", \"b\" }\n      local e = botster.json.array{}\n      e[#e + 1] = \"x\"\n      return { no_ok_field = a.ok == nil, no_value_field = a.value == nil, len = #a, first = a[1],\n               empty_len = #botster.json.array{}, grown_len = #e, arr = a, empty = botster.json.array{} }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "no_ok_field": true,
+       "no_value_field": true,
+       "len": 2,
+       "first": "a",
+       "empty_len": 0,
+       "grown_len": 1,
+       "arr": [
+        "a",
+        "b"
+       ],
+       "empty": []
+      }
+     }
+    }
+   },
+   "because": "LB LBA1-1"
+  }
+ ]
+}

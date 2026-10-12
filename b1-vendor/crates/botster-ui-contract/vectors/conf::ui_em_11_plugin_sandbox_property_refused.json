@@ -1,0 +1,179 @@
+{
+  "id": "conf::ui_em_11_plugin_sandbox_property_refused",
+  "contract": "ui",
+  "clause": "UI-EM-11",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an embed with no sandbox property",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "sandbox on an embed",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "sandbox": "allow-scripts allow-same-origin"
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_property",
+        "path": "/root/sandbox"
+      }
+    },
+    {
+      "name": "src on an embed",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "src": "/app/page"
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_property",
+        "path": "/root/src"
+      }
+    },
+    {
+      "name": "srcdoc on an embed",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "srcdoc": "<p>x</p>"
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_property",
+        "path": "/root/srcdoc"
+      }
+    },
+    {
+      "name": "allow on an embed",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "allow": "camera"
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_property",
+        "path": "/root/allow"
+      }
+    }
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "id": "conf::ui_rz_3_vectors_pass_web",
+  "contract": "ui",
+  "clause": "UI-RZ-3",
+  "subject": "realizer",
+  "note": "The Web runner runs this file with its own realize. The Rust runner runs it as well.",
+  "cases": [
+    {
+      "name": "an exact tree: a table and a status badge",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c",
+                  "label": "N",
+                  "path": "/n",
+                  "align": "end"
+                }
+              ]
+            },
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "ok"
+              },
+              "map": {
+                "ok": {
+                  "label": "OK",
+                  "tone": "success"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "tb",
+              "type": "table",
+              "props": {
+                "columns": [
+                  {
+                    "id": "c",
+                    "label": "N",
+                    "align": "end"
+                  }
+                ],
+                "rows": [
+                  {
+                    "id": "botster-ui-descendant-v1:2:tb2:r1",
+                    "cells": {
+                      "c": "7"
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "id": "sb",
+              "type": "status_badge",
+              "props": {
+                "label": "OK",
+                "tone": "success"
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-3"
+    }
+  ]
+}

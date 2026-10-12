@@ -1,0 +1,104 @@
+{
+ "id": "conf::iv_1_invoke_shape",
+ "contract": "hp",
+ "clause": "IV-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "proofs": {
+   "op_socket": {
+    "kind": "operator"
+   },
+   "op_rtc": {
+    "kind": "operator",
+    "credential_id": "cred-1"
+   },
+   "tok_s1": {
+    "kind": "session",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    }
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "payload": {
+     "x": 1
+    },
+    "proof": "op_socket"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1",
+     "kind": "mcp_tool",
+     "payload": {
+      "x": 1
+     },
+     "caller": {
+      "kind": "operator"
+     },
+     "origin": "mcp_tool",
+     "deadline_ms": {
+      "$type": "u64"
+     }
+    }
+   },
+   "because": "HP IV-1"
+  }
+ ]
+}

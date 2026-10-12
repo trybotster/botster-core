@@ -1,0 +1,343 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/TypeSource"
+    },
+    "label": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "editable": {
+      "type": "boolean"
+    },
+    "targets": {
+      "type": "array",
+      "items": true,
+      "description": "The element type is not fixed by HC."
+    },
+    "port_env": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notifications": {
+      "$ref": "#/$defs/Notifications"
+    }
+  },
+  "required": [
+    "id",
+    "source",
+    "label",
+    "description",
+    "editable",
+    "targets"
+  ],
+  "description": "The `session_type` row.\n\nClause: HC section 6 (`session_type`), MC-1c, SF-5c.",
+  "x-kind": "session_type",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "get": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-2"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    },
+    "create": {
+      "effect": "committed",
+      "args": "SessionTypeDefinition",
+      "reasons": [
+        "conflict",
+        "invalid_arguments:port_env_invalid",
+        "invalid_arguments:scope_widens",
+        "unsupported:repo_source_is_discovered"
+      ],
+      "clause": "A.7, A.9"
+    },
+    "update": {
+      "effect": "committed",
+      "reasons": [
+        "invalid_arguments:port_env_invalid",
+        "invalid_arguments:scope_widens",
+        "wrong_state:not_editable",
+        "unsupported:repo_source_is_discovered"
+      ],
+      "clause": "A.7, A.9"
+    },
+    "delete": {
+      "effect": "committed",
+      "reasons": [
+        "wrong_state:not_editable"
+      ],
+      "clause": "A.7"
+    }
+  },
+  "x-actions": {
+    "resolve": {
+      "effect": "read",
+      "durable_operation": false,
+      "reasons": [],
+      "args": "ResolveArgs",
+      "result": "ResolveResult",
+      "clause": "A.7, A.9"
+    },
+    "definition": {
+      "effect": "read",
+      "durable_operation": false,
+      "reasons": [],
+      "args": "Empty",
+      "result": "SessionTypeDefinition",
+      "clause": "A.7, A.9"
+    }
+  },
+  "$defs": {
+    "SessionTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/TypeSource"
+        },
+        "label": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "interaction": {
+          "$ref": "#/$defs/Interaction"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/Lifecycle"
+        },
+        "command": {
+          "type": "string",
+          "description": "An executable path, or a name found on the session's `PATH`."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "traits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "allowed_environment_overrides": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "context_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "port_env": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notifications": {
+          "$ref": "#/$defs/Notifications"
+        },
+        "script": {
+          "type": "string",
+          "description": "An init-script body that the Hub stores and runs as `command`."
+        },
+        "agent_scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "label",
+        "command"
+      ],
+      "description": "The create fields of a session type, also the result of `definition`. `update` is a merge patch of these.\n\nClause: HC A.9, A2 H-21, A2 part 1."
+    },
+    "TypeSource": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "device"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "repo": {
+              "$ref": "#/$defs/RepoSource"
+            }
+          },
+          "required": [
+            "repo"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "The source of a session type: `\"device\"` or `{ repo: { target_id } }`.\n\nClause: HC A.8, A.9."
+    },
+    "RepoSource": {
+      "type": "object",
+      "properties": {
+        "target_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id"
+      ],
+      "description": "The repo source of a session type.\n\nClause: HC A.9 (`session_type` create)."
+    },
+    "Interaction": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "interactive",
+            "noninteractive"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Lifecycle": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "restartable",
+            "one_shot"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Notifications": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/NotificationMode"
+        },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Case-sensitive literal substrings."
+        }
+      },
+      "required": [
+        "mode",
+        "patterns"
+      ],
+      "description": "`notifications` of a session type (SF-5c, HP CA-22).\n\nClause: HC SF-5c."
+    },
+    "NotificationMode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "all",
+            "none",
+            "matching"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ResolveArgs": {
+      "type": "object",
+      "properties": {
+        "target_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id"
+      ],
+      "description": "Arguments of `session_type.resolve`.\n\nClause: HC A.9."
+    },
+    "ResolveResult": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CodeMessage"
+          }
+        },
+        "context_keys": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "available",
+        "context_keys"
+      ],
+      "description": "The result of `session_type.resolve`.\n\nClause: HC A.9, A2 H-31."
+    },
+    "CodeMessage": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "description": "A `{ code, message }` diagnostic or problem.\n\nClause: HC A.9, A2 H-31."
+    },
+    "Empty": {
+      "type": "object",
+      "description": "The empty arguments or result: `{}`.\n\nClause: HC A.9."
+    }
+  }
+}

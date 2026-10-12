@@ -1,0 +1,209 @@
+{
+ "id": "conf::mp_12_page_count_bounded",
+ "contract": "hp",
+ "clause": "MP-12",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_server",
+   "mcp_list",
+   "mcp_server_state",
+   "script_mcp"
+  ]
+ },
+ "setup": {
+  "given": "mcp_proxy_list_pages is 2; the server lists its tools in three pages",
+  "limits": {
+   "mcp_proxy_list_pages": 2
+  },
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "s",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ],
+    "pages": [
+     [
+      {
+       "name": "a",
+       "description": "echo tool",
+       "inputSchema": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "type": "integer"
+         }
+        }
+       },
+       "behavior": {
+        "kind": "echo"
+       }
+      }
+     ],
+     [
+      {
+       "name": "b",
+       "description": "echo tool",
+       "inputSchema": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "type": "integer"
+         }
+        }
+       },
+       "behavior": {
+        "kind": "echo"
+       }
+      }
+     ],
+     [
+      {
+       "name": "c",
+       "description": "echo tool",
+       "inputSchema": {
+        "type": "object",
+        "properties": {
+         "n": {
+          "type": "integer"
+         }
+        }
+       },
+       "behavior": {
+        "kind": "echo"
+       }
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "unavailable"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_server_state",
+    "plugin": "demo",
+    "server": "s"
+   },
+   "expect": {
+    "state": "unavailable",
+    "error": {
+     "detail": {
+      "code": "mcp_bound_exceeded"
+     }
+    }
+   },
+   "because": "HP MP-12"
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": []
+   },
+   "because": "HP MP-12"
+  }
+ ]
+}

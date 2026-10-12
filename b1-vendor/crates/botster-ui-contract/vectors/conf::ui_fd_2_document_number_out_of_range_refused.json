@@ -1,0 +1,30 @@
+{
+  "id": "conf::ui_fd_2_document_number_out_of_range_refused",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "1e999 in a document",
+      "because": "UI UI-FD-2",
+      "document_text": "{\"ui_contract_view\":\"1.4\",\"id\":\"v\",\"title\":\"T\",\"root\":{\"type\":\"text\",\"id\":\"t\",\"value\":{\"lit\":1e999}}}",
+      "expect_admission": {
+        "code": "number_out_of_range"
+      }
+    },
+    {
+      "name": "-1e999 in a document",
+      "because": "UI UI-FD-2",
+      "document_text": "{\"ui_contract_view\":\"1.4\",\"id\":\"v\",\"title\":\"T\",\"root\":{\"type\":\"text\",\"id\":\"t\",\"value\":{\"lit\":-1e999}}}",
+      "expect_admission": {
+        "code": "number_out_of_range"
+      }
+    },
+    {
+      "name": "a number inside the double range",
+      "because": "UI UI-FD-2",
+      "document_text": "{\"ui_contract_view\":\"1.4\",\"id\":\"v\",\"title\":\"T\",\"root\":{\"type\":\"text\",\"id\":\"t\",\"value\":{\"lit\":1e300}}}",
+      "expect_admitted": true
+    }
+  ]
+}

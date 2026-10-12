@@ -1,0 +1,129 @@
+{
+  "id": "conf::ui_fd_2_nonfinite_number_is_absent",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a value outside the double range is absent for the lookup: the field shows its absent text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "absent": "n/a",
+                "map": {
+                  "Infinity": {
+                    "label": "Bad"
+                  },
+                  "null": {
+                    "label": "Bad"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": {
+                "$raw_number": "1e999999999"
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "n/a"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a value outside the double range is absent for order: absent sorts first",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "order": [
+              {
+                "field": "/v",
+                "dir": "asc"
+              }
+            ]
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "v": 5
+            },
+            {
+              "id": "b",
+              "v": {
+                "$raw_number": "1e999999999"
+              }
+            },
+            {
+              "id": "c",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect": {
+        "root": {
+          "type": "list",
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4b"
+    }
+  ]
+}

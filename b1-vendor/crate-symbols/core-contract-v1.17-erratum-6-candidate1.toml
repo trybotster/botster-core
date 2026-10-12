@@ -1,0 +1,101 @@
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# # Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+[rows."1"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# The base is the Core contract of `frozen/current` (manifest final39), which is unchanged except for the reading below. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - Core EV-8(c) (`core-contract-v1.17.md`, line 238): "a refusal is an `input_refused` with reason `already_replied`, `query_expired`, `unknown_query`, `invalid_input` or `too_large`" (bold in the source), "(effect none). A reply from any route other than the one the worker bound the `query_id` to is `input_refused{invalid_input}`."
+[rows."9"]
+already_replied = ["codec::RefusalReason::AlreadyReplied"]
+"core-contract-v1.17.md" = "n/a: a repository path"
+input_refused = ["codec::ToClient::InputRefused"]
+"input_refused{invalid_input}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::InvalidInput"]
+invalid_input = ["codec::RefusalReason::InvalidInput"]
+query_expired = ["codec::RefusalReason::QueryExpired"]
+query_id = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+too_large = ["codec::RefusalReason::TooLarge"]
+unknown_query = ["codec::RefusalReason::UnknownQuery"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - The route codec, revision 37 (`route-codec-v1-extract-rev37.md`):
+[rows."10"]
+"route-codec-v1-extract-rev37.md" = "n/a: a repository path"
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - line 26: "**P9 binding (R-3):** a reply from a route that the query was not bound to is refused `wrong_route`; `invalid_input` stays only the route-ending protocol error."
+[rows."11"]
+invalid_input = ["codec::ProtocolErrorCode::InvalidInput"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - line 100: "A `reply_terminal_query` from any other route is refused with `input_refused { reason: wrong_route }`."
+[rows."12"]
+"input_refused { reason: wrong_route }" = ["codec::ToClient::InputRefused", "codec::InputRefused::reason", "codec::RefusalReason::WrongRoute"]
+reply_terminal_query = ["codec::Input::ReplyTerminalQuery"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - line 310: "only a refusal is sent, as `input_refused { op?, reason }` with `reason` ∈ `already_replied`, `query_expired`, `unknown_query`, `wrong_route`, `too_large` (non-exhaustive)."
+[rows."13"]
+already_replied = ["codec::RefusalReason::AlreadyReplied"]
+"input_refused { op?, reason }" = ["codec::ToClient::InputRefused", "codec::InputRefused::op", "codec::InputRefused::reason"]
+query_expired = ["codec::RefusalReason::QueryExpired"]
+reason = ["codec::InputRefused::reason"]
+too_large = ["codec::RefusalReason::TooLarge"]
+unknown_query = ["codec::RefusalReason::UnknownQuery"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# The codec owns the route's wire reasons. Core adopts the codec verbatim (MANIFEST: "Route codec (owned by HC, adopted verbatim by Core)"). The codec's revision-27 R-3 was written to remove exactly this overlap. EV-8(c)'s `invalid_input` also contradicts the codec's own meaning of `invalid_input`: only an unparseable frame ends a route, and a parseable reply on the wrong route is not one. No Core amendment restates this sentence of EV-8(c) (checked: every Core amendment and erratum file in `frozen/current`; none contains `already_replied` or this sentence).
+[rows."15"]
+already_replied = ["codec::RefusalReason::AlreadyReplied"]
+"frozen/current" = "n/a: a repository path"
+invalid_input = ["codec::RefusalReason::InvalidInput", "codec::ProtocolErrorCode::InvalidInput"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# | E6-1 | **A `reply_terminal_query` from any route other than the one the worker bound the `query_id` to is `input_refused{wrong_route}`, with effect none.** The route stays open. The query stays open for its bound route and for the shadow's fallback, unchanged (EV-8(c), (d)). `invalid_input` is not a reply refusal reason. It stays only the codec's route-ending protocol error. | `conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open` |
+[rows."19"]
+"input_refused{wrong_route}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::WrongRoute"]
+invalid_input = ["codec::ProtocolErrorCode::InvalidInput"]
+query_id = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+reply_terminal_query = ["codec::Input::ReplyTerminalQuery"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - "a refusal is an `input_refused` with reason `already_replied`, `query_expired`, `unknown_query`, `invalid_input` or `too_large`" reads "a refusal is an `input_refused` with reason `already_replied`, `query_expired`, `unknown_query`, `wrong_route` or `too_large`".
+[rows."23"]
+already_replied = ["codec::RefusalReason::AlreadyReplied"]
+input_refused = ["codec::ToClient::InputRefused"]
+invalid_input = ["codec::RefusalReason::InvalidInput"]
+query_expired = ["codec::RefusalReason::QueryExpired"]
+too_large = ["codec::RefusalReason::TooLarge"]
+unknown_query = ["codec::RefusalReason::UnknownQuery"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# - "A reply from any route other than the one the worker bound the `query_id` to is `input_refused{invalid_input}`." reads "A reply from any route other than the one the worker bound the `query_id` to is `input_refused{wrong_route}` (E6-1)."
+[rows."24"]
+"input_refused{invalid_input}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::InvalidInput"]
+"input_refused{wrong_route}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::WrongRoute"]
+query_id = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# Every other clause is unchanged. This adds no number, no type and no wire value: `wrong_route` is already a codec `RefusalReason`.
+[rows."26"]
+RefusalReason = ["codec::RefusalReason"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# **The test.** `conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open`: two routes r1 and r2 on one session, with r2 the most recently active route. A query goes to r2. A reply on r1 for that `query_id` gets `input_refused{wrong_route}` on r1, and nothing is written to the PTY. r1 stays open. A reply on r2 then is applied, so the query was not consumed by the refused reply.
+[rows."28"]
+"input_refused{wrong_route}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::WrongRoute"]
+query_id = ["codec::TerminalQuery::query_id", "codec::Input::ReplyTerminalQuery::query_id"]
+
+# Core contract v1.17, erratum 6 (candidate 1): a query reply from the wrong route is refused `wrong_route`
+# **Until this erratum is frozen,** ruling R-75 q3 governs: the worker and the transcripts use `wrong_route`.
+[rows."30"]
+wrong_route = ["codec::RefusalReason::WrongRoute"]

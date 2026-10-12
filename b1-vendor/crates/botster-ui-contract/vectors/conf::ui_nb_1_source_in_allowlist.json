@@ -1,0 +1,81 @@
+{
+  "id": "conf::ui_nb_1_source_in_allowlist",
+  "contract": "ui",
+  "clause": "UI-NB-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a source with an admitted kind and an allowed field is admitted",
+      "badge_document": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ]
+          }
+        }
+      },
+      "expect_badge_admission": {},
+      "because": "UI UI-NB-1, UI-AD-3"
+    },
+    {
+      "name": "a field outside the projection allowlist is refused",
+      "badge_document": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/secret"
+        },
+        "display": "count"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ]
+          }
+        }
+      },
+      "expect_badge_admission": {
+        "code": "path_not_allowed"
+      },
+      "because": "UI UI-NB-1, UI-AD-5"
+    },
+    {
+      "name": "a kind that is not admitted is refused",
+      "badge_document": {
+        "source": {
+          "kind": "other",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ]
+          }
+        }
+      },
+      "expect_badge_admission": {
+        "code": "kind_not_admitted"
+      },
+      "because": "UI UI-NB-1, UI-AD-5"
+    }
+  ]
+}

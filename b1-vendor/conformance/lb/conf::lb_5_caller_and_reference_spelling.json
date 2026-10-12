@@ -1,0 +1,242 @@
+{
+ "id": "conf::lb_5_caller_and_reference_spelling",
+ "contract": "lb",
+ "clause": "LB-5",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local c = request.caller\n      local sess = c.session\n      return {\n        kind = c.kind,\n        hub_id = sess and sess.hub_id,\n        session_id = sess and sess.session_id,\n        plugin_key = c.plugin_key,\n        instance = c.instance,\n        has_credential = c.credential_id ~= nil,\n        credential_id = c.credential_id,\n        has_hub_id = c.hub_id ~= nil,\n      }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local list = botster.sessions.list{}\n      local row = list.value.sessions[1]\n      local got = botster.sessions.get{ session = { hub_id = row.hub_id, session_id = row.id } }\n      return { row_has_id = row.id ~= nil, row_has_session_id = row.session_id ~= nil, got_ok = got.ok }\n    end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool",
+     "caller": {
+      "kind": "session",
+      "session": {
+       "hub_id": "hub-9",
+       "session_id": "s9"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "session",
+       "hub_id": "hub-9",
+       "session_id": "s9",
+       "has_credential": false,
+       "plugin_key": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 2
+     },
+     "call": "sessions.list",
+     "args": {}
+    }
+   },
+   "because": "LB LB-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": [
+        {
+         "id": "s1",
+         "hub_id": "hub-1",
+         "label": "l",
+         "state": "running",
+         "lifecycle_class": "current",
+         "exit": {},
+         "size": {
+          "rows": 24,
+          "cols": 80
+         },
+         "session_type": {
+          "id": "t",
+          "source": "device"
+         },
+         "traits": [],
+         "restartable": false,
+         "activity": "idle",
+         "presentation": "default",
+         "metadata": {}
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 2
+     },
+     "call": "sessions.get",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1",
+       "label": "l",
+       "state": "running",
+       "lifecycle_class": "current",
+       "exit": {},
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "session_type": {
+        "id": "t",
+        "source": "device"
+       },
+       "traits": [],
+       "restartable": false,
+       "activity": "idle",
+       "presentation": "default",
+       "metadata": {}
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "row_has_id": true,
+       "row_has_session_id": false,
+       "got_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-5"
+  }
+ ]
+}

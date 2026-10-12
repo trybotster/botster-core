@@ -1,0 +1,1042 @@
+{
+  "id": "conf::ui_ad_4_embed_admission",
+  "contract": "ui",
+  "clause": "UI-AD-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a declared channel that meets every rule",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "go",
+                    "invoke": "go"
+                  }
+                ],
+                "to_page": [
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "p.item"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "page.asset with an operand that is not in scope",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "path": "/asset"
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unbound_context"
+      }
+    },
+    {
+      "name": "a from_page entry that names an action the document does not have",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "go",
+                    "invoke": "nope"
+                  }
+                ],
+                "to_page": []
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unknown_action"
+      }
+    },
+    {
+      "name": "a from_page entry that names a declared slot",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "s"
+                  }
+                ],
+                "to_page": []
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ],
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "a from_page entry that names a slot the document does not declare",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "s"
+                  }
+                ],
+                "to_page": []
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unknown_slot"
+      }
+    },
+    {
+      "name": "a to_page source over a kind that is not admitted",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [],
+                "to_page": [
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "nope"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "kind_not_admitted"
+      }
+    },
+    {
+      "name": "a to_page field outside the projection allowlist",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [],
+                "to_page": [
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "p.item"
+                    },
+                    "fields": [
+                      "/secret"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "a to_page source over a Hub kind",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [],
+                "to_page": [
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "session"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "embed_source_not_own"
+      }
+    },
+    {
+      "name": "two to_page entries with one type name",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [],
+                "to_page": [
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "p.item"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  },
+                  {
+                    "type": "rows",
+                    "source": {
+                      "kind": "p.other"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {}
+    },
+    {
+      "name": "two from_page entries with one type name",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "go",
+                    "invoke": "go"
+                  },
+                  {
+                    "type": "go",
+                    "invoke": "go"
+                  }
+                ],
+                "to_page": []
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {}
+    },
+    {
+      "name": "one type name in both directions",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "same",
+                    "invoke": "go"
+                  }
+                ],
+                "to_page": [
+                  {
+                    "type": "same",
+                    "source": {
+                      "kind": "p.item"
+                    },
+                    "fields": [
+                      "/id"
+                    ],
+                    "on": "change"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    }
+  ]
+}

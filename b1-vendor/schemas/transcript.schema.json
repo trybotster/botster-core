@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Transcript",
+  "description": "One transcript file: one test id (design 5).",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "The test id. It equals the file name without `.json`, and it is in the ledger.",
+      "type": "string"
+    },
+    "contract": {
+      "description": "The ledger prefix that owns the id.",
+      "$ref": "#/$defs/Contract"
+    },
+    "clause": {
+      "description": "The clause row id, for example `EN-8`.",
+      "type": "string"
+    },
+    "subject": {
+      "description": "The side under test.",
+      "$ref": "#/$defs/Subject"
+    },
+    "requires": {
+      "$ref": "#/$defs/Requires",
+      "default": {
+        "features": [],
+        "controls": []
+      }
+    },
+    "setup": {
+      "description": "Limits and a named fixture. Its shape belongs to the suite."
+    },
+    "steps": {
+      "description": "The ordered script. Its step kinds belong to the suite, except the order constructs of the engine.",
+      "type": "array",
+      "items": true,
+      "default": []
+    },
+    "seeds": {
+      "description": "Pinned seeds. Absent means every seed of the run.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "integer",
+        "format": "uint64",
+        "minimum": 0
+      }
+    },
+    "kind": {
+      "description": "`withdrawn` marks a transcript with no steps.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TranscriptKind"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "fake": {
+      "description": "`structural` marks a transcript that runs in full only against a real implementation. It needs a `ruling`.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FakeMode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "ruling": {
+      "description": "The steward ruling that makes the transcript structural against a fake, for example `R-5`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "contract",
+    "clause",
+    "subject"
+  ],
+  "$defs": {
+    "Contract": {
+      "description": "The ledger prefix that owns a test id (design section 2).",
+      "type": "string",
+      "enum": [
+        "core",
+        "codec",
+        "hc",
+        "hp",
+        "lb",
+        "ui",
+        "cli"
+      ]
+    },
+    "Subject": {
+      "description": "The side under test (design 5.1).",
+      "type": "string",
+      "enum": [
+        "core",
+        "worker",
+        "hub",
+        "client",
+        "plugin_hub",
+        "plugin_host",
+        "lua_host",
+        "cli",
+        "realizer"
+      ]
+    },
+    "Requires": {
+      "description": "What a subject must offer for a transcript to apply (design 5.1).",
+      "type": "object",
+      "properties": {
+        "features": {
+          "description": "Feature names that the subject must advertise. A subject without one gives `not_applicable`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "controls": {
+          "description": "Test controls that the transcript uses. A subject without one gives `unsupported_control`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "TranscriptKind": {
+      "description": "A transcript that has no steps by design (design section 2, withdrawn ids).",
+      "type": "string",
+      "enum": [
+        "withdrawn"
+      ]
+    },
+    "FakeMode": {
+      "description": "How a subject's fake treats a transcript (design 5.1, `fake`).",
+      "oneOf": [
+        {
+          "description": "The subject's fake does not model this behavior by steward ruling (`ruling`). Against the fake the runner checks the stimuli\nonly (`structural`). Against a real implementation the transcript runs in full.",
+          "type": "string",
+          "const": "structural"
+        }
+      ]
+    }
+  }
+}

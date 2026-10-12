@@ -1,0 +1,325 @@
+{
+ "id": "conf::pm_7_approval_resumes_the_staged_commit_and_hash_not_the_moved_branch",
+ "contract": "hp",
+ "clause": "PM-7",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "edge_requests",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "the upgrade to 2.0.0 needs a grant and is staged; the branch then moves to another commit; the operator approves",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "2.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "capabilities": [
+          {
+           "surface": "assets"
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v2.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "upgrade"
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "status": "staged"
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "3333333333333333333333333333333333333333",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "3.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "capabilities": [
+          {
+           "surface": "assets"
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v3.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "bind": {
+    "m": "/mark"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "approve_grants",
+     "grants": [
+      {
+       "surface": "assets"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_c",
+     "resumed": false
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-7"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_c",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_c"
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "2222222222222222222222222222222222222222",
+     "content_hash": "7e926e85b9a75f9b7d6242048b21e14cee22efaec3d48c43708dca5de079bcf3",
+     "version": "2.0.0"
+    }
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git",
+    "since": "$m"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "commit": "2222222222222222222222222222222222222222"
+      }
+     }
+    }
+   },
+   "because": "HP PM-7"
+  }
+ ]
+}

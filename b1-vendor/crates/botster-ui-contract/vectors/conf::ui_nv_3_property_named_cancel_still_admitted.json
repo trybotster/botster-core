@@ -1,0 +1,143 @@
+{
+  "id": "conf::ui_nv_3_property_named_cancel_still_admitted",
+  "contract": "ui",
+  "clause": "UI-NV-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "properties named like the new role segments are admitted",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "submit": {
+                        "type": "string"
+                      },
+                      "cancel": {
+                        "type": "string"
+                      },
+                      "confirm": {
+                        "type": "string"
+                      },
+                      "optional": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "context": {
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "submit": {
+                  "type": "string"
+                },
+                "cancel": {
+                  "type": "string"
+                },
+                "confirm": {
+                  "type": "string"
+                },
+                "optional": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "a field named cancel and the cancel button have different ids",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "submit": {
+                        "type": "string"
+                      },
+                      "cancel": {
+                        "type": "string"
+                      },
+                      "confirm": {
+                        "type": "string"
+                      },
+                      "optional": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "go"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item6:cancel": {
+          "type": "form_field"
+        },
+        "botster-ui-descendant-v1:110:botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item6:action6:cancel": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item6:submit": {
+          "type": "form_field"
+        },
+        "botster-ui-descendant-v1:110:botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item6:action6:submit": {
+          "type": "button"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,457 @@
+{
+  "id": "conf::ui_cf_6_capability_values",
+  "contract": "ui",
+  "clause": "UI-CF-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a declaration with every member",
+      "parse": {
+        "type": "Capabilities",
+        "valid": true,
+        "value": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "parts": [
+            "list",
+            "table",
+            "embed"
+          ],
+          "features": [
+            "ui_1_1",
+            "ui_embed",
+            "ui_1_3",
+            "ui_1_4",
+            "external_open",
+            "embed",
+            "display_metric",
+            "display_badge"
+          ],
+          "widgets": [
+            "text",
+            "textarea"
+          ],
+          "screens": [
+            "botster-workspaces.workspace@1"
+          ]
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "a declaration with only the required member",
+      "parse": {
+        "type": "Capabilities",
+        "valid": true,
+        "value": {
+          "ui_contract_view": [
+            "1.0"
+          ]
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "an empty list is allowed in every list",
+      "parse": {
+        "type": "Capabilities",
+        "valid": true,
+        "value": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "parts": [],
+          "features": [],
+          "widgets": [],
+          "screens": []
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "features is a list of names, not one name",
+      "parse": {
+        "type": "Capabilities",
+        "valid": false,
+        "value": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": "display_metric"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "screens is a list of entries, not one entry",
+      "parse": {
+        "type": "Capabilities",
+        "valid": false,
+        "value": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "screens": "k@1"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "display_metric: a renderer that declares it draws a metric node",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "label": "Open",
+                "path": "/n",
+                "display": "metric"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 4
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_metric"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "metric",
+          "props": {
+            "label": "Open"
+          }
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "display_metric: a renderer that does not declare it gets a label: value text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "label": "Open",
+                "path": "/n",
+                "display": "metric"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 4
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "display_badge: a renderer that declares it draws the navigation badge without a suffix",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "value": 2,
+        "suffix": {
+          "$absent": true
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "display_badge: a renderer that does not declare it gets the suffix",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_metric"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "suffix": "(2)"
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "screens: an entry kind@MAJOR gives the client a screen for that kind",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "k2@1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "screens: an entry with another MAJOR than the descriptor schema_version gives no screen",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "k2@2"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "ui_contract_view is required",
+      "parse": {
+        "type": "Capabilities",
+        "valid": false,
+        "value": {
+          "parts": [
+            "list"
+          ]
+        }
+      },
+      "because": "UI UI-CF-6"
+    }
+  ]
+}

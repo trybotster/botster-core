@@ -1,0 +1,66 @@
+{
+  "id": "conf::ui_vr_1_additive_minor",
+  "contract": "ui",
+  "clause": "UI-VR-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "1.0",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-VR-1"
+    },
+    {
+      "name": "a later MINOR of the same MAJOR",
+      "document": {
+        "ui_contract_view": "1.9",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-VR-1"
+    },
+    {
+      "name": "a view of a later MINOR realizes on a client of the MAJOR",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "t": {
+          "type": "text"
+        }
+      },
+      "because": "UI UI-VR-1"
+    }
+  ]
+}

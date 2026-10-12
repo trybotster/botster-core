@@ -1,0 +1,162 @@
+{
+  "id": "conf::vb_1_expired_cursor",
+  "contract": "hc",
+  "clause": "VB-1",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "limits": {
+        "cursor_idle_seconds": 30
+      }
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "limit": 2
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "next_cursor": "$c"
+        }
+      },
+      "on": "c1",
+      "because": "HC VB-1"
+    },
+    {
+      "advance_clock": {
+        "ms": 31000
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "limit": 2,
+          "cursor": "$c"
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "err": {
+          "code": "expired_cursor",
+          "retryable": true
+        }
+      },
+      "on": "c1",
+      "because": "HC VB-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "limit": 2,
+          "filter": {
+            "kind": "directory"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "next_cursor": "$c2"
+        }
+      },
+      "on": "c1",
+      "because": "HC VB-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "limit": 2,
+          "filter": {
+            "label": "one"
+          },
+          "cursor": "$c2"
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "err": {
+          "code": "expired_cursor"
+        }
+      },
+      "on": "c1",
+      "because": "HC VB-1"
+    }
+  ]
+}

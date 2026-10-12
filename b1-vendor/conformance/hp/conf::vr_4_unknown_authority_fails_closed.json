@@ -1,0 +1,132 @@
+{
+ "id": "conf::vr_4_unknown_authority_fails_closed",
+ "contract": "hp",
+ "clause": "VR-4",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "setup": {
+  "fixture": "host_calls"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame_raw": {
+    "lane": 1,
+    "type": 16,
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1",
+     "kind": "mcp_tool",
+     "payload": {},
+     "caller": {
+      "kind": "wizard"
+     },
+     "origin": "mcp_tool",
+     "descriptor_id": "d",
+     "deadline_ms": 1000
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     }
+    }
+   },
+   "because": "HP VR-4"
+  },
+  {
+   "send_frame_raw": {
+    "lane": 1,
+    "type": 16,
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h1",
+     "kind": "mystic",
+     "payload": {},
+     "caller": {
+      "kind": "system"
+     },
+     "origin": "mcp_tool",
+     "descriptor_id": "d",
+     "deadline_ms": 1000
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     }
+    }
+   },
+   "because": "HP VR-4"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP VR-4"
+  }
+ ]
+}

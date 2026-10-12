@@ -1,0 +1,83 @@
+{
+ "id": "conf::as_1_staged_assets_loaded_without_execution",
+ "contract": "hp",
+ "clause": "AS-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "package_executions",
+   "plugin_assets"
+  ]
+ },
+ "setup": {
+  "given": "the package of demo declares assets [{name: readme, path: web/readme.html, content_type: text/html}] and holds no assets grant; the package of demo declares the embed view view (permission embed.view, action refresh) and the viewer holds embed.view",
+  "plugins": {
+   "demo": {
+    "grants": [],
+    "views": [
+     {
+      "key": "view",
+      "kind": "embed",
+      "permission": "embed.view",
+      "actions": [
+       {
+        "id": "refresh",
+        "handler": "h1"
+       }
+      ]
+     }
+    ],
+    "staged_assets": [
+     {
+      "name": "readme",
+      "path": "web/readme.html",
+      "content_type": "text/html"
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "control": {
+    "op": "plugin_assets",
+    "plugin": "demo"
+   },
+   "expect": {
+    "assets": [
+     {
+      "name": "readme",
+      "content_type": "text/html",
+      "source": "staged",
+      "asset_id": {
+       "$type": "string"
+      }
+     }
+    ]
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "control": {
+    "op": "package_executions",
+    "plugin": "demo"
+   },
+   "expect": {
+    "started": 0
+   },
+   "because": "HP AS-1"
+  }
+ ]
+}

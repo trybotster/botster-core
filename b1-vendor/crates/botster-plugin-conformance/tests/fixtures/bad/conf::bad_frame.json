@@ -1,0 +1,17 @@
+{
+ "id": "conf::bad_frame",
+ "contract": "hp",
+ "clause": "HS-1",
+ "subject": "plugin_host",
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  }
+ ]
+}

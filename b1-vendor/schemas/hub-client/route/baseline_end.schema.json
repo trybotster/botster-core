@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "BaselineEnd",
+  "description": "Body of `0x05 baseline_end`.\n\nClause: Codec A.4, TS-4, A.1.",
+  "type": "object",
+  "properties": {
+    "history": {
+      "$ref": "#/$defs/HistoryState"
+    }
+  },
+  "required": [
+    "history"
+  ],
+  "$defs": {
+    "HistoryState": {
+      "description": "`baseline_end.history` (A.4). `unavailable` and `incomplete` carry a reason string: the A.1 exception.\n\nClause: Codec A.4, A.1, A.2b, TS-4.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "complete"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unavailable": {
+              "$ref": "#/$defs/HistoryUnavailable"
+            }
+          },
+          "required": [
+            "unavailable"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "incomplete": {
+              "$ref": "#/$defs/HistoryIncomplete"
+            }
+          },
+          "required": [
+            "incomplete"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HistoryUnavailable": {
+      "anyOf": [
+        {
+          "description": "History `unavailable` reasons (A.2b).\n\nClause: Codec A.2b.",
+          "type": "string",
+          "enum": [
+            "evicted",
+            "restart",
+            "oversize",
+            "capture_failed",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "HistoryIncomplete": {
+      "anyOf": [
+        {
+          "description": "History `incomplete` reasons (A.2b).\n\nClause: Codec A.2b.",
+          "type": "string",
+          "enum": [
+            "truncated",
+            "capture_failed",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    }
+  }
+}

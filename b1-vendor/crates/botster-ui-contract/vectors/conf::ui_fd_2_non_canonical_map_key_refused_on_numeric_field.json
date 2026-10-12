@@ -1,0 +1,328 @@
+{
+  "id": "conf::ui_fd_2_non_canonical_map_key_refused_on_numeric_field",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the key 1.0 on a number field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "badge",
+                "map": {
+                  "1.0": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "non_canonical_map_key"
+      }
+    },
+    {
+      "name": "the key 1e0 on a number field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "badge",
+                "map": {
+                  "1e0": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "non_canonical_map_key"
+      }
+    },
+    {
+      "name": "the key 1.0 on an integer field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/i",
+                "display": "badge",
+                "map": {
+                  "1.0": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "non_canonical_map_key"
+      }
+    },
+    {
+      "name": "the key TRUE on a boolean field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/b",
+                "display": "badge",
+                "map": {
+                  "TRUE": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "non_canonical_map_key"
+      }
+    },
+    {
+      "name": "the canonical key 1 on a number field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "badge",
+                "map": {
+                  "1": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "the canonical key true on a boolean field",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/b",
+                "display": "badge",
+                "map": {
+                  "true": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    }
+  ]
+}

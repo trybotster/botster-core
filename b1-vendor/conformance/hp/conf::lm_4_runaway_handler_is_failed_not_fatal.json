@@ -1,0 +1,121 @@
+{
+ "id": "conf::lm_4_runaway_handler_is_failed_not_fatal",
+ "contract": "hp",
+ "clause": "LM-4",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_spin"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "limits": {
+      "instruction_budget": 1000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false
+     }
+    }
+   },
+   "because": "HP LM-4"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h3"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "result": {
+      "ok": true,
+      "value": "alive"
+     }
+    }
+   },
+   "because": "HP LM-4"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 7,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Fault",
+    "payload": {
+     "epoch": 7,
+     "code": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP LM-4"
+  }
+ ]
+}

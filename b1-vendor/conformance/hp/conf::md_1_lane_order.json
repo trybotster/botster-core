@@ -1,0 +1,185 @@
+{
+ "id": "conf::md_1_lane_order",
+ "contract": "hp",
+ "clause": "MD-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "received"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 11,
+     "call": "log.write",
+     "context": "autonomous",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 21,
+     "call": "hub.identity",
+     "context": "autonomous",
+     "args": {}
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 12,
+     "call": "log.write",
+     "context": "autonomous",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 22,
+     "call": "hub.identity",
+     "context": "autonomous",
+     "args": {}
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 13,
+     "call": "log.write",
+     "context": "autonomous",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "received",
+    "lane": "bulk"
+   },
+   "expect": [
+    {
+     "type": "HostCall",
+     "id": 11
+    },
+    {
+     "type": "HostCall",
+     "id": 12
+    },
+    {
+     "type": "HostCall",
+     "id": 13
+    }
+   ],
+   "because": "HP MD-1"
+  },
+  {
+   "control": {
+    "op": "received",
+    "lane": "call"
+   },
+   "expect": [
+    {
+     "type": "HostCall",
+     "id": 21
+    },
+    {
+     "type": "HostCall",
+     "id": 22
+    }
+   ],
+   "because": "HP MD-1"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    }
+   ],
+   "hub.identity": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "hub"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

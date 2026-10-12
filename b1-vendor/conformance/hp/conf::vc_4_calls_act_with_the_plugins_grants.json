@@ -1,0 +1,195 @@
+{
+ "id": "conf::vc_4_calls_act_with_the_plugins_grants",
+ "contract": "hp",
+ "clause": "VC-4",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "proofs": {
+   "op_socket": {
+    "kind": "operator"
+   },
+   "op_rtc": {
+    "kind": "operator",
+    "credential_id": "cred-1"
+   },
+   "tok_s1": {
+    "kind": "session",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    }
+   }
+  },
+  "given": "an operator on the Unix socket (no credential id), an operator with WebRTC credential cred-1, and a session s1 with a valid bearer token; the plugin holds no session_stop grant",
+  "calls": {
+   "sessions.stop": [
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "capability_denied",
+       "message": "capability_denied",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "hub.identity": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "hub"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "proof": "op_socket"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1",
+     "caller": {
+      "kind": "operator"
+     }
+    }
+   },
+   "because": "HP VC-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "sessions.stop",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "capability_denied"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP VC-4",
+    "HP CP-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r"
+     },
+     "caller": {
+      "kind": "operator"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP VC-4"
+  }
+ ]
+}

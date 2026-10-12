@@ -1,0 +1,201 @@
+{
+ "id": "conf::nt_7_webhook_auth_stripped_from_headers",
+ "contract": "hp",
+ "clause": "NT-7",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "webhook_post"
+  ]
+ },
+ "setup": {
+  "given": "the plugin demo holds net_inbound and registers the webhook handler wh for /hook; its package configuration sets webhook_auth bearer and the webhook_secret whs3cret; b holds net_inbound and registers /other",
+  "grants": [
+   {
+    "surface": "net",
+    "scope": "net_inbound"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      },
+      {
+       "id": "wh",
+       "kind": "webhook",
+       "descriptor": {
+        "path": "/hook"
+       }
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "webhook_post",
+    "plugin": "demo",
+    "path": "/hook",
+    "headers": [
+     [
+      "Authorization",
+      "Bearer whs3cret"
+     ],
+     [
+      "X-Botster-Signature-256",
+      "sha256=00"
+     ],
+     [
+      "Connection",
+      "keep-alive"
+     ],
+     [
+      "Content-Type",
+      "text/plain"
+     ],
+     [
+      "X-Custom",
+      "v"
+     ]
+    ],
+    "body_b64": ""
+   },
+   "bind": {
+    "q1": "/request"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$w1",
+     "handler": "wh",
+     "origin": "webhook",
+     "payload": {
+      "path": "/hook",
+      "headers": {
+       "$array": {
+        "each": {
+         "$not": {
+          "$one_of": [
+           [
+            "Authorization",
+            {
+             "$any": true
+            }
+           ],
+           [
+            "authorization",
+            {
+             "$any": true
+            }
+           ],
+           [
+            "X-Botster-Signature-256",
+            {
+             "$any": true
+            }
+           ],
+           [
+            "x-botster-signature-256",
+            {
+             "$any": true
+            }
+           ],
+           [
+            "Connection",
+            {
+             "$any": true
+            }
+           ],
+           [
+            "connection",
+            {
+             "$any": true
+            }
+           ]
+          ]
+         }
+        },
+        "min": 2
+       }
+      }
+     },
+     "caller": {
+      "kind": "system"
+     }
+    }
+   },
+   "because": "HP NT-7"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$w1",
+     "result": {
+      "ok": true,
+      "value": {
+       "status": 200
+      }
+     }
+    }
+   }
+  }
+ ]
+}

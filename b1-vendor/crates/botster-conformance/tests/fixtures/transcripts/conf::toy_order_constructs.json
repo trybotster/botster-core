@@ -1,0 +1,35 @@
+{
+  "id": "conf::toy_order_constructs",
+  "contract": "core",
+  "clause": "TOY-1",
+  "subject": "core",
+  "steps": [
+    {
+      "send": "a"
+    },
+    {
+      "send": "b"
+    },
+    {
+      "expect_set": [
+        {
+          "echo": "b"
+        },
+        {
+          "echo": "a"
+        }
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "echo": "never"
+      },
+      "barrier": {
+        "send": "c"
+      },
+      "until": {
+        "echo": "c"
+      }
+    }
+  ]
+}

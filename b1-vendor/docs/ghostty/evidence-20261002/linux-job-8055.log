@@ -1,0 +1,75 @@
+job=8055
+x86_64
+0.16.0
+gcc (Debian 12.2.0-14+deb12u1) 12.2.0
+ldd (Debian GLIBC 2.36-9+deb12u14) 2.36
+===== pre10: extract
+===== pre10: zig build (Botster args)
+build exit 0
+archive: /w/pre10-prefix/lib/libghostty-vt.a
+===== pre10: defined allocator symbols (nm --defined-only)
+/w/pre10-prefix/lib/libghostty-vt.a:.zig-cache/o/6340618518869988671e78e1f10fc081/libghostty-vt-static_zcu.o:00000000000fab70 W calloc
+/w/pre10-prefix/lib/libghostty-vt.a:.zig-cache/o/6340618518869988671e78e1f10fc081/libghostty-vt-static_zcu.o:00000000000fab80 W free
+===== pre10: undefined allocator references
+                 U calloc
+===== pre10: C link test
+done
+repro exit 0
+===== new: extract
+===== new: zig build (Botster args)
+build exit 0
+archive: /w/new-prefix/lib/libghostty-vt.a
+===== new: defined allocator symbols (nm --defined-only)
+(none defined)
+===== new: undefined allocator references
+                 U calloc
+                 U free
+                 U malloc
+                 U realloc
+===== new: C link test
+done
+repro exit 0
+===== new: zig build test-lib-vt (full)
+|        |  +- run exe generate-def (loongarch.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (mips.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (neon.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (nvptx.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (powerpc.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (riscv.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (s390x.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (ve.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (wasm.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86_64.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (x86.zig) cached
+|        |  |  +- compile exe generate-def Debug native (reused)
+|        |  +- run exe generate-def (xcore.zig) cached
+|        |     +- compile exe generate-def Debug native (reused)
+|        +- WriteFile wuffs_c.h cached
++- run test 3558 pass, 35 skip (3593 total) 10m MaxRSS:134M
+   +- compile test Debug native success 1m MaxRSS:822M
+      +- WriteFile  (reused)
+      +- compile lib simdutf Debug native (reused)
+      +- WriteFile hwy (reused)
+      +- compile lib highway Debug native (reused)
+      +- compile lib simdutf Debug native (reused)
+      +- compile lib highway Debug native (reused)
+      +- options cached
+      +- options success
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- WriteFile props.zig (+2 more reused dependencies)
+      +- run exe uucode_generate (tables.zig) (+1 more reused dependencies)
+      +- translate-c wuffs_c.h (+2 more reused dependencies)
+
+test-lib-vt exit 0
+ssh exit 1
+[evidence note: 70654 lines of the form "rm: cannot remove '<snapshot path>': Permission denied" from the host-side cleanup trap were removed from this log]

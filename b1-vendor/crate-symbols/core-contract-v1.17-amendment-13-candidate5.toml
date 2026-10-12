@@ -1,0 +1,84 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-13-candidate5.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Core contract of `frozen/current` (manifest final29). It is unchanged except where A13-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 4** (`d99eb0f4…7e80`, commit `ca38c2d`), withdrawn before review because it named a wrong verdict commit. Its text is otherwise unchanged.
+[rows."5"]
+"ca38c2d" = "n/a: a commit or file hash"
+"d99eb0f4…7e80" = "n/a: a commit or file hash"
+
+# Candidate 3 superseded candidate 2 (`6df9e73b…a31a`, commit `5a20a10`), which the Amendment reviewer rejected (verdict `b952a70`) on one finding: the closing note limited clipboard reads to OSC 52, but EV-8 covers untyped queries, and th...
+[rows."9"]
+"6df9e73b…a31a" = "n/a: a commit or file hash"
+"b952a70" = "n/a: a commit or file hash"
+
+# Candidate 2 superseded candidate 1 (`ce5ac3f2…cbef`, commit `23d5cda`), which the Amendment reviewer rejected (verdict `9261a68`):
+[rows."11"]
+"ce5ac3f2…cbef" = "n/a: a commit or file hash"
+
+# Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-02. The facts come from the Stage 1 Core lead's P2, at `trybotster/ghostty@85a8d8eb197c5752887c017c9a3faa6f1dc1969b`, `include/ghostty/vt/terminal.h`.
+[rows."18"]
+"include/ghostty/vt/terminal.h" = "n/a: a source path of libghostty"
+"trybotster/ghostty@85a8d8eb197c5752887c017c9a3faa6f1dc1969b" = "n/a: an external library name; the organization name"
+
+# - One normalized callback serves OSC 52, OSC 1337 `Copy` and OSC 5522.
+[rows."19"]
+"Copy" = "n/a: the OSC 1337 Copy command name"
+
+# - It reports `location` (standard clipboard, selection or primary), the exact OSC 52 `selection` string (empty when the program gave none, and empty for the other protocols), and `contents`: every representation `{mime, data}` of one log...
+[rows."20"]
+"contents" = ["core::Event::ClipboardWrite::contents"]
+"location" = "n/a: a field of the libghostty clipboard callback, not of Core"
+"selection" = ["core::Event::ClipboardWrite::selection"]
+"{mime, data}" = "n/a: the representation of the libghostty callback; Core carries it as ClipboardContent{mime, bytes}"
+
+# | A13-1 | **`ClipboardWrite{id, selection, contents, total_bytes, reason?}`** is posted for every clipboard write the terminal model recognizes (R-7; EV-7: no opt-in, no filter).<br>- **`selection`:** a non-empty OSC 52 selection string ...
+[rows."25"]
+"ClipboardWrite" = ["core::Event::ClipboardWrite"]
+"ClipboardWrite{id, selection, contents, total_bytes, reason?}" = ["core::Event::ClipboardWrite", "core::Event::ClipboardWrite::contents", "core::Event::ClipboardWrite::id", "core::Event::ClipboardWrite::reason", "core::Event::ClipboardWrite::selection", "core::Event::ClipboardWrite::total_bytes"]
+"CoreLimits.clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"Output" = ["codec::ToClient::Output"]
+"bytes" = ["core::ClipboardContent::bytes"]
+"c" = "n/a: an OSC 52 selection letter"
+"contents" = ["core::Event::ClipboardWrite::contents"]
+"contents: none" = { symbols = ["core::Event::ClipboardWrite::contents"], uncovered = { none = "the absent (None) value" } }
+"location" = "n/a: a field of the libghostty clipboard callback, not of Core"
+"p" = "n/a: an OSC 52 selection letter"
+"reason: TooLarge" = ["core::ClipboardReason::TooLarge", "core::Event::ClipboardWrite::reason"]
+"s" = "n/a: an OSC 52 selection letter"
+"selection" = ["core::Event::ClipboardWrite::selection"]
+"total_bytes" = ["core::Event::ClipboardWrite::total_bytes"]
+"{mime, bytes}" = ["core::ClipboardContent::bytes", "core::ClipboardContent::mime"]
+
+# | A13-1b | **The OSC 5522 acknowledgement: one owner, one path, one observation point.** (The other protocols have no acknowledgement; the model discards their reply.)<br>- **Owner:** the session **worker** is the only source of the ackn...
+[rows."26"]
+"ClipboardWrite" = ["core::Event::ClipboardWrite"]
+"Output" = ["codec::ToClient::Output"]
+"TooLarge" = ["core::ClipboardReason::TooLarge"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"contents" = ["core::Event::ClipboardWrite::contents"]
+"input_rev" = ["core::TerminalState::input_rev"]
+
+# 1. **Section 6.2, the `ClipboardWrite` row:** `ClipboardWrite{id, selection, bytes, total_bytes, reason?}` "OSC 52 write (EV-3)" becomes `ClipboardWrite{id, selection, contents, total_bytes, reason?}` "a clipboard write the terminal mode...
+[rows."30"]
+"ClipboardWrite" = ["core::Event::ClipboardWrite"]
+"ClipboardWrite{id, selection, bytes, total_bytes, reason?}" = { symbols = ["core::Event::ClipboardWrite::id", "core::Event::ClipboardWrite::selection", "core::Event::ClipboardWrite::total_bytes", "core::Event::ClipboardWrite::reason"], uncovered = { bytes = "the field that A13-1 replaces with contents" } }
+"ClipboardWrite{id, selection, contents, total_bytes, reason?}" = ["core::Event::ClipboardWrite", "core::Event::ClipboardWrite::contents", "core::Event::ClipboardWrite::id", "core::Event::ClipboardWrite::reason", "core::Event::ClipboardWrite::selection", "core::Event::ClipboardWrite::total_bytes"]
+
+# 2. **EV-3 is replaced in full** by: "**Clipboard writes are surfaced.** A clipboard **write** that the terminal model recognizes arrives as `ClipboardWrite{id, selection, contents, total_bytes, reason?}` (A13-1). A write larger than `Cor...
+[rows."31"]
+"ClipboardWrite{id, selection, contents, total_bytes, reason?}" = ["core::Event::ClipboardWrite", "core::Event::ClipboardWrite::contents", "core::Event::ClipboardWrite::id", "core::Event::ClipboardWrite::reason", "core::Event::ClipboardWrite::selection", "core::Event::ClipboardWrite::total_bytes"]
+"CoreLimits.clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"contents: none" = { symbols = ["core::Event::ClipboardWrite::contents"], uncovered = { none = "the absent (None) value" } }
+"reason: TooLarge" = ["core::ClipboardReason::TooLarge", "core::Event::ClipboardWrite::reason"]
+"total_bytes" = ["core::Event::ClipboardWrite::total_bytes"]
+
+# **Clipboard reads are unchanged, and they are all terminal queries (EV-8).** An OSC 52 read is EV-8's typed `ClipboardRead{selection}` (selection `s0` when none). Any other clipboard read the terminal model recognizes (for example an OSC...
+[rows."35"]
+"ClipboardRead{selection}" = ["codec::QueryKind::ClipboardRead::selection"]
+"Encoded" = ["codec::QueryReply::Encoded"]
+"request_bytes" = { symbols = ["codec::TerminalQuery::request_bytes_base64"], uncovered = { request_bytes = "the wire field carries the bytes as request_bytes_base64" } }
+"s0" = "n/a: an OSC 52 selection name"

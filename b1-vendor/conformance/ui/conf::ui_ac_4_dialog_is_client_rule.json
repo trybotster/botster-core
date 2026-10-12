@@ -1,0 +1,131 @@
+{
+  "id": "conf::ui_ac_4_dialog_is_client_rule",
+  "contract": "ui",
+  "clause": "UI-AC-4",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "go": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "ren": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "go",
+                    "handler": "go"
+                  },
+                  {
+                    "id": "ren",
+                    "label": "ren",
+                    "handler": "ren",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "go",
+            "count": 1
+          }
+        },
+        "because": "UI UI-AC-4"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "no_dialog": true
+        },
+        "because": "UI UI-AC-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "form"
+          }
+        },
+        "because": "UI UI-AC-4",
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "ren",
+            "count": 0
+          }
+        },
+        "because": "UI UI-AC-4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,144 @@
+{
+  "id": "conf::ui_em_2_multiple_embeds_fallback",
+  "contract": "ui",
+  "clause": "UI-EM-2",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "pkg.items": {
+          "projection_allowlist": [
+            "/title"
+          ],
+          "owner": "pkg"
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "del": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "pages"
+      ]
+    },
+    "app_origin": "https://app.example"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "pages",
+          "title": "Pages",
+          "requires": [
+            "ui_embed"
+          ],
+          "selections": [
+            {
+              "id": "sel_p"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "embed",
+                "id": "page1",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              },
+              {
+                "type": "embed",
+                "id": "page2",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "link": {
+            "open_in_browser": true,
+            "reveals_url": false
+          }
+        },
+        "because": "UI UI-EM-6",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "link": {
+            "open_in_browser": true,
+            "reveals_url": false
+          }
+        },
+        "because": "UI UI-EM-6",
+        "node_id": "page2"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "count": 0
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    }
+  ]
+}

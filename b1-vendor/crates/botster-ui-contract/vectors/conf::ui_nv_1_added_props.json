@@ -1,0 +1,991 @@
+{
+  "id": "conf::ui_nv_1_added_props",
+  "contract": "ui",
+  "clause": "UI-NV-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "state loading on a table before the baseline",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {},
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "state": "loading"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "state empty on a table",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "state": "empty"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "state error on a list carries the Hub message as detail",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [],
+          "error": {
+            "message": "boom"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "error",
+            "detail": "boom"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "state loading on a detail (a panel node)",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "detail",
+              "id": "d",
+              "source": {
+                "kind": "k",
+                "id": {
+                  "lit": "r1"
+                }
+              },
+              "fields": [
+                {
+                  "id": "f",
+                  "path": "/n"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {},
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:d9:container": {
+          "type": "panel",
+          "props": {
+            "state": "loading"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "indent on the stack that is the fallback of a panel",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "panel",
+              "id": "pn",
+              "title": "H",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pt",
+                  "value": "x"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "stack",
+          "text"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "children": [
+                {
+                  "type": "text"
+                },
+                {
+                  "type": "stack",
+                  "props": {
+                    "indent": true
+                  },
+                  "children": [
+                    {
+                      "id": "pt"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "collapsed on the default optional section",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "b"
+                    ],
+                    "properties": {
+                      "a": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea",
+                          "read_only": true
+                        }
+                      },
+                      "c": {
+                        "type": "boolean",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "d": {
+                        "type": "string",
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "ui": {
+                          "widget": "select",
+                          "read_only": true
+                        }
+                      },
+                      "e": {
+                        "type": "string",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "pw": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "sec": {
+                        "type": "string",
+                        "secret": true
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "t": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "b"
+                ],
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "ui": {
+                      "advanced": true
+                    }
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea",
+                      "read_only": true
+                    }
+                  },
+                  "c": {
+                    "type": "boolean",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "d": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y"
+                    ],
+                    "ui": {
+                      "widget": "select",
+                      "read_only": true
+                    }
+                  },
+                  "e": {
+                    "type": "string",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "pw": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  },
+                  "sec": {
+                    "type": "string",
+                    "secret": true
+                  },
+                  "n": {
+                    "type": "integer"
+                  },
+                  "t": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            },
+            {
+              "id": "r2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:item8:optional": {
+          "type": "form_section",
+          "props": {
+            "collapsed": true
+          }
+        }
+      },
+      "because": "UI UI-FM-6"
+    },
+    {
+      "name": "read_only on text_input, textarea, checkbox and select",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "b"
+                    ],
+                    "properties": {
+                      "a": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea",
+                          "read_only": true
+                        }
+                      },
+                      "c": {
+                        "type": "boolean",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "d": {
+                        "type": "string",
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "ui": {
+                          "widget": "select",
+                          "read_only": true
+                        }
+                      },
+                      "e": {
+                        "type": "string",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "pw": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "sec": {
+                        "type": "string",
+                        "secret": true
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "t": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "b"
+                ],
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "ui": {
+                      "advanced": true
+                    }
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea",
+                      "read_only": true
+                    }
+                  },
+                  "c": {
+                    "type": "boolean",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "d": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y"
+                    ],
+                    "ui": {
+                      "widget": "select",
+                      "read_only": true
+                    }
+                  },
+                  "e": {
+                    "type": "string",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "pw": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  },
+                  "sec": {
+                    "type": "string",
+                    "secret": true
+                  },
+                  "n": {
+                    "type": "integer"
+                  },
+                  "t": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            },
+            {
+              "id": "r2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b6:widget": {
+          "type": "textarea",
+          "props": {
+            "read_only": true
+          }
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:c6:widget": {
+          "type": "checkbox",
+          "props": {
+            "read_only": true
+          }
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:d6:widget": {
+          "type": "select",
+          "props": {
+            "read_only": true
+          }
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:e6:widget": {
+          "type": "text_input",
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-FM-5"
+    },
+    {
+      "name": "masked on a password widget and on a secret property; input number on an integer property",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "b"
+                    ],
+                    "properties": {
+                      "a": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea",
+                          "read_only": true
+                        }
+                      },
+                      "c": {
+                        "type": "boolean",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "d": {
+                        "type": "string",
+                        "enum": [
+                          "x",
+                          "y"
+                        ],
+                        "ui": {
+                          "widget": "select",
+                          "read_only": true
+                        }
+                      },
+                      "e": {
+                        "type": "string",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "pw": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      },
+                      "sec": {
+                        "type": "string",
+                        "secret": true
+                      },
+                      "n": {
+                        "type": "integer"
+                      },
+                      "t": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "b"
+                ],
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "ui": {
+                      "advanced": true
+                    }
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea",
+                      "read_only": true
+                    }
+                  },
+                  "c": {
+                    "type": "boolean",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "d": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y"
+                    ],
+                    "ui": {
+                      "widget": "select",
+                      "read_only": true
+                    }
+                  },
+                  "e": {
+                    "type": "string",
+                    "ui": {
+                      "read_only": true
+                    }
+                  },
+                  "pw": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  },
+                  "sec": {
+                    "type": "string",
+                    "secret": true
+                  },
+                  "n": {
+                    "type": "integer"
+                  },
+                  "t": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            },
+            {
+              "id": "r2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:pw6:widget": {
+          "type": "text_input",
+          "props": {
+            "masked": true
+          }
+        },
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:sec6:widget": {
+          "type": "text_input",
+          "props": {
+            "masked": true
+          }
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:n6:widget": {
+          "type": "text_input",
+          "props": {
+            "input": "number"
+          }
+        }
+      },
+      "because": "UI UI-FM-2"
+    },
+    {
+      "name": "selected and activate on each table row",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ],
+              "selects": "s",
+              "activate": {
+                "select": "s"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            },
+            {
+              "id": "r2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "s": "r1"
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "rows": [
+              {
+                "id": "botster-ui-descendant-v1:2:tb2:r1",
+                "selected": true,
+                "activate": {
+                  "select": "s"
+                }
+              },
+              {
+                "id": "botster-ui-descendant-v1:2:tb2:r2",
+                "selected": {
+                  "$absent": true
+                },
+                "activate": {
+                  "select": "s"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-SL-1"
+    },
+    {
+      "name": "name on an embed node, beside asset_id",
+      "document": {
+        "ui_contract_view": "1.2",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "em",
+              "title": "Page",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "empty": {
+                "title": "E"
+              },
+              "error": {
+                "title": "X"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect_nodes": {
+        "em": {
+          "type": "embed",
+          "props": {
+            "name": "graph",
+            "asset_id": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-1"
+    },
+    {
+      "name": "asset_id on an embed node",
+      "document": {
+        "ui_contract_view": "1.2",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "em",
+              "title": "Page",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "E"
+              },
+              "error": {
+                "title": "X"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect_nodes": {
+        "em": {
+          "type": "embed",
+          "props": {
+            "asset_id": "a1",
+            "name": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-1"
+    }
+  ]
+}

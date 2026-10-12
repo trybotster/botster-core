@@ -1,0 +1,222 @@
+{
+ "id": "conf::pm_13_plugin_cannot_manage_packages",
+ "contract": "hp",
+ "clause": "PM-13",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "client_verb",
+   "edge_requests",
+   "invoke",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "a plugin tries the package verbs through the client contract and through a host call",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    },
+    "as": {
+     "kind": "plugin",
+     "plugin_key": "demo"
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "capability_denied"
+    }
+   },
+   "because": "HP PM-13"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "delete",
+    "id": "demo",
+    "args": {},
+    "as": {
+     "kind": "plugin",
+     "plugin_key": "demo"
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "capability_denied"
+    }
+   },
+   "because": "HP PM-13"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "packages.install",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "source": {
+       "kind": "git",
+       "url": "https://git.example/a.git"
+      }
+     }
+    }
+   },
+   "violates_args": true
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "detail": {
+        "code": "unknown_call"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP PM-13"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "expect": {
+    "requests": []
+   },
+   "because": "HP PM-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

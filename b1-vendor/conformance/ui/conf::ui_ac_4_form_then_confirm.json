@@ -1,0 +1,168 @@
+{
+  "id": "conf::ui_ac_4_form_then_confirm",
+  "contract": "ui",
+  "clause": "UI-AC-4",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "ren": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "ren",
+                    "label": "ren",
+                    "handler": "ren",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "confirm": {
+                      "message": "Sure?",
+                      "tone": "neutral"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "form"
+          }
+        },
+        "because": "UI UI-AC-4",
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "ren",
+            "count": 0
+          }
+        },
+        "because": "UI UI-AC-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "name",
+            "value": "N"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "submit": {}
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "confirm"
+          }
+        },
+        "because": "UI UI-AC-4",
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "ren",
+            "count": 0
+          }
+        },
+        "because": "UI UI-AC-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "confirm": {}
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "ren",
+            "count": 1,
+            "args": {
+              "name": "N"
+            }
+          }
+        },
+        "because": "UI UI-AC-4"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "no_dialog": true
+        },
+        "because": "UI UI-AC-4"
+      }
+    }
+  ]
+}

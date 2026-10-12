@@ -1,0 +1,129 @@
+{
+  "categories": [
+    "caller",
+    "state",
+    "auth",
+    "capacity",
+    "fault"
+  ],
+  "unknown_category_reads_as": "fault",
+  "effects": [
+    "none",
+    "unknown",
+    "partial"
+  ],
+  "codes": [
+    {
+      "code": "invalid_arguments",
+      "category": "caller",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "section 11"
+    },
+    {
+      "code": "not_found",
+      "category": "caller",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "section 11"
+    },
+    {
+      "code": "unsupported",
+      "category": "caller",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "HS-4, EN-6, VB-7"
+    },
+    {
+      "code": "conflict",
+      "category": "state",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "EN-8, VB-4"
+    },
+    {
+      "code": "wrong_state",
+      "category": "state",
+      "retryable": "depends_on_reason",
+      "retry_after_ms": false,
+      "clause": "VB-5"
+    },
+    {
+      "code": "permission_denied",
+      "category": "auth",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "DS-5"
+    },
+    {
+      "code": "too_many_requests",
+      "category": "capacity",
+      "retryable": "yes",
+      "retry_after_ms": false,
+      "clause": "EN-4"
+    },
+    {
+      "code": "busy",
+      "category": "capacity",
+      "retryable": "yes",
+      "retry_after_ms": true,
+      "clause": "BD-1"
+    },
+    {
+      "code": "response_too_large",
+      "category": "capacity",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "EN-5, BD-1"
+    },
+    {
+      "code": "plugin_failed",
+      "category": "fault",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "DS-7"
+    },
+    {
+      "code": "remote_hub_unsupported",
+      "category": "caller",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "P5"
+    },
+    {
+      "code": "hub_shutdown",
+      "category": "state",
+      "retryable": "yes",
+      "retry_after_ms": false,
+      "clause": "EN-3"
+    },
+    {
+      "code": "expired_cursor",
+      "category": "state",
+      "retryable": "yes",
+      "retry_after_ms": false,
+      "clause": "VB-1"
+    },
+    {
+      "code": "stale_descriptor",
+      "category": "state",
+      "retryable": "yes",
+      "retry_after_ms": false,
+      "clause": "DS-6"
+    },
+    {
+      "code": "cancelled",
+      "category": "state",
+      "retryable": "yes",
+      "retry_after_ms": false,
+      "clause": "EN-3b"
+    },
+    {
+      "code": "internal",
+      "category": "fault",
+      "retryable": "no",
+      "retry_after_ms": false,
+      "clause": "section 11"
+    }
+  ]
+}

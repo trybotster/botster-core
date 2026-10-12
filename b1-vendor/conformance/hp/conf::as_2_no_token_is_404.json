@@ -1,0 +1,234 @@
+{
+ "id": "conf::as_2_no_token_is_404",
+ "contract": "hp",
+ "clause": "AS-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "asset_get",
+   "client_open_asset",
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the assets origin is https://assets.example and the app origin is https://app.example; demo publishes a page; the package of demo declares the embed view view (permission embed.view, action refresh) and the viewer holds embed.view",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "assets"
+     }
+    ],
+    "views": [
+     {
+      "key": "view",
+      "kind": "embed",
+      "permission": "embed.view",
+      "actions": [
+       {
+        "id": "refresh",
+        "handler": "h1"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "assets.publish",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "page",
+      "content_type": "text/html",
+      "bytes_b64": "PGh0bWw+PGJvZHk+b25lPC9ib2R5PjwvaHRtbD4="
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "$a1"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "control": {
+    "op": "client_open_asset",
+    "package": "demo",
+    "key": "view",
+    "viewer": {
+     "permissions": [
+      "embed.view"
+     ]
+    },
+    "asset_id": "$a1"
+   },
+   "bind": {
+    "u1": "/url",
+    "u1_t": "/token",
+    "u1_exp": "/expires_at"
+   },
+   "expect": {
+    "url": {
+     "$type": "string"
+    },
+    "token": {
+     "$type": "string"
+    },
+    "expires_at": {
+     "$type": "integer"
+    }
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "asset_get",
+    "plugin_key": "demo",
+    "asset_id": "$a1",
+    "origin": "assets"
+   },
+   "expect": {
+    "status": 404
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "asset_get",
+    "plugin_key": "demo",
+    "asset_id": "$a1",
+    "token": "not-a-token",
+    "origin": "assets"
+   },
+   "expect": {
+    "status": 404
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "asset_get",
+    "url": "$u1",
+    "method": "HEAD"
+   },
+   "expect": {
+    "status": 200
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "asset_get",
+    "url": "$u1",
+    "method": "POST"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    }
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,198 @@
+{
+ "id": "conf::ca_16_unknown_kind_waits_for_terminal",
+ "contract": "hp",
+ "clause": "CA-16",
+ "subject": "plugin_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "setup": {
+  "fixture": "host_ops_gate"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 5
+     },
+     "call": "operations.get"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op9",
+       "kind": "future_kind",
+       "state": "x",
+       "terminal": false
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "op",
+     "kind": "operation",
+     "origin": "operation",
+     "payload": {
+      "operation_id": "op9",
+      "kind": "future_kind",
+      "state": "y",
+      "terminal": false
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "call": "events.emit"
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 7,
+     "handler": "op",
+     "kind": "operation",
+     "origin": "operation",
+     "payload": {
+      "operation_id": "op9",
+      "kind": "future_kind",
+      "state": "z",
+      "terminal": true
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 7
+     },
+     "call": "events.emit",
+     "args": {
+      "name": "workflow_done"
+     }
+    }
+   },
+   "because": "HP CA-16"
+  }
+ ]
+}

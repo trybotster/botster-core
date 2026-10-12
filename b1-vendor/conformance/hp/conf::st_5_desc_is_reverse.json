@@ -1,0 +1,251 @@
+{
+ "id": "conf::st_5_desc_is_reverse",
+ "contract": "hp",
+ "clause": "ST-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "documents a, b, c hold n = 1, 1, 2",
+  "calls": {
+   "store.query": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "n": 1
+         },
+         "revision": "ra"
+        },
+        {
+         "id": "b",
+         "doc": {
+          "n": 1
+         },
+         "revision": "rb"
+        },
+        {
+         "id": "c",
+         "doc": {
+          "n": 2
+         },
+         "revision": "rc"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "c",
+         "doc": {
+          "n": 2
+         },
+         "revision": "rc"
+        },
+        {
+         "id": "b",
+         "doc": {
+          "n": 1
+         },
+         "revision": "rb"
+        },
+        {
+         "id": "a",
+         "doc": {
+          "n": 1
+         },
+         "revision": "ra"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "store.query",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "index": "by_n",
+      "limit": 10
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a"
+        },
+        {
+         "id": "b"
+        },
+        {
+         "id": "c"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "store.query",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "index": "by_n",
+      "limit": 10,
+      "order": "desc"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "c"
+        },
+        {
+         "id": "b"
+        },
+        {
+         "id": "a"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

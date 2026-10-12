@@ -1,0 +1,13 @@
+{
+  "id": "conf::ui_rz_3b_vectors_live_in_botster_ui_contract",
+  "contract": "ui",
+  "clause": "UI-RZ-3b",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the vectors of UI-RZ-3 are embedded from vectors/ of the botster-ui-contract crate",
+      "because": "UI UI-RZ-3b",
+      "lives_in_crate": "botster-ui-contract"
+    }
+  ]
+}

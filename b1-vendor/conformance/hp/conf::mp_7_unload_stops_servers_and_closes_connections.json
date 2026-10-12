@@ -1,0 +1,207 @@
+{
+ "id": "conf::mp_7_unload_stops_servers_and_closes_connections",
+ "contract": "hp",
+ "clause": "MP-7",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_server",
+   "bridge_census",
+   "mcp_list",
+   "script_mcp",
+   "unload"
+  ]
+ },
+ "setup": {
+  "given": "the plugin declares a stdio and an http server; both are up; the plugin is unloaded",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     },
+     {
+      "id": "h",
+      "transport": "http",
+      "url": "https://mcp.example/mcp"
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "s",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "h",
+    "transport": "http",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "h",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "bridge_census"
+   },
+   "expect": {
+    "bridges": {
+     "$array": {
+      "min": 1,
+      "max": 1
+     }
+    },
+    "open_http_connections": 1
+   },
+   "because": "HP MP-7"
+  },
+  {
+   "control": {
+    "op": "unload"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": []
+   },
+   "because": "HP MP-7"
+  },
+  {
+   "control": {
+    "op": "bridge_census"
+   },
+   "expect": {
+    "bridges": [],
+    "children": 0,
+    "open_http_connections": 0
+   },
+   "because": "HP MP-7"
+  }
+ ]
+}

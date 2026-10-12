@@ -1,0 +1,2 @@
+# Seeds for failure cases that proptest found (checked in, so each one replays).
+# Do not edit by hand.

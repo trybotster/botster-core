@@ -1,0 +1,79 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-9-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Core contract v1.17, Amendment 9 — candidate 1 (a route must carry its own `attached` frame; the testkit makes the compression choice)
+[rows."1"]
+"attached" = ["codec::ToClient::Attached"]
+
+# The base is the Core contract of `frozen/current` (manifest final16). It is unchanged except where A9-4 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-02. Found by the core-p4a-ou pair, through the Stage 0 lead (`docs/core-p4a-ou-notes.md` on `foundation/core-p4a-ou`).
+[rows."5"]
+"docs/core-p4a-ou-notes.md" = "n/a: a repository path"
+"foundation/core-p4a-ou" = "n/a: a branch name"
+
+# ## A9-1. The smallest `max_frame_bytes` (adds to A7-1)
+[rows."7"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# **Why.** DP-3 bounds every route frame except `screen` and `history` by `route_limits.max_frame_bytes`. That includes the first frame, `attached` (codec A.4: features, terminal format and the route's limits). OU-1 and A7-1 give `max_fram...
+[rows."9"]
+"attached" = ["codec::ToClient::Attached"]
+"history" = ["codec::ToClient::History"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+"route_limits.max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits"]
+"screen" = ["codec::ToClient::Screen"]
+
+# | A9-1 | **A route's `max_frame_bytes` must carry that route's own `attached` frame.** The worker knows the frame's exact size at attach: the selected features, the terminal format and the limits. A smaller value is refused **synchronous...
+[rows."13"]
+"InvalidInput{field: route_limits.max_frame_bytes}" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits", "core::ErrorCode::InvalidInput::field"]
+"attached" = ["codec::ToClient::Attached"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# ## A9-2. The `output_dropped` eligibility case cannot happen
+[rows."15"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+
+# **Why.** Core Amendment 3, A3-1 item 4: "A route whose `max_frame_bytes` cannot carry that minimum frame does not get the feature".
+[rows."17"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# - The minimum `output_dropped` frame is the type byte plus `{"notifications":N,"last":{"source":"osc777","truncated":true}}`. Here `N` has the digits of `route_queue_bytes`, at most 20 for a 64-bit count.
+[rows."18"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"{\"notifications\":N,\"last\":{\"source\":\"osc777\",\"truncated\":true}}" = { symbols = ["codec::OutputDropped::notifications", "codec::OutputDropped::last", "codec::DroppedNotification::source", "codec::DroppedNotification::truncated", "codec::NotificationSource::Osc777"], uncovered = { true = "a JSON literal value" } }
+
+# - Every `attached` frame carries the route's limits object (codec A.4), and that object alone is larger than the minimum frame.
+[rows."19"]
+"attached" = ["codec::ToClient::Attached"]
+
+# | A9-2 | A3-1 item 4's eligibility rule **stands as a guard**, but under A9-1 no attached route fails it. Its two tests are **withdrawn**: `conf::a3_1_route_too_small_for_the_worst_case_minimum_frame_gets_no_feature` and `conf::a3_1_mini...
+[rows."24"]
+"attached" = ["codec::ToClient::Attached"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+
+# **Why.** DP-3 says that on a route that negotiated `output_deflate`, "the worker chooses per frame" whether to send `0x0E output_deflate` or `0x07 output`. 9B's `output_deflate_min_bytes` adds that the worker "may send a larger payload u...
+[rows."28"]
+"0x07 output" = ["codec::ToClient::Output"]
+"0x0E output_deflate" = ["codec::ToClient::OutputDeflate"]
+"output_deflate" = ["codec::ToClient::OutputDeflate"]
+"output_deflate_min_bytes" = ["core::CoreLimits::output_deflate_min_bytes"]
+
+# | A9-3 | **The testkit's scheduler edge (A5-1, A5-2) also makes the per-frame compression choice** that DP-3 leaves to the worker.<br>- For each output payload eligible under DP-3 (the route negotiated `output_deflate`, and the payload i...
+[rows."32"]
+"output_deflate" = ["codec::ToClient::OutputDeflate"]
+"output_deflate_min_bytes" = ["core::CoreLimits::output_deflate_min_bytes"]
+
+# 1. **OU-1, `route_limits.max_frame_bytes`:** "defaults to and is at most `CoreLimits.max_route_frame_bytes`" gains "and is at least the size of the route's own `attached` frame (A9-1)".
+[rows."36"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"attached" = ["codec::ToClient::Attached"]
+"route_limits.max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits"]
+
+# 4. **Core A5-1, the scheduler edge,** and **A5-2** include the per-frame compression choice of A9-3. `conf::a3_1_deflate_frame_is_charged_at_its_inflated_size_to_route_queue_bytes`, `conf::a3_1_compressed_repeated_bells_never_exceed_the_...
+[rows."39"]
+"conf::dp_3_output_deflate_*" = "n/a: a pattern of conformance ids"

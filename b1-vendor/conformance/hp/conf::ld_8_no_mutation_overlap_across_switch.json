@@ -1,0 +1,184 @@
+{
+ "id": "conf::ld_8_no_mutation_overlap_across_switch",
+ "contract": "hp",
+ "clause": "LD-8",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "reload",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": false,
+     "instance": "$i2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle",
+     "conn": "cand"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LD-8",
+   "on": "cand"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LD-8"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect_set": [
+    {
+     "lane": "control",
+     "type": "Activated",
+     "payload": {
+      "epoch": "$e2"
+     }
+    },
+    {
+     "lane": "invoke",
+     "type": "Invoke",
+     "payload": {
+      "epoch": "$e2"
+     }
+    }
+   ],
+   "because": "HP LD-8",
+   "on": "cand"
+  }
+ ]
+}

@@ -1,0 +1,255 @@
+{
+  "id": "conf::ui_nv_6_copy_keys_not_text",
+  "contract": "ui",
+  "clause": "UI-NV-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the form buttons default to the keys submit and cancel",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:111:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item6:action6:submit": {
+          "props": {
+            "label": {
+              "copy": "submit"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:111:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item6:action6:cancel": {
+          "props": {
+            "label": {
+              "copy": "cancel"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "the confirmation buttons are the keys confirm and cancel",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "del"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container7:confirm": {
+          "props": {
+            "label": {
+              "copy": "confirm"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container6:cancel": {
+          "props": {
+            "label": {
+              "copy": "cancel"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an absent bound operand disables the action with the key nothing_selected",
+      "because": "UI UI-RC-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args": {
+                    "workspace_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            },
+            {
+              "id": "r2"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "ren": {
+          "props": {
+            "disabled": true,
+            "disabled_reason": {
+              "copy": "nothing_selected"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a list with a baseline and no rows shows the key generic_empty",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:l9:container5:empty": {
+          "type": "empty_state",
+          "props": {
+            "title": {
+              "copy": "generic_empty"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

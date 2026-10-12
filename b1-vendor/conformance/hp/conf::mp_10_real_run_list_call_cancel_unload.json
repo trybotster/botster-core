@@ -1,0 +1,464 @@
+{
+ "id": "conf::mp_10_real_run_list_call_cancel_unload",
+ "contract": "hp",
+ "clause": "MP-10",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_message",
+   "await_mcp_server",
+   "bridge_census",
+   "mcp_call",
+   "mcp_cancel",
+   "mcp_list",
+   "mcp_response",
+   "mcp_server_log",
+   "real_mcp_servers",
+   "unload"
+  ]
+ },
+ "setup": {
+  "given": "the real run: a plugin declares one real stdio server and one real http server; list, call as operator and as session on both, cancel a slow call, and unload mid-call",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     },
+     {
+      "id": "h",
+      "transport": "http",
+      "url": "https://mcp.example/mcp"
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "real_mcp_servers",
+    "plugin": "demo",
+    "stdio": "s",
+    "http": "h"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "h",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": [
+     {
+      "name": "demo__s__echo"
+     },
+     {
+      "name": "demo__s__slow"
+     },
+     {
+      "name": "demo__h__echo"
+     },
+     {
+      "name": "demo__h__slow"
+     }
+    ]
+   },
+   "because": "HP MP-10"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__s__echo",
+    "arguments": {
+     "n": 1
+    }
+   },
+   "bind": {
+    "kos": "/ticket"
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$kos"
+   },
+   "expect": {
+    "is_error": false
+   },
+   "because": "HP MP-10"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__s__echo",
+    "arguments": {
+     "n": 2
+    },
+    "client": {
+     "token_of_session": {
+      "hub_id": "hub-1",
+      "session_id": "s1"
+     }
+    }
+   },
+   "bind": {
+    "kss": "/ticket"
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$kss"
+   },
+   "expect": {
+    "is_error": false
+   },
+   "because": "HP MP-10"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__h__echo",
+    "arguments": {
+     "n": 1
+    }
+   },
+   "bind": {
+    "koh": "/ticket"
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$koh"
+   },
+   "expect": {
+    "is_error": false
+   },
+   "because": "HP MP-10"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__h__echo",
+    "arguments": {
+     "n": 2
+    },
+    "client": {
+     "token_of_session": {
+      "hub_id": "hub-1",
+      "session_id": "s1"
+     }
+    }
+   },
+   "bind": {
+    "ksh": "/ticket"
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$ksh"
+   },
+   "expect": {
+    "is_error": false
+   },
+   "because": "HP MP-10"
+  },
+  {
+   "control": {
+    "op": "mcp_server_log",
+    "plugin": "demo",
+    "server": "s"
+   },
+   "expect": {
+    "calls": [
+     {
+      "params": {
+       "_meta": {
+        "botster/caller": {
+         "kind": "operator"
+        }
+       }
+      }
+     },
+     {
+      "params": {
+       "_meta": {
+        "botster/caller": {
+         "kind": "session",
+         "session": {
+          "hub_id": "hub-1",
+          "session_id": "s1"
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_server_log",
+    "plugin": "demo",
+    "server": "h"
+   },
+   "expect": {
+    "calls": [
+     {
+      "params": {
+       "_meta": {
+        "botster/caller": {
+         "kind": "operator"
+        }
+       }
+      }
+     },
+     {
+      "params": {
+       "_meta": {
+        "botster/caller": {
+         "kind": "session",
+         "session": {
+          "hub_id": "hub-1",
+          "session_id": "s1"
+         }
+        }
+       }
+      }
+     }
+    ]
+   },
+   "because": "HP MP-5"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__s__slow",
+    "arguments": {}
+   },
+   "bind": {
+    "kc": "/ticket"
+   },
+   "because": "HP MP-6"
+  },
+  {
+   "control": {
+    "op": "await_mcp_message",
+    "plugin": "demo",
+    "server": "s",
+    "method": "tools/call",
+    "tool": "slow"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_cancel",
+    "ticket": "$kc"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$kc"
+   },
+   "expect": {
+    "is_error": true,
+    "error": {
+     "kind": {
+      "$one_of": [
+       "cancelled",
+       "timed_out"
+      ]
+     }
+    }
+   },
+   "because": "HP MP-6"
+  },
+  {
+   "control": {
+    "op": "mcp_server_log",
+    "plugin": "demo",
+    "server": "s"
+   },
+   "expect": {
+    "cancelled": [
+     {
+      "requestId": {
+       "$type": "integer"
+      }
+     }
+    ]
+   },
+   "because": "HP MP-6"
+  },
+  {
+   "control": {
+    "op": "mcp_server_log",
+    "plugin": "demo",
+    "server": "s"
+   },
+   "expect": {
+    "calls": {
+     "$array": {
+      "min": 1
+     }
+    }
+   },
+   "because": "HP MP-6",
+   "bind": {
+    "m2": "/mark"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__s__slow",
+    "arguments": {}
+   },
+   "bind": {
+    "ku": "/ticket"
+   },
+   "because": "HP MP-6"
+  },
+  {
+   "control": {
+    "op": "await_mcp_message",
+    "plugin": "demo",
+    "server": "s",
+    "method": "tools/call",
+    "tool": "slow",
+    "since": "$m2"
+   }
+  },
+  {
+   "control": {
+    "op": "unload"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$ku"
+   },
+   "expect": {
+    "is_error": true,
+    "error": {
+     "effect": "unknown"
+    }
+   },
+   "because": "HP MP-7"
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": []
+   },
+   "because": "HP MP-7"
+  },
+  {
+   "control": {
+    "op": "bridge_census"
+   },
+   "expect": {
+    "bridges": [],
+    "children": 0,
+    "open_http_connections": 0
+   },
+   "because": "HP MP-7"
+  }
+ ]
+}

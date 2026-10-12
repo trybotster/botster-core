@@ -1,0 +1,307 @@
+{
+ "id": "conf::ev_8_hub_events_sanitized",
+ "contract": "hp",
+ "clause": "EV-8",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "hub_worktree"
+  ]
+ },
+ "setup": {
+  "given": "the spawn target t1 exists and is enabled",
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_hub"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "worktree.*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "hub_worktree",
+    "verb": "create",
+    "target_id": "t1",
+    "branch": "feat",
+    "fail": false
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_created",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "worktree.created",
+      "payload": {
+       "worktree_id": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "target_id": "t1",
+       "branch": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "path": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "HP EV-8"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_created",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "hub_worktree",
+    "verb": "create",
+    "target_id": "t1",
+    "branch": "feat",
+    "fail": true
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_create_failed",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "worktree.create_failed",
+      "payload": {
+       "worktree_id": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "target_id": "t1",
+       "branch": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "path": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "HP EV-8"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_create_failed",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "hub_worktree",
+    "verb": "delete",
+    "target_id": "t1",
+    "branch": "feat",
+    "fail": false
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_deleted",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "worktree.deleted",
+      "payload": {
+       "worktree_id": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "target_id": "t1",
+       "branch": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "path": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "HP EV-8"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_deleted",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "hub_worktree",
+    "verb": "delete",
+    "target_id": "t1",
+    "branch": "feat",
+    "fail": true
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_delete_failed",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "worktree.delete_failed",
+      "payload": {
+       "worktree_id": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "target_id": "t1",
+       "branch": {
+        "$not": {
+         "$starts_with": "/"
+        }
+       },
+       "path": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "HP EV-8"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_worktree_delete_failed",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,219 @@
+{
+  "id": "conf::ui_em_12_to_page_limited_to_own_kinds",
+  "contract": "ui",
+  "clause": "UI-EM-12",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a to_page source that is a kind of this package",
+      "because": "UI UI-EM-12",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "channel": {
+            "from_page": [],
+            "to_page": [
+              {
+                "type": "rows",
+                "source": {
+                  "kind": "p.item"
+                },
+                "fields": [
+                  "/id"
+                ],
+                "on": "change"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "q.item": {
+            "owner": "q",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "a to_page source that is a kind of another package",
+      "because": "UI UI-EM-12",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "channel": {
+            "from_page": [],
+            "to_page": [
+              {
+                "type": "rows",
+                "source": {
+                  "kind": "q.item"
+                },
+                "fields": [
+                  "/id"
+                ],
+                "on": "change"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "q.item": {
+            "owner": "q",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "embed_source_not_own"
+      }
+    },
+    {
+      "name": "a to_page source that is a Hub kind",
+      "because": "UI UI-EM-12",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "channel": {
+            "from_page": [],
+            "to_page": [
+              {
+                "type": "rows",
+                "source": {
+                  "kind": "session"
+                },
+                "fields": [
+                  "/id"
+                ],
+                "on": "change"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "q.item": {
+            "owner": "q",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "embed_source_not_own"
+      }
+    }
+  ]
+}

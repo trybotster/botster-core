@@ -1,0 +1,168 @@
+{
+  "id": "conf::en_5_frame_bound",
+  "contract": "hc",
+  "clause": "EN-5",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "limits": {
+        "max_frame_bytes": 512
+      },
+      "rows": {
+        "session": [
+          {
+            "id": "fat",
+            "hub_id": "hub-1",
+            "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "state": "running",
+            "lifecycle_class": "current",
+            "exit": {},
+            "size": {
+              "rows": 24,
+              "cols": 80
+            },
+            "session_type": {
+              "id": "shell",
+              "source": "device"
+            },
+            "traits": [],
+            "restartable": true,
+            "activity": "idle",
+            "presentation": "default",
+            "metadata": {}
+          }
+        ]
+      }
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send_wire": {
+        "bytes_hex": "00000201"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "close",
+        "reason": {
+          "protocol_error": {
+            "code": "frame_too_large"
+          }
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC EN-5",
+        "HC A.1"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "c1",
+      "because": "HC HS-9"
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "get",
+        "kind": "session",
+        "target": "fat"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "err": {
+          "code": "response_too_large"
+        }
+      },
+      "on": "c2",
+      "because": "HC EN-5"
+    }
+  ]
+}

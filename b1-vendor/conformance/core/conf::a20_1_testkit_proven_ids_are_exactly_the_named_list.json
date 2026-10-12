@@ -1,0 +1,12 @@
+{
+  "id": "conf::a20_1_testkit_proven_ids_are_exactly_the_named_list",
+  "contract": "core",
+  "clause": "A20-1",
+  "subject": "core",
+  "steps": [
+    {
+      "type_check": "a20_1_testkit_proven",
+      "because": "Core A20-1"
+    }
+  ]
+}

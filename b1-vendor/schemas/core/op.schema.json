@@ -1,0 +1,1478 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Op",
+  "description": "One variant per row of the A2-1 table and of A3-3, with the table's argument names.\n\nClause: Core A2-1, Core A3-3, Core 2.",
+  "oneOf": [
+    {
+      "type": "string",
+      "enum": [
+        "StopAll",
+        "AdoptAll"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Create": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "request": {
+              "$ref": "#/$defs/SpawnRequest"
+            }
+          },
+          "required": [
+            "session",
+            "request"
+          ]
+        }
+      },
+      "required": [
+        "Create"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Start": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "Start"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Stop": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "Stop"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Signal": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "sig": {
+              "$ref": "#/$defs/Signal"
+            }
+          },
+          "required": [
+            "id",
+            "sig"
+          ]
+        }
+      },
+      "required": [
+        "Signal"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Remove": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "Remove"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "UpdateMetadata": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "labels": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "id",
+            "labels"
+          ]
+        }
+      },
+      "required": [
+        "UpdateMetadata"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "SetSizePolicy": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "policy": {
+              "$ref": "#/$defs/SizePolicy"
+            }
+          },
+          "required": [
+            "session",
+            "policy"
+          ]
+        }
+      },
+      "required": [
+        "SetSizePolicy"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "SetColorProfile": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "profile": {
+              "$ref": "#/$defs/ColorProfile"
+            }
+          },
+          "required": [
+            "session",
+            "profile"
+          ]
+        }
+      },
+      "required": [
+        "SetColorProfile"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "SetOutputTap": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "enabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "session",
+            "enabled"
+          ]
+        }
+      },
+      "required": [
+        "SetOutputTap"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ReadScreen": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "history": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "session",
+            "history"
+          ]
+        }
+      },
+      "required": [
+        "ReadScreen"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ReadCursor": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "session"
+          ]
+        }
+      },
+      "required": [
+        "ReadCursor"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ReadModeFlags": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "session"
+          ]
+        }
+      },
+      "required": [
+        "ReadModeFlags"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "CaptureSnapshot": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "owner": {
+              "$ref": "#/$defs/ClientId"
+            }
+          },
+          "required": [
+            "session",
+            "owner"
+          ]
+        }
+      },
+      "required": [
+        "CaptureSnapshot"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ReadFacts": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "after": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/InputCursor"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "session"
+          ]
+        }
+      },
+      "required": [
+        "ReadFacts"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Resize": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "size": {
+              "$ref": "#/$defs/Size"
+            }
+          },
+          "required": [
+            "session",
+            "size"
+          ]
+        }
+      },
+      "required": [
+        "Resize"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "WriteInput": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "payload": {
+              "$ref": "#/$defs/InputPayload"
+            },
+            "guard": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Guard"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "session",
+            "payload"
+          ]
+        }
+      },
+      "required": [
+        "WriteInput"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Detach": {
+          "type": "object",
+          "properties": {
+            "route": {
+              "$ref": "#/$defs/RouteId"
+            },
+            "reason": {
+              "$ref": "#/$defs/DetachReason"
+            }
+          },
+          "required": [
+            "route",
+            "reason"
+          ]
+        }
+      },
+      "required": [
+        "Detach"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Adopt": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/SessionId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "Adopt"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "SpawnService": {
+          "type": "object",
+          "properties": {
+            "service_id": {
+              "$ref": "#/$defs/ServiceId"
+            },
+            "argv": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "limits": {
+              "$ref": "#/$defs/ServiceLimits"
+            }
+          },
+          "required": [
+            "service_id",
+            "argv",
+            "env",
+            "cwd",
+            "limits"
+          ]
+        }
+      },
+      "required": [
+        "SpawnService"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "StopService": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/ServiceId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "StopService"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "RemoveService": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/ServiceId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "RemoveService"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "EndEpoch": {
+          "type": "object",
+          "properties": {
+            "service": {
+              "$ref": "#/$defs/ServiceId"
+            }
+          },
+          "required": [
+            "service"
+          ]
+        }
+      },
+      "required": [
+        "EndEpoch"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "SetNotificationPolicy": {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionId"
+            },
+            "policy": {
+              "$ref": "#/$defs/NotificationPolicy"
+            }
+          },
+          "required": [
+            "session",
+            "policy"
+          ]
+        }
+      },
+      "required": [
+        "SetNotificationPolicy"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "SessionId": {
+      "description": "The id of a session, chosen by the host (at most `max_session_id_bytes` bytes).\n\nClause: Core 3, Core ID-1.",
+      "type": "string"
+    },
+    "SpawnRequest": {
+      "description": "What a host asks Core to run.\n\nClause: Core 3, Core A2-1, Core A3-1, Core A3-3, Core DP-6.",
+      "type": "object",
+      "properties": {
+        "argv": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "size": {
+          "$ref": "#/$defs/Size"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "color_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ColorProfile"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "notification_policy": {
+          "description": "The default is `All` (A3-1).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NotificationPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "size_policy": {
+          "description": "DP-6 says the policy is also accepted in `Create`. The default is `Latest`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SizePolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "argv",
+        "env",
+        "cwd",
+        "size"
+      ]
+    },
+    "Size": {
+      "description": "A terminal size.\n\nClause: Core 3, Core A2-1, Core SZ-1.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cell_px": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CellPx"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ]
+    },
+    "CellPx": {
+      "description": "The pixel size of one cell, from 1.\n\nClause: Core 3, Core EV-8a.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "ColorProfile": {
+      "description": "The colors that the shadow terminal answers with.\n\nClause: Core A2-1, Core EV-8.",
+      "type": "object",
+      "properties": {
+        "palette": {
+          "description": "Exactly 256 entries when present.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Rgb"
+          },
+          "minItems": 256,
+          "maxItems": 256
+        },
+        "foreground": {
+          "$ref": "#/$defs/Rgb"
+        },
+        "background": {
+          "$ref": "#/$defs/Rgb"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rgb"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "foreground",
+        "background"
+      ]
+    },
+    "Rgb": {
+      "description": "One color.\n\nClause: Core A2-1.",
+      "type": "object",
+      "properties": {
+        "r": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "g": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "b": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "r",
+        "g",
+        "b"
+      ]
+    },
+    "NotificationPolicy": {
+      "description": "Which notifications in dropped output count (A3-1). The default is `All`.\n\nClause: Core A3-1.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "all",
+            "none"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "matching": {
+              "type": "object",
+              "properties": {
+                "patterns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "patterns"
+              ]
+            }
+          },
+          "required": [
+            "matching"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SizePolicy": {
+      "description": "The size policy of a session.\n\nClause: Core DP-6.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "latest"
+          ]
+        },
+        {
+          "description": "Needs the feature `size_policy_other`.",
+          "type": "string",
+          "const": "smallest"
+        },
+        {
+          "description": "Needs the feature `size_policy_other`.",
+          "type": "string",
+          "const": "largest"
+        }
+      ]
+    },
+    "Signal": {
+      "description": "A signal for `Signal`. An unsupported value is `Unsupported`.\n\nClause: Core LC-6.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "term",
+            "kill",
+            "int",
+            "hup"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "other": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          "required": [
+            "other"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ClientId": {
+      "description": "The host's label of a client. Core never interprets it.\n\nClause: Core 3, Core P3, Core OU-1.",
+      "type": "string"
+    },
+    "InputCursor": {
+      "description": "An opaque cursor: equality and `after` only.\n\nClause: Core ST-7.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "InputPayload": {
+      "description": "The payload kinds of `WriteInput`: the same kinds as the route input frames.\n\nClause: Core IN-1, Core IN-8, Core IN-9.",
+      "oneOf": [
+        {
+          "description": "Written as they are.",
+          "type": "object",
+          "properties": {
+            "bytes": {
+              "type": "object",
+              "properties": {
+                "bytes": {
+                  "$ref": "#/$defs/HexBytes"
+                }
+              },
+              "required": [
+                "bytes"
+              ]
+            }
+          },
+          "required": [
+            "bytes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "One transaction of UTF-8 text.",
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "paste": {
+              "type": "object",
+              "properties": {
+                "bytes": {
+                  "$ref": "#/$defs/HexBytes"
+                },
+                "require_bracketed": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "bytes",
+                "require_bracketed"
+              ]
+            }
+          },
+          "required": [
+            "paste"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "key": {
+              "$ref": "#/$defs/KeyInput"
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mouse": {
+              "$ref": "#/$defs/MouseInput"
+            }
+          },
+          "required": [
+            "mouse"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "focus": {
+              "type": "object",
+              "properties": {
+                "focused": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "focused"
+              ]
+            }
+          },
+          "required": [
+            "focus"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HexBytes": {
+      "type": "object",
+      "properties": {
+        "$bytes_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})*$"
+        }
+      },
+      "required": [
+        "$bytes_hex"
+      ],
+      "additionalProperties": false
+    },
+    "KeyInput": {
+      "description": "A semantic key event (5.1A `Key`). `mods` is a set.\n\nClause: Core IN-9, Core 5.1A.",
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/Key"
+        },
+        "shifted_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_layout_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          },
+          "default": []
+        },
+        "event": {
+          "$ref": "#/$defs/KeyEvent"
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repeat": {
+          "description": "Host `WriteInput` only (IN-9).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        }
+      },
+      "required": [
+        "key",
+        "event"
+      ]
+    },
+    "Key": {
+      "description": "A key: `{\"named\": <NamedKey>}` or `{\"char\": \"<one scalar>\"}`.\n\nClause: Codec A.5, Core 5.1A.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedKey"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "char": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "char"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NamedKey": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "tab",
+        "backspace",
+        "escape",
+        "insert",
+        "delete",
+        "home",
+        "end",
+        "page_up",
+        "page_down",
+        "arrow_up",
+        "arrow_down",
+        "arrow_left",
+        "arrow_right",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17",
+        "f18",
+        "f19",
+        "f20",
+        "f21",
+        "f22",
+        "f23",
+        "f24",
+        "f25",
+        "f26",
+        "f27",
+        "f28",
+        "f29",
+        "f30",
+        "f31",
+        "f32",
+        "f33",
+        "f34",
+        "f35",
+        "kp_0",
+        "kp_1",
+        "kp_2",
+        "kp_3",
+        "kp_4",
+        "kp_5",
+        "kp_6",
+        "kp_7",
+        "kp_8",
+        "kp_9",
+        "kp_decimal",
+        "kp_divide",
+        "kp_multiply",
+        "kp_subtract",
+        "kp_add",
+        "kp_enter",
+        "kp_equal",
+        "caps_lock",
+        "scroll_lock",
+        "num_lock",
+        "print_screen",
+        "pause",
+        "menu",
+        "left_shift",
+        "left_control",
+        "left_alt",
+        "left_super",
+        "right_shift",
+        "right_control",
+        "right_alt",
+        "right_super"
+      ]
+    },
+    "Modifier": {
+      "description": "A modifier of Core 5.1A.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "shift",
+        "alt",
+        "ctrl",
+        "meta",
+        "super",
+        "hyper",
+        "caps_lock",
+        "num_lock"
+      ]
+    },
+    "KeyEvent": {
+      "description": "The `event` of a key input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "repeat",
+        "release"
+      ]
+    },
+    "MouseInput": {
+      "description": "A semantic mouse event (5.1A `Mouse`).\n\nClause: Core IN-9, Core 5.1A.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MouseAction"
+        },
+        "button": {
+          "$ref": "#/$defs/MouseButton"
+        },
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "x": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "y": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          },
+          "default": []
+        },
+        "notches": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action",
+        "button",
+        "row",
+        "col"
+      ]
+    },
+    "MouseAction": {
+      "description": "The `action` of a mouse input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "release",
+        "move",
+        "wheel"
+      ]
+    },
+    "MouseButton": {
+      "description": "The `button` of a mouse input. `action` is `wheel` exactly when the button is a `wheel_*` value.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right",
+        "back",
+        "forward",
+        "none",
+        "wheel_up",
+        "wheel_down",
+        "wheel_left",
+        "wheel_right"
+      ]
+    },
+    "Guard": {
+      "description": "The guard of a write.\n\nClause: Core IN-10.",
+      "type": "object",
+      "properties": {
+        "input": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InputGuard"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "model_rev": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelRev"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "InputGuard": {
+      "description": "The input guard of a write.\n\nClause: Core IN-10.",
+      "type": "object",
+      "properties": {
+        "source_class": {
+          "$ref": "#/$defs/SourceClass"
+        },
+        "rev": {
+          "$ref": "#/$defs/InputRev"
+        }
+      },
+      "required": [
+        "source_class",
+        "rev"
+      ]
+    },
+    "SourceClass": {
+      "description": "Which source class an input revision counts.\n\nClause: Core IN-10.",
+      "type": "string",
+      "enum": [
+        "Client",
+        "Host"
+      ]
+    },
+    "InputRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core IN-10, Core ST-4.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "ModelRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core ST-1, Core IN-10.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "RouteId": {
+      "description": "The id of a route.\n\nClause: Core 3, Core ID-1, Core ID-2.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "DetachReason": {
+      "description": "The reason of `Detach`.\n\nClause: Core DP-7.",
+      "type": "string",
+      "enum": [
+        "Detached",
+        "Replaced",
+        "Revoked"
+      ]
+    },
+    "ServiceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "ServiceLimits": {
+      "description": "The limits of a service. Durations travel as milliseconds.\n\nClause: Core SV-2, Core SV-4, Core A2-5.",
+      "type": "object",
+      "properties": {
+        "lanes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LaneSpec"
+          }
+        },
+        "rlimits": {
+          "$ref": "#/$defs/Rlimits",
+          "default": {}
+        },
+        "startup": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stop_grace": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "orphan_grace": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "peer_identity": {
+          "description": "The uid that a lane peer must have. Absent means the host's uid.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "lanes",
+        "startup",
+        "stop_grace",
+        "orphan_grace"
+      ]
+    },
+    "LaneSpec": {
+      "description": "The limits of one lane (SV-2).\n\nClause: Core SV-2, Core SV-4.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "outbound_queue_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "inbound_queue_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "outbound_queue_bytes",
+        "inbound_queue_bytes"
+      ]
+    },
+    "Rlimits": {
+      "description": "The optional rlimits of a service.\n\nClause: Core SV-4, Core A2-5.",
+      "type": "object",
+      "properties": {
+        "cpu_seconds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open_files": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "processes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address_space_bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RlimitSpec": {
+      "description": "One requested rlimit.\n\nClause: Core A2-5, Core SV-4.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "required"
+      ]
+    }
+  }
+}

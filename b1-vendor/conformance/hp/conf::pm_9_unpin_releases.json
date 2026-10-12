@@ -1,0 +1,197 @@
+{
+ "id": "conf::pm_9_unpin_releases",
+ "contract": "hp",
+ "clause": "PM-9",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "demo is pinned and then unpinned; the operator upgrades",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "pin",
+     "ref": "v1"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "unpin"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "pinned_ref": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "2.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v2.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "upgrade"
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "2222222222222222222222222222222222222222",
+     "version": "2.0.0"
+    }
+   },
+   "because": "HP PM-9"
+  }
+ ]
+}

@@ -1,0 +1,136 @@
+{
+  "id": "conf::en_1a_action_is_the_describe_name",
+  "contract": "hc",
+  "clause": "EN-1a",
+  "subject": "hub",
+  "setup": {
+    "fixture": "plugin"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "kind",
+        "args": {
+          "filter": {
+            "kind": "session"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": [
+            {
+              "actions": {
+                "acme.sync": {
+                  "descriptor_id": "$d",
+                  "owner": "acme"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC EN-1a",
+        "HC DS-6"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "invoke",
+        "kind": "session",
+        "action": "acme.sync",
+        "args": {},
+        "target": "s1",
+        "descriptor_id": "$d"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "$any": true
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-1a"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "invoke",
+        "kind": "session",
+        "action": "sync",
+        "args": {},
+        "target": "s1",
+        "descriptor_id": "$d"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "err": {
+          "code": "unsupported"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-1a"
+    }
+  ]
+}

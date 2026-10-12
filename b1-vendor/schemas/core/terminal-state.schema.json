@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerminalState",
+  "description": "The result of `terminal_state(id)`. `focused` is absent until it is authoritative.\n\nClause: Core ST-4, Core EV-6, Core DP-12.",
+  "type": "object",
+  "properties": {
+    "size": {
+      "$ref": "#/$defs/Size"
+    },
+    "modes": {
+      "$ref": "#/$defs/ModeFlags"
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cwd": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_output_at": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "focused": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "model_rev": {
+      "$ref": "#/$defs/ModelRev"
+    },
+    "input_rev": {
+      "$ref": "#/$defs/InputRevs"
+    }
+  },
+  "required": [
+    "size",
+    "modes",
+    "model_rev",
+    "input_rev"
+  ],
+  "$defs": {
+    "Size": {
+      "description": "A terminal size.\n\nClause: Core 3, Core A2-1, Core SZ-1.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cell_px": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CellPx"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ]
+    },
+    "CellPx": {
+      "description": "The pixel size of one cell, from 1.\n\nClause: Core 3, Core EV-8a.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "ModeFlags": {
+      "description": "The session's modes on the route: `ModeFlags` of A.6, which is Core 5.1A verbatim.\n\nClause: Codec A.6, TS-4d.",
+      "type": "object",
+      "properties": {
+        "alt_screen": {
+          "type": "boolean"
+        },
+        "cursor_visible": {
+          "type": "boolean"
+        },
+        "bracketed_paste": {
+          "type": "boolean"
+        },
+        "application_cursor_keys": {
+          "type": "boolean"
+        },
+        "application_keypad": {
+          "type": "boolean"
+        },
+        "focus_reporting": {
+          "type": "boolean"
+        },
+        "kitty_flags": {
+          "description": "A bitset of the kitty flags 1, 2, 4, 8 and 16.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mouse_tracking": {
+          "$ref": "#/$defs/MouseTracking"
+        },
+        "mouse_encoding": {
+          "$ref": "#/$defs/MouseEncoding"
+        },
+        "other_modes": {
+          "description": "Modes outside this list. A receiver ignores names it does not know.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "alt_screen",
+        "cursor_visible",
+        "bracketed_paste",
+        "application_cursor_keys",
+        "application_keypad",
+        "focus_reporting",
+        "kitty_flags",
+        "mouse_tracking",
+        "mouse_encoding"
+      ]
+    },
+    "MouseTracking": {
+      "description": "`mouse_tracking` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "none",
+        "x10",
+        "normal",
+        "button_event",
+        "any_event",
+        "other"
+      ]
+    },
+    "MouseEncoding": {
+      "description": "`mouse_encoding` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "x10",
+        "utf8",
+        "sgr",
+        "urxvt",
+        "sgr_pixels",
+        "other"
+      ]
+    },
+    "ModelRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core ST-1, Core IN-10.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "InputRevs": {
+      "description": "The input revisions of the two source classes, as last reported.\n\nClause: Core IN-10, Core ST-4.",
+      "type": "object",
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/InputRev"
+        },
+        "host": {
+          "$ref": "#/$defs/InputRev"
+        }
+      },
+      "required": [
+        "client",
+        "host"
+      ]
+    },
+    "InputRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core IN-10, Core ST-4.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  }
+}

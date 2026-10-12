@@ -1,0 +1,141 @@
+{
+ "id": "conf::pm_5_staged_until_grants_approved",
+ "contract": "hp",
+ "clause": "PM-5",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_verb",
+   "script_git",
+   "settle"
+  ]
+ },
+ "setup": {
+  "given": "demo asks for the grant assets and is installed and enabled",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "capabilities": [
+          {
+           "surface": "assets"
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "status": "staged"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "control",
+    "type": "Hello"
+   },
+   "on": "main",
+   "barrier": {
+    "control": {
+     "op": "settle",
+     "conn": "main"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "approve_grants",
+     "grants": [
+      {
+       "surface": "assets"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "grants": [
+      {
+       "surface": "assets"
+      }
+     ]
+    }
+   },
+   "because": "HP PM-5"
+  }
+ ]
+}

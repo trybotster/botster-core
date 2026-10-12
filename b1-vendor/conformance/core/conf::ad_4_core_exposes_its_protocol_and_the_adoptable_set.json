@@ -1,0 +1,118 @@
+{
+  "id": "conf::ad_4_core_exposes_its_protocol_and_the_adoptable_set",
+  "contract": "core",
+  "clause": "AD-4",
+  "subject": "core",
+  "steps": [
+    {
+      "call": {
+        "method": "worker_protocol"
+      },
+      "expect": "$t",
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "adoptable_worker_protocols"
+      },
+      "expect": "$set",
+      "because": "Core AD-4"
+    },
+    {
+      "let": {
+        "$tp1": {
+          "add": [
+            "$t",
+            1
+          ]
+        },
+        "$tp2": {
+          "add": [
+            "$t",
+            2
+          ]
+        },
+        "$tm2": {
+          "sub": [
+            "$t",
+            2
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$has_t": {
+          "contains": [
+            "$set",
+            "$t"
+          ]
+        },
+        "$has_tp1": {
+          "contains": [
+            "$set",
+            "$tp1"
+          ]
+        },
+        "$has_tp2": {
+          "contains": [
+            "$set",
+            "$tp2"
+          ]
+        },
+        "$has_tm2": {
+          "contains": [
+            "$set",
+            "$tm2"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_t",
+          true
+        ]
+      },
+      "because": "Core AD-4"
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_tp1",
+          false
+        ]
+      },
+      "because": "Core AD-4"
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_tp2",
+          false
+        ]
+      },
+      "because": "Core AD-4"
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_tm2",
+          false
+        ]
+      },
+      "because": "Core AD-4"
+    },
+    {
+      "call": {
+        "method": "worker_protocol_compatibility",
+        "args": {
+          "protocol": "$t"
+        }
+      },
+      "expect": "Compatible",
+      "because": "Core AD-4"
+    }
+  ]
+}

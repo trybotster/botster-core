@@ -1,0 +1,172 @@
+{
+  "id": "conf::ui_nv_5_focus_and_scroll_do_not_change_the_tree",
+  "contract": "ui",
+  "clause": "UI-NV-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "base tree",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            },
+            {
+              "id": "r2"
+            }
+          ]
+        }
+      },
+      "expect_no_diagnostics": true
+    },
+    {
+      "name": "row focus does not change the tree",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            },
+            {
+              "id": "r2"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "focus": "botster-ui-descendant-v1:1:l2:r2"
+      },
+      "same_tree_as": "base tree"
+    },
+    {
+      "name": "scroll values do not change the tree",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            },
+            {
+              "id": "r2"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "scroll": {
+          "botster-ui-descendant-v1:1:l2:r1": {
+            "top": 12
+          },
+          "root": "opaque"
+        }
+      },
+      "same_tree_as": "base tree"
+    }
+  ]
+}

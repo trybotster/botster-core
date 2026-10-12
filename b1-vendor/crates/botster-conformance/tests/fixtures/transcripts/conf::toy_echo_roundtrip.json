@@ -1,0 +1,29 @@
+{
+  "id": "conf::toy_echo_roundtrip",
+  "contract": "core",
+  "clause": "TOY-1",
+  "subject": "core",
+  "steps": [
+    {
+      "send": {
+        "x": 1
+      }
+    },
+    {
+      "expect": {
+        "echo": {
+          "x": 1
+        },
+        "seed_is_set": true
+      }
+    }
+  ],
+  "requires": {
+    "features": [
+      "echo"
+    ],
+    "controls": [
+      "noop"
+    ]
+  }
+}

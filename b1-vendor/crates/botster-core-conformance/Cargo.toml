@@ -1,0 +1,36 @@
+[package]
+name = "botster-core-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[features]
+# The adapter that wraps `botster-fake-core` as a `CoreHarness` (design section 4: the adapter lives in the runner crate).
+fake = ["dep:botster-fake-core", "dep:botster-fake-route"]
+
+[dependencies]
+botster-conformance.workspace = true
+botster-core-contract = { path = "../botster-core-contract" }
+botster-fake-core = { path = "../botster-fake-core", optional = true }
+botster-fake-route = { workspace = true, optional = true }
+botster-probe-script.workspace = true
+botster-hub-conformance = { path = "../botster-hub-conformance" }
+botster-route-codec = { workspace = true, features = ["unstable"] }
+include_dir.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# The route wait polls the route's descriptor and the host's wake descriptor together (steward ruling R-68). rustix is already
+# in the lock (through tempfile).
+rustix = { version = "1", features = ["event"] }
+
+[dev-dependencies]
+botster-fake-core = { path = "../botster-fake-core" }
+# The self-test runs the Core transcripts against FakeCore.
+botster-core-conformance = { path = ".", features = ["fake"] }

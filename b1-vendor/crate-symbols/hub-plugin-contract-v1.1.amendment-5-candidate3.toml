@@ -1,0 +1,76 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-5-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Hub→plugin contract of `frozen/current` (manifest final24): v1.1 joint J4e, with Amendments 1 to 4, which are unchanged except where A5-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 2** (`da3c249e…0b1d`, commit `ccbd656`), which the Amendment reviewer rejected (verdict `bc4ff5e`). Adding `id` to the declared schema breaks `maxProperties` and composed closed-object schemas. Candidate 3 does not...
+[rows."5"]
+"bc4ff5e" = "n/a: a commit or file hash"
+"ccbd656" = "n/a: a commit or file hash"
+"da3c249e…0b1d" = "n/a: a commit or file hash"
+"id" = ["plugin::EntityRecord::id"]
+"maxProperties" = "n/a: a JSON Schema keyword"
+"schema" = ["hub::KindDescriptor::schema"]
+
+# 1. The client schema projection for the flat row is defined from the one declaration (DS-2), and it works with `additionalProperties: false`.
+[rows."8"]
+"additionalProperties: false" = "n/a: a JSON Schema keyword; a JSON literal value"
+
+# 2. The reserved `id` applies at the `entity` top level only.
+[rows."9"]
+"entity" = ["plugin::EntityRecord::entity"]
+"id" = ["plugin::EntityRecord::id"]
+
+# **Why.** Appendix A, "Handler kinds" (A2-5), gives the `entity_provider` result as `{records: [...], cursor?}`, but no clause fixes the layout of one record, or what the declared schema "for records" (EN-1) covers.
+[rows."13"]
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"{records: [...], cursor?}" = ["plugin::EntityProviderResult::cursor", "plugin::EntityProviderResult::records"]
+
+# - `entity.publish{entity_type, type, id, entity | patch}` (EN-4, A2-7) carries the id **outside** the record body.
+[rows."14"]
+"entity.publish{entity_type, type, id, entity | patch}" = ["plugin.call:entity.publish", "plugin::EntityPublishArgs::entity_type", "plugin::EntityPublishArgs::type", "plugin::EntityPublishArgs::id", "plugin::EntityPublishArgs::entity", "plugin::EntityPublishArgs::patch"]
+
+# - WF-6 says "a row's own identifier is `id`".
+[rows."15"]
+"id" = ["plugin::EntityRecord::id"]
+
+# | A5-1 | **One entity record has one shape everywhere a plugin produces it: `{id, entity}`.**<br>- `id` is the record's identifier: a string, the row's own `id` (WF-6), unique in the family.<br>- `entity` is the record body: a JSON objec...
+[rows."20"]
+"additionalProperties: false" = "n/a: a JSON Schema keyword; a JSON literal value"
+"allOf" = "n/a: a JSON Schema keyword"
+"core_fields" = ["hub::KindDescriptor::core_fields"]
+"entity" = ["plugin::EntityRecord::entity"]
+"entity.publish" = ["plugin::EntityRecord::entity", "plugin.call:entity.publish"]
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"id" = ["plugin::EntityRecord::id"]
+"invalid_request{detail.code: entity_schema}" = ["plugin.code:invalid_request:entity_schema", "plugin::Detail::code"]
+"maxProperties" = "n/a: a JSON Schema keyword"
+"patch" = ["plugin::EntityPublishArgs::patch"]
+"properties" = "n/a: a JSON Schema keyword"
+"records" = ["plugin::EntityProviderResult::records"]
+"schema" = ["hub::KindDescriptor::schema"]
+"string" = "n/a: a primitive type name"
+"unevaluatedProperties" = "n/a: a JSON Schema keyword"
+"{entity_type, type, id, entity | patch}" = ["plugin::EntityPublishArgs::entity_type", "plugin::EntityPublishArgs::type", "plugin::EntityPublishArgs::id", "plugin::EntityPublishArgs::entity", "plugin::EntityPublishArgs::patch"]
+"{id, entity}" = ["plugin::EntityRecord::entity", "plugin::EntityRecord::id"]
+"{id, label}" = "n/a: an example of a nested object inside entity (A5-1 says nested objects are not affected)"
+"{id: string, entity: <family schema>}" = { symbols = ["plugin::EntityRecord::id", "plugin::EntityRecord::entity", "plugin::EntityFamilyDecl::schema"], uncovered = { string = "a primitive type name", family = "prose: the entity family" } }
+
+# 1. **Appendix A, "Handler kinds", the `entity_provider` row:** `{records: [...], cursor?}` reads `{records: [{id, entity}], cursor?}` (A5-1).
+[rows."24"]
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"{records: [...], cursor?}" = ["plugin::EntityProviderResult::cursor", "plugin::EntityProviderResult::records"]
+"{records: [{id, entity}], cursor?}" = ["plugin::EntityProviderResult::records", "plugin::EntityRecord::id", "plugin::EntityRecord::entity", "plugin::EntityProviderResult::cursor"]
+
+# 2. **EN-1, "a JSON Schema for records"** reads "a JSON Schema for the record's `entity` (A5-1)", and EN-1's "custom id fields" means a top-level `id` in that schema.
+[rows."25"]
+"entity" = ["plugin::EntityRecord::entity"]
+"id" = ["plugin::EntityRecord::id"]
+
+# 2a. **Client DS-1 and DS-2, the plugin kind:** `schema` is the declaration unchanged, `id` is in `core_fields`, and rows validate by A5-1's equivalence.
+[rows."26"]
+"core_fields" = ["hub::KindDescriptor::core_fields"]
+"id" = { symbols = ["hub::KindDescriptor::core_fields"], uncovered = { id = "a member of core_fields (a string list)" } }
+"schema" = ["hub::KindDescriptor::schema"]

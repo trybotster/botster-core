@@ -1,0 +1,376 @@
+{
+ "id": "conf::ca_20_adoption_restores_port_reservations_first",
+ "contract": "hp",
+ "clause": "CA-20",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "hub_restart",
+   "invoke",
+   "service_connected"
+  ]
+ },
+ "setup": {
+  "given": "s1 holds a port in the Hub run that restarts"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "session": {
+        "hub_id": "$h",
+        "session_id": "$sid"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "sessions.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session": {
+       "hub_id": "$h",
+       "session_id": "$sid"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "port": "$p"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "hub_restart"
+   }
+  },
+  {
+   "control": {
+    "op": "service_connected"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 3,
+     "call": "sessions.get",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {
+      "session": {
+       "hub_id": "$h",
+       "session_id": "$sid"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "port": "$p"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 4,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "session": {
+        "hub_id": "$h",
+        "session_id": "$s2"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 5,
+     "call": "sessions.get",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {
+      "session": {
+       "hub_id": "$h",
+       "session_id": "$s2"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "port": {
+        "$ne": "$p"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

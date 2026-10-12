@@ -1,0 +1,2170 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpResult",
+  "description": "The result of a completed operation.\n\nClause: Core 2, Core A2-1, Core AM-3.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "$ref": "#/$defs/OpOutput"
+        }
+      },
+      "required": [
+        "ok"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "err": {
+          "$ref": "#/$defs/CoreError"
+        }
+      },
+      "required": [
+        "err"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "OpOutput": {
+      "description": "The `Ok` value of a completion: the `Ok` column of the A2-1 table.\n\nClause: Core A2-1, Core A3-3.",
+      "oneOf": [
+        {
+          "description": "`()`: `Signal`, `StopAll`, `UpdateMetadata`, `SetSizePolicy`, `SetColorProfile`, `SetOutputTap`,\n`Detach`, `AdoptAll`, `RemoveService`, `EndEpoch` and `SetNotificationPolicy`.",
+          "type": "string",
+          "const": "unit"
+        },
+        {
+          "description": "`Create`, `Start` and `Adopt`.",
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/SessionRecord"
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`Stop`.",
+          "type": "object",
+          "properties": {
+            "end": {
+              "$ref": "#/$defs/SessionEnd"
+            }
+          },
+          "required": [
+            "end"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "screen": {
+              "$ref": "#/$defs/Screen"
+            }
+          },
+          "required": [
+            "screen"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cursor": {
+              "$ref": "#/$defs/Cursor"
+            }
+          },
+          "required": [
+            "cursor"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "modes": {
+              "$ref": "#/$defs/Modes"
+            }
+          },
+          "required": [
+            "modes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "capture": {
+              "$ref": "#/$defs/Capture"
+            }
+          },
+          "required": [
+            "capture"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "facts": {
+              "$ref": "#/$defs/Facts"
+            }
+          },
+          "required": [
+            "facts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "resize": {
+              "$ref": "#/$defs/ResizeResult"
+            }
+          },
+          "required": [
+            "resize"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "input": {
+              "$ref": "#/$defs/InputResult"
+            }
+          },
+          "required": [
+            "input"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`SpawnService`.",
+          "type": "object",
+          "properties": {
+            "spawn": {
+              "$ref": "#/$defs/SpawnReport"
+            }
+          },
+          "required": [
+            "spawn"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`StopService` (A16-1).",
+          "type": "object",
+          "properties": {
+            "service_end": {
+              "$ref": "#/$defs/ServiceEnd"
+            }
+          },
+          "required": [
+            "service_end"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`Remove` (A6-4).",
+          "type": "object",
+          "properties": {
+            "remove_report": {
+              "$ref": "#/$defs/RemoveReport"
+            }
+          },
+          "required": [
+            "remove_report"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SessionRecord": {
+      "description": "The record of `get(id)`.\n\nClause: Core LC-9, Core AD-4, Core A2-1, Core A2-6.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/SessionId"
+        },
+        "state": {
+          "$ref": "#/$defs/SessionState"
+        },
+        "size": {
+          "$ref": "#/$defs/Size"
+        },
+        "labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "exit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Exit"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "worker_protocol": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "worker_features": {
+          "description": "The features of the session's worker. Absent for a session with no worker.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/Feature"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "state",
+        "size"
+      ]
+    },
+    "SessionId": {
+      "description": "The id of a session, chosen by the host (at most `max_session_id_bytes` bytes).\n\nClause: Core 3, Core ID-1.",
+      "type": "string"
+    },
+    "SessionState": {
+      "description": "The state of a session as `get` and `SessionState` report it.\n\nClause: Core 3, Core A2-1, Core LC-9.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Created",
+            "Starting",
+            "Running",
+            "Stopping",
+            "Released"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Exited": {
+              "$ref": "#/$defs/Exit"
+            }
+          },
+          "required": [
+            "Exited"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Lost": {
+              "$ref": "#/$defs/LostReason"
+            }
+          },
+          "required": [
+            "Lost"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Exit": {
+      "description": "How a payload ended: death by a signal has `code: None` and `signal: Some(n)`.\n\nClause: Core 3, Core EV-4, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "signal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "cause": {
+          "$ref": "#/$defs/ExitCause"
+        }
+      },
+      "required": [
+        "cause"
+      ]
+    },
+    "ExitCause": {
+      "anyOf": [
+        {
+          "description": "Why a session payload ended. A host maps an unknown value to `Other`.\n\nClause: Core A2-1, Core EV-4.",
+          "type": "string",
+          "enum": [
+            "Normal",
+            "Signal",
+            "HostStop",
+            "Killed",
+            "Other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "Normal",
+              "Signal",
+              "HostStop",
+              "Killed",
+              "Other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "Normal",
+                "Signal",
+                "HostStop",
+                "Killed",
+                "Other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "LostReason": {
+      "anyOf": [
+        {
+          "description": "Why a session or a service is `Lost`.\n\nClause: Core AD-2, Core SV-8, Core A2-5.",
+          "type": "string",
+          "enum": [
+            "WorkerGone",
+            "WorkerUnreachable",
+            "WorkerVersion",
+            "RegistryCorrupt",
+            "StartInterrupted",
+            "GuardianLost",
+            "EpochExhausted",
+            "Other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "WorkerGone",
+              "WorkerUnreachable",
+              "WorkerVersion",
+              "RegistryCorrupt",
+              "StartInterrupted",
+              "GuardianLost",
+              "EpochExhausted",
+              "Other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "WorkerGone",
+                "WorkerUnreachable",
+                "WorkerVersion",
+                "RegistryCorrupt",
+                "StartInterrupted",
+                "GuardianLost",
+                "EpochExhausted",
+                "Other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "Size": {
+      "description": "A terminal size.\n\nClause: Core 3, Core A2-1, Core SZ-1.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cell_px": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CellPx"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ]
+    },
+    "CellPx": {
+      "description": "The pixel size of one cell, from 1.\n\nClause: Core 3, Core EV-8a.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "Feature": {
+      "description": "One feature name, spelled as in the A2-6 table.\n\nClause: Core A2-6, Core A3-3, Core SV-4, Core SV-8, Core DP-12, Core ST-6b.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "route_transport:stream",
+            "service_preamble_versions",
+            "bound:cpu_seconds",
+            "bound:open_files",
+            "bound:processes",
+            "bound:address_space_bytes"
+          ]
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "silence"
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "size_policy_other"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "snapshot_graphics"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "focus_report"
+        },
+        {
+          "description": "Per platform (A2-6).",
+          "type": "string",
+          "const": "payload_dies_with_guardian"
+        },
+        {
+          "description": "A route feature (A3-3).",
+          "type": "string",
+          "const": "output_dropped"
+        },
+        {
+          "description": "Per worker (A3-3).",
+          "type": "string",
+          "const": "notification_policy"
+        }
+      ]
+    },
+    "SessionEnd": {
+      "description": "How a session ended, as `Stop` completes: `Exited(Exit)` or `Lost(reason)`.\n\nClause: Core A2-1, Core LC-5.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "Exited": {
+              "$ref": "#/$defs/Exit"
+            }
+          },
+          "required": [
+            "Exited"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Lost": {
+              "$ref": "#/$defs/LostReason"
+            }
+          },
+          "required": [
+            "Lost"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Screen": {
+      "description": "The result of `ReadScreen`.\n\nClause: Core ST-2, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "history_unavailable": {
+          "type": "boolean"
+        },
+        "model_rev": {
+          "$ref": "#/$defs/ModelRev"
+        }
+      },
+      "required": [
+        "text",
+        "rows",
+        "cols",
+        "history_unavailable",
+        "model_rev"
+      ]
+    },
+    "ModelRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core ST-1, Core IN-10.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "Cursor": {
+      "description": "The result of `ReadCursor`. `row` and `col` are zero-based cells.\n\nClause: Core ST-3, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "row_text": {
+          "type": "string"
+        },
+        "text_before_cursor": {
+          "type": "string"
+        },
+        "model_rev": {
+          "$ref": "#/$defs/ModelRev"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "visible",
+        "row_text",
+        "text_before_cursor",
+        "model_rev"
+      ]
+    },
+    "Modes": {
+      "description": "The result of `ReadModeFlags`.\n\nClause: Core ST-1, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "flags": {
+          "$ref": "#/$defs/ModeFlags"
+        },
+        "model_rev": {
+          "$ref": "#/$defs/ModelRev"
+        }
+      },
+      "required": [
+        "flags",
+        "model_rev"
+      ]
+    },
+    "ModeFlags": {
+      "description": "The session's modes on the route: `ModeFlags` of A.6, which is Core 5.1A verbatim.\n\nClause: Codec A.6, TS-4d.",
+      "type": "object",
+      "properties": {
+        "alt_screen": {
+          "type": "boolean"
+        },
+        "cursor_visible": {
+          "type": "boolean"
+        },
+        "bracketed_paste": {
+          "type": "boolean"
+        },
+        "application_cursor_keys": {
+          "type": "boolean"
+        },
+        "application_keypad": {
+          "type": "boolean"
+        },
+        "focus_reporting": {
+          "type": "boolean"
+        },
+        "kitty_flags": {
+          "description": "A bitset of the kitty flags 1, 2, 4, 8 and 16.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mouse_tracking": {
+          "$ref": "#/$defs/MouseTracking"
+        },
+        "mouse_encoding": {
+          "$ref": "#/$defs/MouseEncoding"
+        },
+        "other_modes": {
+          "description": "Modes outside this list. A receiver ignores names it does not know.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "alt_screen",
+        "cursor_visible",
+        "bracketed_paste",
+        "application_cursor_keys",
+        "application_keypad",
+        "focus_reporting",
+        "kitty_flags",
+        "mouse_tracking",
+        "mouse_encoding"
+      ]
+    },
+    "MouseTracking": {
+      "description": "`mouse_tracking` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "none",
+        "x10",
+        "normal",
+        "button_event",
+        "any_event",
+        "other"
+      ]
+    },
+    "MouseEncoding": {
+      "description": "`mouse_encoding` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "x10",
+        "utf8",
+        "sgr",
+        "urxvt",
+        "sgr_pixels",
+        "other"
+      ]
+    },
+    "Capture": {
+      "description": "The result of `CaptureSnapshot`.\n\nClause: Core ST-6, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "capture": {
+          "$ref": "#/$defs/CaptureId"
+        },
+        "page_count": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "total_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "model_rev": {
+          "$ref": "#/$defs/ModelRev"
+        }
+      },
+      "required": [
+        "capture",
+        "page_count",
+        "total_bytes",
+        "model_rev"
+      ]
+    },
+    "CaptureId": {
+      "description": "The id of a capture, minted by Core.\n\nClause: Core 3, Core ST-6, Core ID-1.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "Facts": {
+      "description": "The result of `ReadFacts`: all facts taken at one point in the worker's ordering.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "model_rev": {
+          "$ref": "#/$defs/ModelRev"
+        },
+        "modes": {
+          "$ref": "#/$defs/ModeFlags"
+        },
+        "size": {
+          "$ref": "#/$defs/Size"
+        },
+        "cursor": {
+          "$ref": "#/$defs/FactsCursor"
+        },
+        "input": {
+          "$ref": "#/$defs/InputFacts"
+        }
+      },
+      "required": [
+        "model_rev",
+        "modes",
+        "size",
+        "cursor",
+        "input"
+      ]
+    },
+    "FactsCursor": {
+      "description": "The cursor as `ReadFacts` reports it.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "visible"
+      ]
+    },
+    "InputFacts": {
+      "description": "The input part of `Facts`.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/ClientFacts"
+        },
+        "host": {
+          "$ref": "#/$defs/HostFacts"
+        },
+        "client_tail": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "tail_complete": {
+          "type": "boolean"
+        },
+        "input_records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputRecordEntry"
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "gap": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "client",
+        "host",
+        "client_tail",
+        "tail_complete",
+        "input_records",
+        "next_cursor",
+        "gap"
+      ]
+    },
+    "ClientFacts": {
+      "description": "The client part of the input facts.\n\nClause: Core ST-7, Core IN-10.",
+      "type": "object",
+      "properties": {
+        "rev": {
+          "$ref": "#/$defs/InputRev"
+        },
+        "age_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "rev",
+        "age_ms"
+      ]
+    },
+    "InputRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core IN-10, Core ST-4.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "HostFacts": {
+      "description": "The host side of the input facts.\n\nClause: Core ST-7, Core IN-10.",
+      "type": "object",
+      "properties": {
+        "rev": {
+          "$ref": "#/$defs/InputRev"
+        }
+      },
+      "required": [
+        "rev"
+      ]
+    },
+    "HexBytes": {
+      "type": "object",
+      "properties": {
+        "$bytes_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})*$"
+        }
+      },
+      "required": [
+        "$bytes_hex"
+      ],
+      "additionalProperties": false
+    },
+    "InputRecordEntry": {
+      "description": "One entry of `input_records`: a record or the status update of an earlier record.\n\nClause: Core ST-7.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/InputRecord"
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status_update": {
+              "$ref": "#/$defs/InputStatusUpdate"
+            }
+          },
+          "required": [
+            "status_update"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InputRecord": {
+      "description": "A record of one PTY input, created at the worker's receipt of it.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "source": {
+          "$ref": "#/$defs/InputSource"
+        },
+        "at": {
+          "description": "The worker's monotonic stamp.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/InputKind"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyEvent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mods": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          }
+        },
+        "shifted_key": {
+          "description": "The original key fields of 5.1A, kept as sent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_layout_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repeat": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "require_bracketed": {
+          "description": "The `Paste` field of IN-8, kept as sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MouseInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "focus": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HexBytes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payload_truncated": {
+          "type": "boolean",
+          "default": false
+        },
+        "state": {
+          "$ref": "#/$defs/InputRecordState"
+        },
+        "pty_bytes": {
+          "description": "Null while the record is pending (ST-7).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "cursor",
+        "source",
+        "at",
+        "kind",
+        "state"
+      ]
+    },
+    "InputCursor": {
+      "description": "An opaque cursor: equality and `after` only.\n\nClause: Core ST-7.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "InputSource": {
+      "description": "The source of an input record.\n\nClause: Core ST-7, Core IN-4.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Host"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Client": {
+              "type": "object",
+              "properties": {
+                "route_tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "owner": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "Client"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InputKind": {
+      "description": "The kind of an input record.\n\nClause: Core ST-7.",
+      "type": "string",
+      "enum": [
+        "bytes",
+        "text",
+        "paste",
+        "key",
+        "mouse",
+        "focus"
+      ]
+    },
+    "KeyEvent": {
+      "description": "The `event` of a key input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "repeat",
+        "release"
+      ]
+    },
+    "Key": {
+      "description": "A key: `{\"named\": <NamedKey>}` or `{\"char\": \"<one scalar>\"}`.\n\nClause: Codec A.5, Core 5.1A.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedKey"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "char": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "char"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NamedKey": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "tab",
+        "backspace",
+        "escape",
+        "insert",
+        "delete",
+        "home",
+        "end",
+        "page_up",
+        "page_down",
+        "arrow_up",
+        "arrow_down",
+        "arrow_left",
+        "arrow_right",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17",
+        "f18",
+        "f19",
+        "f20",
+        "f21",
+        "f22",
+        "f23",
+        "f24",
+        "f25",
+        "f26",
+        "f27",
+        "f28",
+        "f29",
+        "f30",
+        "f31",
+        "f32",
+        "f33",
+        "f34",
+        "f35",
+        "kp_0",
+        "kp_1",
+        "kp_2",
+        "kp_3",
+        "kp_4",
+        "kp_5",
+        "kp_6",
+        "kp_7",
+        "kp_8",
+        "kp_9",
+        "kp_decimal",
+        "kp_divide",
+        "kp_multiply",
+        "kp_subtract",
+        "kp_add",
+        "kp_enter",
+        "kp_equal",
+        "caps_lock",
+        "scroll_lock",
+        "num_lock",
+        "print_screen",
+        "pause",
+        "menu",
+        "left_shift",
+        "left_control",
+        "left_alt",
+        "left_super",
+        "right_shift",
+        "right_control",
+        "right_alt",
+        "right_super"
+      ]
+    },
+    "Modifier": {
+      "description": "A modifier of Core 5.1A.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "shift",
+        "alt",
+        "ctrl",
+        "meta",
+        "super",
+        "hyper",
+        "caps_lock",
+        "num_lock"
+      ]
+    },
+    "MouseInput": {
+      "description": "A semantic mouse event (5.1A `Mouse`).\n\nClause: Core IN-9, Core 5.1A.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MouseAction"
+        },
+        "button": {
+          "$ref": "#/$defs/MouseButton"
+        },
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "x": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "y": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          },
+          "default": []
+        },
+        "notches": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action",
+        "button",
+        "row",
+        "col"
+      ]
+    },
+    "MouseAction": {
+      "description": "The `action` of a mouse input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "release",
+        "move",
+        "wheel"
+      ]
+    },
+    "MouseButton": {
+      "description": "The `button` of a mouse input. `action` is `wheel` exactly when the button is a `wheel_*` value.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right",
+        "back",
+        "forward",
+        "none",
+        "wheel_up",
+        "wheel_down",
+        "wheel_left",
+        "wheel_right"
+      ]
+    },
+    "InputRecordState": {
+      "description": "The state of an input record. `pending` has no byte count yet.\n\nClause: Core ST-7.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pending",
+            "written",
+            "partial",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "not_written": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "$ref": "#/$defs/NotWrittenReason"
+                }
+              },
+              "required": [
+                "reason"
+              ]
+            }
+          },
+          "required": [
+            "not_written"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NotWrittenReason": {
+      "description": "Why a write is a certain zero.\n\nClause: Core IN-2, Core A2-2, Core IN-7, Core IN-8, Core IN-10.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "LaneFull",
+            "SessionEnded",
+            "Stopping",
+            "Stale",
+            "ModePreconditionFailed",
+            "NotReported"
+          ]
+        },
+        {
+          "description": "Route input (A2-2).",
+          "type": "string",
+          "const": "Refused"
+        },
+        {
+          "description": "Route input (IN-2).",
+          "type": "string",
+          "const": "PayloadTooLarge"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unsupported": {
+              "type": "object",
+              "properties": {
+                "what": {
+                  "$ref": "#/$defs/UnsupportedWhat"
+                }
+              },
+              "required": [
+                "what"
+              ]
+            }
+          },
+          "required": [
+            "Unsupported"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "UnsupportedWhat": {
+      "anyOf": [
+        {
+          "description": "What an event had no encoding for. A receiver treats an unknown value as opaque.\n\nClause: Core A2-2, Core 5.1A.",
+          "type": "string",
+          "enum": [
+            "pixel_position",
+            "produced_text",
+            "named_key",
+            "wheel_direction",
+            "coordinate",
+            "release_event",
+            "other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "pixel_position",
+              "produced_text",
+              "named_key",
+              "wheel_direction",
+              "coordinate",
+              "release_event",
+              "other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "pixel_position",
+                "produced_text",
+                "named_key",
+                "wheel_direction",
+                "coordinate",
+                "release_event",
+                "other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "InputStatusUpdate": {
+      "description": "The status update of an earlier record.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "updates": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "state": {
+          "$ref": "#/$defs/InputRecordState"
+        },
+        "pty_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "cursor",
+        "updates",
+        "state"
+      ]
+    },
+    "ResizeResult": {
+      "description": "The result of `Resize`: the size applied, or the later resize that replaced it.\n\nClause: Core SZ-3, Core A2-1.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "Applied": {
+              "type": "object",
+              "properties": {
+                "actual": {
+                  "$ref": "#/$defs/Size"
+                }
+              },
+              "required": [
+                "actual"
+              ]
+            }
+          },
+          "required": [
+            "Applied"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Superseded": {
+              "type": "object",
+              "properties": {
+                "by": {
+                  "$ref": "#/$defs/OpId"
+                }
+              },
+              "required": [
+                "by"
+              ]
+            }
+          },
+          "required": [
+            "Superseded"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "OpId": {
+      "description": "The id of an operation.\n\nClause: Core 3, Core ID-1, Core ID-2.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "InputResult": {
+      "description": "The completion value of `WriteInput`. `detail` has no compatibility promise.\n\nClause: Core IN-2, Core A2-2, Core IN-9.",
+      "type": "object",
+      "properties": {
+        "outcome": {
+          "$ref": "#/$defs/WriteOutcome"
+        },
+        "payload_bytes_written": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "pty_bytes_written": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "detail": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "outcome",
+        "payload_bytes_written",
+        "pty_bytes_written"
+      ]
+    },
+    "WriteOutcome": {
+      "description": "The outcome of one write. The counts are exact for every outcome except `Unknown`.\n\nClause: Core IN-2, Core A2-2.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Written",
+            "Partial",
+            "Failed",
+            "Cancelled"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "NotWritten": {
+              "$ref": "#/$defs/NotWrittenReason"
+            }
+          },
+          "required": [
+            "NotWritten"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unknown": {
+              "type": "object",
+              "properties": {
+                "max_payload_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "max_payload_bytes"
+              ]
+            }
+          },
+          "required": [
+            "Unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "SpawnReport": {
+      "description": "The completion value of `SpawnService`.\n\nClause: Core SV-4, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "applied": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Bound"
+          }
+        },
+        "unsupported": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Bound"
+          }
+        }
+      },
+      "required": [
+        "applied",
+        "unsupported"
+      ]
+    },
+    "Bound": {
+      "description": "An OS bound of a service (SV-4). The names match the `bound:` features.\n\nClause: Core SV-4, Core A2-6.",
+      "type": "string",
+      "enum": [
+        "cpu_seconds",
+        "open_files",
+        "processes",
+        "address_space_bytes"
+      ]
+    },
+    "ServiceEnd": {
+      "description": "The completion of `StopService`: the recorded exit, or the `Lost` state's own payload.\n\nClause: Core A16-1, Core A16-2.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "Exited": {
+              "$ref": "#/$defs/ServiceExit"
+            }
+          },
+          "required": [
+            "Exited"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Lost": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "$ref": "#/$defs/LostReason"
+                },
+                "payload_may_remain": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "reason",
+                "payload_may_remain"
+              ]
+            }
+          },
+          "required": [
+            "Lost"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ServiceExit": {
+      "description": "The `Exited` payload of a service.\n\nClause: Core SV-5, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "signal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "cause": {
+          "$ref": "#/$defs/ServiceExitCause"
+        },
+        "descendants_may_remain": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "cause",
+        "descendants_may_remain"
+      ]
+    },
+    "ServiceExitCause": {
+      "anyOf": [
+        {
+          "description": "Why a service exited. A host maps an unknown cause to `Other`.\n\nClause: Core SV-5, Core A2-1.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "Normal",
+                "Signal",
+                "HostStop",
+                "StartupTimeout",
+                "OrphanGrace",
+                "Killed",
+                "Other"
+              ]
+            },
+            {
+              "description": "Clause: Core SV-5.",
+              "type": "object",
+              "properties": {
+                "ChildReported": {
+                  "type": "integer",
+                  "format": "uint8",
+                  "minimum": 0,
+                  "maximum": 255
+                }
+              },
+              "required": [
+                "ChildReported"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "Normal",
+              "Signal",
+              "HostStop",
+              "StartupTimeout",
+              "OrphanGrace",
+              "Killed",
+              "Other",
+              "ChildReported"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "Normal",
+                "Signal",
+                "HostStop",
+                "StartupTimeout",
+                "OrphanGrace",
+                "Killed",
+                "Other",
+                "ChildReported"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "RemoveReport": {
+      "description": "The `Ok` value of `Remove`.\n\nClause: Core A6-3, Core A6-4.",
+      "type": "object",
+      "properties": {
+        "uploads": {
+          "$ref": "#/$defs/UploadsOutcome"
+        }
+      },
+      "required": [
+        "uploads"
+      ]
+    },
+    "UploadsOutcome": {
+      "description": "The outcome of the upload cleanup at `Remove`.\n\nClause: Core A6-3.",
+      "oneOf": [
+        {
+          "description": "The cleanup completed and every uploaded file is gone, or there were none.",
+          "type": "string",
+          "const": "deleted"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "not_deleted": {
+              "$ref": "#/$defs/NotDeleted"
+            }
+          },
+          "required": [
+            "not_deleted"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NotDeleted": {
+      "description": "Why uploaded files are still on disk after a `Remove`. A path list belongs to `DeleteFailed` only, so no path is ever claimed for\n`OutcomeUnknown`.\n\nClause: Core A6-3.",
+      "oneOf": [
+        {
+          "description": "The cleanup completed. `paths` are exactly the files that could not be deleted.",
+          "type": "object",
+          "properties": {
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "reason": {
+              "type": "string",
+              "const": "delete_failed"
+            }
+          },
+          "required": [
+            "reason",
+            "paths"
+          ]
+        },
+        {
+          "description": "The cleanup did not complete with a trusted result. Any number of files may remain.",
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "const": "outcome_unknown"
+            }
+          },
+          "required": [
+            "reason"
+          ]
+        }
+      ]
+    },
+    "CoreError": {
+      "description": "An error of Core.\n\nClause: Core 3, Core 9.3.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "category": {
+          "$ref": "#/$defs/ErrorCategory"
+        },
+        "detail": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "category",
+        "detail"
+      ]
+    },
+    "ErrorCode": {
+      "description": "Every error code of Core.\n\nClause: Core 9.3 (the table), Core A2-1, Core A2-10 (the removed and added codes).\n\nClause: Core 9.3, Core A2-1, Core A2-10.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "UnknownSession",
+            "UnknownRoute",
+            "IdTooLong",
+            "IdInUse",
+            "WrongState",
+            "SessionEnded",
+            "MissingWorkerPath",
+            "DataDirInUse",
+            "WorkerLinkFailed",
+            "LaneFull",
+            "PayloadTooLarge",
+            "PendingLimit",
+            "SessionLimit",
+            "RouteLimit",
+            "CaptureLimit",
+            "ServiceLimit",
+            "Cancelled",
+            "CursorReadUnsupported",
+            "UnknownCapture",
+            "PageOutOfRange",
+            "SnapshotTooLarge",
+            "Internal",
+            "UnknownService"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "StartFailed": {
+              "$ref": "#/$defs/StartFailReason"
+            }
+          },
+          "required": [
+            "StartFailed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Clause: Core A7-1, Core A15-1. `field` names the refused input (for example `route_limits.max_frame_bytes`, or `text`); it is absent when no clause names one.",
+          "type": "object",
+          "properties": {
+            "InvalidInput": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "InvalidInput"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unsupported": {
+              "type": "object",
+              "properties": {
+                "what": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/UnsupportedReason"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "Unsupported"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`field` names the refused limit.",
+          "type": "object",
+          "properties": {
+            "InvalidConfig": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field"
+              ]
+            }
+          },
+          "required": [
+            "InvalidConfig"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Clause: Core AD-7 (`uncertain`).",
+          "type": "object",
+          "properties": {
+            "RegistryFailed": {
+              "type": "object",
+              "properties": {
+                "uncertain": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          },
+          "required": [
+            "RegistryFailed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "BoundUnavailable": {
+              "type": "object",
+              "properties": {
+                "bound": {
+                  "$ref": "#/$defs/Bound"
+                }
+              },
+              "required": [
+                "bound"
+              ]
+            }
+          },
+          "required": [
+            "BoundUnavailable"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StartFailReason": {
+      "anyOf": [
+        {
+          "description": "Why `Start` failed. A host maps an unknown reason to `Other`.\n\nClause: Core A2-1, Core LC-4, Core AD-7.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "CwdMissing",
+                "StartupTimeout",
+                "WorkerFailed",
+                "GuardianFailed",
+                "Other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ExecFailed": {
+                  "type": "object",
+                  "properties": {
+                    "errno": {
+                      "type": "integer",
+                      "format": "int32"
+                    }
+                  },
+                  "required": [
+                    "errno"
+                  ]
+                }
+              },
+              "required": [
+                "ExecFailed"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "CwdMissing",
+              "StartupTimeout",
+              "WorkerFailed",
+              "GuardianFailed",
+              "Other",
+              "ExecFailed"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "CwdMissing",
+                "StartupTimeout",
+                "WorkerFailed",
+                "GuardianFailed",
+                "Other",
+                "ExecFailed"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "UnsupportedReason": {
+      "anyOf": [
+        {
+          "description": "The typed reason of an `Unsupported` that the contract names for `attach`.\n\nClause: Core OU-1.",
+          "type": "string",
+          "enum": [
+            "terminal_format",
+            "other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "terminal_format",
+              "other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "terminal_format",
+                "other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "ErrorCategory": {
+      "description": "The category of an error code (9.3).\n\nClause: Core 9.3.",
+      "type": "string",
+      "enum": [
+        "caller",
+        "state",
+        "fault",
+        "capacity"
+      ]
+    }
+  }
+}

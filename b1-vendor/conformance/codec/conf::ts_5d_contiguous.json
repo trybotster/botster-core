@@ -1,0 +1,228 @@
+{
+  "id": "conf::ts_5d_contiguous",
+  "contract": "codec",
+  "clause": "TS-5d",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      },
+      "route": "r2"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "1"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "4141"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "7a7a"
+        }
+      },
+      "route": "r2"
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "4242"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "1"
+      }
+    },
+    {
+      "route_expect_pty": {
+        "one_of": [
+          [
+            {
+              "hex": "7a7a"
+            },
+            {
+              "written_by_op": "1"
+            }
+          ],
+          [
+            {
+              "written_by_op": "1"
+            },
+            {
+              "hex": "7a7a"
+            }
+          ]
+        ]
+      },
+      "because": "Codec TS-5d"
+    }
+  ],
+  "setup": {
+    "worker": {
+      "script": {
+        "writes": {
+          "paste": "5041535445"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,327 @@
+{
+  "id": "conf::ui_ac_1_invoke_result_shape",
+  "contract": "ui",
+  "clause": "UI-AC-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a result with a message",
+      "parse": {
+        "type": "ActionOk",
+        "valid": true,
+        "value": {
+          "message": "Saved"
+        }
+      },
+      "because": "UI UI-AC-1"
+    },
+    {
+      "name": "a result with a navigation target",
+      "parse": {
+        "type": "ActionOk",
+        "valid": true,
+        "value": {
+          "message": "Created",
+          "navigate": {
+            "view": "tickets",
+            "select": {
+              "sel_ticket": "t1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-AC-1"
+    },
+    {
+      "name": "a failure carries field errors and a message",
+      "parse": {
+        "type": "ActionError",
+        "valid": true,
+        "value": {
+          "field_errors": [
+            {
+              "field_id": "name",
+              "pointer": "/name",
+              "code": "required",
+              "message": "Required"
+            }
+          ],
+          "message": "Check the form"
+        }
+      },
+      "because": "UI UI-AC-1"
+    },
+    {
+      "name": "a field error needs all four members",
+      "parse": {
+        "type": "FieldError",
+        "valid": false,
+        "value": {
+          "field_id": "name",
+          "code": "required"
+        }
+      },
+      "because": "UI UI-AC-1"
+    },
+    {
+      "name": "a successful result carries no replacement tree: the view changes through the watched kinds",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "workspaces",
+        "title": "Workspaces",
+        "selections": [
+          {
+            "id": "sel_ws"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "row",
+          "children": [
+            {
+              "type": "list",
+              "id": "workspace_list",
+              "source": {
+                "kind": "botster-workspaces.workspace",
+                "order": [
+                  {
+                    "field": "/name",
+                    "dir": "asc"
+                  }
+                ]
+              },
+              "selects": "sel_ws",
+              "item": {
+                "fields": [
+                  {
+                    "id": "ws_name",
+                    "path": "/name"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "No workspaces yet"
+              },
+              "error": {
+                "title": "Workspaces unavailable"
+              }
+            },
+            {
+              "type": "stack",
+              "id": "right",
+              "direction": "column",
+              "children": [
+                {
+                  "type": "detail",
+                  "id": "ws_detail",
+                  "source": {
+                    "sel": "sel_ws"
+                  },
+                  "fields": [
+                    {
+                      "id": "ws_detail_name",
+                      "label": "Name",
+                      "path": "/name"
+                    }
+                  ],
+                  "empty": {
+                    "title": "Select a workspace"
+                  }
+                },
+                {
+                  "type": "actions",
+                  "id": "ws_actions",
+                  "items": [
+                    {
+                      "id": "act_rename",
+                      "label": "Rename",
+                      "handler": "rename",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "args_schema": {
+                        "type": "object",
+                        "required": [
+                          "name"
+                        ],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "ui": {
+                              "placeholder": "Release planning",
+                              "help": "A name for this grouping."
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "id": "act_delete",
+                      "label": "Delete",
+                      "handler": "delete",
+                      "priority": "secondary",
+                      "args": {
+                        "workspace_id": {
+                          "sel": "sel_ws/id"
+                        }
+                      },
+                      "confirm": {
+                        "message": "Delete this workspace grouping. Sessions and Git worktrees stay available. This action cannot be undone.",
+                        "tone": "danger"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "list",
+                  "id": "members_current",
+                  "source": {
+                    "kind": "botster-workspaces.membership",
+                    "where": {
+                      "all": [
+                        {
+                          "eq": [
+                            {
+                              "path": "/workspace_id"
+                            },
+                            {
+                              "sel": "sel_ws/id"
+                            }
+                          ]
+                        },
+                        {
+                          "eq": [
+                            {
+                              "ref": "r_session/lifecycle_class"
+                            },
+                            {
+                              "lit": "current"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "refs": {
+                    "r_session": {
+                      "kind": "session",
+                      "key": {
+                        "hub_id": "/hub_id",
+                        "id": "/session_id"
+                      },
+                      "absent": {
+                        "text": "Session unavailable",
+                        "tone": "warning"
+                      },
+                      "activate": {
+                        "open": "r_session"
+                      }
+                    }
+                  },
+                  "item": {
+                    "fields": [
+                      {
+                        "id": "member_title",
+                        "value": {
+                          "ref": "r_session/label"
+                        }
+                      }
+                    ],
+                    "actions": [
+                      {
+                        "id": "act_remove",
+                        "label": "Remove",
+                        "handler": "remove_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "confirm": {
+                          "message": "Remove this session from the workspace?",
+                          "tone": "neutral"
+                        }
+                      },
+                      {
+                        "id": "act_move",
+                        "label": "Move",
+                        "handler": "move_session",
+                        "args": {
+                          "membership_id": {
+                            "row": "/id"
+                          }
+                        },
+                        "args_schema": {
+                          "type": "object",
+                          "required": [
+                            "workspace_id"
+                          ],
+                          "properties": {
+                            "workspace_id": {
+                              "type": "string",
+                              "ui": {
+                                "options_source": {
+                                  "kind": "botster-workspaces.workspace",
+                                  "where": {
+                                    "ne": [
+                                      {
+                                        "path": "/id"
+                                      },
+                                      {
+                                        "sel": "sel_ws/id"
+                                      }
+                                    ]
+                                  },
+                                  "value_field": "/id",
+                                  "label_field": "/name",
+                                  "empty": {
+                                    "title": "No other workspace",
+                                    "body": "Create another workspace before you move a session."
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  "empty": {
+                    "title": "No sessions yet"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "botster-workspaces.workspace": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel_ws": "w1"
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:14:workspace_list2:w1": {
+          "type": "list_item"
+        }
+      },
+      "because": "UI UI-AC-1"
+    }
+  ]
+}

@@ -1,0 +1,239 @@
+{
+  "id": "conf::ui_cf_5_no_external_open_shows_full_url",
+  "contract": "ui",
+  "clause": "UI-CF-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "without external_open the full validated URL shows as text and no control is offered",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": "https://bücher.example:8443/p?q=1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "https://xn--bcher-kva.example:8443/p?q=1",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "an empty features list also means no external_open",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": "https://example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": []
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "https://example.com/a",
+            "href": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "a url activation is not offered without external_open",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u"
+              }
+            ]
+          },
+          "activate": {
+            "url": {
+              "path": "/u"
+            }
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": "https://example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "with external_open the same link shows its host and carries the URL",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "u": "https://bücher.example:8443/p?q=1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "xn--bcher-kva.example:8443",
+            "href": "https://bücher.example:8443/p?q=1"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    }
+  ]
+}

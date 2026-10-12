@@ -1,0 +1,208 @@
+{
+  "id": "conf::ad_6_reused_pid_is_never_killed",
+  "contract": "core",
+  "clause": "AD-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "bystander_alive",
+      "host_crash",
+      "reuse_pid",
+      "signals_received"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "host_crash",
+        "handle": "h"
+      }
+    },
+    {
+      "control": {
+        "op": "reuse_pid",
+        "session": "s1"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": {
+                "Lost": "WorkerGone"
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-6",
+        "Core AD-2",
+        "Core LC-11",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "signals_received",
+        "session": "s1",
+        "handle": "h2"
+      },
+      "expect": {
+        "signals": []
+      },
+      "because": [
+        "Core AD-6"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$rm"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm",
+            "result": {
+              "ok": {
+                "remove_report": {
+                  "uploads": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core AD-2",
+        "Core LC-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "signals_received",
+        "session": "s1",
+        "handle": "h2"
+      },
+      "expect": {
+        "signals": []
+      },
+      "because": [
+        "Core AD-6",
+        "Core AD-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "bystander_alive",
+        "session": "s1",
+        "handle": "h2"
+      },
+      "expect": {
+        "alive": true
+      },
+      "because": [
+        "Core AD-6"
+      ]
+    }
+  ]
+}

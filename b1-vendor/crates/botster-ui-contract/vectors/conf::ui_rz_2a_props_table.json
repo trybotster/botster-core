@@ -1,0 +1,669 @@
+{
+  "id": "conf::ui_rz_2a_props_table",
+  "contract": "ui",
+  "clause": "UI-RZ-2a",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "selects, selected and activate on a list and its selected row",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "selects": "s",
+              "activate": {
+                "select": "s"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "s": "r1"
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "selects": "s"
+          }
+        },
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "selected": true,
+            "activate": {
+              "select": "s"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:1:l2:r2": {
+          "props": {
+            "selected": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    },
+    {
+      "name": "absent_reason on the node of an absent ref",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "x",
+                    "value": {
+                      "ref": "r/name"
+                    }
+                  }
+                ]
+              },
+              "selects": "s",
+              "activate": {
+                "select": "s"
+              },
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "Gone",
+                    "tone": "warning"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "local_state": {},
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r21:x": {
+          "props": {
+            "absent_reason": "not_found"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:x": {
+          "props": {
+            "absent_reason": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    },
+    {
+      "name": "label, confirm and disabled_reason on a button; a plain button has none",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {
+                    "a": {
+                      "sel": "s/id"
+                    }
+                  },
+                  "disabled_reason": "Pick one",
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "danger"
+                  }
+                },
+                {
+                  "id": "plain",
+                  "label": "Plain",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "local_state": {},
+      "expect_nodes": {
+        "go": {
+          "props": {
+            "label": "Go",
+            "confirm": {
+              "message": "Sure?",
+              "tone": "danger"
+            },
+            "disabled": true,
+            "disabled_reason": "Pick one"
+          }
+        },
+        "plain": {
+          "props": {
+            "label": "Plain",
+            "confirm": {
+              "$absent": true
+            },
+            "disabled": {
+              "$absent": true
+            },
+            "disabled_reason": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    },
+    {
+      "name": "value, placeholder, required and options on form widgets",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts2",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "ui": {
+                          "placeholder": "Name"
+                        }
+                      },
+                      "pick": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "ren",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "ui": {
+                      "placeholder": "Name"
+                    }
+                  },
+                  "pick": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "k",
+                        "value_field": "/id",
+                        "label_field": "/id"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:fm9:container4:name": {
+            "value": "typed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:fm9:container4:name6:widget": {
+          "type": "text_input",
+          "props": {
+            "value": "typed",
+            "placeholder": "Name",
+            "required": true
+          }
+        },
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:fm9:container4:pick6:widget": {
+          "type": "select",
+          "props": {
+            "options": [
+              {
+                "value": "r1",
+                "label": "r1"
+              },
+              {
+                "value": "r2",
+                "label": "r2"
+              }
+            ],
+            "required": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    },
+    {
+      "name": "error on a form field",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts2",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "ui": {
+                          "placeholder": "Name"
+                        }
+                      },
+                      "pick": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "ren",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "ui": {
+                      "placeholder": "Name"
+                    }
+                  },
+                  "pick": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "k",
+                        "value_field": "/id",
+                        "label_field": "/id"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:fm9:container4:name": {
+              "code": "too_short",
+              "message": "Too short"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:fm9:container4:name": {
+          "props": {
+            "error": {
+              "code": "too_short",
+              "message": "Too short"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "tone of a field with a fixed tone",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n",
+                    "tone": "info"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            },
+            {
+              "id": "r2",
+              "n": "b"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "props": {
+            "tone": "info"
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    },
+    {
+      "name": "a prop with no value is omitted",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "t": {
+          "props": {
+            "tone": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            },
+            "absent_reason": {
+              "$absent": true
+            },
+            "disabled": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    }
+  ]
+}

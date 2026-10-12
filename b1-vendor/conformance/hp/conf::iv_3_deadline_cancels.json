@@ -1,0 +1,164 @@
+{
+ "id": "conf::iv_3_deadline_cancels",
+ "contract": "hp",
+ "clause": "IV-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions",
+   "settle"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "dispatch_deadline": 300,
+   "long_deadline": 900
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1",
+     "deadline_ms": 300
+    }
+   },
+   "because": "HP IV-3"
+  },
+  {
+   "advance_clock": {
+    "ms": 299
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "control",
+    "type": "Cancel"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP IV-3"
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [],
+   "because": "HP IV-3"
+  },
+  {
+   "advance_clock": {
+    "ms": 1
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r"
+    }
+   },
+   "because": "HP IV-3"
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "timed_out",
+       "effect": "unknown"
+      }
+     }
+    }
+   ],
+   "because": "HP IV-3"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "long": true
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "handler": "h1",
+     "deadline_ms": 900
+    }
+   },
+   "because": "HP IV-3"
+  }
+ ]
+}

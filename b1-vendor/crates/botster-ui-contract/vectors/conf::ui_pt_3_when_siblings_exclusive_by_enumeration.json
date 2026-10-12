@@ -1,0 +1,5162 @@
+{
+  "id": "conf::ui_pt_3_when_siblings_exclusive_by_enumeration",
+  "contract": "ui",
+  "clause": "UI-PT-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "viewport compact/short/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "short",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/short/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "short",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/short/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "short",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/regular/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/regular/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/regular/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/tall/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "tall",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/tall/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "tall",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport compact/tall/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "tall",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_compact"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_regular",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/short/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "short",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/short/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "short",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/short/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "short",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/regular/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/regular/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "regular",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/regular/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "regular",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/tall/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "tall",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/tall/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "tall",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport regular/tall/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "regular",
+        "height": "tall",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_regular"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_expanded",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/short/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "short",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/short/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "short",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/short/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "short",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_short"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_regular",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/regular/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/regular/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "regular",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/regular/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "regular",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_regular"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_tall",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/tall/fine",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "tall",
+        "pointer": "fine"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_fine"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_coarse",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/tall/coarse",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "tall",
+        "pointer": "coarse"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_coarse"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_none"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "viewport expanded/tall/none",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t_width_compact",
+              "value": "compact",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_width_expanded",
+              "value": "expanded",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "expanded"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_short",
+              "value": "short",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_regular",
+              "value": "regular",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "regular"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_height_tall",
+              "value": "tall",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "tall"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_fine",
+              "value": "fine",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "fine"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_coarse",
+              "value": "coarse",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "coarse"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "t_pointer_none",
+              "value": "none",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "expanded",
+        "height": "tall",
+        "pointer": "none"
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "id": "t_width_expanded"
+            },
+            {
+              "id": "t_height_tall"
+            },
+            {
+              "id": "t_pointer_none"
+            }
+          ]
+        }
+      },
+      "expect_absent": [
+        "t_width_compact",
+        "t_width_regular",
+        "t_height_short",
+        "t_height_regular",
+        "t_pointer_fine",
+        "t_pointer_coarse"
+      ],
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "exclusive alternatives are admitted",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "ne": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            }
+          ],
+          "alternatives": true
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "two alternatives true together in some class",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            }
+          ],
+          "alternatives": true
+        }
+      },
+      "expect_admission": {
+        "code": "when_not_exclusive"
+      },
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "equal predicates",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            }
+          ],
+          "alternatives": true
+        }
+      },
+      "expect_admission": {
+        "code": "when_not_exclusive"
+      },
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "siblings that may show together need no exclusivity",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "not and any over classes",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "any": [
+                  {
+                    "eq": [
+                      {
+                        "viewport": "pointer"
+                      },
+                      {
+                        "lit": "fine"
+                      }
+                    ]
+                  },
+                  {
+                    "eq": [
+                      {
+                        "viewport": "pointer"
+                      },
+                      {
+                        "lit": "coarse"
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "not": {
+                  "any": [
+                    {
+                      "eq": [
+                        {
+                          "viewport": "pointer"
+                        },
+                        {
+                          "lit": "fine"
+                        }
+                      ]
+                    },
+                    {
+                      "eq": [
+                        {
+                          "viewport": "pointer"
+                        },
+                        {
+                          "lit": "coarse"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "alternatives": true
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-PT-3"
+    },
+    {
+      "name": "a pointer class",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "x",
+              "value": "X",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "y",
+              "value": "Y",
+              "when": {
+                "ne": [
+                  {
+                    "viewport": "pointer"
+                  },
+                  {
+                    "lit": "none"
+                  }
+                ]
+              }
+            }
+          ],
+          "alternatives": true
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-PT-3"
+    }
+  ]
+}

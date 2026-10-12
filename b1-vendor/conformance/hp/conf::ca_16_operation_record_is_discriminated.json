@@ -1,0 +1,375 @@
+{
+ "id": "conf::ca_16_operation_record_is_discriminated",
+ "contract": "hp",
+ "clause": "CA-16",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_session",
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the session type dev is interactive; the plugin holds session_type_spawn, session_safe_write and process_run",
+  "grants": [
+   {
+    "surface": "session_actions",
+    "scope": "session_type_spawn"
+   },
+   {
+    "surface": "session_actions",
+    "scope": "session_safe_write"
+   },
+   {
+    "surface": "session_actions",
+    "scope": "process_run"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "session": {
+        "hub_id": "$h",
+        "session_id": "$sid"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "control": {
+    "op": "await_session",
+    "session": {
+     "hub_id": "$h",
+     "session_id": "$sid"
+    },
+    "state": "running"
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "kind": "spawn",
+       "terminal": {
+        "$type": "boolean"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "sessions.safe_write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session": {
+       "hub_id": "$h",
+       "session_id": "$sid"
+      },
+      "text": "x"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$opw",
+       "kind": "safe_write",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$opw"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$opw",
+       "kind": "safe_write",
+       "state": {
+        "$type": "string"
+       },
+       "terminal": {
+        "$type": "boolean"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "process.run",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "argv": [
+       "true"
+      ],
+      "timeout_ms": 5000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$opp",
+       "kind": "process",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 6,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$opp"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 6,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$opp",
+       "kind": "process",
+       "state": {
+        "$type": "string"
+       },
+       "terminal": {
+        "$type": "boolean"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-16"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

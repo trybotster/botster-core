@@ -1,0 +1,85 @@
+# The crate symbols of each code span of hub-client-contract-v1-amendment-1-candidate5.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Owner: plan auditor. Reviewer: Sol Hub A. Date: 2026-09-30. **This file is the amendment, in the post-freeze amendment path.** Candidate 5 replaces candidates 1 to 4 (the last was `4e52e355…0f17`). Candidate 2 has Sol Hub A's design acce...
+[rows."3"]
+"5fe279bb…a1e9" = "n/a: a commit or file hash"
+"detail.code" = ["plugin::ErrorBody::detail", "plugin::Detail::code"]
+"hub-client-contract-v1-candidate-parity45.md" = "n/a: a repository path"
+"reason" = ["hub::Error::reason"]
+
+# **Why:** Hub→plugin Amendment 1 (PK-1 to PK-9) names the package manifest file (`botster-plugin.json` at the package root) and adds an optional `path` inside a `git` source and a catalog entry, so that one repository can hold several plu...
+[rows."5"]
+"botster-plugin.json" = { symbols = ["plugin::MANIFEST_FILE"], uncovered = { botster = "a part of the file name that MANIFEST_FILE holds", plugin = "a part of the file name that MANIFEST_FILE holds", json = "a part of the file name that MANIFEST_FILE holds" } }
+"git" = "n/a: an external tool name"
+"path" = ["hub::PackageSource::Git::path"]
+
+# | Section 6, `package` row, `source` | `source` is `{ kind: local, path }`, `{ kind: git, url, ref?, path? }`, or the catalog entry it came from (HP PM-1, PK-5). For `git`, `path` is the package root inside the repository (HP PK-2). For ...
+[rows."11"]
+"git" = "n/a: an external tool name"
+"local" = ["hub::PackageSource::Local"]
+"package" = ["hub.kind:package"]
+"path" = ["hub::GitSource::path"]
+"source" = ["hub::PackageRow::source"]
+"source_path" = ["hub::PackageLock::source_path"]
+"{ kind: git, url, ref?, path? }" = { symbols = ["hub::PackageSource::Git::url", "hub::PackageSource::Git::ref", "hub::PackageSource::Git::path"], uncovered = { kind = "the serde tag of PackageSource", git = "the value of the PackageSource tag" } }
+"{ kind: local, path }" = { symbols = ["hub::PackageSource::Local::path"], uncovered = { kind = "the serde tag of PackageSource" } }
+
+# | Section 6, `catalog` row, `entries` | Each entry's `source` is `{ git url, ref?, path? }`, and `kind` names the package kind of HP PK-6 (`plugin`, `agent_definition`, `accessory`). Two entries may name the same `url` and `ref` with dif...
+[rows."12"]
+"accessory" = ["hub::PackageKind::Accessory"]
+"agent_definition" = ["hub::PackageKind::AgentDefinition"]
+"catalog" = ["hub.kind:catalog"]
+"entries" = ["hub::CatalogRow::entries"]
+"kind" = ["hub::CatalogEntry::kind"]
+"path" = ["hub::GitSource::path"]
+"plugin" = ["hub::PackageKind::Plugin"]
+"ref" = ["hub::GitSource::ref"]
+"source" = ["hub::CatalogEntry::source"]
+"url" = ["hub::GitSource::url"]
+"{ git url, ref?, path? }" = { symbols = ["hub::GitSource::url", "hub::GitSource::ref", "hub::GitSource::path"], uncovered = { git = "the source kind that GitSource is" } }
+
+# | A.9, `package` `create` (install) | The `git` source is `{ kind: "git", url, ref?, path? }`. |
+[rows."13"]
+"create" = ["hub.action:package.create"]
+"git" = "n/a: an external tool name"
+"package" = ["hub.kind:package"]
+"{ kind: \"git\", url, ref?, path? }" = { symbols = ["hub::PackageSource::Git::url", "hub::PackageSource::Git::ref", "hub::PackageSource::Git::path"], uncovered = { kind = "the serde tag of PackageSource", git = "the value of the PackageSource tag" } }
+
+# | A.9, install refusals | Install also ends `failed` with the HP PK-3 reasons: `manifest_missing` (the error says that `path` exists when the repository root has no manifest), `manifest_ambiguous`, `manifest_malformed { path? }` (only a ...
+[rows."14"]
+"failed" = ["hub.operation_state:package.install:failed"]
+"manifest_ambiguous" = ["plugin.code:invalid_request:manifest_ambiguous"]
+"manifest_bad_allow" = ["plugin.code:invalid_request:manifest_bad_allow"]
+"manifest_bad_scope" = ["plugin.code:invalid_request:manifest_bad_scope"]
+"manifest_bad_version" = ["plugin.code:invalid_request:manifest_bad_version"]
+"manifest_malformed { path? }" = { symbols = ["plugin.code:invalid_request:manifest_malformed"], uncovered = { path = "a detail member of the PK-3 code; HP CODES defines no detail schema, and HP A2-36 renames this member `pointer`" } }
+"manifest_missing" = ["plugin.code:invalid_request:manifest_missing"]
+"manifest_unknown_key" = ["plugin.code:invalid_request:manifest_unknown_key"]
+"path" = ["hub::GitSource::path"]
+"path_not_contained" = ["hub.operation:package.install:path_not_contained"]
+"path_not_found" = ["hub.operation:package.install:path_not_found"]
+
+# | PKC-1 | **Package source path, checked in two stages.** A client sends `path` only for a `git` source, or picks it from a catalog entry.
+[rows."20"]
+"git" = "n/a: an external tool name"
+"path" = ["hub::GitSource::path"]
+
+# - **Before any fetch, syntax only:** `path` is relative, uses `/`, has no `.`, `..` or empty segment, and is not absolute. Its length is bounded by the frame limit `max_frame_bytes`, with no separate path limit (HP PK-2). A violation is ...
+[rows."21"]
+"detail.code: path_invalid" = { symbols = ["hub::Error::detail", "hub.reason:package.create:invalid_arguments:path_invalid"], uncovered = { code = "a member of detail" } }
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"invalid_arguments { field_errors }" = ["hub::ErrorCode::InvalidArguments", "hub::Error::field_errors"]
+"max_frame_bytes" = ["hub::Limits::max_frame_bytes"]
+"path" = ["hub::GitSource::path"]
+
+# - **After the fetch, before static admission and before any code (containment):** `path` must name a directory inside the fetched tree, and neither it nor anything under it may be a symlink that leaves the tree (HP PK-2, PM-4). A violati...
+[rows."22"]
+"failed { reason: path_not_contained }" = ["hub::OperationState::reason", "hub.operation_state:package.install:failed", "hub.operation:package.install:path_not_contained"]
+"failed { reason: path_not_found }" = ["hub::OperationState::reason", "hub.operation_state:package.install:failed", "hub.operation:package.install:path_not_found"]
+"path" = ["hub::GitSource::path"]
+
+# - A client shows each package's `path` next to its `url`, so two plugins from one repository are distinguishable.
+[rows."24"]
+"path" = ["hub::GitSource::path"]
+"url" = ["hub::GitSource::url"]

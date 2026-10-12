@@ -1,0 +1,45 @@
+# The crate symbols of each code span of hub-plugin-lua-binding-v1.1-r9-amendment-2-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Lua binding r9 of `frozen/current` (manifest final27), with Amendment 1, which are unchanged except where LBA2-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Why.** LB-10 says `botster.register{ tools, prompts?, resources?, handlers }` builds `Ready`, and that "`call` functions stay in the host's table by handler id". HP MT-1 gives the **wire** fields of a tool (`name`, `description`, `inpu...
+[rows."7"]
+"Ready" = ["plugin::Ready"]
+"arguments" = ["plugin::PromptDecl::arguments"]
+"botster.register{ tools, prompts?, resources?, handlers }" = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:register", "plugin::Ready::handlers", "plugin::Ready::prompts", "plugin::Ready::resources", "plugin::Ready::tools"], uncovered = { botster = "the product and binary name" } }
+"call" = { symbols = ["plugin::ToolDecl::handler", "plugin::PromptDecl::handler", "plugin::ResourceDecl::handler"], uncovered = { call = "the Lua field that stands for the wire handler (LB-10, LBA2-1)" } }
+"callable_by" = ["plugin::ToolDecl::callable_by"]
+"description" = ["plugin::ToolDecl::description"]
+"handler" = ["plugin::ToolDecl::handler"]
+"input_schema" = ["plugin::ToolDecl::input_schema"]
+"name" = ["plugin::ToolDecl::name"]
+"prompts" = ["plugin::Ready::prompts"]
+"resources" = ["plugin::Ready::resources"]
+"tools" = ["plugin::Ready::tools"]
+
+# | LBA2-1 | **The Lua entries are flat, with `call` in place of the wire `handler`.** In `botster.register{ ... }`:<br>- a **`tools`** entry is `{ name, description, input_schema, call, id?, callable_by? }`;<br>- a **`prompts`** entry is ...
+[rows."11"]
+"botster.register{ ... }" = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:register"], uncovered = { botster = "the product and binary name" } }
+"call" = { symbols = ["plugin::ToolDecl::handler", "plugin::PromptDecl::handler", "plugin::ResourceDecl::handler"], uncovered = { call = "the Lua field that stands for the wire handler (LB-10, LBA2-1)" } }
+"handler" = ["plugin::ToolDecl::handler"]
+"id" = { symbols = ["plugin::ToolDecl::handler", "plugin::PromptDecl::handler", "plugin::ResourceDecl::handler"], uncovered = { id = "the optional handler id of a Lua entry (the wire handler field)" } }
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"mcp_prompt" = ["plugin::HandlerKind::McpPrompt"]
+"mcp_resource" = ["plugin::HandlerKind::McpResource"]
+"mcp_tool" = ["plugin::HandlerKind::McpTool"]
+"prompts" = ["plugin::Ready::prompts"]
+"resources" = ["plugin::Ready::resources"]
+"tools" = ["plugin::Ready::tools"]
+"{ name, description, arguments, call, id? }" = { symbols = ["plugin::PromptDecl::name", "plugin::PromptDecl::description", "plugin::PromptDecl::arguments", "plugin::PromptDecl::handler"], uncovered = { call = "the Lua field that stands for the wire handler", id = "the optional handler id (the wire handler field)" } }
+"{ name, description, input_schema, call, id?, callable_by? }" = { symbols = ["plugin::ToolDecl::name", "plugin::ToolDecl::description", "plugin::ToolDecl::input_schema", "plugin::ToolDecl::handler", "plugin::ToolDecl::callable_by"], uncovered = { call = "the Lua field that stands for the wire handler", id = "the optional handler id (the wire handler field)" } }
+"{ uri_template, name, mime_type?, call, id? }" = { symbols = ["plugin::ResourceDecl::uri_template", "plugin::ResourceDecl::name", "plugin::ResourceDecl::mime_type", "plugin::ResourceDecl::handler"], uncovered = { call = "the Lua field that stands for the wire handler", id = "the optional handler id (the wire handler field)" } }
+
+# 1. **LB-10, `botster.register{ tools, prompts?, resources?, handlers }`:** the entries of `tools`, `prompts` and `resources` have the LBA2-1 shapes.
+[rows."15"]
+"botster.register{ tools, prompts?, resources?, handlers }" = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:register", "plugin::Ready::handlers", "plugin::Ready::prompts", "plugin::Ready::resources", "plugin::Ready::tools"], uncovered = { botster = "the product and binary name" } }
+"prompts" = ["plugin::Ready::prompts"]
+"resources" = ["plugin::Ready::resources"]
+"tools" = ["plugin::Ready::tools"]

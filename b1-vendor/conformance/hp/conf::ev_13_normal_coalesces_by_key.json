@@ -1,0 +1,295 @@
+{
+ "id": "conf::ev_13_normal_coalesces_by_key",
+ "contract": "hp",
+ "clause": "EV-13",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "emit_events",
+   "invoke",
+   "settle"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "event_queue_normal": 2
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "x"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "emit_events",
+    "emitters": [
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 0
+     },
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 1,
+      "key": "B"
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "emit_events",
+    "emitters": [
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 0
+     },
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 0
+     },
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 1,
+      "key": "A"
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "emit_events",
+    "emitters": [
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 0
+     },
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 0
+     },
+     {
+      "owner": "hub",
+      "name": "x",
+      "count": 1,
+      "key": "A"
+     }
+    ]
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$cb",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "x",
+      "payload": {
+       "seq": 1,
+       "emitter": 1
+      }
+     }
+    }
+   },
+   "because": "HP EV-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$cb",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$g",
+     "handler": "hg",
+     "origin": "event_gap",
+     "payload": {
+      "owner": "hub",
+      "name": "x",
+      "count": 1
+     }
+    }
+   },
+   "because": "HP EV-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$g",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ca",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "x",
+      "payload": {
+       "seq": 1,
+       "emitter": 2
+      }
+     }
+    }
+   },
+   "because": "HP EV-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ca",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP EV-13"
+  }
+ ]
+}

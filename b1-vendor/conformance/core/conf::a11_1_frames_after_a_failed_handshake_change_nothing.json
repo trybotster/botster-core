@@ -1,0 +1,519 @@
+{
+  "id": "conf::a11_1_frames_after_a_failed_handshake_change_nothing",
+  "contract": "core",
+  "clause": "A11-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "fs_directory",
+      "fs_list",
+      "impostor_worker",
+      "pty_input",
+      "pty_output",
+      "signals_received"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sb",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sb"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sb",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sb",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sb"
+          }
+        }
+      },
+      "bind": "$s_sb"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sb",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sb",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "fs_directory"
+      },
+      "bind_fields": {
+        "path": "$dir",
+        "name_max": "$name_max"
+      }
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "file_directory": "$dir"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "a.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "6161"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_done",
+        "op": "1",
+        "written_bytes": "$wb1",
+        "path": "$p1"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7",
+        "Core DP-5b"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "control": {
+        "op": "impostor_worker",
+        "session": "s1",
+        "field": "token",
+        "script": [
+          "state_exited",
+          "notification",
+          "cleanup_deleted"
+        ]
+      }
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": {
+                "Lost": "WorkerGone"
+              }
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2",
+        "forbid": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": {
+                "$one_of": [
+                  "Running",
+                  {
+                    "Exited": {
+                      "$any": true
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Notification": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core A10-1",
+        "Core AD-6",
+        "Core AD-2",
+        "Core LC-11",
+        "Core A2-1"
+      ]
+    },
+    {
+      "await_quiet": {
+        "handle": "h2"
+      }
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s1"
+        },
+        "handle": "h2"
+      },
+      "expect": {
+        "id": "s1",
+        "state": {
+          "Lost": "WorkerGone"
+        }
+      },
+      "because": [
+        "Core A11-1",
+        "Core AD-6"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "SessionState": {
+              "id": "s1"
+            }
+          },
+          {
+            "Notification": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "sb",
+              "labels": {
+                "b": "1"
+              }
+            }
+          },
+          "handle": "h2"
+        },
+        "bind": "$bar"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar",
+          "result": {
+            "$any": true
+          }
+        }
+      },
+      "because": [
+        "Core A11-1"
+      ],
+      "on": {
+        "handle": "h2"
+      }
+    },
+    {
+      "control": {
+        "op": "signals_received",
+        "session": "s1",
+        "handle": "h2"
+      },
+      "expect": {
+        "signals": []
+      },
+      "because": [
+        "Core A11-1",
+        "Core AD-6"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$rm"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm",
+            "result": {
+              "ok": {
+                "remove_report": {
+                  "uploads": {
+                    "not_deleted": {
+                      "reason": "outcome_unknown",
+                      "paths": {
+                        "$absent": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7",
+        "Core A11-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "bind": "$again"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$again",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "h2"
+      },
+      "because": [
+        "Core A6-3",
+        "Core LC-7"
+      ]
+    }
+  ]
+}

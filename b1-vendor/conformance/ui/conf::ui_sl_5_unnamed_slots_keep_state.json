@@ -1,0 +1,155 @@
+{
+  "id": "conf::ui_sl_5_unnamed_slots_keep_state",
+  "contract": "ui",
+  "clause": "UI-SL-5",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "k": {
+          "projection_allowlist": [
+            "/t"
+          ]
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "tickets"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "tickets",
+          "title": "Tickets",
+          "requires": [
+            "ui_1_1"
+          ],
+          "selections": [
+            {
+              "id": "sel_a"
+            },
+            {
+              "id": "sel_b"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "list",
+                "id": "la",
+                "source": {
+                  "kind": "k"
+                },
+                "selects": "sel_a",
+                "item": {
+                  "fields": [
+                    {
+                      "id": "fa",
+                      "path": "/t"
+                    }
+                  ]
+                },
+                "empty": {
+                  "title": "Nothing here"
+                }
+              },
+              {
+                "type": "list",
+                "id": "ln",
+                "source": {
+                  "kind": "k"
+                },
+                "activate": {
+                  "navigate": {
+                    "view": "pkg/tickets",
+                    "select": {
+                      "sel_b": {
+                        "lit": "r2"
+                      }
+                    }
+                  }
+                },
+                "item": {
+                  "fields": [
+                    {
+                      "id": "fn",
+                      "path": "/t"
+                    }
+                  ]
+                },
+                "empty": {
+                  "title": "Nothing here"
+                }
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "k": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "r1",
+                "t": "A"
+              },
+              {
+                "id": "r2",
+                "t": "B"
+              }
+            ]
+          }
+        },
+        "local_state": {
+          "selections": {
+            "sel_a": "r1"
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_1_1"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "botster-ui-descendant-v1:2:ln2:r1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "slot": {
+            "slot": "sel_b",
+            "row_key": "r2"
+          }
+        },
+        "because": "UI UI-SL-5"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "slot": {
+            "slot": "sel_a",
+            "row_key": "r1"
+          }
+        },
+        "because": "UI UI-SL-5"
+      }
+    }
+  ]
+}

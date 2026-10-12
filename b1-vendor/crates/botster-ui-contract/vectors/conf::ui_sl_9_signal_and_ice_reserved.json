@@ -1,0 +1,35 @@
+{
+  "id": "conf::ui_sl_9_signal_and_ice_reserved",
+  "contract": "ui",
+  "clause": "UI-SL-9",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "/signal is not a view route",
+      "url": {
+        "op": "is_view_route",
+        "expect": false,
+        "route": "/signal"
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "/ice is not a view route",
+      "url": {
+        "op": "is_view_route",
+        "expect": false,
+        "route": "/ice"
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "/v/<package key>/<view> is a view route",
+      "url": {
+        "op": "is_view_route",
+        "expect": true,
+        "route": "/v/acme-tickets/board"
+      },
+      "because": "UI UI-SL-9"
+    }
+  ]
+}

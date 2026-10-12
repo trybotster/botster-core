@@ -1,0 +1,1442 @@
+# The crate symbols of each code span of cli-spec-v1-candidate34.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9)
+# # botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9)
+[rows."1"]
+botster = ["cli.binary:botster"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9)
+# Author: TUI writer (Sonnet, sess-1790726031-001b), 2026-09-30. Reviewer: Sol Hub A (001f). Gate owner: plan auditor (003c). Serving contracts: Hub→client (auditor 003c), Hub→plugin (0016). Status: **DESIGN ONLY. No code.** Immutable candidates are copied to `cli-spec-v1-candidateN.md` with a sha256; this file is the working copy.
+[rows."3"]
+"cli-spec-v1-candidateN.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9)
+# **Candidate 3 answers the REJECT of candidate 1 (Sol Hub A, `verdicts/cli-spec-v1.md`, three findings):** CLI-MS2 no longer replays a request that may have had an effect; CLI-CX5 refuses to build a path when `session_dir` is absent; CLI-SS1 is recorded as a deviation (D-17) and needs a parity decision (UD-5). It also folds in the auditor's answers to DEP-1 to DEP-8 (DEP-3 is a counter that I accept) and the plugin writer's package-management semantics (HP 9.14, PM-1 to PM-14).
+[rows."5"]
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+"verdicts/cli-spec-v1.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9)
+# **Rulings since candidate 1 (orchestrator, 2026-09-30):** `botster reset` is DROPPED (UD-2). The `config KEY` and `config KEY VALUE` stubs are DROPPED (UD-3). The removal of the legacy `BOTSTER_*` session variables is ACCEPTED (UD-4); `session_type_dir` stays in the context file and the auditor and 0016 are asked to accept it. **UD-1 is RULED by the user: one Hub per machine, no side-by-side dev and release Hubs** (CLI-P2, CLI-RT1, CLI-ST6). **New from the user:** Dev Rebuild is a dev-only CLI command (CLI-DV); full plugin management is restored and the CLI gets `plugin install | update | status | pin | rollback | remove | enable | disable` (CLI-PL).
+[rows."7"]
+"botster reset" = ["cli.binary:botster", "cli.command:GONE_COMMANDS:reset"]
+"config KEY" = ["cli.command:COMMANDS:config"]
+"config KEY VALUE" = ["cli.command:COMMANDS:config"]
+"plugin install | update | status | pin | rollback | remove | enable | disable" = { symbols = ["cli.command:COMMANDS:plugin install", "cli.command:COMMANDS:plugin update", "cli.command:COMMANDS:plugin status", "cli.command:COMMANDS:plugin pin", "cli.command:COMMANDS:plugin rollback", "cli.command:COMMANDS:plugin remove", "cli.command:COMMANDS:plugin enable", "cli.command:COMMANDS:plugin disable"], uncovered = { update = "the plugin subcommand written after its group `plugin`, in a list; the whole token is `plugin update`", status = "the plugin subcommand `plugin status`, written in a list after its group", pin = "the plugin subcommand `plugin pin`, written in a list after its group", rollback = "the plugin subcommand `plugin rollback`, written in a list after its group", remove = "the plugin subcommand `plugin remove`, written in a list after its group", enable = "the plugin subcommand `plugin enable`, written in a list after its group", disable = "the plugin subcommand `plugin disable`, written in a list after its group" } }
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > Inputs (read in full)
+# - Legacy inventory: `audits/client-parity-work/cli.md` (legacy CLI `0.6.3`, items CL-1 to CL-134). It is the zero-regression baseline; "CL-n" below cites it.
+[rows."13"]
+"audits/client-parity-work/cli.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > Inputs (read in full)
+# - `audits/client-parity-20260930.md`: rows C-30, C-31, C-77, C-84 to C-94, gaps CG-3 and CG-20, rulings U-2 (one Hub per machine), U-4 (cloud is a separate plugin product), U-7 (agents are clients).
+[rows."14"]
+"audits/client-parity-20260930.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > Inputs (read in full)
+# - Hub→client contract, latest candidate `hub-client-contract-v1-candidate-parity45.md` with `hub-client-contract-v1-amendment-2-candidate6.md` (sha256 `483bce82…3e85`; the newest candidate, which differs from the one the CLI was reviewed against only by the pinned codec revision; re-pinned to the accepted successor when the auditor names it; HC RT-1 to RT-5, CF-1, A.9b) (the frozen package; MC-1c of parity43, sha256 `d5da3d2e…b95f`, is unchanged; the context file schema is MC-1c, which owns it; parity21 and parity23 add the plugin wire of section 9b; it adds TB-L1 socket discovery, the context file's `session_type_dir`, `hub diagnostics` and `worktree delete {force?}`): HS-1 to HS-9, DS-1 to DS-7, VB-1 to VB-7, WT-1 to WT-9, kinds `hub`, `session`, `worktree`, `spawn_target`, binding `local-stream` (TR-1, TB-L2, TB-L3), PR-0 (`issue_pairing`), MC-0 to MC-2, MC-1c.
+[rows."15"]
+"d5da3d2e…b95f" = "n/a: a shortened sha256 of an earlier revision of this text"
+hub = ["hub.kind:hub"]
+"hub diagnostics" = ["hub.kind:hub", "hub.action:hub.diagnostics"]
+"hub-client-contract-v1-amendment-2-candidate6.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+"hub-client-contract-v1-candidate-parity45.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+issue_pairing = ["hub.action:hub.issue_pairing"]
+local-stream = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+session = ["hub.kind:session"]
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+spawn_target = ["hub.kind:spawn_target"]
+worktree = ["hub.kind:worktree"]
+"worktree delete {force?}" = ["hub.kind:worktree", "hub::Verb::Delete", "hub::WorktreeDeleteArgs::force"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > Inputs (read in full)
+# - The local agent definitions: `~/.botster-dev/agents/*/initialization` (10 definitions: claude, codex, cursor, default, fable, grok, omp, opus, sol, sonnet; the audit counted 9). **Measured usage:** every definition runs `"$(botster context prompt)"`; `codex` also runs `botster context worktree_path`, `botster context branch_name` and `botster context session_dir`; `claude/notes.md` points the agent at `botster context file notes.md`. No local script uses another `botster` subcommand.
+[rows."16"]
+"\"$(botster context prompt)\"" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:prompt"]
+botster = ["cli.binary:botster"]
+"botster context branch_name" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:branch_name"]
+"botster context file notes.md" = { symbols = ["cli.binary:botster", "cli.command:COMMANDS:context file"], uncovered = { notes = "a part of the example file name `notes.md` (the companion file of the claude agent definition)", md = "a part of the example file name `notes.md`" } }
+"botster context session_dir" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:session_dir"]
+"botster context worktree_path" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:worktree_path"]
+"claude/notes.md" = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+codex = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+"~/.botster-dev/agents/*/initialization" = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 1. Principles
+# | CLI-P1 | **A client, not the Hub.** The CLI speaks to the Hub only over the binding `local-stream` (HC 9.1), as a caller authenticated by socket permissions and peer uid (TB-L3). It reads and writes **no Hub file** (manifest, pid file, lock, credentials, data directory). It starts the Hub only by running the Hub's own executable (CLI-ST-2). |
+[rows."22"]
+local-stream = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 1. Principles
+# | CLI-P2 | **One Hub per machine (user ruling UD-1).** One data root and one socket per user account. The CLI has no multi-Hub discovery and no `--hub` selection. A dev build and a release build share them: a developer **swaps the binary** of the one Hub (CLI-ST6, CLI-DV3). **Exemption, harness only:** the test harness runs ephemeral, isolated instances with their own temporary roots; they are not installed Hubs and no product CLI flag or command reaches them (CLI-RT3). |
+[rows."23"]
+--hub = ["cli.flag:FLAGS:get-connection-url:--hub", "cli.flag:FLAGS:debug memory:--hub"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 1. Principles
+# | CLI-P7 | **Additive versioning.** A new command, flag or context key is a MINOR change. A removed command, a changed stdout format, a changed exit code or a renamed key is a MAJOR change. `botster --version` prints the CLI version. |
+[rows."28"]
+"botster --version" = ["cli.binary:botster", "cli.flag:FLAGS:botster:--version"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `botster --version`, `-V`, `--help`, `-h` | CL-1 | KEEP | CLI-G |
+[rows."35"]
+--help = ["cli.flag:FLAGS:botster:--help"]
+-h = ["cli.flag:FLAGS:botster:-h"]
+"botster --version" = ["cli.binary:botster", "cli.flag:FLAGS:botster:--version"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `start [--headless] [--offline] [--swap [--drop-unadoptable]]` | CL-13..33 | CHANGED: ensures a Hub, then attaches | CLI-ST |
+[rows."36"]
+"start [--headless] [--offline] [--swap [--drop-unadoptable]]" = ["cli.command:COMMANDS:start", "cli.flag:FLAGS:start:--headless", "cli.flag:FLAGS:start:--offline", "cli.flag:FLAGS:start:--swap", "cli.flag:FLAGS:start:--drop-unadoptable"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `attach [--swap [--drop-unadoptable]]` | CL-38..49 | CHANGED: launches the terminal UI | CLI-AT |
+[rows."37"]
+"attach [--swap [--drop-unadoptable]]" = ["cli.command:COMMANDS:attach", "cli.flag:FLAGS:attach:--swap", "cli.flag:FLAGS:attach:--drop-unadoptable"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `status` | CL-34..37 | CHG: probes the socket; Hub-file fields dropped (D-17, UD-5) | CLI-SS |
+[rows."38"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `context [key]`, `context file <rel>` | CL-60..65 | KEEP, reads the context file (CG-3) | CLI-CX |
+[rows."39"]
+"context [key]" = { symbols = ["cli.command:COMMANDS:context"], uncovered = { key = "the placeholder of the context key argument (CLI-CX2)" } }
+"context file <rel>" = { symbols = ["cli.command:COMMANDS:context file"], uncovered = { rel = "the placeholder of the relative path argument (CLI-CX5)" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `mcp-serve` | CL-50..59 | KEEP HTTP proxy; socket gateway dropped | CLI-MS |
+[rows."40"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `update [--check] [--no-wait]` | CL-112..117 | CHANGED: asks the Hub | CLI-UP |
+[rows."41"]
+"update [--check] [--no-wait]" = ["cli.command:COMMANDS:update", "cli.flag:FLAGS:update:--check", "cli.flag:FLAGS:update:--no-wait"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `get-connection-url [--hub <ID>] [--qr]` (alias `pairing-url`) | CL-121,122 | CHANGED: calls `issue_pairing` | CLI-PU |
+[rows."42"]
+"get-connection-url [--hub <ID>] [--qr]" = ["cli.command:COMMANDS:get-connection-url", "cli.flag:FLAGS:get-connection-url:--hub", "cli.flag:FLAGS:get-connection-url:--qr"]
+issue_pairing = ["hub.action:hub.issue_pairing"]
+pairing-url = ["cli.command:COMMANDS:pairing-url"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `list-worktrees`, `delete-worktree N` | CL-129,130 | CHANGED: over the `worktree` kind | CLI-WT |
+[rows."43"]
+"delete-worktree N" = ["cli.command:COMMANDS:delete-worktree"]
+list-worktrees = ["cli.command:COMMANDS:list-worktrees"]
+worktree = ["hub.kind:worktree"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `json-get`, `json-set`, `json-delete` | CL-126..128 | KEEP | CLI-JS |
+[rows."44"]
+json-delete = ["cli.command:COMMANDS:json-delete"]
+json-get = ["cli.command:COMMANDS:json-get"]
+json-set = ["cli.command:COMMANDS:json-set"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `debug memory [--hub <ID>]`, `debug hub`, `debug vt-replay PATH [...]` | CL-123..125 | OPEN: one needs a Hub action, one is Core's | CLI-DB |
+[rows."45"]
+"debug hub" = ["cli.command:COMMANDS:debug hub"]
+"debug memory [--hub <ID>]" = ["cli.command:COMMANDS:debug memory", "cli.flag:FLAGS:debug memory:--hub"]
+"debug vt-replay PATH [...]" = ["cli.command:COMMANDS:debug vt-replay"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `config` | CL-105 | KEEP (bare form only) | CLI-CF |
+[rows."46"]
+config = ["cli.command:COMMANDS:config"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `dev-rebuild` | (TUI menu `dev_rebuild`, HB-292) | NEW as a CLI command, **dev builds only** | CLI-DV |
+[rows."47"]
+dev-rebuild = ["cli.command:COMMANDS:dev-rebuild"]
+dev_rebuild = "n/a: the legacy TUI menu action that CLI-DV replaces (HB-292), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `plugin install <source> [--ref R] [--enable] [--bind I=P]... [--no-wait]`, `update <name>...\|--all [--preview\|--check] [--bind ...] [--accept-breaking C:I]... [--no-wait]`, `status [<name>] [--json]`, `pin <name> [<ref>]\|--unpin <name>`, `rollback <name>\|--all [--no-wait]`, `approve <name> [-y]`, `remove <name> [--purge] [-y] [--no-wait]`, `enable <name>`, `disable <name>`, `catalog add\|remove\|list\|refresh` | none (CL-132) | NEW: full plugin management (`approve`, `catalog` and `pin --unpin` follow HP PM-1..14) | CLI-PL |
+[rows."48"]
+approve = { symbols = ["cli.command:COMMANDS:plugin approve"], uncovered = { approve = "the subcommand written after its group in this text; the whole token is `plugin approve`" } }
+"approve <name> [-y]" = { symbols = ["cli.command:COMMANDS:plugin approve", "cli.flag:FLAGS:plugin approve:-y"], uncovered = { name = "a placeholder of the usage", approve = "the subcommand written after its group in this text; the whole token is `plugin approve`" } }
+catalog = { symbols = ["cli.command:COMMANDS:plugin catalog"], uncovered = { catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog`" } }
+"catalog add\\|remove\\|list\\|refresh" = { symbols = ["cli.command:COMMANDS:plugin catalog", "cli.command:COMMANDS:plugin catalog add", "cli.command:COMMANDS:plugin catalog remove", "cli.command:COMMANDS:plugin catalog list", "cli.command:COMMANDS:plugin catalog refresh"], uncovered = { remove = "the subcommand written after its group in this text; the whole token is `plugin catalog remove`", refresh = "the subcommand written after its group in this text; the whole token is `plugin catalog refresh`", add = "the subcommand written after its group in this text; the whole token is `plugin catalog add`", list = "the subcommand written after its group in this text; the whole token is `plugin catalog list`", catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog`" } }
+"disable <name>" = { symbols = ["cli.command:COMMANDS:plugin disable"], uncovered = { name = "a placeholder of the usage", disable = "the subcommand written after its group in this text; the whole token is `plugin disable`" } }
+"enable <name>" = { symbols = ["cli.command:COMMANDS:plugin enable"], uncovered = { enable = "the subcommand written after its group in this text; the whole token is `plugin enable`", name = "a placeholder of the usage" } }
+"pin --unpin" = { symbols = ["cli.command:COMMANDS:plugin pin", "cli.flag:FLAGS:plugin pin:--unpin"], uncovered = { pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+"pin <name> [<ref>]\\|--unpin <name>" = { symbols = ["cli.command:COMMANDS:plugin pin", "cli.flag:FLAGS:plugin pin:--unpin"], uncovered = { ref = "a placeholder of the usage", name = "a placeholder of the usage", pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+"plugin install <source> [--ref R] [--enable] [--bind I=P]... [--no-wait]" = { symbols = ["cli.command:COMMANDS:plugin install", "cli.flag:FLAGS:plugin install:--ref", "cli.flag:FLAGS:plugin install:--enable", "cli.flag:FLAGS:plugin install:--bind", "cli.flag:FLAGS:plugin install:--no-wait"], uncovered = { source = "a placeholder of the usage" } }
+"remove <name> [--purge] [-y] [--no-wait]" = { symbols = ["cli.command:COMMANDS:plugin remove", "cli.flag:FLAGS:plugin remove:--purge", "cli.flag:FLAGS:plugin remove:-y", "cli.flag:FLAGS:plugin remove:--no-wait"], uncovered = { remove = "the subcommand written after its group in this text; the whole token is `plugin remove`", name = "a placeholder of the usage" } }
+"rollback <name>\\|--all [--no-wait]" = { symbols = ["cli.command:COMMANDS:plugin rollback", "cli.flag:FLAGS:plugin rollback:--all", "cli.flag:FLAGS:plugin rollback:--no-wait"], uncovered = { name = "a placeholder of the usage", rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+"status [<name>] [--json]" = { symbols = ["cli.command:COMMANDS:plugin status", "cli.flag:FLAGS:plugin status:--json"], uncovered = { status = "the subcommand written after its group in this text; the whole token is `plugin status`", name = "a placeholder of the usage" } }
+"update <name>...\\|--all [--preview\\|--check] [--bind ...] [--accept-breaking C:I]... [--no-wait]" = { symbols = ["cli.command:COMMANDS:plugin update", "cli.flag:FLAGS:plugin update:--all", "cli.flag:FLAGS:plugin update:--preview", "cli.flag:FLAGS:plugin update:--check", "cli.flag:FLAGS:plugin update:--bind", "cli.flag:FLAGS:plugin update:--accept-breaking", "cli.flag:FLAGS:plugin update:--no-wait"], uncovered = { name = "a placeholder of the usage", update = "the subcommand written after its group in this text; the whole token is `plugin update`" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 2. Commands at a glance
+# | `session` (internal) | CL-131 | GONE: Core's session worker | section 11 |
+[rows."49"]
+session = ["cli.command:GONE_COMMANDS:session"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G1 | **Name and help.** The binary is `botster`. `--version` and `-V` print `botster <cli version>` and exit 0. `--help` and `-h` print the parser's help. A subcommand is required. An unknown subcommand or flag is a usage error with exit code 2. (CL-1, CL-5) | `conf::cli_g1_version_help_usage` |
+[rows."55"]
+--help = ["cli.flag:FLAGS:botster:--help"]
+--version = ["cli.flag:FLAGS:botster:--version"]
+-h = ["cli.flag:FLAGS:botster:-h"]
+botster = ["cli.binary:botster"]
+"botster <cli version>" = ["cli.message:CLI-G1:4"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G2 | **Exit codes.** Success 0. A usage error 2. Any other failure prints `Error: <message>` to stderr and exits 1. **Exit 130** means *interrupted; the Hub operation continues*: a waiting command (CLI-PL2, CLI-UP2) ended by SIGINT. Exceptions kept from the legacy CLI: `status` always exits 0 (CLI-SS1); `get-connection-url` with no URL exits 1 (CLI-PU2). (CL-5) | `conf::cli_g2_exit_codes` |
+[rows."56"]
+"Error: <message>" = ["cli.message:CLI-G2:1"]
+get-connection-url = ["cli.command:COMMANDS:get-connection-url"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G3 | **Logging.** `mcp-serve` and `context` log to **stderr**, default level `warn`. Every other command logs to a file, default level `info`. `RUST_LOG` is honored. `BOTSTER_LOG_FILE` is the exact log path and is never rotated. Otherwise the file is `<log dir>/botster-<label>-<YYYYMMDD-HHMMSS>.log` (UTC), where `<log dir>` is `<config root>/logs/cli/` (CLI-RT2; it never collides with the Hub's `<data root>/logs/` when the two roots coincide, HC Amendment 2 candidate 5), and `<label>` is `start`, `attach` or `cli`. Before creating a file the CLI keeps at most 10 files per label (oldest by name deleted first). A file at 10 MB is truncated in place and continues after the line `--- log rotated (cap reached) ---`. (CL-6..12; deviation D-3: a failure to create the file never aborts the command, it falls back to stderr.) | `conf::cli_g3_logging_rules` |
+[rows."57"]
+"--- log rotated (cap reached) ---" = ["cli.message:CLI-G3:15"]
+"<config root>/logs/cli/" = ["cli.path:CLI-G3:9"]
+"<data root>/logs/" = ["cli.path:CLI-G3:10"]
+"<label>" = { symbols = ["cli.path:CLI-G3:7"], uncovered = { label = "the placeholder of the log path" } }
+"<log dir>" = ["cli.path:CLI-G3:8"]
+"<log dir>/botster-<label>-<YYYYMMDD-HHMMSS>.log" = ["cli.path:CLI-G3:7"]
+attach = ["cli.log_label:attach"]
+cli = ["cli.log_label:cli"]
+context = ["cli.command:COMMANDS:context"]
+info = "n/a: a log level of the tracing filter (RUST_LOG), not a contract symbol"
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+start = ["cli.log_label:start"]
+warn = "n/a: a log level of the tracing filter (RUST_LOG), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G4 | **Secrets.** CLI-P6 holds in every log level, including `RUST_LOG=trace`. | `conf::cli_g4_no_secret_in_logs` |
+[rows."58"]
+"RUST_LOG=trace" = "n/a: a log filter of the tracing library (RUST_LOG), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G5 | **Signals.** A command that blocks (`start`, `attach`, `mcp-serve`, `update`) ends within 15 s of SIGINT, SIGTERM or SIGHUP; the exit code is 130 for a waiting command of CLI-PL2 or CLI-UP2 and 1 otherwise. (CL-13, CL-14) | `conf::cli_g5_signal_watchdog` |
+[rows."59"]
+attach = ["cli.command:COMMANDS:attach"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+start = ["cli.command:COMMANDS:start"]
+update = ["cli.command:COMMANDS:update"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G6 | **Handshake identity.** The CLI's first envelope frame is `hello { protocol: "botster-hub", versions: {min, max}, client: { name: "botster-cli", version }, features }` (HS-1). If the Hub's version range does not intersect the CLI's, the CLI prints both ranges and exits 1 (HS-2). A feature the CLI needs and the Hub did not select makes the command fail with `unsupported` and the feature name, never a hang (HS-4). | `conf::cli_g6_handshake`, `conf::cli_g6_version_unsupported` |
+[rows."60"]
+"hello { protocol: \"botster-hub\", versions: {min, max}, client: { name: \"botster-cli\", version }, features }" = { symbols = ["hub::ClientFrame::Hello", "hub::Hello::protocol", "hub::PROTOCOL", "hub::Hello::versions", "hub::VersionRange::min", "hub::VersionRange::max", "hub::Hello::client", "hub::ClientInfo::name", "hub::ClientInfo::version", "hub::Hello::features"], uncovered = { botster = "a part of the protocol name botster-hub (hub::PROTOCOL) and of the client name botster-cli", hub = "a part of the protocol name botster-hub (hub::PROTOCOL)", cli = "a part of the client name botster-cli, the value of ClientInfo::name that the CLI sends" } }
+unsupported = ["hub::ErrorCode::Unsupported"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 3. Global behavior (CLI-G)
+# | CLI-G7 | **Common failures, one message each.** Every command that needs a Hub and finds none prints `No running Botster hub found. Start one with: botster start --headless` to stderr and exits 1 (`attach` and `debug memory` already do, CL-39, CL-124; `start` starts one). `close { hub_shutdown }` during a command prints `Hub shut down during the command` and exits 1, except where a clause defines a reconnect (CLI-UP2, CLI-ST6). `busy` is retried once after the Hub's own `retry_after` if given, else it prints `Hub busy; try again` and exits 1. `version_unsupported` is CLI-G6. | `conf::cli_g7_common_failures` |
+[rows."61"]
+"Hub busy; try again" = ["cli.message:CLI-G7:9"]
+"Hub shut down during the command" = ["cli.message:CLI-G7:6"]
+"No running Botster hub found. Start one with: botster start --headless" = ["cli.message:CLI-G7:1"]
+attach = ["cli.command:COMMANDS:attach"]
+busy = ["hub::ErrorCode::Busy"]
+"close { hub_shutdown }" = ["hub::Close", "hub::CloseReason::HubShutdown"]
+"debug memory" = ["cli.command:COMMANDS:debug memory"]
+retry_after = { symbols = ["hub::BusyData::retry_after_ms"], uncovered = { retry_after = "the spec's short name of the busy delay; the wire field is retry_after_ms" } }
+start = ["cli.command:COMMANDS:start"]
+version_unsupported = ["hub::CloseReason::VersionUnsupported"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT1 | **App name** (normative in HC RT-1; the CLI cites it). `botster` in every build, release or development. Every path below derives from it, so the two builds share **one** config root, data root and socket. Nothing in a build changes the app name. (CL-89; D-19.) | `conf::cli_rt1_app_name`, `conf::cli_rt1_dev_shares_paths` |
+[rows."67"]
+botster = ["cli.binary:botster"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT2 | **Roots the CLI knows.** The *config root* is `BOTSTER_CONFIG_DIR`, else the platform configuration directory plus the app name (macOS `~/Library/Application Support/<app>`). The *data root* is `BOTSTER_DATA_DIR`, else `BOTSTER_CONFIG_DIR`, else `~/.<app>`. (CL-90, CL-91) The CLI **writes** only under `<config root>/logs/cli/` (its logs, CLI-G3) and, if it ever keeps state, under `<config root>/cli/`; it holds **no Hub credential file** (HC Amendment 2 candidate 5). **Two named reads and writes are kept:** the CLI reads the one file named by `BOTSTER_CONTEXT_FILE` (CLI-CX1, a session's context file, which lives under the Hub's data root), and writes the exact path in `BOTSTER_LOG_FILE` when it is set (CLI-G3). Neither is a general read or write of the Hub's tree and **reads** nothing of the Hub's under either root. The data root is named so that `botster config` and the Hub agree on it (CLI-CF1). | `conf::cli_rt2_roots_precedence`, `conf::cli_rt2_reads_no_hub_file` |
+[rows."68"]
+"<config root>/cli/" = ["cli.path:CLI-RT2:7"]
+"<config root>/logs/cli/" = ["cli.path:CLI-G3:9"]
+"botster config" = ["cli.binary:botster", "cli.command:COMMANDS:config"]
+"~/.<app>" = ["cli.path:CLI-RT2:5"]
+"~/Library/Application Support/<app>" = ["cli.path:CLI-RT2:2"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT3 | **Hub socket discovery.** The CLI connects to exactly one socket. In order: (1) the path in `BOTSTER_HUB_SOCKET`; (2) `$BOTSTER_CONFIG_DIR/hub.sock` if `BOTSTER_CONFIG_DIR` is set; (3) `<runtime dir>/<app>/hub.sock`, where `<runtime dir>` is `$XDG_RUNTIME_DIR` if it is set, else `/tmp/botster-<uid>`. A path over 103 bytes is refused with a message that names the operating-system limit (the legacy CLI kept paths short for the 104-byte socket address limit, CL-94). **One rule for Hub, CLI and UI (HC TB-L1, unconditional):** steps (1) and (2) are honored by all three in every environment, so they always choose the same socket. They are environment variables, not product options: **no CLI flag or command selects another Hub or root**, and the product never sets them except for the UI child of CLI-AT2 (same Hub). The ephemeral instances of the test harness (CLI-P2) use them; UD-1 forbids a second *installed* Hub, and a developer who exports them by hand is outside the product contract. The Hub creates the directory with mode 0700 and the socket with mode 0600 (TB-L3). **Dependency DEP-1:** the Hub contract must state this rule; today HC names only a `socket_path` inside a route transport. | `conf::cli_rt3_discovery_order`, `conf::cli_rt3_long_path_refused` |
+[rows."69"]
+"$BOTSTER_CONFIG_DIR/hub.sock" = ["cli.path:CLI-RT3:2"]
+"/tmp/botster-<uid>" = ["cli.path:CLI-RT3:7"]
+"<runtime dir>" = { symbols = ["cli.path:CLI-RT3:4"], uncovered = { runtime = "a word of the runtime directory placeholder of the socket path (CLI-RT3)", dir = "a word of the runtime directory placeholder of the socket path (CLI-RT3)" } }
+"<runtime dir>/<app>/hub.sock" = ["cli.path:CLI-RT3:4"]
+socket_path = ["hub::Transport::socket_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT4 | **Liveness probe.** "A Hub answers" means: the CLI connects to the socket, sends `hello`, and receives `welcome` within 500 ms (the legacy probe bound, CL-36). The CLI never reads a pid file or a manifest to decide this. | `conf::cli_rt4_probe_by_handshake` |
+[rows."70"]
+hello = ["hub::Hello"]
+welcome = ["hub::Welcome"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT4b | **Socket ownership (HC RT-5).** Before it connects, the CLI checks that the socket and its directory are owned by **its own uid**; otherwise it prints `Refusing to connect: <path> is not owned by the current user` and exits 1. Another local user therefore cannot serve a fake Hub. | `conf::cli_rt4b_foreign_owner_refused` |
+[rows."71"]
+"Refusing to connect: <path> is not owned by the current user" = ["cli.message:CLI-RT4b:1"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 4. Roots and discovery (CLI-RT)
+# | CLI-RT5 | **No side effects.** No command creates a device identity, a credential, a keyring entry or a directory other than the log directory. (Legacy `start` and `status` created a device identity, CL-17 and CL-37; deviation D-1.) | `conf::cli_rt5_creates_nothing` |
+[rows."72"]
+start = ["cli.command:COMMANDS:start"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST1 | **`start`** ensures a Hub is running and then attaches. First it probes (CLI-RT4). **A Hub answers:** without `--headless` the CLI prints `Hub already running — attaching...` and runs `attach` (CL-20); with `--headless` it prints `Hub already running on this device (socket=<path>, binary: <running binary>). Use botster attach or stop the existing hub first.` and exits 1 (CL-18). **The CLI never starts a second Hub** and says which one runs (UD-1); the only exception to a running Hub is the swap of CLI-ST6. | `conf::cli_st1_running_hub` |
+[rows."78"]
+--headless = ["cli.flag:FLAGS:start:--headless"]
+"Hub already running on this device (socket=<path>, binary: <running binary>). Use botster attach or stop the existing hub first." = ["cli.message:CLI-ST1:6"]
+"Hub already running — attaching..." = ["cli.message:CLI-ST1:3"]
+attach = ["cli.command:COMMANDS:attach"]
+start = ["cli.command:COMMANDS:start"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST2 | **No Hub answers.** The CLI runs the Hub's executable (`botster-hub up`), found in **the directory of the `botster` binary** (the install is one directory, below), with the working directory set to `$HOME` (CL-26). `--headless` runs it in the **foreground**: the CLI forwards SIGINT, SIGTERM and SIGHUP to it and exits with its exit code. Without `--headless` the CLI starts it in the **background** (its own session), waits for the Hub's **readiness line** on an inherited pipe (DEP-2, ruled): the CLI creates a pipe and starts `botster-hub up --ready-fd <N>` with the write end inherited as descriptor `N`. The Hub writes exactly one line once it is listening **and adoption has finished**: `ready <socket path>` or `failed <code> <message>`; then it closes the pipe. **EOF without a line means the start failed** (the CLI reports the Hub's exit status and exits 1). No polling loop, no sleep, then attaches. If the Hub exits because another instance holds its lock, the CLI prints the Hub's message and exits 1 (CL-19, CL-21). | `conf::cli_st2_spawn_foreground`, `conf::cli_st2_spawn_background_ready`, `conf::cli_st2_second_instance_refused` |
+[rows."79"]
+--headless = ["cli.flag:FLAGS:start:--headless"]
+botster = ["cli.binary:botster"]
+"botster-hub up" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"botster-hub up --ready-fd <N>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"failed <code> <message>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"ready <socket path>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST3 | **Terminal.** Without `--headless`, `start` needs a terminal on stdin. Otherwise it prints `'start' requires an interactive terminal. Use 'botster start --headless'.` and exits 1 (CL-24). `--headless` needs none. | `conf::cli_st3_tty_required` |
+[rows."80"]
+"'start' requires an interactive terminal. Use 'botster start --headless'." = ["cli.message:CLI-ST3:3"]
+--headless = ["cli.flag:FLAGS:start:--headless"]
+start = ["cli.command:COMMANDS:start"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST4 | **`--offline`.** The flag is accepted and sets `BOTSTER_OFFLINE=1` in the environment of the Hub the CLI starts. Its meaning (no cloud registration, pairing or push, no update check) belongs to the Hub and the cloud plugin. **The Hub reads the setting itself** (HC Amendment 2 CF-2): `[hub] offline` in `<config root>/hub.toml` or `BOTSTER_OFFLINE=1`; the CLI only sets the variable for the Hub it starts. The CLI itself has no online mode. (CL-16, CL-108; tied to the cloud plugin, UC-2.) | `conf::cli_st4_offline_env` |
+[rows."81"]
+--offline = ["cli.flag:FLAGS:start:--offline"]
+"<config root>/hub.toml" = ["cli.path:CLI-ST4:4"]
+"[hub] offline" = "n/a: Hub-owned interface name; steward follow-up F-1"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST5 | **Boot update notice** (the Hub checks at start only when `[update] check_on_start` is true, HC CF-2; when it is false the hub row stays `idle` and the CLI shows nothing). After the probe and before attaching, unless `--offline` or `BOTSTER_ENV=test`, the CLI reads `get(hub)`. If `update.state` of the hub row is `available` (the `update` field is `{ state: idle | checking | available | downloading | installing | failed { reason }, available?: { version } }`, DEP-15), with `<new>` = `update.available.version`: with `--headless` it logs `Update available: v<cur> -> v<new>. Run 'botster update' to install.`; interactively it prints `Update available: v<cur> -> v<new>` and asks `Update now? [Y/n]` (default yes); yes runs CLI-UP2. Nothing is shown when the Hub reports none. (CL-23, CL-25) | `conf::cli_st5_update_notice` |
+[rows."82"]
+--headless = ["cli.flag:FLAGS:start:--headless"]
+--offline = ["cli.flag:FLAGS:start:--offline"]
+"<new>" = { symbols = ["hub::AvailableUpdate::version"], uncovered = { new = "the placeholder of the available version (CLI-ST5)" } }
+"BOTSTER_ENV=test" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"Update available: v<cur> -> v<new>" = ["cli.message:CLI-ST5:14"]
+"Update available: v<cur> -> v<new>. Run 'botster update' to install." = ["cli.message:CLI-ST5:13"]
+"Update now? [Y/n]" = ["cli.message:CLI-ST5:15"]
+"[update] check_on_start" = "n/a: Hub-owned interface name; steward follow-up F-1"
+available = ["hub::UpdateState::Available"]
+"get(hub)" = ["hub::Verb::Get", "hub.kind:hub"]
+idle = ["hub::UpdateState::Idle"]
+update = ["hub::HubRow::update"]
+"update.available.version" = ["hub::HubRow::update", "hub::UpdateStatus::available", "hub::AvailableUpdate::version"]
+"update.state" = ["hub::HubRow::update", "hub::UpdateStatus::state"]
+"{ state: idle | checking | available | downloading | installing | failed { reason }, available?: { version } }" = ["hub::UpdateStatus::state", "hub::UpdateState::Idle", "hub::UpdateState::Checking", "hub::UpdateState::Available", "hub::UpdateState::Downloading", "hub::UpdateState::Installing", "hub::UpdateState::Failed", "hub::ReasonData::reason", "hub::UpdateStatus::available", "hub::AvailableUpdate::version"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-ST6 | **Binary swap, one rule for both directions (UD-1, orchestrator).** The one Hub runs one binary; `get(hub)` reports it as `software`. **Any build** (dev or release) whose `start` or `attach` finds the Hub running a different binary **refuses**: it prints `Hub runs <running binary>; this is <this binary>. Use --swap to replace it.` and exits 1 (`start --headless` refuses the same way). Nothing else replaces a Hub: no build swaps without `--swap`. With `--swap` the **Hub owns the commit** (DEP-11; a read followed by `shutdown` would race a worker launched in between). The CLI: (1) may first call the read `swap_preflight` (DEP-10) to show the operator the result early; (2) calls `invoke(hub, <hub_id>, swap, { target_worker_protocol, drop_unadoptable? })`, in which the Hub **stops launch admission (spawn and restart are refused `wrong_state { swap_in_progress }` meanwhile), checks the final live set and only then commits**, answering either `accepted` or the typed refusal `wrong_state { unadoptable_sessions, sessions }` (it also lists `unknown`), with nothing stopped and admission reopened. A live worker whose protocol is **unknown** counts as unadoptable: it is refused unless `--drop-unadoptable`. **Output (stderr, exit 1 for a refusal):** a refusal prints `Swap refused: sessions that cannot be adopted`, then `  unadoptable: <session ref> ...` and `  unknown protocol: <session ref> ...` (a line is omitted when its list is empty), then `Use --swap --drop-unadoptable to end them.` The preflight prints two separate lists, `unadoptable` (session, worker protocol) and `unknown protocol` (session). The **refusal** carries only session references (`sessions`, `unknown`, HC40); the CLI prints them as two separate lists and **prints no worker protocol from a refusal** (only the preflight returns one; the CLI never invents or infers a protocol value). `--drop-unadoptable` names the ended sessions of both groups by session reference. `drop_unadoptable` is sent only for `--swap --drop-unadoptable`, and the output names each ended session. A swap never ends a session silently. (3) After `accepted` the CLI waits for the **handover event** of DEP-11 (the control connection's `close` states that the Hub released its singleton lock and socket; a bare socket close proves neither, HS-9), then starts its own Hub as CLI-ST2 does. A close without the handover proof is reported as a failed swap and **no new Hub is started**. `target_worker_protocol` is the worker protocol built into the CLI's install. Adoptable sessions survive through Core worker adoption; the terminal UIs reconnect (CLI-AT4). `dev-rebuild` passes `--swap` explicitly (CLI-DV3). | `conf::cli_st6_refuses_without_swap`, `conf::cli_st6_hub_commits_after_admission_stop`, `conf::cli_st6_unadoptable_refused_and_listed`, `conf::cli_st6_drop_unadoptable_explicit`, `conf::cli_st6_waits_handover_proof`, `conf::cli_st6_second_hub_refused` |
+[rows."83"]
+--drop-unadoptable = ["cli.flag:FLAGS:start:--drop-unadoptable", "cli.flag:FLAGS:attach:--drop-unadoptable"]
+--swap = ["cli.flag:FLAGS:start:--swap", "cli.flag:FLAGS:attach:--swap"]
+"--swap --drop-unadoptable" = ["cli.flag:FLAGS:start:--swap", "cli.flag:FLAGS:start:--drop-unadoptable", "cli.flag:FLAGS:attach:--swap", "cli.flag:FLAGS:attach:--drop-unadoptable"]
+"Hub runs <running binary>; this is <this binary>. Use --swap to replace it." = ["cli.message:CLI-ST6:5"]
+"Swap refused: sessions that cannot be adopted" = ["cli.message:CLI-ST6:17"]
+"Use --swap --drop-unadoptable to end them." = ["cli.message:CLI-ST6:20"]
+accepted = ["hub::EffectClass::Accepted"]
+attach = ["cli.command:COMMANDS:attach"]
+close = ["hub::Close"]
+dev-rebuild = ["cli.command:COMMANDS:dev-rebuild"]
+drop_unadoptable = ["hub::SwapArgs::drop_unadoptable"]
+"get(hub)" = ["hub::Verb::Get", "hub.kind:hub"]
+"invoke(hub, <hub_id>, swap, { target_worker_protocol, drop_unadoptable? })" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.swap", "hub::SwapArgs::target_worker_protocol", "hub::SwapArgs::drop_unadoptable"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+sessions = ["hub::UnadoptableDetail::sessions"]
+shutdown = ["hub.action:hub.shutdown"]
+software = ["hub::HubRow::software"]
+start = ["cli.command:COMMANDS:start"]
+"start --headless" = ["cli.command:COMMANDS:start", "cli.flag:FLAGS:start:--headless"]
+swap_preflight = ["hub.action:hub.swap_preflight"]
+target_worker_protocol = ["hub::SwapArgs::target_worker_protocol"]
+unadoptable = ["hub::SwapPreflightResult::unadoptable"]
+"unadoptable: <session ref> ..." = ["cli.message:CLI-ST6:18"]
+unknown = ["hub::SwapPreflightResult::unknown", "hub::UnadoptableDetail::unknown"]
+"unknown protocol" = ["cli.message:CLI-ST6:22"]
+"unknown protocol: <session ref> ..." = ["cli.message:CLI-ST6:19"]
+"wrong_state { swap_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:session.create:wrong_state:swap_in_progress", "hub.reason:session.restart:wrong_state:swap_in_progress"]
+"wrong_state { unadoptable_sessions, sessions }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.swap:wrong_state:unadoptable_sessions", "hub::UnadoptableDetail::sessions"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-AT1 | **`attach`** needs a terminal on stdin (CL-38) and a Hub that answers. With no Hub it prints `No running Botster hub found. Start one with: botster start --headless` and exits 1 (CL-39). There is no multi-Hub listing or "stop the stale hub" error (ruling U-2; deviation D-9). | `conf::cli_at1_no_hub`, `conf::cli_at1_tty_required` |
+[rows."84"]
+"No running Botster hub found. Start one with: botster start --headless" = ["cli.message:CLI-G7:1"]
+attach = ["cli.command:COMMANDS:attach"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-AT2 | **`attach` is a launcher.** The terminal UI is a **client binary of the same install** (auditor's answer to DEP-3: the Hub does not launch it and no Hub action resolves a launch). The CLI runs `botster-tui`, found in the directory of the `botster` binary (the same rule that puts the matching `botster` on a session's `PATH`, MC-1c), with `BOTSTER_HUB_SOCKET` set to the path of CLI-RT3 (HC TB-L1). **That path is the whole connection descriptor for `local-stream`**: the UI needs no other variable. Where the operating system allows it, the CLI **replaces itself** with that process (exec), so the terminal, SIGWINCH and the exit code go straight to the UI. The CLI forwards no frames, subscribes to no kind, and owns no UI state: the legacy bridge behavior (CL-42 to CL-46) is the UI's own client behavior. **Consequence for the TUI spec:** the TUI reads `BOTSTER_HUB_SOCKET`, else applies TB-L1 itself; the typed `BOTSTER_HUB_CONNECTION` descriptor and the package manifest that declared a foreground entrypoint go away. | `conf::cli_at2_launch_contract`, `conf::cli_at2_exec_passthrough` |
+[rows."85"]
+attach = ["cli.command:COMMANDS:attach"]
+botster = ["cli.binary:botster"]
+botster-tui = "n/a: the binary of the terminal UI, a client of the same install; not a contract symbol (steward ruling, PR 8 leftovers item 3)"
+local-stream = { symbols = ["hub.binding:local-stream"], uncovered = { local = "the words of the binding name local-stream (hub.binding:local-stream)", stream = "the words of the binding name local-stream (hub.binding:local-stream)" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-AT3 | **Quit.** Leaving the UI detaches; the Hub keeps running (CL-47). The exit code of `attach` is the UI's. | `conf::cli_at3_quit_keeps_hub` |
+[rows."86"]
+attach = ["cli.command:COMMANDS:attach"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-SS1 | **`status`** probes the socket (CLI-RT3, CLI-RT4) and prints a `Hub status` block. Always: `socket` (the path), `running` (`yes` or `no`: a `welcome` arrived), `protocol` (the selected version or `none`). When running, from `get(hub)` (DEP-12): `hub_id`, `running binary: dev <sha> | release <version>` (from `software`), this CLI's own binary in the same form, `pid`, `uptime` (from `uptime_seconds`), `data_root` (operators only; omitted when not returned), `sessions` and `plugins` (counts) and, for each component (`hub`, `worker`, `plugin_hosts`, `mcp_bridge`) in `components` (DEP-13), its **installed** identity: the channel, commit and (dev only, operators only) checkout that the **next launch** uses. Where the component also has `running` identities that differ from the installed one (adopted workers and preserved services keep their build after a swap, Core AD-1, AD-4, SV-6), `status` prints one line per entry after the installed line: `<component> running <channel> <commit> (<count>)`. A field the Hub does not report is printed `unknown`, never guessed, and a `running` entry with no channel and no commit is **printed**, not hidden (`<component> running unknown unknown (<count>)`). `status` never claims one commit for a component that runs several and the update state. A difference between the two binaries is printed as `binary differs: 'botster start --swap' replaces it`. It prints exactly one diagnosis line: (1) the socket path does not exist; (2) it exists but is not connectable; (3) connectable but no `welcome` within 500 ms; (4) `welcome` received: the Hub accepts clients; (5) no Hub found. It **always exits 0** (CL-34..36). **Dropped from the legacy block (ruling UD-5, D-17):** `pid_file`, `manifest` (with `manifest_pid`, `server_id`, `updated_at`, `workspaces`) and `lock_file` are Hub internals (P3) and are not printed; the CLI reads no Hub file (CLI-P1). They appear, if at all, in the `debug hub` report (CLI-DB3) with no compatibility promise. Legacy diagnosis (1) "process alive but socket path missing" needed the pid file; it is merged into (1). | `conf::cli_ss1_running_binary`, `conf::cli_ss1_fields_kept`, `conf::cli_ss1_five_diagnoses`, `conf::cli_ss1_exit_zero`, `conf::cli_ss1_reads_no_hub_file` |
+[rows."88"]
+"<component> running <channel> <commit> (<count>)" = ["cli.message:CLI-SS1:27"]
+"<component> running unknown unknown (<count>)" = ["cli.message:CLI-SS1:30"]
+"Hub status" = ["cli.message:CLI-SS1:2"]
+"binary differs: 'botster start --swap' replaces it" = ["cli.message:CLI-SS1:32"]
+components = ["hub::HubRow::components"]
+data_root = ["cli.status_field:STATUS_FIELDS:data_root", "hub::HubRow::data_root"]
+"debug hub" = ["cli.command:COMMANDS:debug hub"]
+"get(hub)" = ["hub::Verb::Get", "hub.kind:hub"]
+hub = ["hub::Components::hub"]
+hub_id = ["cli.status_field:STATUS_FIELDS:hub_id"]
+lock_file = ["cli.status_field:DROPPED_STATUS_FIELDS:lock_file"]
+manifest = ["cli.status_field:DROPPED_STATUS_FIELDS:manifest"]
+manifest_pid = ["cli.status_field:DROPPED_STATUS_FIELDS:manifest_pid"]
+mcp_bridge = ["hub::Components::mcp_bridge"]
+no = ["cli.message:CLI-SS1:6"]
+none = ["cli.message:CLI-SS1:9"]
+pid = ["cli.status_field:STATUS_FIELDS:pid", "hub::HubRow::pid"]
+pid_file = ["cli.status_field:DROPPED_STATUS_FIELDS:pid_file"]
+plugin_hosts = ["hub::Components::plugin_hosts"]
+plugins = ["cli.status_field:STATUS_FIELDS:plugins", "hub::HubRow::plugins"]
+protocol = ["cli.status_field:STATUS_FIELDS:protocol"]
+running = ["cli.status_field:STATUS_FIELDS:running", "hub::Component::running"]
+"running binary: dev <sha> | release <version>" = ["cli.message:CLI-SS1:12"]
+server_id = ["cli.status_field:DROPPED_STATUS_FIELDS:server_id"]
+sessions = ["cli.status_field:STATUS_FIELDS:sessions", "hub::HubRow::sessions"]
+socket = ["cli.status_field:STATUS_FIELDS:socket"]
+software = ["hub::HubRow::software"]
+status = ["cli.command:COMMANDS:status"]
+unknown = ["cli.message:CLI-SS1:28"]
+updated_at = ["cli.status_field:DROPPED_STATUS_FIELDS:updated_at"]
+uptime = ["cli.status_field:STATUS_FIELDS:uptime"]
+uptime_seconds = ["hub::HubRow::uptime_seconds"]
+welcome = ["hub::Welcome"]
+worker = ["hub::Components::worker"]
+workspaces = ["cli.status_field:DROPPED_STATUS_FIELDS:workspaces"]
+yes = ["cli.message:CLI-SS1:5"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 5. start, attach, status (CLI-ST, CLI-AT, CLI-SS)
+# | CLI-SS2 | `status` changes nothing (CLI-RT5). | `conf::cli_rt5_creates_nothing` |
+[rows."89"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# ## 6. `context`: the session program's launch context (CLI-CX, CG-3)
+[rows."91"]
+context = ["cli.command:COMMANDS:context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# **Why this is critical.** Every local agent definition launches its program with `"$(botster context prompt)"` and `codex` reads `worktree_path`, `branch_name` and `session_dir`. The legacy CLI read a session manifest that the legacy Hub wrote. HC MC-1c gives a session only `BOTSTER_SESSION_ID`, `BOTSTER_MCP_URL`, `BOTSTER_MCP_TOKEN`, optional port variables, `BOTSTER_CONTEXT_FILE`, `TERM`/`TERMINFO` and a `PATH` that starts with the directory of the Hub's own `botster` binary. This section defines the CLI side of that delivery.
+[rows."93"]
+"\"$(botster context prompt)\"" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:prompt"]
+botster = ["cli.binary:botster"]
+branch_name = ["cli.context_key:CONTEXT_KEYS:branch_name"]
+codex = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+worktree_path = ["cli.context_key:CONTEXT_KEYS:worktree_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX1 | **Source.** `botster context` runs inside a session the Hub spawned. It reads the JSON file named by `BOTSTER_CONTEXT_FILE` (HC MC-1c): **no Hub connection, no network, no other file** (CL-61). If the variable is unset or empty it prints `BOTSTER_CONTEXT_FILE is required for botster context` and exits 1 (CL-60; the legacy message named `BOTSTER_SESSION_UUID`). A file that is missing or does not parse yields the empty map (output `{}`, exit 0) and one warning on stderr (CL-63; the warning is new, D-8). | `conf::cli_cx1_source`, `conf::cli_cx1_missing_env`, `conf::cli_cx1_unreadable_file` |
+[rows."97"]
+"BOTSTER_CONTEXT_FILE is required for botster context" = ["cli.message:CLI-CX1:3"]
+"botster context" = ["cli.binary:botster", "cli.command:COMMANDS:context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX2 | **Key map (normative).** `botster context <key>` resolves `<key>` in this order: (1) an **alias** in the table below; (2) a top-level key of the file; (3) an entry of the file's `context` object, by bare name, if the name is not an alias or a top-level key. | `conf::cli_cx2_resolution_order` |
+[rows."98"]
+"<key>" = { symbols = ["cli.command:COMMANDS:context"], uncovered = { key = "the placeholder of the context key argument (CLI-CX2)" } }
+"botster context <key>" = { symbols = ["cli.binary:botster", "cli.command:COMMANDS:context"], uncovered = { key = "the placeholder of the context key argument (CLI-CX2)" } }
+context = ["hub::SessionContextFile::context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX4 | **Output.** With no key the CLI prints the resolved map as pretty JSON: every alias that resolves, plus the `context` entries that are strings or integers, flattened by bare name (an entry never overrides an alias, CL-63). With a key it prints the value alone and a newline: a string without quotes, an integer in decimal. An unknown key prints nothing and exits 0 (CL-64). **Conditional fields (HC MC-1c):** `session_type_id` and `session_type_dir` are present only for a session started from a session type; a raw command session has neither. The aliases that depend on them (`agent_name`, `session_dir`) are then **absent**: `botster context agent_name` prints nothing and exits 0, the no-key map omits them, and `context file` refuses (CLI-CX5). The CLI never invents a value for an absent field. **`task`** (the session row's `task?`, `update(session, { label?, task? })`) is **not** in the context file and not a `botster context` key; the CLI does not read session rows for `context` (CLI-CX1). | `conf::cli_cx4_output_forms`, `conf::cli_cx4_raw_command_session_aliases_absent` |
+[rows."100"]
+agent_name = ["cli.context_key:CONTEXT_KEYS:agent_name"]
+"botster context" = ["cli.binary:botster", "cli.command:COMMANDS:context"]
+"botster context agent_name" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:agent_name"]
+context = ["hub::SessionContextFile::context", "cli.command:COMMANDS:context"]
+"context file" = ["cli.command:COMMANDS:context file"]
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+session_type_id = ["hub::SessionContextFile::session_type_id"]
+task = ["hub::SessionRow::task"]
+"task?" = ["hub::SessionRow::task"]
+"update(session, { label?, task? })" = ["hub::Verb::Update", "hub.kind:session", "hub::SessionPatch::label", "hub::SessionPatch::task"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX5 | **`context file <rel>`** prints `<session_dir>/<rel>`, where `session_dir` is the alias of CLI-CX3. **If `session_dir` does not resolve to an absolute directory path in the file** (for example the file was unreadable and CLI-CX1 returned the empty map), the command prints `session_dir is not available for this session` to stderr, exits 1 and builds no path: an absent directory is never presented as a definition path. (The empty-map behavior of CLI-CX1 is unchanged for ordinary reads.) An absolute `<rel>` or a `..` component is refused with `paired file path must be relative and stay inside session_dir` and exit 1. The CLI does not check that the file exists (CL-65). | `conf::cli_cx5_file_guard`, `conf::cli_cx5_no_session_dir` |
+[rows."101"]
+"<rel>" = { symbols = ["cli.path:CLI-CX5:2"], uncovered = { rel = "the relative path placeholder of the context file path (CLI-CX5)" } }
+"<session_dir>/<rel>" = ["cli.path:CLI-CX5:2"]
+"context file <rel>" = { symbols = ["cli.command:COMMANDS:context file"], uncovered = { rel = "the placeholder of the relative path argument (CLI-CX5)" } }
+"paired file path must be relative and stay inside session_dir" = ["cli.message:CLI-CX5:8"]
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+"session_dir is not available for this session" = ["cli.message:CLI-CX5:5"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX6 | **The launch guarantee.** A program the Hub starts can run `botster context prompt` with no setup: (a) `botster` on `PATH` is the CLI of the same install (MC-1c puts its directory first), so a development build never calls a release CLI; (b) `BOTSTER_CONTEXT_FILE` is set and the file is complete **before** the program starts (HC `conf::mc_1c_context_file_private_and_complete`); (c) the file is readable only by the session's user. | `conf::cli_cx6_agent_scripts_run_verbatim` |
+[rows."102"]
+botster = ["cli.binary:botster"]
+"botster context prompt" = ["cli.binary:botster", "cli.command:COMMANDS:context", "cli.context_key:CONTEXT_KEYS:prompt"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | CLI-CX7 | **Environment variables that v1 no longer sets.** The legacy Hub injected `BOTSTER_WORKTREE_PATH`, `BOTSTER_TARGET_ID`/`_PATH`/`_REPO`, `BOTSTER_SESSION_UUID`, `BOTSTER_DATA_DIR`, `BOTSTER_HUB_ID`, `BOTSTER_HUB_SOCKET`, `BOTSTER_HUB_MANIFEST_PATH` and `BOTSTER_PROMPT` (CL-111). MC-1c removes every inherited `BOTSTER_*` variable and sets a fixed few. **No local script reads those variables** (measured, inputs above); a script that needs a value uses `botster context`. This is a deliberate deviation (D-11); UD-4 asks the user whether it is acceptable. | `conf::cli_cx7_legacy_env_absent` |
+[rows."103"]
+"botster context" = ["cli.binary:botster", "cli.command:COMMANDS:context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# **Alias table (CLI-CX3).** `file` means the JSON file of CLI-CX1; the file shape is HC MC-1c plus the additions DEP-4.
+[rows."105"]
+file = { symbols = ["cli.command:COMMANDS:context"], uncovered = { file = "the alias table's word for the context file of CLI-CX1" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `prompt` | `prompt` | Absent when the session type gave none: prints nothing, exit 0. |
+[rows."109"]
+prompt = ["cli.context_key:CONTEXT_KEYS:prompt", "hub::SessionContextFile::prompt"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `worktree_path` | `worktree_path` | |
+[rows."110"]
+worktree_path = ["cli.context_key:CONTEXT_KEYS:worktree_path", "hub::SessionContextFile::worktree_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `branch_name` | `branch` | **Renamed in the file, kept as the legacy name for scripts.** |
+[rows."111"]
+branch = ["hub::SessionContextFile::branch"]
+branch_name = ["cli.context_key:CONTEXT_KEYS:branch_name"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `repo` | `repo` | |
+[rows."112"]
+repo = ["cli.context_key:CONTEXT_KEYS:repo", "hub::SessionContextFile::repo"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `session_uuid` | `session.session_id` | |
+[rows."113"]
+"session.session_id" = ["hub::SessionContextFile::session", "hub::SessionRef::session_id"]
+session_uuid = ["cli.context_key:CONTEXT_KEYS:session_uuid"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `hub_id` | `session.hub_id` | |
+[rows."114"]
+hub_id = ["cli.context_key:CONTEXT_KEYS:hub_id"]
+"session.hub_id" = ["hub::SessionContextFile::session", "hub::SessionRef::hub_id"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `agent_name` | the part of `session_type_id` after the last `/` | The legacy agent name; the session type id is `<source>/<id>`. |
+[rows."115"]
+"<source>/<id>" = { symbols = ["hub::SessionContextFile::session_type_id"], uncovered = { source = "the source part of the session type id form <source>/<id>", id = "the id part of the session type id form <source>/<id>" } }
+agent_name = ["cli.context_key:CONTEXT_KEYS:agent_name"]
+session_type_id = ["hub::SessionContextFile::session_type_id"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `session_dir` | `session_type_dir` | **DEP-4.** In the measured scripts it is the agent definition directory (`codex` prints it as "Agent definition"; `claude/notes.md` reads a companion file through `context file`). The file must carry it. |
+[rows."116"]
+"claude/notes.md" = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+codex = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+"context file" = ["cli.command:COMMANDS:context file"]
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `workspace_id` | `context.workspace_id` | Supplied by the workspaces plugin through the session type's `context_keys`; absent if the plugin gives none. |
+[rows."117"]
+"context.workspace_id" = { symbols = ["hub::SessionContextFile::context"], uncovered = { workspace_id = "a key of the context object that the workspaces plugin supplies (plugin data); also the CLI alias cli.context_key:CONTEXT_KEYS:workspace_id" } }
+context_keys = ["hub::SessionTypeDefinition::context_keys"]
+workspace_id = ["cli.context_key:CONTEXT_KEYS:workspace_id"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 6. `context`: the session program's launch context (CLI-CX, CG-3)
+# | `hub_manifest_path` | (dropped) | It named a Hub file (CLI-P1; D-2). |
+[rows."118"]
+hub_manifest_path = ["cli.context_key:DROPPED_CONTEXT_KEYS:hub_manifest_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# ## 7. `mcp-serve` (CLI-MS)
+[rows."120"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# The agent's MCP connection is a client binding over the same verbs (HC section 10). `mcp-serve` lets an agent program that speaks MCP over stdio reach it.
+[rows."122"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# | CLI-MS1 | **Proxy mode.** When `BOTSTER_MCP_URL` and `BOTSTER_MCP_TOKEN` are both set, `mcp-serve` is a stdio-to-HTTP proxy. It reads newline-delimited JSON-RPC from stdin, POSTs each message to the URL with `Authorization: Bearer <token>` and `Accept: application/json, text/event-stream`, and writes each JSON-RPC reply as one line on stdout (CL-50). | `conf::cli_ms1_proxy_roundtrip` |
+[rows."126"]
+"Accept: application/json, text/event-stream" = "n/a: an HTTP header that the MCP transport specification defines, not a contract symbol"
+"Authorization: Bearer <token>" = "n/a: the HTTP bearer authorization header form (RFC 6750), not a contract symbol"
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# | CLI-MS2 | **Lifecycle and replay.** The proxy performs the MCP initialization handshake of the negotiated revision (HC MC-0) on behalf of an agent that sends a request first, keeps the `Mcp-Session-Id` the server returns and sends it on later calls, and sends `MCP-Protocol-Version` (CL-52). **It never replays a request that may have had an effect** (HC EN-3 and EN-8: after a lost reply the effect of a mutation is unknown, and a JSON-RPC id is not an idempotency guarantee). The rules: (a) a connection that could not be established (refused, no route) sent nothing, so the request may be sent once more; (b) `initialize` and the proxy's own session re-establishment may be repeated (no session effect); (c) a request of a method that the MCP specification defines as read-only (`ping`, `tools/list`, `prompts/list`, `prompts/get`, `resources/list`, `resources/templates/list`, `resources/read`) may be retried once; (d) **any other request, in particular `tools/call`, is never sent again once any byte of it was written.** It is answered with JSON-RPC error `-32603`, `data.outcome: "unknown"` and a text that says its effect is unknown. The agent decides: it may send the call again with the `idempotency_key` it chose. The proxy never adds, removes or changes an `idempotency_key`. No error text contains the token (CLI-P6). | `conf::cli_ms2_initialize_session`, `conf::cli_ms2_retry_only_when_nothing_sent`, `conf::cli_ms2_no_replay_after_lost_reply`, `conf::cli_ms2_idempotency_key_untouched` |
+[rows."127"]
+MCP-Protocol-Version = "n/a: an HTTP header that the MCP transport specification defines, not a contract symbol"
+Mcp-Session-Id = "n/a: an HTTP header that the MCP transport specification defines, not a contract symbol"
+"data.outcome: \"unknown\"" = "n/a: the data member of a JSON-RPC error (the MCP and JSON-RPC specifications), not a contract symbol"
+idempotency_key = ["hub::ToolRequestFields::idempotency_key"]
+initialize = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+ping = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"prompts/get" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"prompts/list" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"resources/list" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"resources/read" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"resources/templates/list" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"tools/call" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+"tools/list" = "n/a: an MCP protocol method or notification name (the MCP specification), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# | CLI-MS4 | **Outside a session** (no token or no URL) `mcp-serve` starts cleanly and offers one tool, `botster_status`, whose result says `Botster MCP is available only inside a Botster-managed session` (CL-58). | `conf::cli_ms4_outside_session` |
+[rows."129"]
+"Botster MCP is available only inside a Botster-managed session" = ["cli.message:CLI-MS4:3"]
+botster_status = ["cli.mcp_tool:botster_status"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# | CLI-MS5 | **Streams.** stdout carries only JSON-RPC lines. Logs go to stderr at `warn` (CLI-G3). End of stdin ends the command with exit 0. | `conf::cli_ms5_streams_and_eof` |
+[rows."130"]
+warn = "n/a: a log level of the tracing filter (RUST_LOG), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 7. `mcp-serve` (CLI-MS)
+# | CLI-MS6 | **Dropped.** The legacy socket gateway (CL-53..57: subscribe to an `mcp` channel, tool, prompt and resource frames over the Hub socket, reconnect every second) and the fallback to a manifest URL are **not carried**. The socket gateway was scheduled for removal on 2026-10-01 (CL-59), and the manifest URL would reach into a Hub file (CLI-P1). Deviation D-4. | (by absence) |
+[rows."131"]
+mcp = "n/a: a legacy Hub socket channel that v1 drops (CLI-MS6, CL-53..57); not a CLI name"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 8. update and pairing URL (CLI-UP, CLI-PU)
+# | CLI-UP1 | **`update --check`** calls `get(hub)` (`<cur>` is the version of `software`) and then `invoke(hub, <hub_id>, check_update)`, a read that returns `{ state: up_to_date \| ahead \| available \| failed { reason: check_failed \| offline \| dev_build }, available?: { version } }` (HC Amendment 2, H-3; it never fails because of the network). It prints one outcome: `available`: `Update available: v<cur> -> v<new>` and the hint `Run 'botster update' to install.` (exit 0); `up_to_date`: `✓ Already running the latest version` (exit 0); `ahead`: `✓ Running v<cur>, newer than the latest release` (exit 0, the legacy third outcome, CL-112; D-20 is withdrawn); `failed`: `Update check failed: <reason text>` on stderr and exit 1, where the text for `offline` is `the Hub is offline (hub.toml [hub] offline)`, for `dev_build` `this is a development build; it is not updated`, and for `check_failed` `the release could not be checked`. | `conf::cli_up1_check_outcomes`, `conf::cli_up1_ahead`, `conf::cli_up1_failed_reasons` |
+[rows."137"]
+"<cur>" = { symbols = ["hub::HubRow::software"], uncovered = { cur = "the placeholder of the running version, read from software (CLI-UP1)" } }
+"Run 'botster update' to install." = ["cli.message:CLI-UP1:9"]
+"Update available: v<cur> -> v<new>" = ["cli.message:CLI-ST5:14"]
+"Update check failed: <reason text>" = ["cli.message:CLI-UP1:15"]
+ahead = ["hub::CheckState::Ahead"]
+available = ["hub::CheckState::Available"]
+check_failed = ["hub.value:CHECK_UPDATE_FAILURE_REASONS:check_failed"]
+dev_build = ["hub.value:CHECK_UPDATE_FAILURE_REASONS:dev_build"]
+failed = ["hub::CheckUpdateState::Failed"]
+"get(hub)" = ["hub::Verb::Get", "hub.kind:hub"]
+"invoke(hub, <hub_id>, check_update)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.check_update"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+offline = ["hub.value:CHECK_UPDATE_FAILURE_REASONS:offline"]
+software = ["hub::HubRow::software"]
+"the Hub is offline (hub.toml [hub] offline)" = ["cli.message:CLI-UP1:17"]
+"the release could not be checked" = ["cli.message:CLI-UP1:21"]
+"this is a development build; it is not updated" = ["cli.message:CLI-UP1:19"]
+up_to_date = ["hub::CheckState::UpToDate"]
+"update --check" = ["cli.command:COMMANDS:update", "cli.flag:FLAGS:update:--check"]
+"{ state: up_to_date \\| ahead \\| available \\| failed { reason: check_failed \\| offline \\| dev_build }, available?: { version } }" = ["hub::CheckUpdateResult::state", "hub::CheckState::UpToDate", "hub::CheckState::Ahead", "hub::CheckState::Available", "hub::CheckUpdateState::Failed", "hub::ReasonData::reason", "hub.value:CHECK_UPDATE_FAILURE_REASONS:check_failed", "hub.value:CHECK_UPDATE_FAILURE_REASONS:offline", "hub.value:CHECK_UPDATE_FAILURE_REASONS:dev_build", "hub::CheckUpdateResult::available", "hub::AvailableUpdate::version"]
+"✓ Already running the latest version" = ["cli.message:CLI-UP1:11"]
+"✓ Running v<cur>, newer than the latest release" = ["cli.message:CLI-UP1:13"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 8. update and pairing URL (CLI-UP, CLI-PU)
+# | CLI-UP2 | **`update`** prints the current and the latest version. If there is nothing newer it prints `✓ Already running the latest version (or newer)` and exits 0 (CL-116). Otherwise it calls `invoke(hub, <hub_id>, update)`, a durable operation (EN-7), watches the operation, prints its progress, and on success prints `✓ Successfully updated to version <X>`; on failure it prints the Hub's error and exits 1. The `update` action's refusals (HC A.9b) are printed as: `wrong_state { up_to_date }` → `✓ Already running the latest version` (exit 0); `offline` and `dev_build` → the texts of CLI-UP1 (exit 1); `update_in_progress` → `An update is already in progress` (exit 1); `swap_in_progress` → `A binary swap is in progress; try again afterwards` (exit 1). **The CLI downloads, verifies and replaces nothing** (the legacy CLI did all three, CL-113..115; deviation D-5). The Hub restarts itself; the CLI does not exec itself. **Across the restart:** the control connection ends with `close { hub_shutdown }`. The CLI then reconnects: it **repeats TB-L1 discovery and the handshake until `welcome`**, each attempt bounded by the CLI-RT4 probe (500 ms), with **no contract deadline**; the user may interrupt (SIGINT prints `operation <id> continues in the Hub` and exits 130, as CLI-PL2). It then calls `get(operation, <id>)` (the operation is durable, EN-7b), retrying `busy`. **If the row is not terminal** (`terminal: false`, for example the update is still `installing`), the CLI **resumes the watch** of that operation (EN-7b) and prints its progress until `terminal: true`; an outcome the Hub reports as `unknown` is printed as unknown, never turned into success or failure. `succeeded` prints the success line; `failed` prints the reason and exits 1. The values that `check_update` and the operation `result` carry are **DEP-15** (HC Amendment 2); the line texts above do not change. | `conf::cli_up2_update_operation` |
+[rows."138"]
+"A binary swap is in progress; try again afterwards" = ["cli.message:CLI-UP2:13"]
+"An update is already in progress" = ["cli.message:CLI-UP2:11"]
+busy = ["hub::ErrorCode::Busy"]
+check_update = ["hub.action:hub.check_update"]
+"close { hub_shutdown }" = ["hub::Close", "hub::CloseReason::HubShutdown"]
+dev_build = ["hub.reason:hub.update:wrong_state:dev_build"]
+failed = ["hub.operation_state:failed"]
+"get(operation, <id>)" = ["hub::Verb::Get", "hub.kind:operation", "hub::OperationRow::id"]
+installing = ["hub::UpdateState::Installing"]
+"invoke(hub, <hub_id>, update)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.update"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+offline = ["hub.reason:hub.update:wrong_state:offline"]
+"operation <id> continues in the Hub" = ["cli.message:CLI-UP2:16"]
+result = ["hub::OperationRow::result"]
+succeeded = ["hub.operation_state:succeeded"]
+swap_in_progress = ["hub.reason:hub.update:wrong_state:swap_in_progress"]
+"terminal: false" = { symbols = ["hub::OperationRow::terminal"], uncovered = { false = "a JSON literal value" } }
+"terminal: true" = { symbols = ["hub::OperationRow::terminal"], uncovered = { true = "a JSON literal value" } }
+unknown = ["hub.operation_state:unknown"]
+update = ["cli.command:COMMANDS:update", "hub.action:hub.update"]
+update_in_progress = ["hub.reason:hub.update:wrong_state:update_in_progress"]
+welcome = ["hub::Welcome"]
+"wrong_state { up_to_date }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.update:wrong_state:up_to_date"]
+"✓ Already running the latest version" = ["cli.message:CLI-UP1:11"]
+"✓ Already running the latest version (or newer)" = ["cli.message:CLI-UP2:2"]
+"✓ Successfully updated to version <X>" = ["cli.message:CLI-UP2:4"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 8. update and pairing URL (CLI-UP, CLI-PU)
+# | CLI-PU1 | **`get-connection-url`** (alias `pairing-url`) calls `invoke(hub, <hub_id>, issue_pairing)` (PR-0) and prints the returned `url` alone and a newline. `--hub <ID>` is accepted; it must equal the local hub id, else the command prints the Hub's `remote_hub_unsupported` and exits 1. `--qr` also prints `qr_text` on the lines **after** the URL line, with no separator (new, additive). | `conf::cli_pu1_issue_pairing`, `conf::cli_pu1_foreign_hub_refused` |
+[rows."140"]
+"--hub <ID>" = ["cli.flag:FLAGS:get-connection-url:--hub"]
+--qr = ["cli.flag:FLAGS:get-connection-url:--qr"]
+get-connection-url = ["cli.command:COMMANDS:get-connection-url"]
+"invoke(hub, <hub_id>, issue_pairing)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.issue_pairing"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+pairing-url = ["cli.command:COMMANDS:pairing-url"]
+qr_text = ["hub::IssuePairingResult::qr_text"]
+remote_hub_unsupported = ["hub::ErrorCode::RemoteHubUnsupported"]
+url = ["hub::IssuePairingResult::url"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 8. update and pairing URL (CLI-UP, CLI-PU)
+# | CLI-PU2 | **No URL.** If the Hub refuses or cannot issue one (`wrong_state { no_web_origin }`: no plugin serves a Web origin; or `invalid_arguments { ttl_out_of_range }`), the CLI prints `No connection URL available for hub '<id>'. <reason>` to stderr and exits 1 (CL-121). | `conf::cli_pu2_no_url_exit_one` |
+[rows."141"]
+"No connection URL available for hub '<id>'. <reason>" = ["cli.message:CLI-PU2:3"]
+"invalid_arguments { ttl_out_of_range }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:hub.issue_pairing:invalid_arguments:ttl_out_of_range"]
+"wrong_state { no_web_origin }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.issue_pairing:wrong_state:no_web_origin"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-WT1 | **`list-worktrees`** calls `list(worktree)` (core fields `id`, `target_id`, `path`, `branch`, `state`). **Scope:** when the current directory is inside a repository, it lists the worktrees whose `target_id` names the spawn target (`list(spawn_target)`) whose `path` is that repository's root; `BOTSTER_REPO`, if set, names the spawn target by its `label` instead of the current directory (CL-109). Outside a repository and with no `BOTSTER_REPO` it lists all. It prints the legacy `Path`/`Branch` table (40-column path, 70-dash rule, a marker for a detached head) or `No worktrees found` (CL-129). The `state` column is not added: a new column would change the legacy layout (P3). | `conf::cli_wt1_list_scope`, `conf::cli_wt1_legacy_table` |
+[rows."150"]
+Branch = ["cli.message:CLI-WT1:15"]
+"No worktrees found" = ["cli.message:CLI-WT1:16"]
+Path = ["cli.message:CLI-WT1:14"]
+branch = ["hub::WorktreeRow::branch"]
+id = ["hub::WorktreeRow::id"]
+label = ["hub::SpawnTargetRow::label"]
+"list(spawn_target)" = ["hub::Verb::List", "hub.kind:spawn_target"]
+"list(worktree)" = ["hub::Verb::List", "hub.kind:worktree"]
+list-worktrees = ["cli.command:COMMANDS:list-worktrees"]
+path = ["hub::WorktreeRow::path", "hub::SpawnTargetRow::path"]
+state = ["hub::WorktreeRow::state"]
+target_id = ["hub::WorktreeRow::target_id"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-WT2 | **`delete-worktree <N>`** finds, in the same scope, the worktree whose branch is `botster-issue-<N>` and calls `delete(worktree, <id>, { force: true })` (HC `worktree delete {force?}`). Success prints `Successfully deleted worktree for issue #<N>`. If there is none it prints `No worktree for issue #<N>` and exits 1 (the legacy command printed success for a missing path, CL-130; D-7). A worktree with a current session is refused `wrong_state { occupied }`: the command prints `Worktree for issue #<N> is in use by a current session` and exits 1 (D-18). Any other refusal prints its reason and exits 1. | `conf::cli_wt2_delete`, `conf::cli_wt2_missing_is_failure`, `conf::cli_wt2_occupied_refused` |
+[rows."151"]
+"No worktree for issue #<N>" = ["cli.message:CLI-WT2:6"]
+"Successfully deleted worktree for issue #<N>" = ["cli.message:CLI-WT2:5"]
+"Worktree for issue #<N> is in use by a current session" = ["cli.message:CLI-WT2:8"]
+"botster-issue-<N>" = { symbols = ["hub::WorktreeRow::branch"], uncovered = { botster = "a fixed part of the branch name form that CLI-WT2 matches (the binary name does not cover it)", issue = "a fixed part of the branch name form that CLI-WT2 matches" } }
+"delete(worktree, <id>, { force: true })" = { symbols = ["hub::Verb::Delete", "hub.kind:worktree", "hub::WorktreeDeleteArgs::force"], uncovered = { id = "the target argument of the call (a placeholder for the row id)", true = "a JSON literal value" } }
+"delete-worktree <N>" = ["cli.command:COMMANDS:delete-worktree"]
+"worktree delete {force?}" = ["hub.kind:worktree", "hub::Verb::Delete", "hub::WorktreeDeleteArgs::force"]
+"wrong_state { occupied }" = ["hub::ErrorCode::WrongState", "hub.reason:worktree.delete:wrong_state:occupied"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-JS1 | **`json-get FILE KEY`, `json-set FILE KEY VALUE`, `json-delete FILE KEY`** are pure file tools. They use no Hub and stay exactly as CL-126 to CL-128 (a `~` in FILE is expanded; dot-path keys, no array index; `json-get` prints pretty JSON and a missing key exits 1 with `Key '<k>' not found in path '<p>'`; `json-set` parses VALUE as JSON and falls back to a string, creates intermediate objects and **replaces** a non-object intermediate with `{}`, needs an existing valid JSON file, and writes pretty JSON; `json-delete` of an empty key fails with `Cannot delete root object` and of a missing path succeeds without rewriting the file). The quirks are kept because scripts may depend on them. | `conf::cli_js1_get_set_delete_vectors` |
+[rows."152"]
+"Cannot delete root object" = ["cli.message:CLI-JS1:10"]
+"Key '<k>' not found in path '<p>'" = ["cli.message:CLI-JS1:6"]
+json-delete = ["cli.command:COMMANDS:json-delete"]
+"json-delete FILE KEY" = ["cli.command:COMMANDS:json-delete"]
+json-get = ["cli.command:COMMANDS:json-get"]
+"json-get FILE KEY" = ["cli.command:COMMANDS:json-get"]
+json-set = ["cli.command:COMMANDS:json-set"]
+"json-set FILE KEY VALUE" = ["cli.command:COMMANDS:json-set"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-DB1 | **`debug memory [--hub <ID>]`** (`--hub` must equal the local hub id, else the Hub's `remote_hub_unsupported` is printed and the exit is 1, as CLI-PU1) calls `invoke(hub, <hub_id>, diagnostics)` (HC: read, operator permission `hub.diagnostics`) and prints `report`, **one opaque value** (HC P3), as pretty JSON. The CLI never parses it. A permission refusal prints the Hub's code and exits 1. With no Hub it fails with the `attach` hint of CLI-AT1 (CL-124). | `conf::cli_db1_prints_report`, `conf::cli_db1_permission_refused` |
+[rows."153"]
+--hub = ["cli.flag:FLAGS:debug memory:--hub"]
+attach = ["cli.command:COMMANDS:attach"]
+"debug memory [--hub <ID>]" = ["cli.command:COMMANDS:debug memory", "cli.flag:FLAGS:debug memory:--hub"]
+"hub.diagnostics" = { symbols = ["hub::ActionDescriptor::permission"], uncovered = { hub = "a permission name (ActionSpec::permission is a string)", diagnostics = "a permission name (ActionSpec::permission is a string)" } }
+"invoke(hub, <hub_id>, diagnostics)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.diagnostics"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+remote_hub_unsupported = ["hub::ErrorCode::RemoteHubUnsupported"]
+report = ["hub::DiagnosticsResult::report"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-DB3 | **`debug hub`** calls `invoke(hub, <hub_id>, diagnostics)` like CLI-DB1 and prints the opaque `report` as pretty JSON. The Hub internals that `status` dropped (pid file, manifest, lock file) may appear there; **no compatibility promise** (ruling UD-5). The CLI reads no file. | `conf::cli_db3_prints_report` |
+[rows."154"]
+"debug hub" = ["cli.command:COMMANDS:debug hub"]
+"invoke(hub, <hub_id>, diagnostics)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.diagnostics"], uncovered = { hub_id = "the target argument of the call (a placeholder for the row id)" } }
+report = ["hub::DiagnosticsResult::report"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-DB2 | **`debug vt-replay PATH [...]`** is the offline replay of Core crash dumps. It needs no Hub and is **specified by the Core contract** (flags and report as CL-125). The CLI exposes it only if Core ships the replay library. **OI-6** for the Core writer. | (Core) |
+[rows."155"]
+"debug vt-replay PATH [...]" = ["cli.command:COMMANDS:debug vt-replay"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9. worktree, json, debug, config (CLI-WT, CLI-JS, CLI-DB, CLI-CF)
+# | CLI-CF1 | **`config`** takes no arguments (the `KEY` and `VALUE` forms are dropped by ruling UD-3: they persisted nothing). It prints the effective CLI configuration as pretty JSON: `app_name`, `config_dir`, `data_dir`, `hub_socket` (the path CLI-RT3 would use) and `log_dir` (`<config root>/logs/cli`). The legacy keys `server_url` (cloud), `poll_interval`, `agent_timeout` and `max_sessions` (loaded but enforced nowhere, CL-104) and `worktree_base` (the Hub's) are not printed. (CL-105; deviation D-12.) | `conf::cli_cf1_effective_config` |
+[rows."156"]
+"<config root>/logs/cli" = ["cli.path:CLI-CF1:9"]
+agent_timeout = ["cli.config_key:DROPPED_CONFIG_KEYS:agent_timeout"]
+app_name = ["cli.config_key:CONFIG_KEYS:app_name"]
+config = ["cli.command:COMMANDS:config"]
+config_dir = ["cli.config_key:CONFIG_KEYS:config_dir"]
+data_dir = ["cli.config_key:CONFIG_KEYS:data_dir"]
+hub_socket = ["cli.config_key:CONFIG_KEYS:hub_socket"]
+log_dir = ["cli.config_key:CONFIG_KEYS:log_dir"]
+max_sessions = ["cli.config_key:DROPPED_CONFIG_KEYS:max_sessions"]
+poll_interval = ["cli.config_key:DROPPED_CONFIG_KEYS:poll_interval"]
+server_url = ["cli.config_key:DROPPED_CONFIG_KEYS:server_url"]
+worktree_base = ["cli.config_key:DROPPED_CONFIG_KEYS:worktree_base"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# **User ruling:** full plugin management, "like lazyvim or vimplug": a URL or a local directory, catalogs, a lockfile, update, pin and rollback. 0016 specifies the feature and its wire; this section specifies the commands as a client of it. The Hub's kind is `package`; the CLI says `plugin`, the user's word. **Wire (DEP-9, bound by client contract parity21, `3f2855a0…c7f6`, name change in parity23, `cb1d061e…437d`, to HP A4r67 PM-1 to PM-14):** install = `create(package, { source })` with `source` one of `{ kind: local, path }`, `{ kind: git, url, ref? }`, `{ kind: catalog, catalog_id, entry_id }`; remove = `delete(package, { purge? })`; enable and disable = `invoke`; status = `get` or `watch` of the row's `status` (`installed`, `outdated`, `errored`, `live`, `pinned`, `staged`); update preview = `invoke(package, preview_upgrade)` (a read) and update = `invoke(package, upgrade)`; pin and unpin = `invoke(package, pin, { ref })`; rollback = `invoke(package, rollback)`; new grants = `invoke(package, approve_grants, { grants })`; all packages = `invoke(hub, preview_package_upgrades | upgrade_packages | rollback_packages)`; catalogs = `create`, `delete` or `invoke refresh` on the `catalog` kind. **A `local` source is live: it has no lock, so `pin` and `rollback` apply to `git` and `catalog` sources (PM-9); on a local one the Hub's refusal is printed.**
+[rows."160"]
+"3f2855a0…c7f6" = "n/a: a shortened sha256 of an earlier revision of this text"
+catalog = ["hub.kind:catalog", "hub::PackageSource::Catalog"]
+"cb1d061e…437d" = "n/a: a shortened sha256 of an earlier revision of this text"
+create = ["hub::Verb::Create"]
+"create(package, { source })" = ["hub::Verb::Create", "hub.kind:package", "hub::PackageInstallArgs::source"]
+delete = ["hub::Verb::Delete"]
+"delete(package, { purge? })" = ["hub::Verb::Delete", "hub.kind:package", "hub::PackageRemoveArgs::purge"]
+errored = ["hub::PackageStatus::Errored"]
+get = ["hub::Verb::Get"]
+git = ["hub::PackageSource::Git"]
+installed = ["hub::PackageStatus::Installed"]
+invoke = ["hub::Verb::Invoke"]
+"invoke refresh" = ["hub::Verb::Invoke", "hub.action:catalog.refresh"]
+"invoke(hub, preview_package_upgrades | upgrade_packages | rollback_packages)" = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.preview_package_upgrades", "hub.action:hub.upgrade_packages", "hub.action:hub.rollback_packages"]
+"invoke(package, approve_grants, { grants })" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.approve_grants", "hub::ApproveGrantsArgs::grants"]
+"invoke(package, pin, { ref })" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.pin", "hub::PinArgs::ref"]
+"invoke(package, preview_upgrade)" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.preview_upgrade"]
+"invoke(package, rollback)" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.rollback"]
+"invoke(package, upgrade)" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.upgrade"]
+live = ["hub::PackageStatus::Live"]
+local = ["hub::PackageSource::Local"]
+outdated = ["hub::PackageStatus::Outdated"]
+package = ["hub.kind:package"]
+pin = ["hub.action:package.pin"]
+pinned = ["hub::PackageStatus::Pinned"]
+plugin = ["cli.command:COMMANDS:plugin"]
+rollback = ["hub.action:package.rollback"]
+source = ["hub::PackageInstallArgs::source"]
+staged = ["hub::PackageStatus::Staged"]
+status = ["hub::PackageRow::status"]
+watch = ["hub::Verb::Watch"]
+"{ kind: catalog, catalog_id, entry_id }" = { symbols = ["hub::PackageSource::Catalog", "hub::PackageSource::Catalog::catalog_id", "hub::PackageSource::Catalog::entry_id"], uncovered = { kind = "the serde tag of PackageSource" } }
+"{ kind: git, url, ref? }" = { symbols = ["hub::PackageSource::Git", "hub::PackageSource::Git::url", "hub::PackageSource::Git::ref"], uncovered = { kind = "the serde tag of PackageSource" } }
+"{ kind: local, path }" = { symbols = ["hub::PackageSource::Local::path"], uncovered = { kind = "the serde tag of PackageSource" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL1 | **Group.** `botster plugin <install|update|status|pin|rollback|remove|enable|disable> ...`. Every command acts through the Hub over the local stream (CLI-P1), as the operator. **`<name>` is a package key and matches a key exactly** (HC: `<name>` for a device package, `<name>@<target_id>` for each instance of a target-scoped one). A bare name that matches several instances is refused as ambiguous, the keys are listed, and the exit is 1: the CLI never guesses. A verb or action the caller may not use is refused by the Hub; `describe` reports `allowed` (DS-5) and the CLI prints the Hub's code and reason and exits 1. | `conf::cli_pl1_refusal_printed` |
+[rows."164"]
+"<name>" = { symbols = ["hub::PackageRow::id"], uncovered = { name = "the CLI placeholder of a package key (CLI-PL1); the key is the row id" } }
+"<name>@<target_id>" = ["hub::PackageRow::name", "hub::PackageRow::target_id"]
+allowed = ["hub::VerbDescriptor::allowed", "hub::ActionDescriptor::allowed"]
+"botster plugin <install|update|status|pin|rollback|remove|enable|disable> ..." = { symbols = ["cli.binary:botster", "cli.command:COMMANDS:plugin", "cli.command:COMMANDS:plugin install", "cli.command:COMMANDS:plugin update", "cli.command:COMMANDS:plugin status", "cli.command:COMMANDS:plugin pin", "cli.command:COMMANDS:plugin rollback", "cli.command:COMMANDS:plugin remove", "cli.command:COMMANDS:plugin enable", "cli.command:COMMANDS:plugin disable"], uncovered = { install = "the subcommand written after its group in this text; the whole token is `plugin install`", update = "the subcommand written after its group in this text; the whole token is `plugin update`", status = "the subcommand written after its group in this text; the whole token is `plugin status`", pin = "the subcommand written after its group in this text; the whole token is `plugin pin`", rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`", remove = "the subcommand written after its group in this text; the whole token is `plugin remove`", enable = "the subcommand written after its group in this text; the whole token is `plugin enable`", disable = "the subcommand written after its group in this text; the whole token is `plugin disable`" } }
+describe = ["hub::Verb::Describe"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL2 | **Waiting.** A command whose Hub action answers `{ operation }` (accepted, durable or not) waits for the operation's **terminal** state (`terminal: true` of the row) by watching the `operation` row (no polling, P8). **A non-durable operation is scoped to one incarnation (HS-5, EN-7):** if the Hub restarts or the connection reaches a new incarnation before `terminal`, the row is gone. The CLI then prints `Outcome unknown: the Hub restarted before the operation finished. Check with 'botster plugin status <name>'.` and exits 1; it **never sends the request again** (EN-3, EN-8). A durable operation survives the restart: the CLI reconnects and resumes the watch (CLI-UP2). It prints one progress line per state change to **stderr** and the result line to **stdout**. Exit 0 on success, 1 on failure with the Hub's error. `--no-wait` returns once the Hub has accepted the request and prints the operation id. SIGINT stops the wait, prints `operation <id> continues in the Hub` and exits 130; it does not cancel the operation. | `conf::cli_pl2_wait_and_progress`, `conf::cli_pl2_sigint_leaves_operation` |
+[rows."165"]
+--no-wait = ["cli.flag:FLAGS:plugin install:--no-wait", "cli.flag:FLAGS:plugin update:--no-wait", "cli.flag:FLAGS:plugin rollback:--no-wait", "cli.flag:FLAGS:plugin remove:--no-wait"]
+"Outcome unknown: the Hub restarted before the operation finished. Check with 'botster plugin status <name>'." = ["cli.message:CLI-PL2:5"]
+operation = ["hub.kind:operation"]
+"operation <id> continues in the Hub" = ["cli.message:CLI-UP2:16"]
+terminal = ["hub::OperationRow::terminal"]
+"terminal: true" = { symbols = ["hub::OperationRow::terminal"], uncovered = { true = "a JSON literal value" } }
+"{ operation }" = ["hub::Receipt::operation"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL3 | **`install <source> [--ref <ref>] [--enable] [--bind <interface>=<provider>]...`.** `<source>` is read as: a local directory (an argument starting `/`, `./`, `../` or `~`, or an existing directory) → `{ kind: local, path }` with the absolute path; an `https://` URL → `{ kind: git, url, ref }` (`--ref` optional); `<catalog>/<entry>` or a bare entry name resolved through the `catalog` rows → `{ kind: catalog, catalog_id, entry_id }`. A name that matches more than one catalog entry is refused as ambiguous with the candidates listed: the CLI never guesses. A result in status `staged` (new grants need approval) is **not** an error: the CLI prints `Staged <name>: approve its grants with 'botster plugin approve <name>'` with the grant list and exits 0. **Provider choice (HP PD-6):** each `--bind <interface>=<provider>` (repeatable) is sent as `bindings: [{ interface, provider }]` in the `create`; the CLI never picks a provider itself. A failed operation with `ambiguous_provider { interface, candidates }` prints the interface and the candidates and the hint `Choose one with --bind <interface>=<provider>`; `requirement_missing { interface, range }` and `requirement_conflict { interface, range, found }` print their fields. All exit 1. The client wire carries failures as `invalid_arguments` and `permission_denied` (printed with the Hub's code and reason) or as an operation that ends `failed { reason }`; the CLI prints `reason` (for example `hash_mismatch` or `errored`) and exits 1. Success prints `Installed <name> <version> (<source>)`, with `<version>` from the `version` of the installed `package` row, read by `get(package, <key>)` after the operation (`<source>` is the row's `source`). | `conf::cli_pl3_install_sources`, `conf::cli_pl3_ambiguous_name`, `conf::cli_pl3_staged_not_error`, `conf::cli_pl3_bind_maps_to_bindings`, `conf::cli_pl3_ambiguous_provider_lists_candidates` |
+[rows."166"]
+"--bind <interface>=<provider>" = ["cli.flag:FLAGS:plugin install:--bind", "hub::InterfaceBinding::interface", "hub::InterfaceBinding::provider"]
+--ref = ["cli.flag:FLAGS:plugin install:--ref"]
+"<catalog>/<entry>" = { symbols = ["hub::PackageSource::Catalog", "hub::PackageSource::Catalog::catalog_id", "hub::PackageSource::Catalog::entry_id"], uncovered = { catalog = "the placeholder of the catalog id (catalog_id) in the install source form", entry = "the placeholder of the entry id (entry_id) in the install source form" } }
+"<source>" = ["hub::PackageInstallArgs::source", "hub::PackageRow::source"]
+"<version>" = ["hub::PackageRow::version"]
+"Choose one with --bind <interface>=<provider>" = ["cli.message:CLI-PL3:20"]
+"Installed <name> <version> (<source>)" = ["cli.message:CLI-PL3:29"]
+"Staged <name>: approve its grants with 'botster plugin approve <name>'" = ["cli.message:CLI-PL3:15"]
+"ambiguous_provider { interface, candidates }" = ["plugin.code:conflict:ambiguous_provider", "plugin::ResolutionFailure::AmbiguousProvider::interface", "plugin::ResolutionFailure::AmbiguousProvider::candidates"]
+"bindings: [{ interface, provider }]" = ["hub::PackageInstallArgs::bindings", "hub::InterfaceBinding::interface", "hub::InterfaceBinding::provider"]
+catalog = ["hub.kind:catalog"]
+create = ["hub::Verb::Create"]
+errored = { symbols = ["hub::OperationState::reason"], uncovered = { errored = "an example of the reason string that a failed operation carries (CLI-PL3); no operation reason list of package.install names it" } }
+"failed { reason }" = ["hub.operation_state:package.install:failed", "hub::OperationState::reason"]
+"get(package, <key>)" = { symbols = ["hub::Verb::Get", "hub.kind:package"], uncovered = { key = "the target argument of the call (a placeholder for the row id)" } }
+hash_mismatch = ["hub.operation:package.install:hash_mismatch"]
+"https://" = { symbols = ["hub::PackageSource::Git", "hub::PackageSource::Git::url"], uncovered = { https = "the URL scheme that marks a git source (CLI-PL3)" } }
+"install <source> [--ref <ref>] [--enable] [--bind <interface>=<provider>]..." = { symbols = ["cli.command:COMMANDS:plugin install", "cli.flag:FLAGS:plugin install:--ref", "cli.flag:FLAGS:plugin install:--enable", "cli.flag:FLAGS:plugin install:--bind"], uncovered = { provider = "a placeholder of the usage", install = "the subcommand written after its group in this text; the whole token is `plugin install`", interface = "a placeholder of the usage", source = "a placeholder of the usage" } }
+invalid_arguments = ["hub::ErrorCode::InvalidArguments"]
+package = ["hub.kind:package"]
+permission_denied = ["hub::ErrorCode::PermissionDenied"]
+reason = ["hub::OperationState::reason"]
+"requirement_conflict { interface, range, found }" = ["plugin.code:conflict:requirement_conflict", "plugin::ResolutionFailure::RequirementConflict::interface", "plugin::ResolutionFailure::RequirementConflict::range", "plugin::ResolutionFailure::RequirementConflict::found"]
+"requirement_missing { interface, range }" = ["plugin.code:failed:requirement_missing", "plugin::ResolutionFailure::RequirementMissing::interface", "plugin::ResolutionFailure::RequirementMissing::range"]
+source = ["hub::PackageRow::source"]
+staged = ["hub::PackageStatus::Staged"]
+version = ["hub::PackageRow::version"]
+"{ kind: catalog, catalog_id, entry_id }" = { symbols = ["hub::PackageSource::Catalog", "hub::PackageSource::Catalog::catalog_id", "hub::PackageSource::Catalog::entry_id"], uncovered = { kind = "the serde tag of PackageSource" } }
+"{ kind: git, url, ref }" = { symbols = ["hub::PackageSource::Git", "hub::PackageSource::Git::url", "hub::PackageSource::Git::ref"], uncovered = { kind = "the tag of PackageSource (serde tag `kind`)" } }
+"{ kind: local, path }" = { symbols = ["hub::PackageSource::Local::path"], uncovered = { kind = "the serde tag of PackageSource" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL4 | **`update [<name>...\|--all] [--preview|--check] [--bind <interface>=<provider>]... [--accept-breaking <consumer>:<interface>]...`.** With neither a name nor `--all` the command is a usage error (exit 2). `--preview` (alias `--check`) is `invoke(package, preview_upgrade)`, a read: it changes nothing and prints per plugin the old and new commit and hash, the changed files, the manifest diff and the grant diff, or `<name> up to date`. Without `--check` it runs `upgrade` for each name; `--all` is `invoke(hub, upgrade_packages)`, and `--all --preview` is `invoke(hub, preview_package_upgrades)`. A pinned plugin is skipped with `<name> pinned at <ref>` (an update never moves a pin). An upgrade that adds grants ends `staged` (as CLI-PL3). **Single package (HP PD-6, PD-8):** `--bind` is sent as `bindings` and each `--accept-breaking <consumer>:<interface>` (repeatable) as `accept_breaking: [{ consumer, interface }]` in `upgrade`. A breaking provider change is refused unless every affected consumer is named: the CLI prints the affected consumers and the hint `Accept with --accept-breaking <consumer>:<interface>`, exit 1, and never adds one on its own. Accepted consumers end `degraded` (CLI-PL5). **Bulk (`--all`, DEP-14):** `upgrade_packages` takes `bindings: [{ consumer, interface, provider }]` and `accept_breaking: [{ consumer, interface }]`, and **resolves as one unit**: the Hub refuses an unresolved request **before any operation starts**, with `conflict { reason: requirement_conflict | ambiguous_provider | requirement_missing, … }` and `effect: none` (HC parity42). With `--all` the `--bind` form is `<consumer>:<interface>=<provider>` (the consumer is required; without `--all` it is `<interface>=<provider>`). `--all --preview` calls `preview_package_upgrades` and prints its `ambiguous: [{ consumer, interface, candidates }]` with the hint `Choose with --bind <consumer>:<interface>=<provider>`. If the Hub answers that request-time `conflict` (ambiguity, missing or conflicting requirement, unaccepted breaking change) with `effect: none`, the command prints the reason, states that **no package was changed**, and exits 1. **That sentence is printed only for an answer that carries `effect: none`.** After resolution succeeds the upgrades run; the command prints the **outcome the Hub reports for each package** and exits 1 if any failed. A package that activated and then crashed is reported as such: the CLI never says nothing was upgraded, and never offers a rollback it did not run (HP PM-7 gives none automatically). The CLI never retries with options it was not given. | `conf::cli_pl4_update_check_and_pins`, `conf::cli_pl4_update_staged`, `conf::cli_pl4_bind_and_accept_breaking_mapping`, `conf::cli_pl4_breaking_refused_lists_consumers`, `conf::cli_pl4_all_bulk_bindings`, `conf::cli_pl4_all_preview_ambiguous`, `conf::cli_pl4_all_resolution_refusal_changes_nothing`, `conf::cli_pl4_all_execution_outcome_per_package` |
+[rows."167"]
+"--accept-breaking <consumer>:<interface>" = { symbols = ["cli.flag:FLAGS:plugin update:--accept-breaking"], uncovered = { interface = "a placeholder of the usage", consumer = "a placeholder of the usage" } }
+--all = ["cli.flag:FLAGS:plugin update:--all"]
+"--all --preview" = ["cli.flag:FLAGS:plugin update:--all", "cli.flag:FLAGS:plugin update:--preview"]
+--bind = ["cli.flag:FLAGS:plugin update:--bind"]
+--check = ["cli.flag:FLAGS:plugin update:--check"]
+--preview = ["cli.flag:FLAGS:plugin update:--preview"]
+"<consumer>:<interface>=<provider>" = ["hub::ConsumerBinding::consumer", "hub::ConsumerBinding::interface", "hub::ConsumerBinding::provider"]
+"<interface>=<provider>" = ["hub::InterfaceBinding::interface", "hub::InterfaceBinding::provider"]
+"<name> pinned at <ref>" = ["cli.message:CLI-PL4:13"]
+"<name> up to date" = ["cli.message:CLI-PL4:6"]
+"Accept with --accept-breaking <consumer>:<interface>" = ["cli.message:CLI-PL4:20"]
+"Choose with --bind <consumer>:<interface>=<provider>" = ["cli.message:CLI-PL4:36"]
+"accept_breaking: [{ consumer, interface }]" = ["hub::PackageUpgradeArgs::accept_breaking", "hub::UpgradePackagesArgs::accept_breaking", "hub::ConsumerInterface::consumer", "hub::ConsumerInterface::interface"]
+"ambiguous: [{ consumer, interface, candidates }]" = ["hub::PreviewPackageUpgradesResult::ambiguous", "hub::Ambiguity::candidates", "hub::Ambiguity::consumer", "hub::Ambiguity::interface"]
+bindings = ["hub::PackageUpgradeArgs::bindings"]
+"bindings: [{ consumer, interface, provider }]" = ["hub::UpgradePackagesArgs::bindings", "hub::ConsumerBinding::consumer", "hub::ConsumerBinding::interface", "hub::ConsumerBinding::provider"]
+conflict = ["hub::ErrorCode::Conflict"]
+"conflict { reason: requirement_conflict | ambiguous_provider | requirement_missing, … }" = ["hub::ErrorCode::Conflict", "hub::Error::reason", "hub.reason:hub.upgrade_packages:conflict:requirement_conflict", "hub.reason:hub.upgrade_packages:conflict:ambiguous_provider", "hub.reason:hub.upgrade_packages:conflict:requirement_missing"]
+degraded = ["hub::PackageStatus::Degraded"]
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"invoke(hub, preview_package_upgrades)" = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.preview_package_upgrades"]
+"invoke(hub, upgrade_packages)" = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.upgrade_packages"]
+"invoke(package, preview_upgrade)" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.preview_upgrade"]
+preview_package_upgrades = ["hub.action:hub.preview_package_upgrades"]
+staged = ["hub::PackageStatus::Staged"]
+"update [<name>...\\|--all] [--preview|--check] [--bind <interface>=<provider>]... [--accept-breaking <consumer>:<interface>]..." = { symbols = ["cli.command:COMMANDS:plugin update", "cli.flag:FLAGS:plugin update:--all", "cli.flag:FLAGS:plugin update:--preview", "cli.flag:FLAGS:plugin update:--check", "cli.flag:FLAGS:plugin update:--bind", "cli.flag:FLAGS:plugin update:--accept-breaking"], uncovered = { name = "a placeholder of the usage", provider = "a placeholder of the usage", interface = "a placeholder of the usage", consumer = "a placeholder of the usage", update = "the subcommand written after its group in this text; the whole token is `plugin update`" } }
+upgrade = ["hub.action:package.upgrade"]
+upgrade_packages = ["hub.action:hub.upgrade_packages"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL5 | **`status [<name>]`.** One-shot `list` or `get` of the `package` rows. With no name it prints a table `NAME STATUS VERSION SOURCE PIN`, where `STATUS` is the row's `status`: `installed`, `outdated`, `errored`, `live`, `pinned`, `staged` or `degraded { interface }` (printed `degraded (<interface>)`: a required provider is unavailable or a breaking update was accepted, HP PD-6, PD-8). With a name it adds the entrypoints, the reason of a quarantine (the `quarantine` kind), the lock entry, any pending grant diff, what it `provides` and `requires` (interface and range) and, for each requirement, its `binding` (provider, provider version, state `available`, `unavailable` or `unmet`: an optional requirement with no provider, or a breaking update that was accepted; HP PD-8). An unknown name prints `not_found` and exits 1. Otherwise exit 0. `--json` prints the rows as JSON (additive). | `conf::cli_pl5_status_table`, `conf::cli_pl5_unknown_name`, `conf::cli_pl5_degraded_and_bindings` |
+[rows."168"]
+--json = ["cli.flag:FLAGS:plugin status:--json"]
+available = ["hub::BindingState::Available"]
+binding = ["hub::Requires::binding"]
+"degraded (<interface>)" = ["cli.message:CLI-PL5:15"]
+"degraded { interface }" = ["hub::PackageStatus::Degraded", "hub::DegradedData::interface"]
+errored = ["hub::PackageStatus::Errored"]
+get = ["hub::Verb::Get"]
+installed = ["hub::PackageStatus::Installed"]
+list = ["hub::Verb::List"]
+live = ["hub::PackageStatus::Live"]
+not_found = ["hub::ErrorCode::NotFound"]
+outdated = ["hub::PackageStatus::Outdated"]
+package = ["hub.kind:package"]
+pinned = ["hub::PackageStatus::Pinned"]
+provides = ["hub::PackageRow::provides"]
+quarantine = ["hub.kind:quarantine"]
+requires = ["hub::PackageRow::requires"]
+staged = ["hub::PackageStatus::Staged"]
+status = ["hub::PackageRow::status"]
+"status [<name>]" = { symbols = ["cli.command:COMMANDS:plugin status"], uncovered = { status = "the subcommand written after its group in this text; the whole token is `plugin status`", name = "a placeholder of the usage" } }
+unavailable = ["hub::BindingState::Unavailable"]
+unmet = ["hub::BindingState::Unmet"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL6 | **`pin <name> [<ref>]`** is `invoke(package, pin, { ref })`, by default the installed ref. **`pin --unpin <name>`** removes the pin. The Hub records it in its lock; the CLI keeps no state. A `local` source is refused by the Hub (PM-9). | `conf::cli_pl6_pin_unpin`, `conf::cli_pl6_local_refused` |
+[rows."169"]
+"invoke(package, pin, { ref })" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.pin", "hub::PinArgs::ref"]
+local = ["hub::PackageSource::Local"]
+"pin --unpin <name>" = { symbols = ["cli.command:COMMANDS:plugin pin", "cli.flag:FLAGS:plugin pin:--unpin"], uncovered = { name = "a placeholder of the usage", pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+"pin <name> [<ref>]" = { symbols = ["cli.command:COMMANDS:plugin pin"], uncovered = { ref = "a placeholder of the usage", name = "a placeholder of the usage", pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL7 | **`rollback <name>`** is `invoke(package, rollback)`: it restores the previous locked revision and prints `Rolled back <name> to <ref>` (`<ref>` from the `lock` of the row, read after the operation). **`rollback --all`** is `invoke(hub, rollback_packages)`. If there is no previous revision, or the source is `local`, the Hub's refusal is printed and the exit code is 1. | `conf::cli_pl7_rollback` |
+[rows."170"]
+"<ref>" = { symbols = ["hub::PackageRow::lock"], uncovered = { ref = "the placeholder of the revision that the row's lock names after the operation (CLI-PL7); the clause names no member of the lock" } }
+"Rolled back <name> to <ref>" = ["cli.message:CLI-PL7:3"]
+"invoke(hub, rollback_packages)" = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.rollback_packages"]
+"invoke(package, rollback)" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.rollback"]
+local = ["hub::PackageSource::Local"]
+lock = ["hub::PackageRow::lock"]
+"rollback --all" = { symbols = ["cli.command:COMMANDS:plugin rollback", "cli.flag:FLAGS:plugin rollback:--all"], uncovered = { rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+"rollback <name>" = { symbols = ["cli.command:COMMANDS:plugin rollback"], uncovered = { name = "a placeholder of the usage", rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL8 | **`remove <name> [--purge] [-y|--yes]`.** It prints what it will remove, asks `Remove plugin <name>? [y/N]` unless `-y`, and on anything but `y` or `yes` prints `Aborted.` and exits 0. Then it calls `delete(package, { purge })`. Without `--purge` the Hub retains the plugin's store until purge, and the CLI prints `Data kept. Use --purge to delete it.` | `conf::cli_pl8_remove_confirm`, `conf::cli_pl8_purge` |
+[rows."171"]
+--purge = ["cli.flag:FLAGS:plugin remove:--purge"]
+-y = ["cli.flag:FLAGS:plugin remove:-y"]
+"Aborted." = ["cli.message:CLI-PL8:6"]
+"Data kept. Use --purge to delete it." = ["cli.message:CLI-PL8:9"]
+"Remove plugin <name>? [y/N]" = ["cli.message:CLI-PL8:2"]
+"delete(package, { purge })" = ["hub::Verb::Delete", "hub.kind:package", "hub::PackageRemoveArgs::purge"]
+"remove <name> [--purge] [-y|--yes]" = { symbols = ["cli.command:COMMANDS:plugin remove", "cli.flag:FLAGS:plugin remove:--purge", "cli.flag:FLAGS:plugin remove:-y", "cli.flag:FLAGS:plugin remove:--yes"], uncovered = { remove = "the subcommand written after its group in this text; the whole token is `plugin remove`", name = "a placeholder of the usage" } }
+y = ["cli.confirm_answer:y"]
+yes = ["cli.confirm_answer:yes"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL9 | **`enable <name>`, `disable <name>`** invoke the `package` actions `enable` and `disable`. Both are accepted, non-durable actions: the answer is `{ operation }`, so the CLI waits as CLI-PL2 does. On the operation's terminal success it prints `Enabled <name>` or `Disabled <name>`; on `failed { reason }` it prints `Could not enable <name>: <reason>` and exits 1 (an activation failure after admission is never reported as success); on loss of the incarnation it prints the unknown outcome of CLI-PL2 and exits 1, without a repeat. A repeated action keeps the accepted-operation receipt (`ok` is the envelope, HC A.9b), so the CLI waits on its operation as for a first request and prints the same line. Admission refusals `wrong_state { staged \| quarantined \| errored \| fs_root_unbound }` print `<name> is <reason>` with a hint (`staged`: `Approve its grants with 'botster plugin approve <name>'`; `quarantined`: the reason of the `quarantine` row, which the CLI does not resolve) and exit 1; `invalid_arguments { fs_root_unknown \| path_not_absolute \| path_not_found }` prints its code and exit 1. | `conf::cli_pl9_enable_disable_waits_for_terminal`, `conf::cli_pl9_activation_failure_not_success`, `conf::cli_pl9_incarnation_loss_unknown_no_replay`, `conf::cli_pl9_enable_refusals` |
+[rows."172"]
+"<name> is <reason>" = ["cli.message:CLI-PL9:13"]
+"Approve its grants with 'botster plugin approve <name>'" = ["cli.message:CLI-PL9:15"]
+"Could not enable <name>: <reason>" = ["cli.message:CLI-PL9:10"]
+"Disabled <name>" = ["cli.message:CLI-PL9:8"]
+"Enabled <name>" = ["cli.message:CLI-PL9:7"]
+disable = ["hub.action:package.disable"]
+"disable <name>" = { symbols = ["cli.command:COMMANDS:plugin disable"], uncovered = { name = "a placeholder of the usage", disable = "the subcommand written after its group in this text; the whole token is `plugin disable`" } }
+enable = ["hub.action:package.enable"]
+"enable <name>" = { symbols = ["cli.command:COMMANDS:plugin enable"], uncovered = { enable = "the subcommand written after its group in this text; the whole token is `plugin enable`", name = "a placeholder of the usage" } }
+"failed { reason }" = ["hub.operation_state:package.enable:failed", "hub.operation_state:package.disable:failed", "hub::OperationState::reason"]
+"invalid_arguments { fs_root_unknown \\| path_not_absolute \\| path_not_found }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.enable:invalid_arguments:fs_root_unknown", "hub.reason:package.enable:invalid_arguments:path_not_absolute", "hub.reason:package.enable:invalid_arguments:path_not_found"]
+ok = ["hub::Outcome::Ok"]
+package = ["hub.kind:package"]
+quarantine = ["hub.kind:quarantine"]
+quarantined = ["hub.reason:package.enable:wrong_state:quarantined"]
+staged = ["hub.reason:package.enable:wrong_state:staged"]
+"wrong_state { staged \\| quarantined \\| errored \\| fs_root_unbound }" = ["hub::ErrorCode::WrongState", "hub.reason:package.enable:wrong_state:staged", "hub.reason:package.enable:wrong_state:quarantined", "hub.reason:package.enable:wrong_state:errored", "hub.reason:package.enable:wrong_state:fs_root_unbound"]
+"{ operation }" = ["hub::Receipt::operation"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL11 | **`approve <name>`** is `invoke(package, approve_grants, { grants })`. It first reads the row's pending grant diff and prints it; unless `-y` it asks `Approve these grants for <name>? [y/N]`, and it sends exactly the grants it displayed. Nothing is approved without this display. | `conf::cli_pl11_approve_shows_grants` |
+[rows."173"]
+-y = ["cli.flag:FLAGS:plugin approve:-y"]
+"Approve these grants for <name>? [y/N]" = ["cli.message:CLI-PL11:4"]
+"approve <name>" = { symbols = ["cli.command:COMMANDS:plugin approve"], uncovered = { name = "a placeholder of the usage", approve = "the subcommand written after its group in this text; the whole token is `plugin approve`" } }
+"invoke(package, approve_grants, { grants })" = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.approve_grants", "hub::ApproveGrantsArgs::grants"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL12 | **`catalog add <url>`, `catalog remove <id>`, `catalog list`, `catalog refresh [<id>]`** are `create`, `delete`, `list` and `invoke refresh` on the `catalog` kind. A catalog credential is never printed (CLI-P6). | `conf::cli_pl12_catalog` |
+[rows."174"]
+catalog = ["hub.kind:catalog"]
+"catalog add <url>" = { symbols = ["cli.command:COMMANDS:plugin catalog add"], uncovered = { url = "a placeholder of the usage", catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog add`", add = "the subcommand written after its group in this text; the whole token is `plugin catalog add`" } }
+"catalog list" = { symbols = ["cli.command:COMMANDS:plugin catalog list"], uncovered = { catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog list`", list = "the subcommand written after its group in this text; the whole token is `plugin catalog list`" } }
+"catalog refresh [<id>]" = { symbols = ["cli.command:COMMANDS:plugin catalog refresh"], uncovered = { refresh = "the subcommand written after its group in this text; the whole token is `plugin catalog refresh`", id = "a placeholder of the usage", catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog refresh`" } }
+"catalog remove <id>" = { symbols = ["cli.command:COMMANDS:plugin catalog remove"], uncovered = { remove = "the subcommand written after its group in this text; the whole token is `plugin catalog remove`", id = "a placeholder of the usage", catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog remove`" } }
+create = ["hub::Verb::Create"]
+delete = ["hub::Verb::Delete"]
+"invoke refresh" = ["hub::Verb::Invoke", "hub.action:catalog.refresh"]
+list = ["hub::Verb::List"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL13 | **stdout lines (CLI-P3, CLI-P7: stdout is a contract).** `pin`: `Pinned <name> at <ref>`; `pin --unpin`: `Unpinned <name>`. `update <name>` success: `Updated <name> <old> -> <new>` (versions from the row before and after) or `<name> up to date`. `remove`: `Removed <name>`. `approve`: `Approved <name>`. `catalog add`: `Added catalog <id>`; `remove`: `Removed catalog <id>`; `refresh`: `Refreshed catalog <id>`; `list`: one line per catalog, tab-separated `ID<TAB>URL<TAB>ENTRIES` (`ENTRIES` is the number of entries of the catalog row), and no line when there is none (HC catalog row: `id`, `url`, `refreshed_at?`, `entries`; OI-9 closed). `--no-wait` (on `install`, `update`, `rollback`, `remove`): one line `operation <id>` on stdout and exit 0 once the Hub accepted. `status --json`: **one JSON array** of the Hub's `package` rows exactly as returned, in the Hub's order (with a name: one JSON object); the CLI adds and removes no field. Progress goes to stderr (CLI-PL2). | `conf::cli_pl13_stdout_lines`, `conf::cli_pl13_status_json_passthrough` |
+[rows."175"]
+--no-wait = ["cli.flag:FLAGS:plugin install:--no-wait", "cli.flag:FLAGS:plugin update:--no-wait", "cli.flag:FLAGS:plugin rollback:--no-wait", "cli.flag:FLAGS:plugin remove:--no-wait"]
+"<name> up to date" = ["cli.message:CLI-PL4:6"]
+"Added catalog <id>" = ["cli.message:CLI-PL13:13"]
+"Approved <name>" = ["cli.message:CLI-PL13:11"]
+"Pinned <name> at <ref>" = ["cli.message:CLI-PL13:2"]
+"Refreshed catalog <id>" = ["cli.message:CLI-PL13:17"]
+"Removed <name>" = ["cli.message:CLI-PL13:9"]
+"Removed catalog <id>" = ["cli.message:CLI-PL13:15"]
+"Unpinned <name>" = ["cli.message:CLI-PL13:4"]
+"Updated <name> <old> -> <new>" = ["cli.message:CLI-PL13:6"]
+approve = { symbols = ["cli.command:COMMANDS:plugin approve"], uncovered = { approve = "the subcommand written after its group in this text; the whole token is `plugin approve`" } }
+"catalog add" = { symbols = ["cli.command:COMMANDS:plugin catalog add"], uncovered = { catalog = "the subcommand written after its group in this text; the whole token is `plugin catalog add`", add = "the subcommand written after its group in this text; the whole token is `plugin catalog add`" } }
+entries = ["hub::CatalogRow::entries"]
+id = ["hub::CatalogRow::id"]
+install = { symbols = ["cli.command:COMMANDS:plugin install"], uncovered = { install = "the subcommand written after its group in this text; the whole token is `plugin install`" } }
+list = { symbols = ["cli.command:COMMANDS:plugin catalog list"], uncovered = { list = "the subcommand written after its group in this text; the whole token is `plugin catalog list`" } }
+"operation <id>" = ["cli.message:CLI-PL13:30"]
+package = ["hub.kind:package"]
+pin = { symbols = ["cli.command:COMMANDS:plugin pin"], uncovered = { pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+"pin --unpin" = { symbols = ["cli.command:COMMANDS:plugin pin", "cli.flag:FLAGS:plugin pin:--unpin"], uncovered = { pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+refresh = { symbols = ["cli.command:COMMANDS:plugin catalog refresh"], uncovered = { refresh = "the subcommand written after its group in this text; the whole token is `plugin catalog refresh`" } }
+"refreshed_at?" = ["hub::CatalogRow::refreshed_at"]
+remove = { symbols = ["cli.command:COMMANDS:plugin remove", "cli.command:COMMANDS:plugin catalog remove"], uncovered = { remove = "the subcommand written after its group in this text; the whole token is `plugin remove` in the first use and `plugin catalog remove` in the second" } }
+rollback = { symbols = ["cli.command:COMMANDS:plugin rollback"], uncovered = { rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+"status --json" = { symbols = ["cli.command:COMMANDS:plugin status", "cli.flag:FLAGS:plugin status:--json"], uncovered = { status = "the subcommand written after its group in this text; the whole token is `plugin status`" } }
+update = { symbols = ["cli.command:COMMANDS:plugin update"], uncovered = { update = "the subcommand written after its group in this text; the whole token is `plugin update`" } }
+"update <name>" = { symbols = ["cli.command:COMMANDS:plugin update"], uncovered = { update = "the subcommand written after its group in this text; the whole token is `plugin update`", name = "a placeholder of the usage" } }
+url = ["hub::CatalogRow::url"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9b. Plugin management (CLI-PL)
+# | CLI-PL14 | **Failures printed (HC A.9b, replacing HP names).** Exit 1 unless stated; each line goes to stderr. `install`: `conflict { already_installed }` → `<name> is already installed`; `invalid_arguments { path_invalid }` → `Not a plugin directory: <path>`; an operation `failed { reason }` → `Install failed: <reason>`. `update` / `upgrade`: `wrong_state { pinned }` → `<name> pinned at <ref>`; `local_source` → `<name> is a local plugin (live; nothing to update)`; `up_to_date` → `<name> up to date` (exit 0); `package_operation_in_progress` → `Another package operation is running; try again afterwards`; `conflict { breaking_not_accepted }` with `detail { consumers }` → the consumers and the `--accept-breaking` hint; `ambiguous_provider`, `requirement_missing`, `requirement_conflict` as CLI-PL3. `--preview`: `wrong_state { local_source }`, `{ fetch_failed }` (retryable: `Could not fetch <name>; try again`). `rollback --all`: `wrong_state { no_history }` → `Nothing to roll back`. `pin`, `rollback`: `local_source` as above. The CLI prints the Hub's `code` when a case is not listed. | `conf::cli_pl14_failure_texts` |
+[rows."176"]
+--accept-breaking = ["cli.flag:FLAGS:plugin update:--accept-breaking"]
+--preview = ["cli.flag:FLAGS:plugin update:--preview"]
+"<name> is a local plugin (live; nothing to update)" = ["cli.message:CLI-PL14:13"]
+"<name> is already installed" = ["cli.message:CLI-PL14:3"]
+"<name> pinned at <ref>" = ["cli.message:CLI-PL4:13"]
+"<name> up to date" = ["cli.message:CLI-PL4:6"]
+"Another package operation is running; try again afterwards" = ["cli.message:CLI-PL14:17"]
+"Could not fetch <name>; try again" = ["cli.message:CLI-PL14:27"]
+"Install failed: <reason>" = ["cli.message:CLI-PL14:7"]
+"Not a plugin directory: <path>" = ["cli.message:CLI-PL14:5"]
+"Nothing to roll back" = ["cli.message:CLI-PL14:30"]
+ambiguous_provider = ["hub.reason:package.upgrade:conflict:ambiguous_provider"]
+code = ["hub::Error::code"]
+"conflict { already_installed }" = ["hub::ErrorCode::Conflict", "hub.reason:package.create:conflict:already_installed"]
+"conflict { breaking_not_accepted }" = ["hub::ErrorCode::Conflict", "hub.reason:package.upgrade:conflict:breaking_not_accepted"]
+"detail { consumers }" = { symbols = ["hub::Error::detail"], uncovered = { consumers = "a key of the untyped error detail (hub::Error::detail is a JSON value)" } }
+"failed { reason }" = ["hub.operation_state:package.install:failed", "hub::OperationState::reason"]
+install = { symbols = ["cli.command:COMMANDS:plugin install"], uncovered = { install = "the subcommand written after its group in this text; the whole token is `plugin install`" } }
+"invalid_arguments { path_invalid }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.create:invalid_arguments:path_invalid"]
+local_source = ["hub.reason:package.upgrade:wrong_state:local_source", "hub.reason:package.pin:wrong_state:local_source", "hub.reason:package.rollback:wrong_state:local_source"]
+package_operation_in_progress = ["hub.reason:package.upgrade:wrong_state:package_operation_in_progress"]
+pin = { symbols = ["cli.command:COMMANDS:plugin pin"], uncovered = { pin = "the subcommand written after its group in this text; the whole token is `plugin pin`" } }
+requirement_conflict = ["hub.reason:package.upgrade:conflict:requirement_conflict"]
+requirement_missing = ["hub.reason:package.upgrade:conflict:requirement_missing"]
+rollback = { symbols = ["cli.command:COMMANDS:plugin rollback"], uncovered = { rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+"rollback --all" = { symbols = ["cli.command:COMMANDS:plugin rollback", "cli.flag:FLAGS:plugin rollback:--all"], uncovered = { rollback = "the subcommand written after its group in this text; the whole token is `plugin rollback`" } }
+up_to_date = ["hub.reason:package.upgrade:wrong_state:up_to_date"]
+update = { symbols = ["cli.command:COMMANDS:plugin update"], uncovered = { update = "the subcommand written after its group in this text; the whole token is `plugin update`" } }
+upgrade = ["hub.action:package.upgrade"]
+"wrong_state { local_source }" = ["hub::ErrorCode::WrongState", "hub.reason:package.preview_upgrade:wrong_state:local_source"]
+"wrong_state { no_history }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.rollback_packages:wrong_state:no_history"]
+"wrong_state { pinned }" = ["hub::ErrorCode::WrongState", "hub.reason:package.upgrade:wrong_state:pinned"]
+"{ fetch_failed }" = ["hub.reason:package.preview_upgrade:wrong_state:fetch_failed"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9c. Dev Rebuild (CLI-DV)
+# **User ruling:** Dev Rebuild is a "dev feature". It is a CLI command available in **development builds only, never in release**. Legacy: a TUI menu action that ran `cargo build` for the running profile and target directory and then exec-restarted the Hub (audit C-71, HB-292, TU-123).
+[rows."181"]
+"cargo build" = "n/a: an external tool command (Cargo), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9c. Dev Rebuild (CLI-DV)
+# | CLI-DV1 | **Dev builds only.** `botster dev-rebuild` exists only in a development build (a build marked as development at build time; the app name is the same in every build, CLI-RT1). A release build does not contain it: invoking it is an unknown-subcommand usage error (exit 2) and `--help` does not list it. No environment variable or flag enables it in a release build. | `conf::cli_dv1_absent_in_release`, `conf::cli_dv1_present_in_dev` |
+[rows."185"]
+--help = ["cli.flag:FLAGS:botster:--help"]
+"botster dev-rebuild" = ["cli.binary:botster", "cli.command:COMMANDS:dev-rebuild"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9c. Dev Rebuild (CLI-DV)
+# | CLI-DV3 | **Restart (binary swap, CLI-ST6, with `--swap` passed explicitly, never `--drop-unadoptable`).** After a successful build the command swaps the one Hub onto the new binary (the CLI-ST6 check runs first): it runs the swap of CLI-ST6 (the Hub's `swap`, then the handover event), then starts the Hub as CLI-ST2 does (background, waits for readiness) and prints `Hub restarted with the new build`. The terminal UIs reconnect by themselves (CLI-AT4). With no Hub running the command only builds and says so. | `conf::cli_dv3_restart_sequence`, `conf::cli_dv3_no_hub_builds_only` |
+[rows."187"]
+--drop-unadoptable = ["cli.flag:FLAGS:start:--drop-unadoptable"]
+--swap = ["cli.flag:FLAGS:start:--swap"]
+"Hub restarted with the new build" = ["cli.message:CLI-DV3:4"]
+swap = ["hub.action:hub.swap"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 9c. Dev Rebuild (CLI-DV)
+# | CLI-DV4 | **Checkouts (ruling OI-8).** The file `<config root>/dev-checkouts.toml` maps one key per component to an **absolute path**: `hub`, `worker` (the session worker), `plugin_hosts` and `mcp_bridge`. Only a development build reads it (CLI-DV1). A missing file, a missing key or a path that is not an existing directory is refused before anything is built, naming the key (CLI-DV2). The CLI never writes the file; the developer's setup does. After a swap the **installed** identity of each built component is the one built from its checkout; processes already running keep their older identity until they end (CLI-ST6, DEP-13). The command does not claim otherwise. | `conf::cli_dv4_checkouts_file`, `conf::cli_dv4_relative_path_refused` |
+[rows."188"]
+"<config root>/dev-checkouts.toml" = ["cli.path:CLI-DV4:1"]
+hub = ["cli.dev_checkout_key:hub"]
+mcp_bridge = ["cli.dev_checkout_key:mcp_bridge"]
+plugin_hosts = ["cli.dev_checkout_key:plugin_hosts"]
+worker = ["cli.dev_checkout_key:worker"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-4 process titles | GONE (cosmetic; `ps` shows the command) | D-13 |
+[rows."199"]
+ps = "n/a: an external tool (the ps program), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-16 `--offline` | CHG | CLI-ST4 |
+[rows."204"]
+--offline = ["cli.flag:FLAGS:start:--offline"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-34..37 `status` | CHG (CL-37 fixed; pid_file, manifest and lock_file dropped, ruled UD-5) | CLI-SS1, CLI-SS2, CLI-DB3, D-17 |
+[rows."214"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-38..49 `attach` | CHG | CLI-AT1 to CLI-AT4 |
+[rows."215"]
+attach = ["cli.command:COMMANDS:attach"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-50..52, 58 `mcp-serve` proxy and disconnected mode | KEEP | CLI-MS1, 2, 4 |
+[rows."216"]
+mcp-serve = ["cli.command:COMMANDS:mcp-serve"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-60..65 `context` | KEEP | CLI-CX |
+[rows."218"]
+context = ["cli.command:COMMANDS:context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-97..104 `config.json` and its keys | GONE: the file is the cloud plugin's and the Hub's (CL-104 unenforced) | CLI-CF1 |
+[rows."223"]
+"config.json" = "n/a: no longer a CLI file; the cloud plugin and the Hub own it (CL-97..104); steward follow-up F-1"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-105 `config` | KEEP | CLI-CF1 |
+[rows."224"]
+config = ["cli.command:COMMANDS:config"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-106 `config KEY`, `config KEY VALUE` stubs | GONE by ruling UD-3 (they persisted nothing) | |
+[rows."225"]
+"config KEY" = ["cli.command:COMMANDS:config"]
+"config KEY VALUE" = ["cli.command:COMMANDS:config"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-107 `BOTSTER_ENV` | KEEP only `test` skipping the update notice; the legacy test roots are replaced by `BOTSTER_CONFIG_DIR` | CLI-ST5, CLI-RT2 |
+[rows."226"]
+test = "n/a: Hub-owned interface name; steward follow-up F-1"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-112..117 `update` | CHG | CLI-UP |
+[rows."231"]
+update = ["cli.command:COMMANDS:update"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-118..120 `reset` | GONE by ruling UD-2 (its work was cloud and credential removal, now the cloud plugin's) | |
+[rows."232"]
+reset = ["cli.command:GONE_COMMANDS:reset"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-121, 122 `get-connection-url` | CHG | CLI-PU |
+[rows."233"]
+get-connection-url = ["cli.command:COMMANDS:get-connection-url"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-123, 124 `debug memory` | OPEN | CLI-DB1 |
+[rows."234"]
+"debug memory" = ["cli.command:COMMANDS:debug memory"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-125 `debug vt-replay` | OPEN (Core) | CLI-DB2 |
+[rows."235"]
+"debug vt-replay" = ["cli.command:COMMANDS:debug vt-replay"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-126..128 `json-*` | KEEP | CLI-JS1 |
+[rows."236"]
+"json-*" = { symbols = ["cli.command:COMMANDS:json-get", "cli.command:COMMANDS:json-set", "cli.command:COMMANDS:json-delete"], uncovered = { json = "the glob json-* of the three json commands (CLI-JS1)" } }
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 10. Parity: every legacy group and its disposition
+# | CL-131 internal `session` | GONE: Core's session worker | D-10 |
+[rows."238"]
+session = ["cli.command:GONE_COMMANDS:session"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-1 | `start` and `status` no longer create a device identity or a keyring entry. | The CLI has no identity (CLI-P5). Legacy CL-17, CL-37. |
+[rows."245"]
+start = ["cli.command:COMMANDS:start"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-2 | `context` no longer has `hub_manifest_path`. | It named a Hub file (CLI-P1). |
+[rows."246"]
+context = ["cli.command:COMMANDS:context"]
+hub_manifest_path = ["cli.context_key:DROPPED_CONTEXT_KEYS:hub_manifest_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-5 | `update` no longer downloads, verifies or replaces a binary; the Hub's `update` action does. | CLI-P1; one owner of the install. DEP-5. |
+[rows."249"]
+update = ["cli.command:COMMANDS:update", "hub.action:hub.update"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-6 | Each `get-connection-url` call issues a new pairing secret and ends the previous one. | PR-0: the secret lives in memory only. |
+[rows."250"]
+get-connection-url = ["cli.command:COMMANDS:get-connection-url"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-7 | `delete-worktree` of a missing worktree fails. | Legacy printed success for a missing path (CL-130), a defect. |
+[rows."251"]
+delete-worktree = ["cli.command:COMMANDS:delete-worktree"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-8 | `context` warns on stderr when the file is unreadable. | New diagnostic; stdout is unchanged. |
+[rows."252"]
+context = ["cli.command:COMMANDS:context"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-9 | `attach` has no multi-Hub listing. | Ruling U-2. |
+[rows."253"]
+attach = ["cli.command:COMMANDS:attach"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-10 | No `botster session` subcommand. | Core's session worker replaces it. |
+[rows."254"]
+"botster session" = ["cli.binary:botster", "cli.command:GONE_COMMANDS:session"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-12 | `botster config` prints different keys. | Dead or cloud keys removed. |
+[rows."256"]
+"botster config" = ["cli.binary:botster", "cli.command:COMMANDS:config"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-15 | `botster reset` is gone. | Ruling UD-2. |
+[rows."259"]
+"botster reset" = ["cli.binary:botster", "cli.command:GONE_COMMANDS:reset"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-16 | `botster config KEY` and `config KEY VALUE` are gone. | Ruling UD-3. |
+[rows."260"]
+"botster config KEY" = ["cli.binary:botster", "cli.command:COMMANDS:config"]
+"config KEY VALUE" = ["cli.command:COMMANDS:config"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-17 | `status` no longer prints `pid_file`, `manifest` (and its fields) and `lock_file`; legacy diagnosis (1) is merged into the socket-missing line. It gains the running binary, uptime and counts. | Hub internals (CLI-P1, P3). **Ruled UD-5 (orchestrator): yes.** |
+[rows."261"]
+lock_file = ["cli.status_field:DROPPED_STATUS_FIELDS:lock_file"]
+manifest = ["cli.status_field:DROPPED_STATUS_FIELDS:manifest"]
+pid_file = ["cli.status_field:DROPPED_STATUS_FIELDS:pid_file"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-20 | (withdrawn) | HC Amendment 2 restored the `ahead` state, so the legacy third outcome of `update --check` is kept. |
+[rows."262"]
+ahead = ["hub::CheckState::Ahead"]
+"update --check" = ["cli.command:COMMANDS:update", "cli.flag:FLAGS:update:--check"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-19 | A dev build no longer uses the app name `botster-dev` and its own roots and socket. | User ruling UD-1: one Hub per machine. |
+[rows."263"]
+botster-dev = "n/a: the legacy app name of a development build (D-19), not a contract symbol"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 11. Deviations from the legacy behavior (each needs the reviewer's eye)
+# | D-18 | `delete-worktree` passes `force: true` like the legacy `--force`, but a worktree with a current session is refused. | HC `worktree delete`: `wrong_state { occupied }` even with force. The legacy command removed it under a live session, a defect. |
+[rows."264"]
+--force = ["cli.flag:DROPPED_FLAGS:delete-worktree:--force"]
+delete-worktree = ["cli.command:COMMANDS:delete-worktree"]
+"force: true" = { symbols = ["hub::WorktreeDeleteArgs::force"], uncovered = { true = "a JSON literal value" } }
+"worktree delete" = ["hub.kind:worktree", "hub::Verb::Delete"]
+"wrong_state { occupied }" = ["hub::ErrorCode::WrongState", "hub.reason:worktree.delete:wrong_state:occupied"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-1 | **ACCEPTED** (TB-L1, parity20) | State where a Unix client finds the Hub's socket: the rule of CLI-RT3 (env override, config-dir rule, well-known path), directory mode 0700, socket mode 0600. Today HC names `socket_path` only inside a route transport. |
+[rows."270"]
+socket_path = ["hub::Transport::socket_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-2 | **ACCEPTED** (parity32, `ff1a5070…5a70`, HS-0) | `botster-hub up --ready-fd <N>` writes one line to the inherited descriptor when listening and adoption has finished: `ready <socket path>` or a typed `failed <code> <message>`; then it closes it. EOF without a line = failed start. It refuses a second instance with a message naming the running Hub and its binary. |
+[rows."271"]
+"botster-hub up --ready-fd <N>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"failed <code> <message>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"ff1a5070…5a70" = "n/a: a shortened sha256 of an earlier revision of this text"
+"ready <socket path>" = "n/a: Hub-owned interface name; steward follow-up F-1"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-3 | **COUNTER ACCEPTED** (CLI-AT2) | (was: the action that returns the launch of the terminal UI entrypoint: command, working directory and environment including the typed connection descriptor (today `ResolveAppLaunch`).) Answer: no Hub action; the TUI is a client binary of the same install. |
+[rows."272"]
+ResolveAppLaunch = "n/a: a legacy Hub action that DEP-3's counter withdraws; v1 has no launch action (CLI-AT2)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-4 | **ACCEPTED** by 003c (parity20) and 0016 (a Hub-derived key of the file) | The context file gains `session_type_dir` (the directory of the session type's definition files: it is what scripts call `session_dir`), keeps `prompt`, `branch` and `worktree_path`, and carries `context` entries by bare name. HP `session_types.spawn{context}` uses the same schema. |
+[rows."273"]
+branch = ["hub::SessionContextFile::branch"]
+context = ["hub::SessionContextFile::context"]
+prompt = ["hub::SessionContextFile::prompt"]
+session_dir = ["cli.context_key:CONTEXT_KEYS:session_dir"]
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+"session_types.spawn{context}" = ["plugin.call:session_types.spawn", "plugin::SpawnArgs::context"]
+worktree_path = ["hub::SessionContextFile::worktree_path"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-5 | **ACCEPTED**: `hub update` updates the whole install | The Hub's `update` action covers the `botster` CLI binary of the install, so the CLI and the Hub never drift. |
+[rows."274"]
+botster = ["cli.binary:botster"]
+"hub update" = ["hub.kind:hub", "hub.action:hub.update"]
+update = ["hub.action:hub.update"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-6 | (withdrawn) | `reset` was dropped by ruling UD-2. |
+[rows."275"]
+reset = ["cli.command:GONE_COMMANDS:reset"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-7 | **ACCEPTED**: `worktree delete {force?}` | The `worktree` `delete` action states whether it forces removal of a dirty worktree (the legacy command did, CL-130). |
+[rows."276"]
+delete = ["hub::Verb::Delete"]
+worktree = ["hub.kind:worktree"]
+"worktree delete {force?}" = ["hub.kind:worktree", "hub::Verb::Delete", "hub::WorktreeDeleteArgs::force"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-8 | **ACCEPTED**: `invoke(hub, id, diagnostics)` | A `hub` action `diagnostics` returning one opaque JSON value (allowed by HC P3). |
+[rows."277"]
+diagnostics = ["hub.action:hub.diagnostics"]
+hub = ["hub.kind:hub"]
+"invoke(hub, id, diagnostics)" = ["hub::Verb::Invoke", "hub.kind:hub", "hub::HubRow::id", "hub.action:hub.diagnostics"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-10 | **ACCEPTED** (parity25, `dd625076…1186`) | `invoke(hub, id, swap_preflight, { target_worker_protocol })` is a read returning `{ unadoptable: [{ session, worker_protocol }], unknown: [{ session }] }` (parity40: a worker of unknown protocol counts as unadoptable); `get(hub)` has `software { revision, channel }` with `channel` dev or release (shown as `dev <sha>` or `release <version>`) and the Hub's own `worker_protocol`. The swap itself is the Hub's `swap` action (DEP-11); `swap_preflight` is an early read only, and the CLI never uses a bare `shutdown` to swap. |
+[rows."278"]
+channel = ["hub::Software::channel"]
+"dd625076…1186" = "n/a: a shortened sha256 of an earlier revision of this text"
+"dev <sha>" = { symbols = ["hub::SoftwareChannel::Dev"], uncovered = { sha = "a placeholder for the commit sha (Software::revision)" } }
+"get(hub)" = ["hub::Verb::Get", "hub.kind:hub"]
+"invoke(hub, id, swap_preflight, { target_worker_protocol })" = ["hub::Verb::Invoke", "hub.kind:hub", "hub::HubRow::id", "hub.action:hub.swap_preflight", "hub::SwapPreflightArgs::target_worker_protocol"]
+"release <version>" = { symbols = ["hub::SoftwareChannel::Release"], uncovered = { version = "a placeholder for the version (Software::revision)" } }
+shutdown = ["hub.action:hub.shutdown"]
+"software { revision, channel }" = ["hub::HubRow::software", "hub::Software::revision", "hub::Software::channel"]
+swap = ["hub.action:hub.swap"]
+swap_preflight = ["hub.action:hub.swap_preflight"]
+worker_protocol = ["hub::HubRow::worker_protocol"]
+"{ unadoptable: [{ session, worker_protocol }], unknown: [{ session }] }" = ["hub::SwapPreflightResult::unadoptable", "hub::SwapPreflightResult::unknown", "hub::Unadoptable::session", "hub::Unadoptable::worker_protocol", "hub::UnknownProtocol::session"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-11 | **ACCEPTED** (parity29, `45a6917f…9450`; TB-L1 unconditional for Hub, CLI and every UI) | **Swap commit and handover.** (a) `invoke(hub, id, swap, { target_worker_protocol, drop_unadoptable? })`: the Hub stops launch admission, checks the final live set, and either refuses `unadoptable_sessions { sessions, unknown }` (`unknown`: sessions of unknown worker protocol, which count as unadoptable, parity40) (admission reopened, nothing stopped) or accepts and shuts down; it ends unadoptable sessions only when `drop_unadoptable` is true and reports which. (b) A **handover event** the CLI can wait on: the control `close` (HS-9) carries `lock_released: true` only after the Hub released its singleton lock and removed its socket; a close without it is not a handover. No polling. (c) Decision asked: is TB-L1 the unconditional rule for all three clients (CLI-RT3 now follows it)? |
+[rows."279"]
+close = ["hub::Close"]
+drop_unadoptable = ["hub::SwapArgs::drop_unadoptable"]
+"invoke(hub, id, swap, { target_worker_protocol, drop_unadoptable? })" = ["hub::Verb::Invoke", "hub.kind:hub", "hub::HubRow::id", "hub.action:hub.swap", "hub::SwapArgs::target_worker_protocol", "hub::SwapArgs::drop_unadoptable"]
+"lock_released: true" = { symbols = ["hub::HubShutdownData::lock_released"], uncovered = { true = "a JSON literal value" } }
+"unadoptable_sessions { sessions, unknown }" = ["hub.reason:hub.swap:wrong_state:unadoptable_sessions", "hub::UnadoptableDetail::sessions", "hub::UnadoptableDetail::unknown"]
+unknown = ["hub::UnadoptableDetail::unknown"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-12 | **ACCEPTED** (parity32) | The hub row states what `status` prints (CLI-SS1): `pid`, `uptime_seconds`, `data_root` (operators only: a caller without the permission gets no value and `status` omits the line), and the counts `sessions` and `plugins`, beside `software` and `worker_protocol` (DEP-10). `diagnostics` (DEP-8) may carry the internals that `status` dropped, with no promise. |
+[rows."280"]
+data_root = ["hub::HubRow::data_root"]
+diagnostics = ["hub.action:hub.diagnostics"]
+pid = ["hub::HubRow::pid"]
+plugins = ["hub::HubRow::plugins"]
+sessions = ["hub::HubRow::sessions"]
+software = ["hub::HubRow::software"]
+status = ["cli.command:COMMANDS:status"]
+uptime_seconds = ["hub::HubRow::uptime_seconds"]
+worker_protocol = ["hub::HubRow::worker_protocol"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-13 | **ACCEPTED** (parity39, `0174ea60…d1b3`; parity35 is withdrawn) | `components.{hub, worker, plugin_hosts, mcp_bridge}` is the **installed** identity `{ channel, commit, checkout?, running?: [{ channel?, commit?, count }] }`. `checkout` only for dev builds and only to operators. `running` lists every live identity **not known to equal** the installed one, **including unknown ones** (channel and commit absent), from each process's own metadata. `status` prints unknown entries and never hides them (parity39). |
+[rows."281"]
+"0174ea60…d1b3" = "n/a: a shortened sha256 of an earlier revision of this text"
+checkout = ["hub::Component::checkout"]
+"components.{hub, worker, plugin_hosts, mcp_bridge}" = ["hub::HubRow::components", "hub::Components::hub", "hub::Components::worker", "hub::Components::plugin_hosts", "hub::Components::mcp_bridge"]
+running = ["hub::Component::running"]
+status = ["cli.command:COMMANDS:status"]
+"{ channel, commit, checkout?, running?: [{ channel?, commit?, count }] }" = ["hub::Component::channel", "hub::Component::commit", "hub::Component::checkout", "hub::Component::running", "hub::RunningIdentity::channel", "hub::RunningIdentity::commit", "hub::RunningIdentity::count"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-14 | **ACCEPTED** (parity42) | `upgrade_packages` takes `bindings?: [{ consumer, interface, provider }]` and `accept_breaking?: [{ consumer, interface }]`. It resolves as one set: an unresolved request is refused before any operation with `conflict { reason, … }` and `effect: none` (no package changes). After a passing resolution, an execution failure ends the operation `failed { reason }` and is reported per package; execution is not atomic (HP PM-7). `preview_package_upgrades` returns `ambiguous: [{ consumer, interface, candidates }]`. |
+[rows."282"]
+"accept_breaking?: [{ consumer, interface }]" = ["hub::UpgradePackagesArgs::accept_breaking", "hub::ConsumerInterface::consumer", "hub::ConsumerInterface::interface"]
+"ambiguous: [{ consumer, interface, candidates }]" = ["hub::PreviewPackageUpgradesResult::ambiguous", "hub::Ambiguity::candidates", "hub::Ambiguity::consumer", "hub::Ambiguity::interface"]
+"bindings?: [{ consumer, interface, provider }]" = ["hub::UpgradePackagesArgs::bindings", "hub::ConsumerBinding::consumer", "hub::ConsumerBinding::interface", "hub::ConsumerBinding::provider"]
+"conflict { reason, … }" = ["hub::ErrorCode::Conflict", "hub::Error::reason"]
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"failed { reason }" = ["hub.operation_state:hub.upgrade_packages:failed", "hub::OperationState::reason"]
+preview_package_upgrades = ["hub.action:hub.preview_package_upgrades"]
+upgrade_packages = ["hub.action:hub.upgrade_packages"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-15 | **PUBLISHED** (`hub-client-contract-v1-amendment-2-candidate2.md`, sha256 `bdf1ac9ff8e7742af7202ddcadd31494e5e4cdcdbab2b9e8d54bd445d54965a4`: RT-1 to RT-5, CF-1/CF-2, H-3, A.9b) | `check_update` returns `{ state: up_to_date \| available \| failed { reason }, available?: { version } }`; the hub row's `update` is `{ state: idle \| checking \| available \| downloading \| installing \| failed { reason }, available?: { version } }`. The update operation is durable; across the Hub's restart the CLI reconnects and reads `get(operation, id)` (CLI-UP2). **Also adopted by HC (CLI cites HC):** CLI-RT1 and CLI-RT2 verbatim (app name and roots); Hub config `<config root>/hub.toml`; data root layout `hub.lock`, `store/`, `packages/`, `logs/`, `terminfo/`; **install layout** = one directory holding `botster`, `botster-hub`, `botster-tui`, `botster-worker`, `botster-plugin-host`, `botster-mcp-bridge` and `botster-process-bridge`. |
+[rows."283"]
+"<config root>/hub.toml" = ["cli.path:CLI-ST4:4"]
+bdf1ac9ff8e7742af7202ddcadd31494e5e4cdcdbab2b9e8d54bd445d54965a4 = "n/a: the sha256 of a contract document (steward ruling, PR 8 leftovers item 1)"
+botster = ["cli.binary:botster"]
+botster-hub = "n/a: Hub-owned interface name; steward follow-up F-1"
+botster-mcp-bridge = "n/a: Hub-owned interface name; steward follow-up F-1"
+botster-plugin-host = "n/a: Hub-owned interface name; steward follow-up F-1"
+botster-process-bridge = "n/a: Hub-owned interface name; steward follow-up F-1"
+botster-tui = "n/a: the binary of the terminal UI, a client of the same install; not a contract symbol (steward ruling, PR 8 leftovers item 3)"
+botster-worker = "n/a: Hub-owned interface name; steward follow-up F-1"
+check_update = ["hub.action:hub.check_update"]
+"get(operation, id)" = ["hub::Verb::Get", "hub.kind:operation", "hub::OperationRow::id"]
+"hub-client-contract-v1-amendment-2-candidate2.md" = "n/a: a document of the contract repository, not a contract symbol (steward ruling, PR 8 leftovers item 1)"
+"hub.lock" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"logs/" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"packages/" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"store/" = "n/a: Hub-owned interface name; steward follow-up F-1"
+"terminfo/" = "n/a: Hub-owned interface name; steward follow-up F-1"
+update = ["hub::HubRow::update"]
+"{ state: idle \\| checking \\| available \\| downloading \\| installing \\| failed { reason }, available?: { version } }" = ["hub::UpdateStatus::state", "hub::UpdateState::Idle", "hub::UpdateState::Checking", "hub::UpdateState::Available", "hub::UpdateState::Downloading", "hub::UpdateState::Installing", "hub::UpdateState::Failed", "hub::ReasonData::reason", "hub::UpdateStatus::available", "hub::AvailableUpdate::version"]
+"{ state: up_to_date \\| available \\| failed { reason }, available?: { version } }" = ["hub::CheckUpdateResult::state", "hub::CheckState::UpToDate", "hub::CheckState::Available", "hub::CheckUpdateState::Failed", "hub::CheckUpdateState::Failed::failed", "hub::ReasonData::reason", "hub::CheckUpdateResult::available", "hub::AvailableUpdate::version"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 12. Dependencies on other contracts (amendments this spec needs)
+# | DEP-9 | **BOUND** (parity21, PM-1..14) | The plugin-management wire the commands of CLI-PL use: the kinds and actions for install (URL, local directory, catalog name), update and its check, pin and unpin, rollback, remove; the status fields; which are durable operations; the refusal codes; the catalog and lockfile shapes. Answer: verbs as in section 9b. The catalog row shape and the exact `grants` payload are the Hub's; the CLI sends what it displayed. |
+[rows."284"]
+grants = ["hub::ApproveGrantsArgs::grants"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 13. Conformance (CLI-CV)
+# | CLI-CV1 | The suite runs the CLI against FakeHub (HC section 12) over a real Unix socket; the clauses above name their tests. | `conf::cli_*` |
+[rows."290"]
+"conf::cli_*" = "n/a: a glob of the conformance ids of this spec (CLI-CV1), not one id"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 13. Conformance (CLI-CV)
+# | CLI-CV2 | **Legacy agent scripts are vectors.** The suite copies the 10 measured `initialization` scripts and runs each with `botster` replaced by the CLI under test and the launched program replaced by `printf '%s\n'`; the output must contain the prompt, the worktree path, the branch and the definition directory that the context file holds. | `conf::cli_cx6_agent_scripts_run_verbatim` |
+[rows."291"]
+botster = ["cli.binary:botster"]
+initialization = "n/a: data of the measured local agent definitions (~/.botster-dev/agents), outside this repo (steward ruling, PR 8 leftovers item 2)"
+"printf '%s\\n'" = "n/a: the stand-in program of the agent-script vectors (a shell command), not a contract symbol (steward ruling, PR 8 leftovers item 2)"
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 13. Conformance (CLI-CV)
+# | CLI-CV3 | **Golden outputs** for `status`, `context` (no key), `list-worktrees`, `json-*` and `config` are files in the suite; a change needs a MAJOR or MINOR decision (CLI-P7). | `conf::cli_cv3_golden_outputs` |
+[rows."292"]
+config = ["cli.command:COMMANDS:config"]
+context = ["cli.command:COMMANDS:context"]
+"json-*" = { symbols = ["cli.command:COMMANDS:json-get", "cli.command:COMMANDS:json-set", "cli.command:COMMANDS:json-delete"], uncovered = { json = "the glob json-* of the three json commands (CLI-JS1)" } }
+list-worktrees = ["cli.command:COMMANDS:list-worktrees"]
+status = ["cli.command:COMMANDS:status"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 14. Decisions and open items
+# **Ruled:** UD-2 drop `reset`; UD-3 drop the `config` stubs; UD-4 accept the removal of the legacy session variables. `session_type_dir` stays in the context file and needs the auditor's and 0016's acceptance (DEP-4).
+[rows."297"]
+config = ["cli.command:COMMANDS:config"]
+reset = ["cli.command:GONE_COMMANDS:reset"]
+session_type_dir = ["hub::SessionContextFile::session_type_dir"]
+
+# botster CLI v1: the `botster` binary as a client of the Hub (draft, working file; candidate 9) > 14. Decisions and open items
+# **Open items for other owners:** OI-7 and OI-8 are ruled (CLI-DV2, CLI-DV4). OI-5 is closed (`ahead`). OI-6 (Core writer): does `debug vt-replay` survive, and where is its crash dump written? DEP-1 to DEP-9 above.
+[rows."302"]
+ahead = ["hub::CheckState::Ahead"]
+"debug vt-replay" = ["cli.command:COMMANDS:debug vt-replay"]

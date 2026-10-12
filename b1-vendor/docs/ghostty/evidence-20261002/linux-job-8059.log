@@ -1,0 +1,53 @@
+job=8059
+testq snapshot: /home/structvr/testq/projects/ghostty-sync/jobs/upstream-sync-20261002105334-1505931
+date: 2026-10-02T17:53:34Z
+host: Linux 6.8.0-136-generic x86_64
+input sha256 (before extraction):
+f08c4c7e87b5a0c91a649d41431ef4409e8db6cf58f19c8e43afc72de53f238f  new.tar
+56828b7718924fb65f7d8719b01282ea08e6c2d17ee0e0178c85b58019d0bee1  pre10.tar
+2a3ad17dc7b32ab48651dec8499b88d1d116907630222833f37fa5731ae1c5b9  repro.rs
+1b6f2b84fd1942c0e9ea217d5e8f31c1a7f988638b0e0bc6451e4b1bbaf3012b  job.sh
+image tools: zig 0.16.0; rustc 1.97.0 (2d8144b78 2026-07-07); ldd (Debian GLIBC 2.36-9+deb12u14) 2.36
+input sha256 inside the container:
+f08c4c7e87b5a0c91a649d41431ef4409e8db6cf58f19c8e43afc72de53f238f  /w/new.tar
+56828b7718924fb65f7d8719b01282ea08e6c2d17ee0e0178c85b58019d0bee1  /w/pre10.tar
+2a3ad17dc7b32ab48651dec8499b88d1d116907630222833f37fa5731ae1c5b9  /w/repro.rs
++ (pre10) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Demit-xcframework=false
+===== pre10: build exit 0
+archive sha256: 47a82017f52eb758cf0077d3da6e49f0f5335a948ec33120e0bcce4f2ef5155c
+----- pre10 defined allocator symbols
+/w/pre10-prefix/lib/libghostty-vt.a:.zig-cache/o/dfa9b5948a1d76492466820ad03cb89d/libghostty-vt-static_zcu.o:00000000000fab70 W calloc
+/w/pre10-prefix/lib/libghostty-vt.a:.zig-cache/o/dfa9b5948a1d76492466820ad03cb89d/libghostty-vt-static_zcu.o:00000000000fab80 W free
+----- pre10 undefined allocator references
+                 U calloc
+----- pre10 rust O0
+memory allocation of 1 bytes failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+exit 134
+bash: line 13:   318 Aborted                 (core dumped) /w/$v-repro-O$opt
+----- pre10 rust O3
+rust repro ok total=134217727 big=16777216
+exit 0
++ (new) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=false -Dcpu=baseline -Demit-xcframework=false
+===== new: build exit 0
+archive sha256: 87416399e34917ddbc31ea293ad429f09b58d17c5aec5946980dfbca95f84324
+----- new defined allocator symbols
+(none defined)
+----- new undefined allocator references
+                 U calloc
+                 U free
+                 U malloc
+                 U realloc
+----- new rust O0
+rust repro ok total=134217727 big=16777216
+exit 0
+----- new rust O3
+rust repro ok total=134217727 big=16777216
+exit 0
++ (new) zig build test-lib-vt --summary all
+test-lib-vt exit 0
+Build Summary: 45/45 steps succeeded; 6616/6686 tests passed (70 skipped)
++- run test 3058 pass, 35 skip (3093 total) 10m MaxRSS:141M
++- run test 3558 pass, 35 skip (3593 total) 10m MaxRSS:134M
+testq-follow-exit=0
+ssh exit 0

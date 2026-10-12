@@ -1,0 +1,26 @@
+{
+  "id": "conf::a5_1_not_in_facade_or_ffi",
+  "contract": "core",
+  "clause": "A5-1",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "check_crates": {
+        "crate": "botster-core-testkit",
+        "not_in": [
+          "botster_core::prelude",
+          "botster_core::contract"
+        ],
+        "no_dependency_of": [
+          "botster-core-ffi"
+        ]
+      },
+      "because": [
+        "Core A5-1",
+        "Core 13"
+      ]
+    }
+  ]
+}

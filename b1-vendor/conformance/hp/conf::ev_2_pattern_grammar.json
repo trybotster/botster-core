@@ -1,0 +1,552 @@
+{
+ "id": "conf::ev_2_pattern_grammar",
+ "contract": "hp",
+ "clause": "EV-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke",
+   "load_plugin",
+   "settle"
+  ]
+ },
+ "setup": {
+  "given": "the plugin b declares the public plugins-audience events ws.message (high), ws.close (normal), other (low) and wsx (normal) and holds events_high",
+  "limits": {
+   "event_starvation_bound": 100
+  },
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_plugin:b"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      },
+      {
+       "id": "he2",
+       "kind": "event",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "b",
+         "name": "ws.*"
+        }
+       },
+       {
+        "handler_id": "he2",
+        "pattern": {
+         "owner": "b",
+         "name": "other"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "b",
+    "as": "b"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_b",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "declared": [
+       {
+        "name": "ws.message",
+        "payload_schema": {
+         "type": "object"
+        },
+        "audience": [
+         "plugins"
+        ],
+        "public": true,
+        "priority": "high"
+       },
+       {
+        "name": "ws.close",
+        "payload_schema": {
+         "type": "object"
+        },
+        "audience": [
+         "plugins"
+        ],
+        "public": true,
+        "priority": "normal"
+       },
+       {
+        "name": "other",
+        "payload_schema": {
+         "type": "object"
+        },
+        "audience": [
+         "plugins"
+        ],
+        "public": true,
+        "priority": "low"
+       },
+       {
+        "name": "wsx",
+        "payload_schema": {
+         "type": "object"
+        },
+        "audience": [
+         "plugins"
+        ],
+        "public": true,
+        "priority": "normal"
+       }
+      ],
+      "subscribed": [],
+      "gap_handler": "hg"
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "plugin": "b",
+    "handler": "h1"
+   },
+   "bind": {
+    "t_b": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e_b",
+     "request_id": "$r_b",
+     "handler": "h1"
+    }
+   },
+   "on": "b",
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_b",
+     "call_id": 1,
+     "call": "events.emit",
+     "context": {
+      "request": "$r_b"
+     },
+     "args": {
+      "name": "wsx",
+      "payload": {}
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_b",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "on": "b",
+   "because": "HP EV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_b",
+     "call_id": 2,
+     "call": "events.emit",
+     "context": {
+      "request": "$r_b"
+     },
+     "args": {
+      "name": "other",
+      "payload": {}
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_b",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "on": "b",
+   "because": "HP EV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_b",
+     "call_id": 3,
+     "call": "events.emit",
+     "context": {
+      "request": "$r_b"
+     },
+     "args": {
+      "name": "ws.close",
+      "payload": {}
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_b",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "on": "b",
+   "because": "HP EV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_b",
+     "call_id": 4,
+     "call": "events.emit",
+     "context": {
+      "request": "$r_b"
+     },
+     "args": {
+      "name": "ws.message",
+      "payload": {}
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_b",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "on": "b",
+   "because": "HP EV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "b",
+      "name": "ws.message",
+      "priority": "high"
+     }
+    }
+   },
+   "because": "HP EV-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c2",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "b",
+      "name": "ws.close",
+      "priority": "normal"
+     }
+    }
+   },
+   "because": "HP EV-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c3",
+     "handler": "he2",
+     "origin": "event",
+     "payload": {
+      "owner": "b",
+      "name": "other",
+      "priority": "low"
+     }
+    }
+   },
+   "because": "HP EV-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "payload": {
+      "name": "wsx"
+     }
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP EV-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e_b",
+     "request_id": "$r_b",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   },
+   "conn": "b"
+  }
+ ]
+}

@@ -1,0 +1,49 @@
+name: mutants-weekly
+
+# The full mutation run on the fakes and the codecs (docs/tooling.md). It proves that the transcripts catch a broken fake, which a suite
+# written by the fake's own author cannot prove. A surviving mutant fails the run, and the report is the artifact.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutants:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.92.0
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-mutants
+        run: command -v cargo-mutants || cargo install cargo-mutants --version 27.1.0 --locked
+      # A mutant of a fake runs the workspace tests: the transcripts that prove a fake are in the conformance crates, and
+      # cargo-mutants 27.1 runs only the tests of the mutated package by default.
+      - name: The fakes (workspace tests)
+        run: |
+          packages=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; names=[p["name"] for p in json.load(sys.stdin)["packages"]]; print(" ".join("-p "+n for n in sorted(names) if n.startswith("botster-fake-") or n == "botster-plugin-fakes"))')
+          echo "packages: $packages"
+          cargo mutants $packages --test-workspace=true --no-shuffle -o mutants-fakes
+      - name: The route codec
+        if: always()
+        run: cargo mutants -p botster-route-codec --no-shuffle -o mutants-route-codec
+      - name: The plugin frame codec
+        if: always()
+        run: cargo mutants -p botster-plugin-contract --file crates/botster-plugin-contract/src/wire.rs --no-shuffle -o mutants-plugin-wire
+      - name: Upload the mutants reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-out
+          path: |
+            mutants-fakes
+            mutants-route-codec
+            mutants-plugin-wire
+          if-no-files-found: ignore

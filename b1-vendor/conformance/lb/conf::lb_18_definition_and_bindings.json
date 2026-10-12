@@ -1,0 +1,158 @@
+{
+ "id": "conf::lb_18_definition_and_bindings",
+ "contract": "lb",
+ "clause": "LB-18",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "admit_package"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest",
+    "requires": [
+     {
+      "interface": "msg@1.0.0",
+      "range": "^1.0.0",
+      "optional": true
+     }
+    ]
+   },
+   "files": {
+    "main.lua": "local b = botster.plugins.bindings{}\nlocal first = b.value.bindings[1]\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      return { bindings_ok = b.ok, provider_is_null = first.provider == botster.json.null, provider_is_nil = first.provider == nil,\n               state = first.state, interface = first.interface }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest",
+      "version": "1.0"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_version"
+     }
+    }
+   },
+   "because": "LB LB-18"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": "bootstrap",
+     "call": "plugins.bindings",
+     "args": {}
+    }
+   },
+   "because": "LB LB-18"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "bindings": [
+        {
+         "interface": "msg@1.0.0",
+         "interface_version": "1.0.0",
+         "provider": null,
+         "state": "unmet"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "bindings_ok": true,
+       "provider_is_null": true,
+       "provider_is_nil": false,
+       "state": "unmet",
+       "interface": "msg@1.0.0"
+      }
+     }
+    }
+   },
+   "because": "LB LB-18"
+  }
+ ]
+}

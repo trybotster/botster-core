@@ -1,0 +1,379 @@
+{
+  "id": "conf::ui_nv_3_overlay_and_form_ids",
+  "contract": "ui",
+  "clause": "UI-NV-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "dialog, form, field, widget and form buttons have the role-segment ids",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "type": "string",
+                        "ui": {
+                          "group": "g"
+                        }
+                      },
+                      "extra": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item": {
+          "type": "form"
+        },
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+          "type": "form_field"
+        },
+        "botster-ui-descendant-v1:109:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name6:widget": {
+          "type": "text_input"
+        },
+        "botster-ui-descendant-v1:111:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item6:action6:submit": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:111:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item6:action6:cancel": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "an authored group and the default optional section have their own ids",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "type": "string",
+                        "ui": {
+                          "group": "g"
+                        }
+                      },
+                      "extra": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:109:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:item7:group:g": {
+          "type": "form_section"
+        },
+        "botster-ui-descendant-v1:109:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:item8:optional": {
+          "type": "form_section"
+        }
+      }
+    },
+    {
+      "name": "a confirmation dialog has confirm and cancel buttons below the dialog",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "del"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container7:confirm": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container6:cancel": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "the form-level message and the action failure message have error ids",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "tagged": {
+                        "type": "string",
+                        "ui": {
+                          "group": "g"
+                        }
+                      },
+                      "extra": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "errors": {
+          "forms": {
+            "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item": "Form failed"
+          },
+          "actions": {
+            "go": "Go failed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item5:error": {
+          "type": "text",
+          "props": {
+            "tone": "danger"
+          }
+        },
+        "botster-ui-descendant-v1:2:go5:error": {
+          "type": "text",
+          "props": {
+            "tone": "danger"
+          }
+        }
+      }
+    },
+    {
+      "name": "the overflow menu of a toolbar is child(toolbar, item)",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "tb",
+              "items": [
+                {
+                  "id": "p",
+                  "label": "P",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "s",
+                  "label": "S",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:tb9:container4:item": {
+          "type": "menu"
+        }
+      }
+    },
+    {
+      "name": "the action slot of a row is child(row, action)",
+      "because": "UI UI-NV-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "rm",
+                    "label": "Rm",
+                    "handler": "h"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r16:action": {}
+      }
+    }
+  ]
+}

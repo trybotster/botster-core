@@ -1,0 +1,252 @@
+# The crate symbols of each code span of ui-contract-v1.2-embed-successor-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Successor to `ui-contract-v1.2-embed-frozen-20260930.md` (`d18867f5…ebd1`, not edited). Candidate 2 distinguishes runtime-published durability from staged-set replacement (Hub A REJECT of candidate 1, `e67671ba…2092`). The only change: l...
+[rows."4"]
+"d18867f5…ebd1" = "n/a: a commit or file hash"
+"e67671ba…2092" = "n/a: a commit or file hash"
+"ui-contract-v1.2-embed-frozen-20260930.md" = "n/a: a repository path"
+
+# History: Supersedes candidate 12 (`7714fb5e…cd8c`): the copied CSP header line is deleted (HP AS-3, A4r63, is the only text), a page message is a client-mediated request (not a Hub call by the frame), and UI-AD-4 lists `embed_source_not_...
+[rows."5"]
+"0d0f0407…eaca" = "n/a: a commit or file hash"
+"6da72cbe…aac1" = "n/a: a commit or file hash"
+"7714fb5e…cd8c" = "n/a: a commit or file hash"
+"80b6d77e…e24bb" = "n/a: a commit or file hash"
+"9a3d0646…bc57" = "n/a: a commit or file hash"
+"b2529742…1a5d" = "n/a: a commit or file hash"
+"b54ed43a…afdec" = "n/a: a commit or file hash"
+"e7d04393…3709" = "n/a: a commit or file hash"
+"eca3126b…62ab" = "n/a: a commit or file hash"
+"embed_source_not_own" = ["ui::AdmissionCode::EmbedSourceNotOwn"]
+"f5b50aa7…5b60" = "n/a: a commit or file hash"
+"name" = ["ui::AssetRef::ByName::name"]
+"open_asset" = ["hub.action:package.open_asset"]
+"page.asset" = ["ui::EmbedPage::asset", "ui::EmbedPart::page"]
+"to_page" = ["ui::Channel::to_page"]
+
+# Base: `ui-contract-v1-frozen-20260930.md` (`2063e897…7661`) and `ui-contract-v1.1-amendment-frozen-20260930.md` (`a932deeb…22ba`).
+[rows."6"]
+"a932deeb…22ba" = "n/a: a commit or file hash"
+"ui-contract-v1-frozen-20260930.md" = "n/a: a repository path"
+"ui-contract-v1.1-amendment-frozen-20260930.md" = "n/a: a repository path"
+
+# **Version.** MINOR 1.2, feature `ui_embed` (UI-VR-4). A view that uses `embed` sets `requires: ["ui_embed"]`. A client that lacks it shows the local diagnostic of UI-CF-1. P1 is unchanged: the document is data; the **page** is plugin con...
+[rows."9"]
+"embed" = ["ui::Part::Embed"]
+"requires: [\"ui_embed\"]" = ["ui::ViewDocument::requires", "ui.feature:ui_embed"]
+"ui_embed" = ["ui.feature:ui_embed"]
+
+# `embed` is one new part, in the data class (it binds a page), and it is the only new part.
+[rows."13"]
+"embed" = ["ui::Part::Embed"]
+
+# | UI-EM-1 | `embed` has one required `page.asset` operand. It resolves to an **asset reference** `{ asset_id }` or `{ name }` (E2). A `name` is the manifest name of a staged asset or the `name` of a published one; the Hub resolves it to ...
+[rows."25"]
+"asset_id" = ["ui::AssetRef::ById::asset_id"]
+"embed" = ["ui::Part::Embed"]
+"empty" = ["ui::EmbedPart::empty"]
+"name" = ["ui::AssetRef::ByName::name"]
+"open_asset" = ["hub.action:package.open_asset"]
+"page.asset" = ["ui::EmbedPage::asset", "ui::EmbedPart::page"]
+"src" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"srcdoc" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"title" = ["ui::EmbedPart::title"]
+"{ asset_id }" = ["ui::AssetRef::ById::asset_id"]
+"{ name }" = ["ui::AssetRef::ByName::name"]
+
+# | UI-EM-2 | A document may contain any number of `embed` parts. A client MAY render at most one at a time in a narrow layout; it then shows the others as the UI-EM-6 link. | `conf::ui_em_2_multiple_embeds_fallback` |
+[rows."26"]
+"embed" = ["ui::Part::Embed"]
+
+# | UI-RZ-2f | **Realized node.** `embed` realizes as a new UiNode kind `embed` with props `title`, `asset_id`, `channel` (the declared message types only), `state` (`ready|empty|error`). This is an optional UiNode addition (MINOR), listed...
+[rows."27"]
+"asset_id" = ["ui.prop:embed:asset_id"]
+"channel" = ["ui::EmbedPart::channel"]
+"embed" = ["ui::UiNodeKind::Embed"]
+"ready|empty|error" = { symbols = ["ui.prop:embed:state"], uncovered = { ready = "GAP(ui): a value of the embed state prop (realize.rs); no type holds the state values", empty = "GAP(ui): a value of the embed state prop (realize.rs); no type holds the state values", error = "GAP(ui): a value of the embed state prop (realize.rs); no type holds the state values" } }
+"state" = ["ui.prop:embed:state"]
+"title" = ["ui.prop:embed:title"]
+
+# | UI-AD-4 | Admission also checks: `page.asset` is in scope (UI-BD-3), every `channel.from_page` entry names an action of the same document (or a declared slot), every `to_page.source` kind is admitted and its `fields` are in the kind's ...
+[rows."28"]
+"channel.from_page" = ["ui::EmbedPart::channel", "ui::Channel::from_page"]
+"embed_source_not_own" = ["ui::AdmissionCode::EmbedSourceNotOwn"]
+"fields" = ["ui::ToPage::fields"]
+"page.asset" = ["ui::EmbedPage::asset", "ui::EmbedPart::page"]
+"projection_allowlist" = ["ui::KindDescriptor::projection_allowlist"]
+"to_page.source" = ["ui::Channel::to_page", "ui::ToPage::source"]
+"type" = ["ui::ToPage::type_"]
+
+# The ui-contract states only the properties a client needs. The plugin-platform writer (0016) owns the serving clauses. Agreed text in HP A4r59 (was A4r55): `assets.publish` (surface `assets`, bare, named "publish web pages"), staged mani...
+[rows."32"]
+"asset_token_ttl_ms" = ["plugin.limit:asset_token_ttl_ms"]
+"assets" = ["plugin::Manifest::assets", "plugin::CallSpec::grant"]
+"assets.publish" = ["plugin.call:assets.publish"]
+"assets_listen" = ["plugin.limit:assets_listen"]
+
+# - A host call **`assets.publish{ name, content_type, bytes_b64 }`** (grant surface `assets`, scope `assets`) stores one immutable asset in a Hub-owned, per-plugin, quota-bound store and returns `{ asset_id }`. A republish under the same ...
+[rows."34"]
+"asset_id" = ["plugin::AssetId::asset_id"]
+"assets" = { symbols = ["plugin::CallSpec::grant"], uncovered = { assets = "the grant surface and scope of assets.publish (CallSpec::grant is a string)" } }
+"assets.publish{ name, content_type, bytes_b64 }" = ["plugin.call:assets.publish", "plugin::AssetsPublishArgs::name", "plugin::AssetsPublishArgs::content_type", "plugin::AssetsPublishArgs::bytes_b64"]
+"name" = ["plugin::AssetsPublishArgs::name"]
+"{ asset_id }" = ["plugin::AssetId::asset_id"]
+
+# - The Hub serves an asset only at **`GET <assets origin>/<plugin-key>/<asset_id>?t=<capability>`**. The assets origin is **a different origin from the app** (a separate port or host name, no shared cookies). The capability token is issue...
+[rows."35"]
+"GET <assets origin>/<plugin-key>/<asset_id>?t=<capability>" = "n/a: the HP AS-3 asset URL template; its placeholders are the assets origin, the plugin key, an asset id and a capability token; no contract crate types the asset URL"
+
+# - **Asset lifecycle is HP AS-4 (the Hub→plugin contract), not restated here.** Assets survive crash, restart and reload, and are deleted on disable, uninstall or quarantine. No asset from one plugin is readable with another plugin's path...
+[rows."37"]
+"asset_id" = ["ui::AssetRef::ById::asset_id"]
+"assets" = ["plugin::Manifest::assets"]
+"assets.publish" = ["plugin.call:assets.publish"]
+"error" = ["ui::EmbedPart::error"]
+"name" = ["ui::AssetRef::ByName::name"]
+"not_found" = ["hub::ErrorCode::NotFound"]
+"open_asset" = ["hub.action:package.open_asset"]
+
+# | UI-EM-3 | **Sandbox.** A graphical client renders the page in an `iframe` with `sandbox="allow-scripts"` and **without** `allow-same-origin`, `allow-top-navigation`, `allow-forms`, `allow-popups` or `allow-modals`; `referrerpolicy="no-...
+[rows."41"]
+"allow" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-forms" = "n/a: an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-modals" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-popups" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-same-origin" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-top-navigation" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"iframe" = ["ui::UiNodeKind::Iframe"]
+"referrerpolicy=\"no-referrer\"" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it; part of an HTML referrer policy value (web platform)"
+"sandbox=\"allow-scripts\"" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it; part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"src" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+
+# | UI-EM-4 | **No app credentials.** The client never adds the app's bearer, cookie or session token to the frame `src`, to a frame message, or to any request the frame causes. The capability token is not an app credential and grants one ...
+[rows."42"]
+"src" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+
+# | UI-EM-7 | **How a client gets the URL.** `realize` stays pure: the tree carries only the asset reference (`asset_id` or `name`), and the renderer calls the verb to mint the URL. If the token expires or is revoked while a frame is open,...
+[rows."44"]
+"asset_id" = ["ui::AssetRef::ById::asset_id"]
+"error" = ["ui::EmbedPart::error"]
+"expires_at" = ["hub::OpenAssetResult::expires_at"]
+"immediate" = ["hub::EffectClass::Immediate"]
+"invoke(package, <package key>, open_asset, { asset_id | name })" = { symbols = ["hub.action:package.open_asset", "hub::OpenAssetArgs::ById::asset_id", "hub::OpenAssetArgs::ByName::name", "hub.kind:package"], uncovered = { invoke = "the client verb (client SF-2)", key = "the placeholder for a package key" } }
+"name" = ["ui::AssetRef::ByName::name"]
+"not_found" = ["hub::ErrorCode::NotFound"]
+"realize" = ["ui::realize"]
+"{ url, expires_at }" = ["hub::OpenAssetResult::url", "hub::OpenAssetResult::expires_at"]
+
+# Both directions are JSON messages `{ "botster": 1, "type": "<name>", "payload": <json> }` over `postMessage`. Only **declared** types pass. Everything else is dropped.
+[rows."49"]
+"postMessage" = "n/a: a DOM API name (web platform); no contract crate types it"
+"{ \"botster\": 1, \"type\": \"<name>\", \"payload\": <json> }" = { symbols = ["ui::FromPage::type_", "ui::ToPage::type_"], uncovered = { name = "the placeholder for a declared message type", payload = "GAP(ui): a member of the page message envelope; no contract crate types the page messages", botster = "the product and binary name", json = "a format name" } }
+
+# | UI-EM-5 | **Binding to the asset document.** After the frame's **first load**, the client creates a `MessageChannel` and transfers one port to the page in a single `init` message. The client accepts page messages **only from that port*...
+[rows."53"]
+"MessageChannel" = "n/a: a DOM API name (web platform); no contract crate types it"
+"confirm" = ["ui::Action::confirm"]
+"error" = ["ui::EmbedPart::error"]
+"fields" = ["ui::ToPage::fields"]
+"from_page" = ["ui::Channel::from_page"]
+"init" = "n/a: GAP(ui): the host-to-page init message type (UI-EM-5); no contract crate types the page messages"
+"invoke: <action id>" = { symbols = ["ui::FromPage::invoke"], uncovered = { action = "the placeholder for an action id", id = "the placeholder for an action id" } }
+"select: <slot>" = { symbols = ["ui::FromPage::select"], uncovered = { slot = "the placeholder for a slot id" } }
+"to_page" = ["ui::Channel::to_page"]
+"type" = ["ui::FromPage::type_"]
+"window.postMessage" = "n/a: a DOM API name (web platform); no contract crate types it; a DOM global name (web platform); no contract crate types it"
+"{ type, payload: { rows } }" = { symbols = ["ui::ToPage::type_"], uncovered = { payload = "GAP(ui): a member of the page message envelope; no contract crate types the page messages", rows = "GAP(ui): a member of the to-page payload; no contract crate types the page messages" } }
+
+# | UI-EM-9 | **Plugin-content label (MUST).** A renderer that embeds draws the frame inside its own box, never overlaying anything outside it, with a visible border and a label naming the plugin and the `title` **outside the frame**. The ...
+[rows."55"]
+"title" = ["ui::EmbedPart::title"]
+
+# | UI-EM-10 | **No other iframe.** `realize` never emits a generic `iframe` node. The UiNode `iframe` kind is **deprecated**; a renderer that meets a document-supplied `src`, `srcdoc`, `sandbox` or `allow` **on a realized `embed` or `ifra...
+[rows."56"]
+"allow" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"embed" = ["ui::UiNodeKind::Embed"]
+"iframe" = ["ui::UiNodeKind::Iframe"]
+"realize" = ["ui::realize"]
+"sandbox" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"src" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"srcdoc" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+
+# | UI-EM-11 | **Normative iframe rules.** (1) **The plugin never supplies sandbox tokens.** The host fixes them as UI-EM-3 lists (`allow-scripts` only). `allow-same-origin` is never set, for any content. (2) **`src` is the assets-origin U...
+[rows."58"]
+"HTTP://Host:80" = "n/a: an example URL; it has the same parsed origin as http://host"
+"about:" = "n/a: a URL scheme"
+"allow" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-same-origin" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-scripts" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"blob:" = "n/a: a URL scheme"
+"data:" = "n/a: a URL scheme"
+"embed" = ["ui::Part::Embed"]
+"error" = ["ui::EmbedPart::error"]
+"http" = "n/a: a URL scheme"
+"http://host" = "n/a: an example URL; it has the same parsed origin as HTTP://Host:80"
+"https" = "n/a: a URL scheme"
+"init" = "n/a: GAP(ui): the host-to-page init message type (UI-EM-5); no contract crate types the page messages"
+"javascript:" = "n/a: a URL scheme"
+"open_asset" = ["hub.action:package.open_asset"]
+"sandbox" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"sandbox=\"allow-scripts allow-same-origin\"" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it; part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"src" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"srcdoc" = "n/a: an HTML iframe attribute name (web platform); no contract crate types it"
+"unknown_property" = ["ui::AdmissionCode::UnknownProperty"]
+"{ \"botster\": 1, \"type\": \"init\" }" = "n/a: GAP(ui): the host-to-page init message (UI-EM-5); no contract crate types the page messages"
+
+# | UI-EM-12 | **What the page may receive, and the guarantee.** (a) **Row authority.** A `to_page.source` is limited to kinds **owned by the same package** (its own entity families and collections). **A Hub kind is never a `to_page` sourc...
+[rows."60"]
+"connect-src 'none'" = "n/a: a CSP source keyword (web platform); HP AS-3 owns the CSP text; an HTML iframe attribute name (web platform); no contract crate types it; part of a CSP directive name (web platform); HP AS-3 owns the CSP text"
+"embed_source_not_own" = ["ui::AdmissionCode::EmbedSourceNotOwn"]
+"to_page" = ["ui::Channel::to_page"]
+"to_page.source" = ["ui::Channel::to_page", "ui::ToPage::source"]
+
+# | UI-EM-13 | **Channel retirement.** The channel is bound to the **admitted document** and the descriptor lifetime. The client closes the port, stops pushing rows and drops page messages when: the frame navigates or reloads (any later lo...
+[rows."61"]
+"error" = ["ui::EmbedPart::error"]
+"init" = "n/a: GAP(ui): the host-to-page init message type (UI-EM-5); no contract crate types the page messages"
+"name" = ["ui::AssetRef::ByName::name"]
+"page.asset" = ["ui::EmbedPage::asset", "ui::EmbedPart::page"]
+
+# | UI-EM-6 | **Fallback (extends UI-CF-2, UI-CF-5).** A renderer that does not embed shows the `title` and an **"open in browser" line**, with no host, path or token before activation. On activation it calls `open_asset` (UI-EM-7) and ope...
+[rows."67"]
+"channel" = ["ui::EmbedPart::channel"]
+"embed" = ["ui.client_feature:embed"]
+"open_asset" = ["hub.action:package.open_asset"]
+"postMessage" = "n/a: a DOM API name (web platform); no contract crate types it"
+"title" = ["ui::EmbedPart::title"]
+"ui_capabilities.features" = { symbols = ["ui::Capabilities::features", "ui::Capabilities"], uncovered = { ui_capabilities = "the UI section 11 name of the declaration that ui::Capabilities types (UI-CF-6)" } }
+
+# - **Trust.** The page is untrusted plugin content, like plugin Lua (TR-2). The threats handled here: reading the app's origin (no `allow-same-origin`, separate origin), script network requests (`connect-src 'none'`; self-navigation is co...
+[rows."71"]
+"allow-same-origin" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"allow-top-navigation" = "n/a: part of an HTML iframe sandbox token (web platform); no contract crate types it"
+"connect-src 'none'" = "n/a: a CSP source keyword (web platform); HP AS-3 owns the CSP text; an HTML iframe attribute name (web platform); no contract crate types it; part of a CSP directive name (web platform); HP AS-3 owns the CSP text"
+"title" = ["ui::EmbedPart::title"]
+
+# - **Kit note (TUI, F3):** the TUI kit must wrap `text` nodes and size them by wrapped height for UI-SA-5's "does not truncate" rule; kit work, no contract change.
+[rows."72"]
+"text" = ["ui::UiNodeKind::Text"]
+
+# - **Closed with 0016:** the assets origin is the operator-configured `assets_listen`; the token lifetime is the Hub parameter `asset_token_ttl_ms` (no number here); both `assets.publish` and staged assets are v1.
+[rows."74"]
+"asset_token_ttl_ms" = ["plugin.limit:asset_token_ttl_ms"]
+"assets.publish" = ["plugin.call:assets.publish"]
+"assets_listen" = ["plugin.limit:assets_listen"]
+
+# A plugin-contributed session action may declare `warning?`, a static string. No new part is needed: the warning is an ordinary `text` node.
+[rows."78"]
+"text" = ["ui::UiNodeKind::Text"]
+"warning?" = ["ui::Action::warning"]
+
+# | UI-SA-5 | **The warning is always shown beside the action.** Wherever the client shows the session's actions (toolbar, menu, panel, the TUI fallback), it shows the `warning` text adjacent to the action, in the `warning` tone (UI-CF-4),...
+[rows."82"]
+"text" = ["ui::UiNodeKind::Text"]
+"tone: warning" = ["ui::Action::warning", "ui::Tone::Warning"]
+"warning" = ["ui::Action::warning"]
+
+# | UI-AC-6 | **Result navigation.** The result of an action (UI-AC-1) may carry an optional `navigate: { view, select?: { "<slot id>": "<row key>" } }`, the same target as UI-SL-5 (same package; row keys, not operands, because the plugin ...
+[rows."88"]
+"create_ticket" = "n/a: an example action id"
+"message" = ["ui::ActionOk::message"]
+"navigate: { view, select?: { \"<slot id>\": \"<row key>\" } }" = { symbols = ["ui::ActionOk::navigate", "ui::NavigationTarget::view", "ui::NavigationTarget::select"], uncovered = { slot = "the placeholder for a slot id", id = "the placeholder for a slot id", row = "the placeholder for a row key", key = "the placeholder for a row key" } }

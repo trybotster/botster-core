@@ -1,0 +1,200 @@
+{
+ "id": "conf::wp_1_served_origin_resolves_to_plugin_origin",
+ "contract": "hp",
+ "clause": "WP-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "client_invoke",
+   "invoke",
+   "web_origins"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds web_origin and net_serve and declares a static route; its served origin is http://127.0.0.1:<port>; an operator client is connected",
+  "grants": [
+   {
+    "surface": "web_origin"
+   },
+   {
+    "surface": "net_serve"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      },
+      {
+       "id": "rl",
+       "kind": "relay",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     },
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "net",
+         "name": "ws.*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "web_origins"
+   },
+   "expect": {
+    "origins": {
+     "demo": "$served"
+    }
+   },
+   "because": "HP WP-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "web.set_origin",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "origin": {
+       "served": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP WP-1"
+  },
+  {
+   "control": {
+    "op": "client_invoke",
+    "kind": "hub",
+    "verb": "issue_pairing",
+    "args": {}
+   },
+   "expect": {
+    "ok": true,
+    "value": {
+     "url_origin": "$served"
+    }
+   },
+   "because": [
+    "HP WP-1",
+    "HP WP-5"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,139 @@
+{
+  "id": "conf::ui_ac_2b_failed_shown_as_error",
+  "contract": "ui",
+  "clause": "UI-AC-2b",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "restart": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "ops"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "ops",
+          "title": "Ops",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "restart"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_1_3"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "operation": {
+                "id": "op1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "operation",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "op1",
+                "kind": "spawn",
+                "state": "starting",
+                "terminal": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "operation",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "op1",
+                "kind": "spawn",
+                "state": "failed",
+                "terminal": true,
+                "reason": "no free port"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "no free port",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-AC-7",
+        "node_id": "botster-ui-descendant-v1:2:go5:error"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "pending": false
+        },
+        "because": "UI UI-AC-2b",
+        "node_id": "go"
+      }
+    }
+  ]
+}

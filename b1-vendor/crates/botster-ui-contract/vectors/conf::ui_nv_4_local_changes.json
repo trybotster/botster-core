@@ -1,0 +1,553 @@
+{
+  "id": "conf::ui_nv_4_local_changes",
+  "contract": "ui",
+  "clause": "UI-NV-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a slot whose row left its kind is cleared",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel": "gone"
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "cleared_selections": [
+            "sel"
+          ],
+          "unset_drafts": {
+            "$absent": true
+          },
+          "stamped_errors": {
+            "$absent": true
+          },
+          "dropped_view_state": {
+            "$absent": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a slot that the document no longer declares is cleared",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "old_slot": "a"
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "cleared_selections": [
+            "old_slot"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a draft that is no longer in its options is unset and gets a stamped error",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+            "value": "z"
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o"
+          ],
+          "stamped_errors": [
+            {
+              "draft_key": "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o",
+              "code": "option_unavailable"
+            }
+          ],
+          "cleared_selections": {
+            "$absent": true
+          }
+        }
+      }
+    },
+    {
+      "name": "a default that is not in its options is unset too",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "default": "z",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o"
+          ],
+          "stamped_errors": [
+            {
+              "draft_key": "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o",
+              "code": "option_unavailable"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "a focus entry whose node left the tree is dropped",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "focus": "ghost"
+      },
+      "expect": {
+        "local_changes": {
+          "dropped_view_state": [
+            "ghost"
+          ]
+        }
+      }
+    },
+    {
+      "name": "a scroll entry whose node left the tree is dropped and a live one is kept",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "scroll": {
+          "ghost": 3,
+          "root": 1
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "dropped_view_state": [
+            "ghost"
+          ]
+        }
+      }
+    },
+    {
+      "name": "with nothing to change local_changes is omitted",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "focus": "root"
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      }
+    },
+    {
+      "name": "one pass: a slot that is cleared is empty for the options_source that reads it",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "mv",
+                  "label": "Mv",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "m",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/ws"
+                                },
+                                {
+                                  "sel": "sel/id"
+                                }
+                              ]
+                            },
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        },
+        "m": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "ws": "gone"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel": "gone"
+        },
+        "overlays": [
+          {
+            "form": {
+              "button": "mv"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:mv9:container4:item1:o": {
+            "value": "m1"
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "cleared_selections": [
+            "sel"
+          ],
+          "unset_drafts": [
+            "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:mv9:container4:item1:o"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "id": "conf::ts_5f_path_written_in_receive_order",
+  "contract": "codec",
+  "clause": "TS-5f",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "2",
+        "name": "x.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "44415441"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "2"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "63"
+        }
+      }
+    },
+    {
+      "expect": {
+        "frame": "input_done",
+        "op": "2",
+        "path": "$p"
+      },
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "61"
+        },
+        {
+          "written_by_op": "2",
+          "contains": [
+            {
+              "var": "$p"
+            },
+            {
+              "hex": "20"
+            }
+          ]
+        },
+        {
+          "hex": "63"
+        }
+      ],
+      "because": [
+        "Codec TS-5f",
+        "Codec BP-2"
+      ]
+    },
+    {
+      "route_check_path": {
+        "path": "$p",
+        "under": "/files"
+      },
+      "because": "Codec TS-5f"
+    }
+  ],
+  "setup": {
+    "worker": {
+      "file_directory": "/files",
+      "script": {
+        "writes": {
+          "file": "2f66696c65732f312d782e74787420"
+        }
+      }
+    }
+  }
+}

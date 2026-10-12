@@ -1,0 +1,108 @@
+{
+ "id": "conf::lba1_2_conversion_values_are_bare",
+ "contract": "lb",
+ "clause": "LBA1-2",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local e = botster.base64.encode{ bytes = \"hi\" }\n      local d = botster.base64.decode{ text = e.value }\n      local j = botster.json.encode{ value = { a = 1 } }\n      local jd = botster.json.decode{ text = j.value }\n      local jn = botster.json.decode{ text = \"null\" }\n      local jl = botster.json.decode{ text = \"[1,2]\" }\n      local h = botster.crypto.sha256{ bytes_b64 = e.value }\n      return {\n        b64_is_string = type(e.value) == \"string\",\n        b64_round_trip = d.value,\n        json_text_is_string = type(j.value) == \"string\",\n        json_round_trip = jd.value.a,\n        json_null_is_sentinel = jn.value == botster.json.null,\n        json_list_len = #jl.value,\n        all_enveloped = e.ok == true and d.ok == true and j.ok == true and jd.ok == true and jn.ok == true and jl.ok == true,\n        digest_is_string = type(h.value.digest_b64) == \"string\",\n      }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "b64_is_string": true,
+       "b64_round_trip": "hi",
+       "json_text_is_string": true,
+       "json_round_trip": 1,
+       "json_null_is_sentinel": true,
+       "json_list_len": 2,
+       "all_enveloped": true,
+       "digest_is_string": true
+      }
+     }
+    }
+   },
+   "because": "LB LBA1-2"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LH-1"
+  }
+ ]
+}

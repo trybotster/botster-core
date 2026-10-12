@@ -1,0 +1,22 @@
+{
+  "id": "conf::a5_4_suite_runs_real_and_testkit",
+  "contract": "core",
+  "clause": "A5-4",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "run_suite": {
+        "subject": "core",
+        "harnesses": [
+          "real_worker_processes",
+          "testkit"
+        ]
+      },
+      "because": [
+        "Core A5-4"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,380 @@
+{
+  "id": "conf::ui_cf_3_object_roundtrip_lossless_or_readonly",
+  "contract": "ui",
+  "clause": "UI-CF-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an object of strings is KEY=VALUE lines",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A": "1"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A": "1"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "value": "A=1",
+            "read_only": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a key with an equals sign is not lossless: read-only JSON",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A=B": "1"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A=B": "1"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a value with a newline is not lossless: read-only JSON",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A": "x\ny"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A": "x\ny"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a key with a newline is not lossless",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A\nB": "1"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A\nB": "1"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a value that is not a string is not lossless",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A": 1
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A": 1
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a value with an equals sign splits at the first one: still lossless",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "env": {
+                        "type": "object",
+                        "default": {
+                          "A": "x=y"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "env": {
+                    "type": "object",
+                    "default": {
+                      "A": "x=y"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:72:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container3:env6:widget": {
+          "props": {
+            "value": "A=x=y",
+            "read_only": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    }
+  ]
+}

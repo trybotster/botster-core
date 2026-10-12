@@ -1,0 +1,82 @@
+{
+ "id": "conf::lb_17_manifest_keys_closed",
+ "contract": "lb",
+ "clause": "LB-17",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "admit_package"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {},
+ "steps": [
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest",
+      "bogus_key": 1
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_unknown_key"
+     }
+    }
+   },
+   "because": "LB LB-17"
+  },
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest",
+      "description": "d",
+      "license": "MIT",
+      "source": "https://example.test/p",
+      "scope": "device"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LB-17"
+  },
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest",
+      "scope": "target"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LB-17"
+  }
+ ]
+}

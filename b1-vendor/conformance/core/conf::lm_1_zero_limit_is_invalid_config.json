@@ -1,0 +1,850 @@
+{
+  "id": "conf::lm_1_zero_limit_is_invalid_config",
+  "contract": "core",
+  "clause": "9B",
+  "subject": "core",
+  "setup": {
+    "open": false
+  },
+  "steps": [
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_session_id_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_sessions": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "pending_ops": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_ops_per_session": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_retained_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_key_repeat": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_paste_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "event_queue": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "mandatory_events": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "routes_per_session": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "output_deflate_min_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_file_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "route_input_queue_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "tap_queue_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_route_tag_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_history_page_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_query_text_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "tap_chunk_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "admission_fairness_frames": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_events_kept": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_events_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_event_payload_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "input_tail_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "route_queue_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "reader_progress_deadline": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "stall_close_after": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "open_captures_per_client": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "capture_ttl": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_snapshot_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "snapshot_retained_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "query_history": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "pending_queries": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_query_deadline": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_query_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_query_reply_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "clipboard_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "service_log_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_services": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "startup": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "stop_grace": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "pump_bytes": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "pump_events": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "mandatory_events": 8,
+          "max_sessions": 16
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "route_queue_bytes": 1024,
+          "max_snapshot_bytes": 2048
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_paste_bytes": 67108865
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "z",
+        "limits": {
+          "max_key_repeat": 4097
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": "Core 9B"
+    },
+    {
+      "open": {
+        "as": "ok",
+        "limits": {
+          "max_key_repeat": 4096
+        }
+      },
+      "because": "Core 9B"
+    }
+  ]
+}

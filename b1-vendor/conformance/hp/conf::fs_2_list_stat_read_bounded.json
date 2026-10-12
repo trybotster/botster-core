@@ -1,0 +1,307 @@
+{
+ "id": "conf::fs_2_list_stat_read_bounded",
+ "contract": "hp",
+ "clause": "FS-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the directory docs holds the files a and b; fs_read_bytes is 64",
+  "limits": {
+   "fs_read_bytes": 64
+  },
+  "calls": {
+   "fs.list": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "entries": [
+        {
+         "name": "a",
+         "kind": "file",
+         "size": 100
+        }
+       ],
+       "next_after": "a"
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "fs.stat": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "file",
+       "size": 100,
+       "modified_at": 1
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "fs.read": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "bytes_b64": "AA==",
+       "eof": false
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "response_too_large",
+       "message": "response_too_large",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "fs.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "docs"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "entries": {
+        "$array": {
+         "each": {
+          "name": {
+           "$type": "string"
+          }
+         }
+        }
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "fs.stat",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "docs/a"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "kind": "file",
+       "size": 100
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "fs.read",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "docs/a",
+      "offset": 0,
+      "length": 32
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "eof": false
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "fs.read",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "docs/a",
+      "length": 100
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "response_too_large"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

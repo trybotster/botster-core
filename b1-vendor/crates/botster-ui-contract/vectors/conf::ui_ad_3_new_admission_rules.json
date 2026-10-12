@@ -1,0 +1,372 @@
+{
+  "id": "conf::ui_ad_3_new_admission_rules",
+  "contract": "ui",
+  "clause": "UI-AD-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a placement with valid values",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        },
+        "requires": [
+          "ui_1_1"
+        ],
+        "placement": {
+          "area": "home",
+          "size": "wide",
+          "order": 2
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "a placement size outside small, medium, wide, full",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        },
+        "requires": [
+          "ui_1_1"
+        ],
+        "placement": {
+          "area": "home",
+          "size": "huge",
+          "order": 2
+        }
+      },
+      "expect_admission": {
+        "code": "bad_placement"
+      }
+    },
+    {
+      "name": "a placement area other than home",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        },
+        "requires": [
+          "ui_1_1"
+        ],
+        "placement": {
+          "area": "sidebar",
+          "size": "small",
+          "order": 1
+        }
+      },
+      "expect_admission": {
+        "code": "bad_placement"
+      }
+    },
+    {
+      "name": "a navigate.view that the package has",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/other"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ],
+        "package": "p"
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "a navigate.view that the package does not have",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/nope"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ],
+        "package": "p"
+      },
+      "expect_admission": {
+        "code": "unknown_view"
+      }
+    },
+    {
+      "name": "a badge source over an admitted kind and an allowlisted field",
+      "because": "UI UI-AD-3",
+      "badge_document": {
+        "source": {
+          "kind": "summary",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "context": {
+        "kinds": {
+          "summary": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ],
+            "field_types": {}
+          }
+        }
+      },
+      "expect_badge_admission": {}
+    },
+    {
+      "name": "a badge source over a kind that is not admitted",
+      "because": "UI UI-AD-3",
+      "badge_document": {
+        "source": {
+          "kind": "nope",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "context": {
+        "kinds": {
+          "summary": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ],
+            "field_types": {}
+          }
+        }
+      },
+      "expect_badge_admission": {
+        "code": "kind_not_admitted"
+      }
+    },
+    {
+      "name": "a badge source field outside the projection allowlist",
+      "because": "UI UI-AD-3",
+      "badge_document": {
+        "source": {
+          "kind": "summary",
+          "id": "s1",
+          "field": "/secret"
+        },
+        "display": "dot"
+      },
+      "context": {
+        "kinds": {
+          "summary": {
+            "projection_allowlist": [
+              "/id",
+              "/open"
+            ],
+            "field_types": {}
+          }
+        }
+      },
+      "expect_badge_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "display link on a text-valued field",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "display": "link"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "display link on a field that is not text",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "link"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "link_not_text"
+      }
+    }
+  ]
+}

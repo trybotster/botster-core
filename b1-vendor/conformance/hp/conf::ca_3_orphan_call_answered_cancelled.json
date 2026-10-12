@@ -1,0 +1,303 @@
+{
+ "id": "conf::ca_3_orphan_call_answered_cancelled",
+ "contract": "hp",
+ "clause": "CA-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "cancel",
+   "invoke",
+   "settle",
+   "status"
+  ]
+ },
+ "setup": {
+  "calls": {
+   "hub.identity": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "Hub"
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "Hub"
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "Hub"
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t1": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "status"
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r1"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "cancelled"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "cancel",
+    "ticket": "$t2"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2"
+    }
+   },
+   "because": "HP IV-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "cancelled"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t3": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r3",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "advance_clock": {
+    "ms": 5000
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r3"
+    }
+   },
+   "because": "HP IV-3"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r3"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "cancelled"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-3"
+  }
+ ]
+}

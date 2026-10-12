@@ -1,0 +1,396 @@
+{
+  "id": "conf::ui_rc_2_client_resolves_args",
+  "contract": "ui",
+  "clause": "UI-RC-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "each operand is resolved and sent as an ordinary argument",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "a",
+                    "label": "A",
+                    "handler": "h",
+                    "args": {
+                      "p_row": {
+                        "row": "/n"
+                      },
+                      "p_sel": {
+                        "sel": "s/name"
+                      },
+                      "p_lit": {
+                        "lit": "fixed"
+                      },
+                      "p_ref": {
+                        "ref": "r/name"
+                      },
+                      "p_path": {
+                        "path": "/n"
+                      }
+                    }
+                  }
+                ]
+              },
+              "selects": "s",
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "name": "Nm"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "RefName"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "s": "r1"
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a": {
+          "props": {
+            "action": {
+              "payload": {
+                "target": "r1",
+                "args": {
+                  "p_row": "a",
+                  "p_sel": "Nm",
+                  "p_lit": "fixed",
+                  "p_ref": "RefName",
+                  "p_path": "a"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RC-2"
+    },
+    {
+      "name": "the operands are in scope",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "a",
+                    "label": "A",
+                    "handler": "h",
+                    "args": {
+                      "p_row": {
+                        "row": "/n"
+                      },
+                      "p_sel": {
+                        "sel": "s/name"
+                      },
+                      "p_lit": {
+                        "lit": "fixed"
+                      },
+                      "p_ref": {
+                        "ref": "r/name"
+                      },
+                      "p_path": {
+                        "path": "/n"
+                      }
+                    }
+                  }
+                ]
+              },
+              "selects": "s",
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ]
+          },
+          "k2": {
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "p_row": {
+                  "type": "string"
+                },
+                "p_sel": {
+                  "type": "string"
+                },
+                "p_lit": {
+                  "type": "string"
+                },
+                "p_ref": {
+                  "type": "string"
+                },
+                "p_path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RC-2"
+    },
+    {
+      "name": "a bound argument is not shown in a form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "a",
+                    "label": "A",
+                    "handler": "h",
+                    "args": {
+                      "pid": {
+                        "row": "/id"
+                      }
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:137:botster-ui-descendant-v1:102:botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a9:container4:item4:name": {
+          "type": "form_field"
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:137:botster-ui-descendant-v1:102:botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a9:container4:item3:pid"
+      ],
+      "because": "UI UI-RC-2"
+    },
+    {
+      "name": "a bound argument is shown when the form declares a field of the same name",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "a",
+                    "label": "A",
+                    "handler": "h",
+                    "args": {
+                      "pid": {
+                        "row": "/id"
+                      }
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "pid": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:137:botster-ui-descendant-v1:102:botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:a9:container4:item3:pid": {
+          "type": "form_field"
+        }
+      },
+      "because": "UI UI-RC-2"
+    }
+  ]
+}

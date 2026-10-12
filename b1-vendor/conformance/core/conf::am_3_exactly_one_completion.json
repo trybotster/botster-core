@@ -1,0 +1,123 @@
+{
+  "id": "conf::am_3_exactly_one_completion",
+  "contract": "core",
+  "clause": "AM-3",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s"
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$p"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$c",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$s",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$p",
+              "result": {}
+            }
+          }
+        ]
+      },
+      "because": "Core AM-3"
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "Completed": {
+              "op": "$c",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$s",
+              "result": {}
+            }
+          },
+          {
+            "Completed": {
+              "op": "$p",
+              "result": {}
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "Remove": {
+              "id": "s1"
+            }
+          }
+        },
+        "bind": "$r"
+      },
+      "until": {
+        "Completed": {
+          "op": "$r",
+          "result": {
+            "ok": {
+              "remove_report": {
+                "uploads": "deleted"
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core AM-3",
+        "Core A6-3",
+        "Core A6-4"
+      ]
+    }
+  ]
+}

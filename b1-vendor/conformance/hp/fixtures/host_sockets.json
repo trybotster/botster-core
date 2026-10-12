@@ -1,0 +1,29 @@
+{
+ "description": "Language-neutral fixture (HP NT-1, TR-2). h1 tries to open a TCP connection to 127.0.0.1 from the plugin process and returns whether the attempt succeeded. A real host implements the step open_socket in its sandbox; $last is the result of the previous step. FakePlugin does not implement open_socket.",
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "open_socket": {
+     "host": "127.0.0.1",
+     "port": 9
+    }
+   },
+   {
+    "return": {
+     "ok": {
+      "opened": "$last"
+     }
+    }
+   }
+  ]
+ }
+}

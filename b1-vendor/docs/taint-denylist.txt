@@ -1,0 +1,20 @@
+# Old-world names that must not appear in a v1 tree (one token per line; whole-word match).
+# Seed list from the retired modular code. Each side's lead may extend it; removing an entry needs the steward.
+# None of these is a contract term (checked against frozen/final6 on 2026-09-30; two appear only in non-normative "reusable from" notes).
+owner_loop
+OwnerLoop
+owner_signal
+CompletionDrain
+ReadinessEvidence
+SafeWriteIndicator
+data_plane_driver
+prepared_snapshots
+route_result_slots
+bind_waking_terminal_adapter
+package_event_router
+CoreDaemon
+TestOwnerWakes
+MaintenanceWakes
+HubState
+credit
+credits

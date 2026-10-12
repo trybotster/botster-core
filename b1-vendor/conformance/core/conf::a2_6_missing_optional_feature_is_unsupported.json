@@ -1,0 +1,214 @@
+{
+  "id": "conf::a2_6_missing_optional_feature_is_unsupported",
+  "contract": "core",
+  "clause": "A2-6",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "withhold_feature"
+    ]
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "withhold_feature",
+        "name": "silence"
+      }
+    },
+    {
+      "control": {
+        "op": "withhold_feature",
+        "name": "size_policy_other"
+      }
+    },
+    {
+      "call": {
+        "method": "features"
+      },
+      "bind_fields": {
+        "names": "$names"
+      }
+    },
+    {
+      "let": {
+        "$has_silence": {
+          "contains": [
+            "$names",
+            "silence"
+          ]
+        },
+        "$has_policy": {
+          "contains": [
+            "$names",
+            "size_policy_other"
+          ]
+        }
+      }
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_silence",
+          false
+        ]
+      },
+      "because": "Core A2-6"
+    },
+    {
+      "check": {
+        "eq": [
+          "$has_policy",
+          false
+        ]
+      },
+      "because": "Core A2-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "call": {
+        "method": "set_silence_threshold",
+        "args": {
+          "id": "s1",
+          "ms": 1000
+        }
+      },
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A2-6",
+        "Core A2-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "s1",
+            "policy": "smallest"
+          }
+        }
+      },
+      "bind": "$p1",
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A2-6",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "s1",
+            "policy": "largest"
+          }
+        }
+      },
+      "bind": "$p2",
+      "expect_error": {
+        "code": {
+          "Unsupported": {}
+        }
+      },
+      "because": [
+        "Core A2-6",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SetSizePolicy": {
+            "session": "s1",
+            "policy": "latest"
+          }
+        }
+      },
+      "bind": "$p3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$p3",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1"
+      ]
+    }
+  ]
+}

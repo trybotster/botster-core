@@ -1,0 +1,245 @@
+{
+  "id": "conf::ui_em_10_renderer_refuses_src_and_sandbox_on_embed",
+  "contract": "ui",
+  "clause": "UI-EM-10",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "pkg.items": {
+          "projection_allowlist": [
+            "/title"
+          ],
+          "owner": "pkg"
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "del": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "pages"
+      ]
+    },
+    "app_origin": "https://app.example"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "pages",
+          "title": "Pages",
+          "requires": [
+            "ui_embed"
+          ],
+          "selections": [
+            {
+              "id": "sel_p"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "embed",
+                "id": "page1",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              },
+              {
+                "type": "embed",
+                "id": "page2",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              },
+              {
+                "type": "embed",
+                "id": "page3",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              },
+              {
+                "type": "embed",
+                "id": "page4",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed",
+            "embed"
+          ]
+        },
+        "embed_properties": {
+          "page1": {
+            "src": "https://evil.example/x"
+          },
+          "page2": {
+            "srcdoc": "<p>x</p>"
+          },
+          "page3": {
+            "sandbox": "allow-scripts"
+          },
+          "page4": {
+            "allow": "camera"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {}
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page2"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {}
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page2"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page3"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {}
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page3"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page4"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {}
+        },
+        "because": "UI UI-EM-10",
+        "node_id": "page4"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "diagnostic": {}
+        },
+        "because": "UI UI-EM-10"
+      }
+    }
+  ]
+}

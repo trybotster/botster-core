@@ -1,0 +1,76 @@
+{
+ "description": "Language-neutral fixture (HP CA-16). h1 starts a workflow: it reads operations.get and keeps the operation id, then returns at once (it holds no handler slot). The handler op receives the completion notification of the operation; the workflow completes only when that record has terminal true, and then the plugin emits the event workflow_done.",
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "op",
+    "kind": "operation",
+    "descriptor": {}
+   }
+  ],
+  "operations": {
+   "subscribed": "op"
+  },
+  "events": {
+   "declared": [
+    {
+     "name": "workflow_done",
+     "payload_schema": {},
+     "audience": [
+      "plugins"
+     ],
+     "public": false
+    }
+   ]
+  }
+ },
+ "handlers": {
+  "h1": [
+   {
+    "call": {
+     "name": "operations.get",
+     "args": {
+      "operation_id": "op9"
+     }
+    }
+   },
+   {
+    "retain": "operation_id"
+   },
+   {
+    "return": {
+     "ok": "started"
+    }
+   }
+  ],
+  "op": [
+   {
+    "when": {
+     "payload": "/terminal",
+     "equals": true
+    },
+    "then": [
+     {
+      "call": {
+       "name": "events.emit",
+       "args": {
+        "name": "workflow_done",
+        "payload": {}
+       }
+      }
+     }
+    ]
+   },
+   {
+    "return": {
+     "ok": "seen"
+    }
+   }
+  ]
+ }
+}

@@ -1,0 +1,43 @@
+# The crate symbols of each code span of hub-client-contract-v1-amendment-4-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Hub→client contract, Amendment 4 (candidate 1): the `action` field of `req`
+[rows."1"]
+"action" = ["hub::Req::action"]
+"req" = ["hub::Req"]
+
+# Owner: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-09-30. **This file is the amendment, in the post-freeze amendment path.** The base is the Hub→client contract of manifest `final7`, with Amendments 1 to 3, w...
+[rows."3"]
+"final7" = "n/a: a manifest name"
+
+# **Why.** VB-6 defines `invoke(kind, target?, action, args)`, and MC-2 defines the MCP tool `invoke { ref, action, args, idempotency_key?, operation_id?, descriptor_id? }`. But the EN-1 frame `req { id, verb, kind, target?, args?, idempot...
+[rows."5"]
+"invoke { ref, action, args, idempotency_key?, operation_id?, descriptor_id? }" = { symbols = ["hub::InvokeTool::reference", "hub::InvokeTool::action", "hub::InvokeTool::args", "hub::InvokeTool::request", "hub::InvokeTool::descriptor_id"], uncovered = { invoke = "the MCP tool name of InvokeTool", ref = "the wire name of reference", idempotency_key = "a member of the flattened request fields", operation_id = "a member of the flattened request fields" } }
+"invoke(kind, target?, action, args)" = ["hub::Req::action", "hub::Req::args", "hub::Verb::Invoke", "hub::Req::kind", "hub::Req::target"]
+"req { id, verb, kind, target?, args?, idempotency_key?, operation_id?, descriptor_id? }" = ["hub::Req", "hub::Req::args", "hub::Req::descriptor_id", "hub::Req::id", "hub::Req::idempotency_key", "hub::Req::kind", "hub::Req::operation_id", "hub::Req::target", "hub::Req::verb"]
+
+# | EN-1a | **`req` carries `action?`.** EN-1's request frame is `req { id, verb, kind, target?, action?, args?, idempotency_key?, operation_id?, descriptor_id? }`.<br>- `action` is **required when `verb` is `invoke`** and **absent for eve...
+[rows."9"]
+"<package>.<action_id>" = "n/a: the pattern of a package action id"
+"action" = ["hub::Req::action"]
+"action?" = ["hub::Req::action"]
+"actions" = ["hub::KindDescriptor::actions"]
+"args" = ["hub::Req::args"]
+"args_schema" = ["hub::ActionDescriptor::args_schema"]
+"describe" = ["hub::Verb::Describe"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments"]
+"invoke" = ["hub::Verb::Invoke"]
+"kind" = ["hub::Req::kind"]
+"ref" = { symbols = ["hub::InvokeTool::reference"], uncovered = { ref = "the wire name of reference" } }
+"req" = ["hub::Req"]
+"req { id, verb, kind, target?, action?, args?, idempotency_key?, operation_id?, descriptor_id? }" = ["hub::Req::action", "hub::Req", "hub::Req::args", "hub::Req::descriptor_id", "hub::Req::id", "hub::Req::idempotency_key", "hub::Req::kind", "hub::Req::operation_id", "hub::Req::target", "hub::Req::verb"]
+"session" = ["hub.kind:session"]
+"target" = ["hub::Req::target"]
+"verb" = ["hub::Req::verb"]
+
+# | EN-8a | **The idempotency match includes `action`.** EN-8's match is "the key, verb, kind, target, **`action`**, `descriptor_id`, `operation_id` and the normalized args". The same key with a different action is `conflict { reason: idem...
+[rows."10"]
+"action" = ["hub::Req::action"]
+"conflict { reason: idempotency_key_reused }" = ["hub::ErrorCode::Conflict", "hub::Error::reason", "hub.value:COMMON_REASONS:conflict:idempotency_key_reused"]
+"descriptor_id" = ["hub::Req::descriptor_id"]
+"operation_id" = ["hub::Req::operation_id"]

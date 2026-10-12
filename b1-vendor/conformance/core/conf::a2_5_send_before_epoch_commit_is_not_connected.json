@@ -1,0 +1,254 @@
+{
+  "id": "conf::a2_5_send_before_epoch_commit_is_not_connected",
+  "contract": "core",
+  "clause": "A2-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_connect"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "error": "NotConnected"
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "lanes": [
+          0
+        ]
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "error": "NotConnected"
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-6"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 1,
+        "lanes": [
+          1
+        ]
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "state": {
+              "Reconnected": {
+                "epoch": 1
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core SV-6"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "EndEpoch": {
+            "service": "1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        }
+      },
+      "bind": "$o2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$o2",
+            "result": {
+              "ok": "unit"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "error": "NotConnected"
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-6"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_connect",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111",
+        "epoch": 2
+      }
+    },
+    {
+      "pump_until": {
+        "event": {
+          "ServiceState": {
+            "id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "state": {
+              "Reconnected": {
+                "epoch": 2
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "service_send",
+        "args": {
+          "id": "1111111111111111111111111111111111111111111111111111111111111111",
+          "lane": 0,
+          "type": 1,
+          "payload_hex": "aa"
+        }
+      },
+      "expect": {
+        "ok": null
+      },
+      "because": [
+        "Core A2-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

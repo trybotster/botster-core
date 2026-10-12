@@ -1,0 +1,189 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-3-candidate10.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Pins: `core-contract-v1.17.md` (sha256 8ee7ca05300156312363a00bf3bafae99674d0f09fc349866f71bb2f3a6d3486) and `core-contract-v1.17-amendment-2-candidate4.md` (sha256 5a596f4407795616395dbb41b38a7e64381ac54dfe8d0a2a9166c36ae1a5b180) are un...
+[rows."3"]
+"core-contract-v1.17-amendment-2-candidate4.md" = "n/a: a repository path"
+"core-contract-v1.17.md" = "n/a: a repository path"
+"route-codec-v1-extract-rev36.md" = "n/a: a repository path"
+
+# ## A3-1. The worker reports the notices in dropped output on the route (adds to DP-3, OU-1 and OU-3; matches the codec's TS-4c and A.4 `0x0F output_dropped`, revision 36)
+[rows."9"]
+"0x0F output_dropped" = { symbols = ["codec::ToClient::OutputDropped"], uncovered = { output_dropped = "the wire name of the frame" } }
+
+# DP-3 adopts the codec verbatim, so the worker implements the codec's `output_dropped` frame. The Core duties, in the codec's terms:
+[rows."11"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+
+# 1. **Only when negotiated.** The worker sends `output_dropped` **only on a route that negotiated the route feature `output_dropped`** (OU-1 `route_features`, announced in `attached.features`). **Without the feature there is no frame and ...
+[rows."13"]
+"attached.features" = ["codec::Attached::features"]
+"output_dropped" = ["codec::ToClient::OutputDropped", "core::Feature::OutputDropped"]
+"route_features" = ["core::AttachOptions::route_features"]
+
+# 2. **When it applies.** When the worker discards the unstarted output frames of a route (a stall resync, OU-3b, or a queue overflow, the codec's `resync{overflow}`) and sends a `resync`, it considers the **notifications in the output tha...
+[rows."14"]
+"Bell" = ["core::Event::Bell"]
+"Notification" = ["core::Event::Notification"]
+"resync" = ["codec::ToClient::Resync"]
+"resync{overflow}" = ["codec::ToClient::Resync", "codec::ResyncReason::Overflow"]
+
+# - `NotificationPolicy` = `All` (the default) | `None` | `Matching{patterns: [string]}`.
+[rows."16"]
+"All" = ["core::NotificationPolicy::All"]
+"Matching{patterns: [string]}" = { symbols = ["core::NotificationPolicy::Matching::patterns"], uncovered = { string = "a primitive type name" } }
+"None" = ["core::NotificationPolicy::None"]
+"NotificationPolicy" = ["core::NotificationPolicy"]
+
+# - **`All`:** every notification passes, a bell included. **`None`:** none passes, so no frame is sent. **`Matching`:** a notification passes when **any pattern is a substring of its text** (a literal, case-sensitive byte match on the UTF...
+[rows."17"]
+"All" = ["core::NotificationPolicy::All"]
+"Matching" = ["core::NotificationPolicy::Matching"]
+"None" = ["core::NotificationPolicy::None"]
+"\\n" = "n/a: an escape sequence"
+
+# 4. **What it sends.** If **at least one passing notification** was dropped, the worker sends **one** `output_dropped{notifications: count, last}` frame to that route. **`count` counts only the passing notifications. `last` is required an...
+[rows."19"]
+"bell" = ["codec::NotificationSource::Bell"]
+"body?" = ["codec::DroppedNotification::body"]
+"count" = "n/a: a placeholder for the value of `notifications`"
+"last" = ["codec::OutputDropped::last"]
+"osc777" = ["codec::NotificationSource::Osc777"]
+"osc9" = ["codec::NotificationSource::Osc9"]
+"output_dropped{notifications: count, last}" = { symbols = ["codec::ToClient::OutputDropped", "codec::OutputDropped::notifications", "codec::OutputDropped::last"], uncovered = { count = "a placeholder for the value of notifications" } }
+"source" = ["codec::DroppedNotification::source"]
+"title?" = ["codec::DroppedNotification::title"]
+"truncated?" = ["codec::DroppedNotification::truncated"]
+
+# **The frame bound.** The encoded frame (the type byte plus the JSON, **including every JSON escape expansion**) must be at most the route's negotiated `route_limits.max_frame_bytes`. `count` and `source` are always exact. If the frame wo...
+[rows."20"]
+"Notification" = ["core::Event::Notification"]
+"attached.features" = ["codec::Attached::features"]
+"body" = ["codec::DroppedNotification::body"]
+"count" = "n/a: a placeholder for the value of `notifications`"
+"last" = ["codec::OutputDropped::last"]
+"last.truncated: true" = { symbols = ["codec::OutputDropped::last", "codec::DroppedNotification::truncated"], uncovered = { true = "a JSON literal value" } }
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"route_limits.max_frame_bytes" = ["core::AttachOptions::route_limits", "core::RouteLimitChoices::max_frame_bytes"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+"source" = ["codec::DroppedNotification::source"]
+"title" = ["codec::DroppedNotification::title"]
+"truncated" = ["codec::DroppedNotification::truncated"]
+"{\"notifications\":N,\"last\":{\"source\":\"osc777\",\"truncated\":true}}" = { symbols = ["codec::OutputDropped::notifications", "codec::OutputDropped::last", "codec::DroppedNotification::source", "codec::DroppedNotification::truncated", "codec::NotificationSource::Osc777"], uncovered = { true = "a JSON literal value" } }
+
+# 5. **Order and exactly once.** The frame goes **before** the `resync` of that discard, and it reports each dropped notification **exactly once**: a notification in a frame that **started** is delivered (a started frame is always complete...
+[rows."21"]
+"resync" = ["codec::ToClient::Resync"]
+
+# 6. **A retained exception frame.** `output_dropped` is an exception frame: ordered, retained, **never discarded by a resync or by the stall that causes it**. It waits in the existing route queue under the existing `route_queue_bytes` bou...
+[rows."22"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+
+# 8. **No host event, and no change to the host's events.** Core posts no new event for this. The `Bell` and `Notification` events of A2-4 are posted at parse time as before, unchanged, whatever the policy says and whatever a route did or ...
+[rows."24"]
+"Bell" = ["core::Event::Bell"]
+"Notification" = ["core::Event::Notification"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+
+# 9. **The count bound: a queued frame is charged at its inflated size.** The width of `count` is derived from `route_queue_bytes` (codec revision 36). That bound is valid only if the queue's charge covers the output that the frames **repr...
+[rows."26"]
+"count" = "n/a: a placeholder for the value of `notifications`"
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"output" = ["codec::ToClient::Output"]
+"output_deflate" = ["codec::ToClient::OutputDeflate"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]
+
+# - `SpawnRequest` gains `notification_policy?: NotificationPolicy` (default `All`).
+[rows."29"]
+"All" = ["core::NotificationPolicy::All"]
+"SpawnRequest" = ["core::SpawnRequest"]
+"notification_policy?: NotificationPolicy" = ["core::SpawnRequest::notification_policy", "core::NotificationPolicy"]
+
+# - **`begin(SetNotificationPolicy{session, policy})`** changes it. It completes `Ok(())` once the policy is stored: **in `Created` there is no worker, so Core stores it in the session's registry row** (the request that `Start` launches th...
+[rows."30"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"Ok(())" = ["core::OpResult::Ok"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"Start" = ["core::Op::Start"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"begin(SetNotificationPolicy{session, policy})" = ["core::Op::SetNotificationPolicy::policy", "core::Op::SetNotificationPolicy::session", "core::CoreApi::begin"]
+"notification_policy" = ["core::SpawnRequest::notification_policy"]
+
+# **Frame list.** Where v1.17 DP-3 lists the base frames as `0x01 attached` to `0x0E output_deflate`, the list now ends at **`0x0F output_dropped`**. OU-8's text that admits only the listed frame types admits `0x0F` as a retained exception...
+[rows."32"]
+"0x01 attached" = ["codec::ToClient::Attached"]
+"0x0E output_deflate" = ["codec::ToClient::OutputDeflate"]
+"0x0F output_dropped" = ["codec::ToClient::OutputDropped"]
+
+# ## A3-2. Focus and stall are unchanged (confirms DP-12, the `FocusChanged` row of 6.2 and OU-2)
+[rows."38"]
+"FocusChanged" = ["core::Event::FocusChanged"]
+
+# - **A stalled route still counts as focused as before:** `FocusChanged` and `terminal_state.focused` use the v1.17 definition (the latest `focus` input of any route), whatever the route's state. A stall and a resume post no `FocusChanged...
+[rows."40"]
+"FocusChanged" = ["core::Event::FocusChanged"]
+"focus" = ["core::InputPayload::Focus"]
+"terminal_state.focused" = ["core::TerminalState::focused"]
+
+# - **DP-12 is unchanged:** a stall is not a route end, so the program gets **no focus-out** when a route stalls and no focus-in when it resumes. The synthetic focus-out is written only when a route whose latest `focus` input was `true` **...
+[rows."41"]
+"focus" = ["core::InputPayload::Focus"]
+"true" = "n/a: a JSON literal value"
+
+# - **OU-2 is unchanged:** `RouteStalled{route}` and `RouteResumed{route}` carry the `RouteId` and are class M events. The resume point is the binding's progress point (OU-3a), as v1.17 says.
+[rows."42"]
+"RouteId" = ["core::RouteId"]
+"RouteResumed{route}" = ["core::Event::RouteResumed::route"]
+"RouteStalled{route}" = ["core::Event::RouteStalled::route"]
+
+# - **Features (A2-6 table).** Two names are added: `output_dropped` (a **route feature**, per worker: OU-1 `route_features` and `attached.features`) and `notification_policy` (**per worker**: the session's worker accepts `SetNotificationP...
+[rows."50"]
+"SetNotificationPolicy" = ["core::Op::SetNotificationPolicy"]
+"attached.features" = ["codec::Attached::features"]
+"notification_policy" = ["core::Feature::NotificationPolicy"]
+"output_dropped" = ["core::Feature::OutputDropped"]
+"route_features" = ["core::AttachOptions::route_features"]
+
+# - **Operation table (A2-1).** One row is added: `SetNotificationPolicy` | `session`, `policy` | `()` | `UnknownSession`, `WrongState`, `Unsupported` | `RegistryFailed` (`Created`), `WorkerLinkFailed` (other states) | `Created`, `Starting...
+[rows."51"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"SetNotificationPolicy" = ["core::Op::SetNotificationPolicy"]
+"SpawnRequest" = ["core::SpawnRequest"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"notification_policy?" = ["core::SpawnRequest::notification_policy"]
+"policy" = ["core::Op::SetNotificationPolicy::policy"]
+"session" = ["core::Op::SetNotificationPolicy::session"]
+
+# 2. DP-3: the base frame list ends at `0x0F output_dropped`. OU-1: the route feature `output_dropped`. OU-3b and OU-8: the worker's duty and the retained exception frame (A3-1).
+[rows."60"]
+"0x0F output_dropped" = ["codec::ToClient::OutputDropped"]
+"output_dropped" = ["core::Feature::OutputDropped"]
+
+# 3. A2-1: the `SetNotificationPolicy` row and the `SpawnRequest` field. A2-6: the two feature names (A3-3).
+[rows."61"]
+"SetNotificationPolicy" = ["core::Op::SetNotificationPolicy"]
+"SpawnRequest" = ["core::SpawnRequest"]
+
+# 4. 9B: `route_queue_bytes` charges an `output_deflate` frame at its inflated payload size (A3-1 item 9).
+[rows."62"]
+"output_deflate" = ["codec::ToClient::OutputDeflate"]
+"route_queue_bytes" = ["core::CoreLimits::route_queue_bytes"]

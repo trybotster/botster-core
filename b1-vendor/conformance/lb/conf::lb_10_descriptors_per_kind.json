@@ -1,0 +1,141 @@
+{
+ "id": "conf::lb_10_descriptors_per_kind",
+ "contract": "lb",
+ "clause": "LB-10",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"k_mcp_tool\", name = \"tool_a\", description = \"d\", input_schema = { type = \"object\" }, call = function(p, request) return {} end },\n    { kind = \"mcp_prompt\", id = \"k_mcp_prompt\", name = \"prompt_a\", description = \"d\", arguments = botster.json.array{}, call = function(p, request) return {} end },\n    { kind = \"mcp_resource\", id = \"k_mcp_resource\", uri_template = \"x://{id}\", name = \"res_a\", mime_type = \"text/plain\", call = function(p, request) return {} end },\n    { kind = \"ui_action\", id = \"k_ui_action\", action_id = \"rename\", call = function(p, request) return {} end },\n    { kind = \"event\", id = \"k_event\", pattern = { owner = \"hub\", name = \"probe\" }, call = function(p, request) return {} end },\n    { kind = \"event_gap\", id = \"k_event_gap\", call = function(p, request) return {} end },\n    { kind = \"entity_provider\", id = \"k_entity_provider\", entity_kind = \"workspace\", call = function(p, request) return {} end },\n    { kind = \"timer\", id = \"k_timer\", call = function(p, request) return {} end },\n    { kind = \"store_watch\", id = \"k_store_watch\", call = function(p, request) return {} end },\n    { kind = \"operation\", id = \"k_operation\", call = function(p, request) return {} end },\n    { kind = \"webhook\", id = \"k_webhook\", path = \"/hook\", call = function(p, request) return {} end },\n    { kind = \"relay\", id = \"k_relay\", call = function(p, request) return {} end },\n    { kind = \"fs_watch\", id = \"k_fs_watch\", call = function(p, request) return {} end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "handlers": {
+      "$set": [
+       {
+        "id": "k_mcp_tool",
+        "kind": "mcp_tool",
+        "descriptor": {
+         "name": "tool_a",
+         "description": "d",
+         "input_schema": {
+          "type": "object"
+         }
+        }
+       },
+       {
+        "id": "k_mcp_prompt",
+        "kind": "mcp_prompt",
+        "descriptor": {
+         "name": "prompt_a",
+         "description": "d",
+         "arguments": []
+        }
+       },
+       {
+        "id": "k_mcp_resource",
+        "kind": "mcp_resource",
+        "descriptor": {
+         "uri_template": "x://{id}",
+         "name": "res_a",
+         "mime_type": "text/plain"
+        }
+       },
+       {
+        "id": "k_ui_action",
+        "kind": "ui_action",
+        "descriptor": {
+         "action_id": "rename"
+        }
+       },
+       {
+        "id": "k_event",
+        "kind": "event",
+        "descriptor": {}
+       },
+       {
+        "id": "k_event_gap",
+        "kind": "event_gap",
+        "descriptor": {}
+       },
+       {
+        "id": "k_entity_provider",
+        "kind": "entity_provider",
+        "descriptor": {
+         "kind": "workspace"
+        }
+       },
+       {
+        "id": "k_timer",
+        "kind": "timer",
+        "descriptor": {}
+       },
+       {
+        "id": "k_store_watch",
+        "kind": "store_watch",
+        "descriptor": {}
+       },
+       {
+        "id": "k_operation",
+        "kind": "operation",
+        "descriptor": {}
+       },
+       {
+        "id": "k_webhook",
+        "kind": "webhook",
+        "descriptor": {
+         "path": "/hook"
+        }
+       },
+       {
+        "id": "k_relay",
+        "kind": "relay",
+        "descriptor": {}
+       },
+       {
+        "id": "k_fs_watch",
+        "kind": "fs_watch",
+        "descriptor": {}
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "LB LB-10",
+    "LB LBA1-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  }
+ ]
+}

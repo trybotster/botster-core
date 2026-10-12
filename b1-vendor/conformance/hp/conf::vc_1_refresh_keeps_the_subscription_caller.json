@@ -1,0 +1,147 @@
+{
+ "id": "conf::vc_1_refresh_keeps_the_subscription_caller",
+ "contract": "hp",
+ "clause": "VC-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "proofs": {
+   "op_socket": {
+    "kind": "operator"
+   },
+   "op_rtc": {
+    "kind": "operator",
+    "credential_id": "cred-1"
+   },
+   "tok_s1": {
+    "kind": "session",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    }
+   }
+  },
+  "given": "an operator on the Unix socket (no credential id), an operator with WebRTC credential cred-1, and a session s1 with a valid bearer token; the operator holds a subscription to a provider family"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "kind": "entity_provider",
+    "origin": "entity_provider",
+    "proof": "op_rtc"
+   },
+   "bind": {
+    "t1": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "handler": "h1",
+     "caller": "$sub"
+    }
+   },
+   "because": "HP VC-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "kind": "entity_provider",
+    "origin": "entity_provider",
+    "proof": "op_rtc"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "handler": "h1",
+     "caller": "$sub"
+    }
+   },
+   "because": "HP VC-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

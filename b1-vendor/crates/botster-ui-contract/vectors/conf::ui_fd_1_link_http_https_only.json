@@ -1,0 +1,387 @@
+{
+  "id": "conf::ui_fd_1_link_http_https_only",
+  "contract": "ui",
+  "clause": "UI-FD-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an https URL shows its host and carries the URL",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://example.com/a/b?x=1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "example.com",
+            "href": "https://example.com/a/b?x=1"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "an http URL is a link too",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "http://example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "example.com",
+            "href": "http://example.com/a"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "a non-default port shows with the host",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://example.com:8443/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "example.com:8443",
+            "href": "https://example.com:8443/a"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "the default port is not shown",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://example.com:443/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "example.com",
+            "href": "https://example.com:443/a"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "a non-ASCII host shows in its ASCII form",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://bücher.example/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "xn--bcher-kva.example",
+            "href": "https://bücher.example/a"
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "another scheme is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "ftp://example.com/file"
+            },
+            {
+              "id": "r1",
+              "u": "mailto:a@example.com"
+            },
+            {
+              "id": "r2",
+              "u": "javascript:alert(1)"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "ftp://example.com/file",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "mailto:a@example.com",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r21:f": {
+          "type": "text",
+          "props": {
+            "text": "javascript:alert(1)",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    }
+  ]
+}

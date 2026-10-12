@@ -1,0 +1,325 @@
+{
+ "id": "conf::lb_16_write_result_vs_error_mapping",
+ "contract": "lb",
+ "clause": "LB-16",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local w = { session = { hub_id = \"hub-1\", session_id = \"s1\" }, bytes_b64 = \"aGk=\" }\n      local a = botster.sessions.write(w)\n      local b = botster.sessions.write(w)\n      local c = botster.sessions.write(w)\n      local d = botster.sessions.write(w)\n      local e = botster.sessions.write(w)\n      return {\n        partial = { ok = a.ok, state = a.value.state, reason = a.value.reason },\n        failed_result = { ok = b.ok, state = b.value.state, reason = b.value.reason },\n        full_lane = { ok = c.ok, kind = c.error.kind },\n        ended = { ok = d.ok, kind = d.error.kind, code = d.error.detail.code, reason = d.error.detail.reason },\n        refused = { ok = e.ok, kind = e.error.kind, code = e.error.detail.code, reason = e.error.detail.reason, effect = e.error.effect },\n      }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "state": "partial",
+       "accepted_bytes": 2,
+       "written_bytes": 1,
+       "max_written_bytes": 2,
+       "reason": "link_lost"
+      }
+     },
+     "effect": "unknown"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "state": "failed",
+       "accepted_bytes": 2,
+       "reason": "os_write_failed"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "backpressured",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "session_ended"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "not_written",
+        "reason": "refused"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "partial": {
+        "ok": true,
+        "state": "partial",
+        "reason": "link_lost"
+       },
+       "failed_result": {
+        "ok": true,
+        "state": "failed",
+        "reason": "os_write_failed"
+       },
+       "full_lane": {
+        "ok": false,
+        "kind": "backpressured"
+       },
+       "ended": {
+        "ok": false,
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "session_ended"
+       },
+       "refused": {
+        "ok": false,
+        "kind": "failed",
+        "code": "not_written",
+        "reason": "refused",
+        "effect": "none"
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-16"
+  }
+ ]
+}

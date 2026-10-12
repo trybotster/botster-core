@@ -1,0 +1,326 @@
+{
+ "id": "conf::st_5_string_bytewise",
+ "contract": "hp",
+ "clause": "ST-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the index field s is a string; the values are B, a and the two bytes C3 A9 (e acute)",
+  "calls": {
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r1"
+      }
+     },
+     "effect": "committed"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r3"
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "store.query": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "3",
+         "doc": {
+          "s": "B"
+         },
+         "revision": "r3"
+        },
+        {
+         "id": "2",
+         "doc": {
+          "s": "a"
+         },
+         "revision": "r2"
+        },
+        {
+         "id": "1",
+         "doc": {
+          "s": "é"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "store.put",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "1",
+      "doc": {
+       "s": "é"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": {
+        "$type": "string"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "store.put",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "2",
+      "doc": {
+       "s": "a"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": {
+        "$type": "string"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "store.put",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "3",
+      "doc": {
+       "s": "B"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": {
+        "$type": "string"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "store.query",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "index": "by_s",
+      "limit": 10
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "3"
+        },
+        {
+         "id": "2"
+        },
+        {
+         "id": "1"
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP ST-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

@@ -1,0 +1,252 @@
+{
+  "id": "conf::ui_sl_5_preset_pending_until_baseline",
+  "contract": "ui",
+  "clause": "UI-SL-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a preset key stays pending while the source kind has no baseline",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "selects": "sel_t"
+            },
+            {
+              "type": "detail",
+              "id": "one",
+              "source": {
+                "sel": "sel_t"
+              },
+              "fields": [
+                {
+                  "id": "d_title",
+                  "path": "/title"
+                }
+              ],
+              "empty": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_t"
+          }
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": false,
+          "rows": []
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel_t": "t9"
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "because": "UI UI-SL-5"
+    },
+    {
+      "name": "the preset is applied when the baseline arrives and the row exists",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "selects": "sel_t"
+            },
+            {
+              "type": "detail",
+              "id": "one",
+              "source": {
+                "sel": "sel_t"
+              },
+              "fields": [
+                {
+                  "id": "d_title",
+                  "path": "/title"
+                }
+              ],
+              "empty": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_t"
+          }
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t9",
+              "title": "Nine"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel_t": "t9"
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t9": {
+          "props": {
+            "selected": true
+          }
+        }
+      },
+      "because": "UI UI-SL-5"
+    },
+    {
+      "name": "the slot clears only after the baseline has arrived and the row is absent",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "selects": "sel_t"
+            },
+            {
+              "type": "detail",
+              "id": "one",
+              "source": {
+                "sel": "sel_t"
+              },
+              "fields": [
+                {
+                  "id": "d_title",
+                  "path": "/title"
+                }
+              ],
+              "empty": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_t"
+          }
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel_t": "t9"
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "cleared_selections": [
+            "sel_t"
+          ]
+        }
+      },
+      "because": "UI UI-SL-5"
+    }
+  ]
+}

@@ -1,0 +1,143 @@
+{
+  "id": "conf::en_8_pending_key_joins",
+  "contract": "hc",
+  "clause": "EN-8",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "hold_completion",
+      "release_completion"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "hold_completion",
+        "count": 1
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "create",
+        "kind": "spawn_target",
+        "args": {
+          "label": "joined",
+          "path": "/p/joined",
+          "kind": "directory"
+        },
+        "idempotency_key": "k2"
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "create",
+        "kind": "spawn_target",
+        "args": {
+          "label": "joined",
+          "path": "/p/joined",
+          "kind": "directory"
+        },
+        "idempotency_key": "k2"
+      },
+      "on": "c1"
+    },
+    {
+      "control": {
+        "op": "release_completion"
+      }
+    },
+    {
+      "expect_set": [
+        {
+          "type": "res",
+          "id": "1",
+          "ok": "$r"
+        },
+        {
+          "type": "res",
+          "id": "2",
+          "ok": "$r"
+        }
+      ],
+      "on": "c1",
+      "because": "HC EN-8"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "filter": {
+            "label": "joined"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "items": [
+            {
+              "label": "joined"
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-8"
+    }
+  ]
+}

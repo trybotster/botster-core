@@ -1,0 +1,151 @@
+{
+ "id": "conf::ca_12_timers_are_rearmed_after_restart",
+ "contract": "hp",
+ "clause": "CA-12",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "published",
+   "service_connected"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "tm",
+       "kind": "timer",
+       "descriptor": {}
+      }
+     ],
+     "timers": [
+      {
+       "timer_id": "tick",
+       "delay_ms": 100,
+       "handler_id": "tm"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "timers": [
+     "tick"
+    ]
+   },
+   "because": "HP CA-12"
+  },
+  {
+   "close_channel": {}
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "timers": []
+   },
+   "because": "HP CA-12"
+  },
+  {
+   "control": {
+    "op": "service_connected"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "tm",
+       "kind": "timer",
+       "descriptor": {}
+      }
+     ],
+     "timers": [
+      {
+       "timer_id": "tick",
+       "delay_ms": 100,
+       "handler_id": "tm"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "timers": [
+     "tick"
+    ]
+   },
+   "because": "HP CA-12"
+  }
+ ]
+}

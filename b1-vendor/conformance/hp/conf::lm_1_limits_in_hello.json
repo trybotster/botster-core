@@ -1,0 +1,296 @@
+{
+ "id": "conf::lm_1_limits_in_hello",
+ "contract": "hp",
+ "clause": "LM-1",
+ "subject": "plugin_hub",
+ "setup": {
+  "limits": {
+   "frame_bytes": 4096,
+   "invoke_queue": 3,
+   "startup": 777,
+   "dispatch_deadline": 1234
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "limits": {
+      "frame_bytes": 4096,
+      "startup": 777,
+      "shutdown": {
+       "$any": true
+      },
+      "orphan_grace": {
+       "$any": true
+      },
+      "restart_window": {
+       "$any": true
+      },
+      "invoke_queue": 3,
+      "dispatch_deadline": 1234,
+      "long_deadline": {
+       "$any": true
+      },
+      "page_items": {
+       "$any": true
+      },
+      "max_result_bytes": {
+       "$any": true
+      },
+      "max_watches": {
+       "$any": true
+      },
+      "max_timers": {
+       "$any": true
+      },
+      "operations_get_rate": {
+       "$any": true
+      },
+      "operation_receipt_window": {
+       "$any": true
+      },
+      "operation_receipts": {
+       "$any": true
+      },
+      "log_record_bytes": {
+       "$any": true
+      },
+      "log_ring_records": {
+       "$any": true
+      },
+      "log_ring_bytes": {
+       "$any": true
+      },
+      "log_rate": {
+       "$any": true
+      },
+      "log_burst": {
+       "$any": true
+      },
+      "event_key_bytes": {
+       "$any": true
+      },
+      "event_queue": {
+       "$any": true
+      },
+      "event_queue_high": {
+       "$any": true
+      },
+      "event_queue_normal": {
+       "$any": true
+      },
+      "event_queue_low": {
+       "$any": true
+      },
+      "event_starvation_bound": {
+       "$any": true
+      },
+      "ingress_queue": {
+       "$any": true
+      },
+      "max_event_bytes": {
+       "$any": true
+      },
+      "loss_ledger_entries": {
+       "$any": true
+      },
+      "terminal_event_bytes": {
+       "$any": true
+      },
+      "output_tap_chunk_bytes": {
+       "$any": true
+      },
+      "session_family_inflight": {
+       "$any": true
+      },
+      "max_write_bytes": {
+       "$any": true
+      },
+      "max_raw_write_bytes": {
+       "$any": true
+      },
+      "write_pending_bytes": {
+       "$any": true
+      },
+      "echo_deadline_ms": {
+       "$any": true
+      },
+      "cleanup_window_ms": {
+       "$any": true
+      },
+      "write_client_quiet_ms": {
+       "$any": true
+      },
+      "write_max_wait_ms": {
+       "$any": true
+      },
+      "probe_width": {
+       "$any": true
+      },
+      "max_notification_patterns": {
+       "$any": true
+      },
+      "max_argv_bytes": {
+       "$any": true
+      },
+      "max_env_bytes": {
+       "$any": true
+      },
+      "max_document_bytes": {
+       "$any": true
+      },
+      "max_plugin_bytes": {
+       "$any": true
+      },
+      "max_plugin_documents": {
+       "$any": true
+      },
+      "batch_ops": {
+       "$any": true
+      },
+      "net_timeout_max_ms": {
+       "$any": true
+      },
+      "webhook_timeout_ms": {
+       "$any": true
+      },
+      "net_body_bytes": {
+       "$any": true
+      },
+      "ws_send_queue_bytes": {
+       "$any": true
+      },
+      "net_concurrent_requests": {
+       "$any": true
+      },
+      "net_open_sockets": {
+       "$any": true
+      },
+      "net_bytes_in_flight": {
+       "$any": true
+      },
+      "net_rate": {
+       "$any": true
+      },
+      "max_relay_envelope_bytes": {
+       "$any": true
+      },
+      "relay_queue": {
+       "$any": true
+      },
+      "relay_attempts_max": {
+       "$any": true
+      },
+      "relay_attempt_ttl_ms": {
+       "$any": true
+      },
+      "ice_servers_max": {
+       "$any": true
+      },
+      "asset_bytes_max": {
+       "$any": true
+      },
+      "asset_store_bytes": {
+       "$any": true
+      },
+      "asset_count_max": {
+       "$any": true
+      },
+      "asset_token_ttl_ms": {
+       "$any": true
+      },
+      "notice_ttl_max_ms": {
+       "$any": true
+      },
+      "notice_queue": {
+       "$any": true
+      },
+      "process_timeout_max_ms": {
+       "$any": true
+      },
+      "process_tail_bytes": {
+       "$any": true
+      },
+      "process_concurrent": {
+       "$any": true
+      },
+      "fs_read_bytes": {
+       "$any": true
+      },
+      "max_fs_watches": {
+       "$any": true
+      },
+      "plugin_call_depth": {
+       "$any": true
+      },
+      "plugin_call_idempotency_window": {
+       "$any": true
+      },
+      "plugin_call_timeout_max_ms": {
+       "$any": true
+      },
+      "package_bytes_max": {
+       "$any": true
+      },
+      "lock_history_max": {
+       "$any": true
+      },
+      "catalog_bytes_max": {
+       "$any": true
+      },
+      "mcp_proxy_call_deadline_ms": {
+       "$any": true
+      },
+      "mcp_proxy_concurrent": {
+       "$any": true
+      },
+      "mcp_servers_max": {
+       "$any": true
+      },
+      "mcp_proxy_init_deadline_ms": {
+       "$any": true
+      },
+      "mcp_proxy_list_pages": {
+       "$any": true
+      },
+      "mcp_proxy_tools_max": {
+       "$any": true
+      },
+      "mcp_proxy_message_bytes": {
+       "$any": true
+      },
+      "host_memory_bytes": {
+       "$any": true
+      },
+      "lanes": {
+       "$any": true
+      },
+      "probe_text": {
+       "$any": true
+      },
+      "session_port_range": {
+       "$any": true
+      },
+      "target_plugin_dir": {
+       "$any": true
+      },
+      "process_path": {
+       "$any": true
+      },
+      "net_listen": {
+       "$any": true
+      },
+      "assets_listen": {
+       "$any": true
+      }
+     }
+    }
+   },
+   "because": "HP LM-1"
+  }
+ ]
+}

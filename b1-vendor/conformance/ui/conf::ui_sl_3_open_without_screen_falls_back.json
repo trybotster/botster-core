@@ -1,0 +1,126 @@
+{
+  "id": "conf::ui_sl_3_open_without_screen_falls_back",
+  "contract": "ui",
+  "clause": "UI-SL-3",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "k": {
+          "projection_allowlist": [
+            "/id",
+            "/n"
+          ]
+        },
+        "k2": {
+          "projection_allowlist": [
+            "/id",
+            "/title"
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "list",
+            "id": "l",
+            "source": {
+              "kind": "k"
+            },
+            "item": {
+              "fields": [
+                {
+                  "id": "f",
+                  "path": "/n"
+                }
+              ]
+            },
+            "refs": {
+              "r": {
+                "kind": "k2",
+                "key": "/n",
+                "absent": {
+                  "text": "x"
+                }
+              }
+            },
+            "activate": {
+              "open": "r"
+            }
+          }
+        },
+        "kind_snapshots": {
+          "k": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "r1",
+                "n": "a"
+              }
+            ]
+          },
+          "k2": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "a",
+                "title": "TargetOnly"
+              }
+            ]
+          },
+          "kind": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "k2",
+                "kind": "k2",
+                "schema_version": "1.0"
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "screens": []
+        }
+      }
+    },
+    {
+      "client_act": {
+        "node_id": "botster-ui-descendant-v1:1:l2:r1",
+        "action": {
+          "activate": {}
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "TargetOnly"
+          }
+        },
+        "because": "UI UI-SL-3"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "diagnostic": {
+            "code": "open_without_screen"
+          }
+        },
+        "because": "UI UI-NV-4"
+      }
+    }
+  ]
+}

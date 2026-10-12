@@ -1,0 +1,23 @@
+[package]
+name = "botster-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+include_dir.workspace = true
+jsonschema.workspace = true
+rand_chacha.workspace = true
+rand_core.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+rand_core.workspace = true

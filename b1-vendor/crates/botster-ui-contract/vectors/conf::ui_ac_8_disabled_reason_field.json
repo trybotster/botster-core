@@ -1,0 +1,406 @@
+{
+  "id": "conf::ui_ac_8_disabled_reason_field",
+  "contract": "ui",
+  "clause": "UI-AC-8",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an action declares disabled_reason as a string and the view is admitted",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_3"
+        ],
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "nm",
+                    "path": "/name"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "rename",
+                  "label": "Rename",
+                  "handler": "rename",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "disabled_reason": "Pick a row first"
+                },
+                {
+                  "id": "plain",
+                  "label": "Plain",
+                  "handler": "plain",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ],
+            "field_types": {
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "rename": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "row_id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "plain": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "row_id": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-AC-8"
+    },
+    {
+      "name": "no selection: the disabled action shows its disabled_reason text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_3"
+        ],
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "nm",
+                    "path": "/name"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "rename",
+                  "label": "Rename",
+                  "handler": "rename",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "disabled_reason": "Pick a row first"
+                },
+                {
+                  "id": "plain",
+                  "label": "Plain",
+                  "handler": "plain",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "name": "One"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_3"
+        ]
+      },
+      "expect_nodes": {
+        "rename": {
+          "type": "button",
+          "props": {
+            "disabled": true,
+            "disabled_reason": "Pick a row first"
+          }
+        }
+      },
+      "because": "UI UI-RC-5"
+    },
+    {
+      "name": "no selection and no disabled_reason: the default copy key nothing_selected",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_3"
+        ],
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "nm",
+                    "path": "/name"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "rename",
+                  "label": "Rename",
+                  "handler": "rename",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "disabled_reason": "Pick a row first"
+                },
+                {
+                  "id": "plain",
+                  "label": "Plain",
+                  "handler": "plain",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "name": "One"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_3"
+        ]
+      },
+      "expect_nodes": {
+        "plain": {
+          "type": "button",
+          "props": {
+            "disabled": true,
+            "disabled_reason": {
+              "copy": "nothing_selected"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-6"
+    },
+    {
+      "name": "a selected row enables the action: the disabled_reason is not shown",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_3"
+        ],
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "nm",
+                    "path": "/name"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "rename",
+                  "label": "Rename",
+                  "handler": "rename",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "disabled_reason": "Pick a row first"
+                },
+                {
+                  "id": "plain",
+                  "label": "Plain",
+                  "handler": "plain",
+                  "args": {
+                    "row_id": {
+                      "sel": "sel/id"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "name": "One"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_3"
+        ]
+      },
+      "local_state": {
+        "selections": {
+          "sel": "r1"
+        }
+      },
+      "expect_nodes": {
+        "rename": {
+          "props": {
+            "disabled": {
+              "$absent": true
+            },
+            "disabled_reason": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RC-5"
+    }
+  ]
+}

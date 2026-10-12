@@ -1,0 +1,434 @@
+{
+  "id": "conf::a2_5_spawn_failure_codes",
+  "contract": "core",
+  "clause": "A2-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "fail_next",
+      "unavailable_bound"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "max_services": 2
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 1023,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o1",
+      "expect_error": {
+        "code": {
+          "InvalidConfig": {
+            "field": {
+              "$type": "string"
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "unavailable_bound",
+        "bound": "cpu_seconds"
+      },
+      "because": [
+        "Core SV-4"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {
+                "cpu_seconds": {
+                  "value": 10,
+                  "required": true
+                }
+              },
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o2",
+      "expect_error": {
+        "code": {
+          "BoundUnavailable": {
+            "bound": "cpu_seconds"
+          }
+        }
+      },
+      "because": [
+        "Core A2-5",
+        "Core SV-4"
+      ]
+    },
+    {
+      "control": {
+        "op": "fail_next",
+        "target": "SpawnService",
+        "error": {
+          "StartFailed": {
+            "ExecFailed": {
+              "errno": 2
+            }
+          }
+        }
+      },
+      "because": [
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$o3",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": {
+                    "ExecFailed": {
+                      "errno": {
+                        "$type": "integer"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "control": {
+        "op": "fail_next",
+        "target": "SpawnService",
+        "error": {
+          "StartFailed": "GuardianFailed"
+        }
+      },
+      "because": [
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o4"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$o4",
+            "result": {
+              "err": {
+                "code": {
+                  "StartFailed": "GuardianFailed"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-5",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o5"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o5",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o6",
+      "expect_error": {
+        "code": "IdInUse"
+      },
+      "because": [
+        "Core A2-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "2222222222222222222222222222222222222222222222222222222222222222",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o7"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o7",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "2222222222222222222222222222222222222222222222222222222222222222",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "3333333333333333333333333333333333333333333333333333333333333333",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            }
+          }
+        }
+      },
+      "bind": "$o8",
+      "expect_error": {
+        "code": "ServiceLimit"
+      },
+      "because": [
+        "Core A2-5",
+        "Core A2-1"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

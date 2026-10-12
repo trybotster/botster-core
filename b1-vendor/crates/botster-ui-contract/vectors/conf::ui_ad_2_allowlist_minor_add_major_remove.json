@@ -1,0 +1,131 @@
+{
+  "id": "conf::ui_ad_2_allowlist_minor_add_major_remove",
+  "contract": "ui",
+  "clause": "UI-AD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the allowlist still has every field: not stale",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              },
+              {
+                "id": "g",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/n"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_stale": false,
+      "because": "UI UI-AD-2"
+    },
+    {
+      "name": "a field added to the allowlist is a MINOR change: not stale",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              },
+              {
+                "id": "g",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/n",
+              "/extra"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_stale": false,
+      "because": "UI UI-AD-2"
+    },
+    {
+      "name": "a field removed from the allowlist makes the view stale",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              },
+              {
+                "id": "g",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_stale": true,
+      "because": "UI UI-AD-2"
+    }
+  ]
+}

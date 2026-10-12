@@ -1,0 +1,652 @@
+{
+  "id": "conf::ui_fm_1_form_schema_equals_action_schema",
+  "contract": "ui",
+  "clause": "UI-FM-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the view schema equals the canonical schema without ui hints",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {},
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "read_only": true
+                        }
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "ui": {
+                          "placeholder": "x"
+                        }
+                      }
+                    },
+                    "required": [
+                      "ws",
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a bound property is removed from both sides",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {
+                    "ws": {
+                      "lit": "w1"
+                    }
+                  },
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "an extra property in the view schema",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {},
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "ws": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "extra": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "ws",
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a different constraint",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {},
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "ws": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 2
+                      }
+                    },
+                    "required": [
+                      "ws",
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a property missing from the view schema and not bound",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {},
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a different required list",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {},
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "ws": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a bound name that is not in the canonical schema",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args": {
+                    "nope": {
+                      "lit": "x"
+                    }
+                  },
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "ws": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "minLength": 1
+                      }
+                    },
+                    "required": [
+                      "ws",
+                      "name"
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unknown_bound_property"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/name"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "ws": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "ws",
+                "name"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    },
+    {
+      "name": "a form part whose schema differs",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "zzz": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch"
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-1"
+    }
+  ]
+}

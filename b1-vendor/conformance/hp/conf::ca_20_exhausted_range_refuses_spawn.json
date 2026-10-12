@@ -1,0 +1,220 @@
+{
+ "id": "conf::ca_20_exhausted_range_refuses_spawn",
+ "contract": "hp",
+ "clause": "CA-20",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "every port of the range is held by a live session of the plugin",
+  "calls": {
+   "session_types.spawn": [
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "quota_exceeded",
+       "message": "quota_exceeded",
+       "retryable": false,
+       "detail": {
+        "code": "no_session_port"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   ],
+   "sessions.list": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": [
+        {
+         "id": "s1",
+         "hub_id": "hub-1",
+         "label": "l",
+         "state": "running",
+         "lifecycle_class": "current",
+         "exit": {},
+         "size": {
+          "rows": 24,
+          "cols": 80
+         },
+         "session_type": {
+          "id": "t",
+          "source": "device"
+         },
+         "traits": [],
+         "restartable": false,
+         "activity": "idle",
+         "presentation": "default",
+         "metadata": {},
+         "port": 20000
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "session_types.spawn",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session_type_id": "dev",
+      "target_id": "t1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "quota_exceeded",
+       "detail": {
+        "code": "no_session_port"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "sessions.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": [
+        {
+         "id": {
+          "$type": "string"
+         }
+        }
+       ]
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-20"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

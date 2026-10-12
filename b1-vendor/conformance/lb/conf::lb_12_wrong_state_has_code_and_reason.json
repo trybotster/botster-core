@@ -1,0 +1,327 @@
+{
+ "id": "conf::lb_12_wrong_state_has_code_and_reason",
+ "contract": "lb",
+ "clause": "LB-12",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n      local s = { hub_id = \"hub-1\", session_id = \"s1\" }\n      local out = {}\n      local stop = botster.sessions.stop{ session = s }\n      out.stop = { kind = stop.error.kind, code = stop.error.detail.code, reason = stop.error.detail.reason }\n      local delete = botster.sessions.delete{ session = s }\n      out.delete = { kind = delete.error.kind, code = delete.error.detail.code, reason = delete.error.detail.reason }\n      local read_screen = botster.sessions.read_screen{ session = s }\n      out.read_screen = { kind = read_screen.error.kind, code = read_screen.error.detail.code, reason = read_screen.error.detail.reason }\n      local restart = botster.sessions.restart{ session = s }\n      out.restart = { kind = restart.error.kind, code = restart.error.detail.code, reason = restart.error.detail.reason }\n      local wt = botster.worktrees.delete{ worktree_id = \"w1\" }\n      out.wt = { kind = wt.error.kind, code = wt.error.detail.code, reason = wt.error.detail.reason }\n      return out\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w0",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.stop",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w0",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "ended"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w1",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.delete",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w1",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "lost"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w2",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.read_screen",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w2",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "no_screen_model"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w3",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.restart",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w3",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "not_restartable"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w4",
+     "context": {
+      "request": 1
+     },
+     "call": "worktrees.delete",
+     "args": {
+      "worktree_id": "w1"
+     }
+    }
+   },
+   "because": "LB LB-12"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$w4",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "occupied"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "stop": {
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "ended"
+       },
+       "delete": {
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "lost"
+       },
+       "read_screen": {
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "no_screen_model"
+       },
+       "restart": {
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "not_restartable"
+       },
+       "wt": {
+        "kind": "failed",
+        "code": "wrong_state",
+        "reason": "occupied"
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-12"
+  }
+ ]
+}

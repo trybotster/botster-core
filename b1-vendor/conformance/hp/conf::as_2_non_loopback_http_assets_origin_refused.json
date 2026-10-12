@@ -1,0 +1,149 @@
+{
+ "id": "conf::as_2_non_loopback_http_assets_origin_refused",
+ "contract": "hp",
+ "clause": "AS-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "configure_assets_origin",
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "assets_listen is configured; the package of demo declares the embed view view (permission embed.view, action refresh) and the viewer holds embed.view",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "assets"
+     }
+    ],
+    "views": [
+     {
+      "key": "view",
+      "kind": "embed",
+      "permission": "embed.view",
+      "actions": [
+       {
+        "id": "refresh",
+        "handler": "h1"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "configure_assets_origin",
+    "listen": "http://assets.example"
+   },
+   "expect": {
+    "error": {
+     "$type": "object"
+    }
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "configure_assets_origin",
+    "listen": "http://127.0.0.1:8081"
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "control": {
+    "op": "configure_assets_origin",
+    "listen": "https://assets.example"
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP AS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

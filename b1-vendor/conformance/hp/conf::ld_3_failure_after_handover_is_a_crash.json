@@ -1,0 +1,145 @@
+{
+ "id": "conf::ld_3_failure_after_handover_is_a_crash",
+ "contract": "hp",
+ "clause": "LD-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "reload",
+   "status",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": false,
+     "instance": "$i2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Shutdown",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP LD-3"
+  },
+  {
+   "close_channel": {}
+  },
+  {
+   "close_channel": {},
+   "conn": "cand"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "restarting",
+    "restart_requested": 1
+   },
+   "because": [
+    "HP LD-3",
+    "HP CR-3"
+   ]
+  },
+  {
+   "expect_quiet_until": {
+    "type": {
+     "$any": true
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LD-3"
+  }
+ ]
+}

@@ -1,0 +1,284 @@
+{
+  "id": "conf::ui_sl_8_row_invoke_follows_button_rules",
+  "contract": "ui",
+  "clause": "UI-SL-8",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the row activation names the action and the row key",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "members",
+              "source": {
+                "kind": "acme.member"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "act_remove",
+                    "label": "Remove",
+                    "handler": "remove",
+                    "args": {
+                      "membership_id": {
+                        "row": "/id"
+                      }
+                    },
+                    "confirm": {
+                      "message": "Remove this member?",
+                      "tone": "danger"
+                    }
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "invoke": "act_remove"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "acme.member": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "name": "Ada"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:members2:m1": {
+          "props": {
+            "activate": {
+              "invoke": "act_remove",
+              "row_key": "m1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "with a form and a confirmation pending, only the form shows first",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "members",
+              "source": {
+                "kind": "acme.member"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "act_remove",
+                    "label": "Remove",
+                    "handler": "remove",
+                    "args": {
+                      "membership_id": {
+                        "row": "/id"
+                      }
+                    },
+                    "confirm": {
+                      "message": "Remove this member?",
+                      "tone": "danger"
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "membership_id",
+                        "reason"
+                      ],
+                      "properties": {
+                        "membership_id": {
+                          "type": "string"
+                        },
+                        "reason": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "invoke": "act_remove"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "acme.member": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "name": "Ada"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove"
+            }
+          },
+          {
+            "form": {
+              "button": "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:79:botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove9:container"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:118:botster-ui-descendant-v1:79:botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove9:container4:item": {
+          "type": "form"
+        }
+      },
+      "because": "UI UI-SL-8"
+    },
+    {
+      "name": "an action with no entered field and a confirm shows the confirmation",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "members",
+              "source": {
+                "kind": "acme.member"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "act_remove",
+                    "label": "Remove",
+                    "handler": "remove",
+                    "args": {
+                      "membership_id": {
+                        "row": "/id"
+                      }
+                    },
+                    "confirm": {
+                      "message": "Remove this member?",
+                      "tone": "danger"
+                    }
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "invoke": "act_remove"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "acme.member": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "name": "Ada"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:79:botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove9:container"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:118:botster-ui-descendant-v1:79:botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove9:container7:confirm": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:118:botster-ui-descendant-v1:79:botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m110:act_remove9:container6:cancel": {
+          "type": "button"
+        }
+      },
+      "because": "UI UI-SL-8"
+    }
+  ]
+}

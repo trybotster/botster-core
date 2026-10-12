@@ -1,0 +1,120 @@
+{
+  "id": "conf::ui_bd_6_owner_filter_realizes",
+  "contract": "ui",
+  "clause": "UI-BD-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a where on owner keeps the rows of that owner",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session",
+            "where": {
+              "eq": [
+                {
+                  "path": "/owner"
+                },
+                {
+                  "lit": "knowledge-inbox-pipeline"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "h/s1",
+              "title": "A",
+              "owner": "knowledge-inbox-pipeline"
+            },
+            {
+              "id": "h/s2",
+              "title": "B",
+              "owner": "other-plugin"
+            },
+            {
+              "id": "h/s3",
+              "title": "C"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l4:h/s1": {}
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:1:l4:h/s2",
+        "botster-ui-descendant-v1:1:l4:h/s3"
+      ]
+    },
+    {
+      "name": "without the where every row the client received shows",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "h/s1",
+              "title": "A",
+              "owner": "knowledge-inbox-pipeline"
+            },
+            {
+              "id": "h/s2",
+              "title": "B",
+              "owner": "other-plugin"
+            },
+            {
+              "id": "h/s3",
+              "title": "C"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l4:h/s1": {},
+        "botster-ui-descendant-v1:1:l4:h/s2": {},
+        "botster-ui-descendant-v1:1:l4:h/s3": {}
+      }
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+{
+  "id": "conf::ui_sl_6_url_encoding_of_row_key",
+  "contract": "ui",
+  "clause": "UI-SL-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a row key with a slash is percent-encoded in the query value",
+      "url": {
+        "op": "route_path",
+        "expect": "/v/acme-tickets/board?sel_t=h1%2Fs1",
+        "package": "acme-tickets",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "h1/s1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "a package key with an at sign is percent-encoded in the path",
+      "url": {
+        "op": "route_path",
+        "expect": "/v/acme%40v1/board?sel_t=t1",
+        "package": "acme@v1",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "t1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "loading the URL decodes the key and the package",
+      "url": {
+        "op": "parse_route",
+        "expect": {
+          "package": "acme@v1",
+          "target": {
+            "view": "board",
+            "select": {
+              "sel_t": "h1/s1"
+            }
+          }
+        },
+        "route": "/v/acme%40v1/board?sel_t=h1%2Fs1"
+      },
+      "because": "UI UI-SL-6"
+    }
+  ]
+}

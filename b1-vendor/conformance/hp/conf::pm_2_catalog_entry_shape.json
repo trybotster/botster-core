@@ -1,0 +1,219 @@
+{
+ "id": "conf::pm_2_catalog_entry_shape",
+ "contract": "hp",
+ "clause": "PM-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "client_read",
+   "client_verb",
+   "script_catalog",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "a catalog document lists one plugin, one agent definition and one accessory; a second catalog document has catalog_version 2",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "p1",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "p1",
+       "kind": "plugin",
+       "name": "P one",
+       "description": "d1",
+       "source": {
+        "url": "https://git.example/a.git",
+        "ref": "v1"
+       }
+      },
+      {
+       "id": "a1",
+       "kind": "agent_definition",
+       "name": "A one",
+       "description": "d2",
+       "source": {
+        "url": "https://git.example/a.git"
+       }
+      },
+      {
+       "id": "x1",
+       "kind": "accessory",
+       "name": "X one",
+       "description": "d3",
+       "source": {
+        "url": "https://git.example/a.git"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k2.json",
+    "document": {
+     "catalog_version": 2,
+     "entries": [
+      {
+       "id": "p1",
+       "kind": "plugin",
+       "name": "P one",
+       "description": "d1",
+       "source": {
+        "url": "https://git.example/a.git",
+        "ref": "v1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k2.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k2.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "p1"
+   },
+   "expect": {
+    "kind": "plugin",
+    "status": "available",
+    "name": "P one",
+    "description": "d1"
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "a1"
+   },
+   "expect": {
+    "kind": "agent_definition",
+    "status": "available"
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "x1"
+   },
+   "expect": {
+    "kind": "accessory",
+    "status": "available"
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package"
+   },
+   "expect": {
+    "rows": {
+     "$array": {
+      "each": {
+       "id": {
+        "$one_of": [
+         "p1",
+         "a1",
+         "x1"
+        ]
+       }
+      },
+      "min": 3,
+      "max": 3
+     }
+    }
+   },
+   "because": "HP PM-2"
+  }
+ ]
+}

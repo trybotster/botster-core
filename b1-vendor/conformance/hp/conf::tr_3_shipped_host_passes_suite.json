@@ -1,0 +1,17 @@
+{
+ "id": "conf::tr_3_shipped_host_passes_suite",
+ "contract": "hp",
+ "clause": "TR-3",
+ "subject": "plugin_host",
+ "steps": [
+  {
+   "run_suite": {
+    "subject": "plugin_host"
+   },
+   "because": [
+    "HP TR-3",
+    "HP LH-3"
+   ]
+  }
+ ]
+}

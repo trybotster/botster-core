@@ -1,0 +1,225 @@
+{
+ "id": "conf::cr_5_adopt_resumed_fences_old_epoch",
+ "contract": "hp",
+ "clause": "CR-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "hub_restart",
+   "service_connected",
+   "counters",
+   "completions",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "hub_restart"
+   }
+  },
+  {
+   "control": {
+    "op": "service_connected"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": true
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "hub.identity",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "expect_quiet_until": {
+    "type": {
+     "$any": true
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "control": {
+    "op": "counters"
+   },
+   "expect": {
+    "stale_dropped": 2
+   },
+   "because": [
+    "HP CR-5",
+    "HP MD-4"
+   ]
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [],
+   "because": "HP CR-5"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2",
+     "handler": "h1"
+    }
+   },
+   "because": "HP CR-5"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "hub.identity": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "hub_id": "hub-1",
+       "display_name": "hub"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

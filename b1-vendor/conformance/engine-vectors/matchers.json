@@ -1,0 +1,1141 @@
+{
+  "suite": "matchers",
+  "schemas": {
+    "obj": {
+      "type": "object",
+      "required": [
+        "a"
+      ]
+    }
+  },
+  "cases": [
+    {
+      "name": "literal number equal",
+      "matcher": 1,
+      "value": 1,
+      "result": "match"
+    },
+    {
+      "name": "literal number differs",
+      "matcher": 1,
+      "value": 2,
+      "result": "no_match"
+    },
+    {
+      "name": "literal string equal",
+      "matcher": "abc",
+      "value": "abc",
+      "result": "match"
+    },
+    {
+      "name": "literal null equals null",
+      "matcher": null,
+      "value": null,
+      "result": "match"
+    },
+    {
+      "name": "literal object versus array",
+      "matcher": {
+        "a": 1
+      },
+      "value": [
+        1
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "object subset allows extra keys",
+      "matcher": {
+        "a": 1
+      },
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "result": "match"
+    },
+    {
+      "name": "object subset needs the key",
+      "matcher": {
+        "a": 1
+      },
+      "value": {},
+      "result": "no_match"
+    },
+    {
+      "name": "nested object",
+      "matcher": {
+        "a": {
+          "b": [
+            1,
+            2
+          ]
+        }
+      },
+      "value": {
+        "a": {
+          "b": [
+            1,
+            2
+          ],
+          "c": 0
+        }
+      },
+      "result": "match"
+    },
+    {
+      "name": "array is elementwise and same length",
+      "matcher": [
+        1,
+        "$x"
+      ],
+      "value": [
+        1,
+        2
+      ],
+      "bindings": {
+        "x": 2
+      },
+      "result": "match"
+    },
+    {
+      "name": "array length differs",
+      "matcher": [
+        1,
+        2
+      ],
+      "value": [
+        1,
+        2,
+        3
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "array element may be a control matcher",
+      "matcher": [
+        {
+          "$any": true
+        },
+        2
+      ],
+      "value": [
+        {
+          "k": 1
+        },
+        2
+      ],
+      "result": "match"
+    },
+    {
+      "name": "a variable binds at first use",
+      "matcher": "$x",
+      "value": 5,
+      "bindings": {
+        "x": 5
+      },
+      "result": "match"
+    },
+    {
+      "name": "a variable reused in one value must be equal",
+      "matcher": {
+        "a": "$x",
+        "b": "$x"
+      },
+      "value": {
+        "a": 1,
+        "b": 1
+      },
+      "bindings": {
+        "x": 1
+      },
+      "result": "match"
+    },
+    {
+      "name": "a variable reused with a different value fails",
+      "matcher": {
+        "a": "$x",
+        "b": "$x"
+      },
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "a bound variable matches an equal value",
+      "matcher": "$x",
+      "value": 5,
+      "bindings_in": {
+        "x": 5
+      },
+      "bindings": {
+        "x": 5
+      },
+      "result": "match"
+    },
+    {
+      "name": "a bound variable rejects a different value",
+      "matcher": "$x",
+      "value": 6,
+      "bindings_in": {
+        "x": 5
+      },
+      "bindings": {
+        "x": 5
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "a failed match leaves the bindings unchanged",
+      "matcher": {
+        "a": "$y",
+        "b": 2
+      },
+      "value": {
+        "a": 1,
+        "b": 3
+      },
+      "bindings": {},
+      "result": "no_match"
+    },
+    {
+      "name": "a variable binds a missing value never",
+      "matcher": "$x",
+      "result": "no_match"
+    },
+    {
+      "name": "$any matches a present value",
+      "matcher": {
+        "$any": true
+      },
+      "value": {
+        "k": 1
+      },
+      "result": "match"
+    },
+    {
+      "name": "$any matches null",
+      "matcher": {
+        "$any": true
+      },
+      "value": null,
+      "result": "match"
+    },
+    {
+      "name": "$any does not match a missing value",
+      "matcher": {
+        "$any": true
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "$absent matches a missing key",
+      "matcher": {
+        "a": {
+          "$absent": true
+        }
+      },
+      "value": {},
+      "result": "match"
+    },
+    {
+      "name": "$absent does not match null",
+      "matcher": {
+        "a": {
+          "$absent": true
+        }
+      },
+      "value": {
+        "a": null
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "$absent matches a missing value",
+      "matcher": {
+        "$absent": true
+      },
+      "result": "match"
+    },
+    {
+      "name": "$type string",
+      "matcher": {
+        "$type": "string"
+      },
+      "value": "x",
+      "result": "match"
+    },
+    {
+      "name": "$type string rejects a number",
+      "matcher": {
+        "$type": "string"
+      },
+      "value": 1,
+      "result": "no_match"
+    },
+    {
+      "name": "$type number accepts a float",
+      "matcher": {
+        "$type": "number"
+      },
+      "value": 1.5,
+      "result": "match"
+    },
+    {
+      "name": "$type integer rejects a float",
+      "matcher": {
+        "$type": "integer"
+      },
+      "value": 1.5,
+      "result": "no_match"
+    },
+    {
+      "name": "$type integer accepts a negative integer",
+      "matcher": {
+        "$type": "integer"
+      },
+      "value": -3,
+      "result": "match"
+    },
+    {
+      "name": "$type u64 rejects a negative integer",
+      "matcher": {
+        "$type": "u64"
+      },
+      "value": -1,
+      "result": "no_match"
+    },
+    {
+      "name": "$type u64 accepts zero",
+      "matcher": {
+        "$type": "u64"
+      },
+      "value": 0,
+      "result": "match"
+    },
+    {
+      "name": "$type boolean",
+      "matcher": {
+        "$type": "boolean"
+      },
+      "value": false,
+      "result": "match"
+    },
+    {
+      "name": "$type null",
+      "matcher": {
+        "$type": "null"
+      },
+      "value": null,
+      "result": "match"
+    },
+    {
+      "name": "$type object",
+      "matcher": {
+        "$type": "object"
+      },
+      "value": {},
+      "result": "match"
+    },
+    {
+      "name": "$type array",
+      "matcher": {
+        "$type": "array"
+      },
+      "value": [],
+      "result": "match"
+    },
+    {
+      "name": "$type u64_decimal accepts the maximum",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": "18446744073709551615",
+      "result": "match"
+    },
+    {
+      "name": "$type u64_decimal rejects one above the maximum",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": "18446744073709551616",
+      "result": "no_match"
+    },
+    {
+      "name": "$type u64_decimal rejects a leading zero",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": "007",
+      "result": "no_match"
+    },
+    {
+      "name": "$type u64_decimal accepts zero",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": "0",
+      "result": "match"
+    },
+    {
+      "name": "$type u64_decimal rejects the empty string",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": "",
+      "result": "no_match"
+    },
+    {
+      "name": "$type u64_decimal rejects a number",
+      "matcher": {
+        "$type": "u64_decimal"
+      },
+      "value": 7,
+      "result": "no_match"
+    },
+    {
+      "name": "$type with an unknown name is a bad matcher",
+      "matcher": {
+        "$type": "nope"
+      },
+      "value": 1,
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$one_of matches the second alternative",
+      "matcher": {
+        "$one_of": [
+          1,
+          2
+        ]
+      },
+      "value": 2,
+      "result": "match"
+    },
+    {
+      "name": "$one_of with no matching alternative fails",
+      "matcher": {
+        "$one_of": [
+          1,
+          2
+        ]
+      },
+      "value": 3,
+      "result": "no_match"
+    },
+    {
+      "name": "$one_of keeps only the bindings of the chosen alternative",
+      "matcher": {
+        "$one_of": [
+          {
+            "a": "$x",
+            "b": 1
+          },
+          {
+            "a": "$y",
+            "b": 2
+          }
+        ]
+      },
+      "value": {
+        "a": 7,
+        "b": 2
+      },
+      "bindings": {
+        "y": 7
+      },
+      "result": "match"
+    },
+    {
+      "name": "$one_of must be a non-empty array",
+      "matcher": {
+        "$one_of": []
+      },
+      "value": 1,
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$bytes_hex matches equal bytes",
+      "matcher": {
+        "$bytes_hex": "0aff"
+      },
+      "value": {
+        "$bytes_hex": "0aff"
+      },
+      "result": "match"
+    },
+    {
+      "name": "$bytes_hex ignores hex case",
+      "matcher": {
+        "$bytes_hex": "0aFF"
+      },
+      "value": {
+        "$bytes_hex": "0aff"
+      },
+      "result": "match"
+    },
+    {
+      "name": "$bytes_hex rejects different bytes",
+      "matcher": {
+        "$bytes_hex": "0aff"
+      },
+      "value": {
+        "$bytes_hex": "0a00"
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "$bytes_hex rejects a text string",
+      "matcher": {
+        "$bytes_hex": "0aff"
+      },
+      "value": "0aff",
+      "result": "no_match"
+    },
+    {
+      "name": "$bytes_hex with an odd number of digits is a bad matcher",
+      "matcher": {
+        "$bytes_hex": "abc"
+      },
+      "value": {
+        "$bytes_hex": "abc0"
+      },
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$schema accepts a valid value",
+      "matcher": {
+        "$schema": "obj"
+      },
+      "value": {
+        "a": 1
+      },
+      "result": "match"
+    },
+    {
+      "name": "$schema rejects an invalid value",
+      "matcher": {
+        "$schema": "obj"
+      },
+      "value": {
+        "b": 1
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "a control matcher has exactly one key",
+      "matcher": {
+        "$any": true,
+        "x": 1
+      },
+      "value": 1,
+      "result": "bad_matcher"
+    },
+    {
+      "name": "an unknown control matcher is a bad matcher",
+      "matcher": {
+        "$nope": true
+      },
+      "value": 1,
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$any takes true",
+      "matcher": {
+        "$any": false
+      },
+      "value": 1,
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$not of a literal matches a different value",
+      "matcher": {
+        "$not": 1
+      },
+      "value": 2,
+      "result": "match"
+    },
+    {
+      "name": "$not of a literal fails on the same value",
+      "matcher": {
+        "$not": 1
+      },
+      "value": 1,
+      "result": "no_match"
+    },
+    {
+      "name": "$not of $absent matches a present value",
+      "matcher": {
+        "$not": {
+          "$absent": true
+        }
+      },
+      "value": 1,
+      "result": "match"
+    },
+    {
+      "name": "$not of a bound variable matches a different value",
+      "matcher": {
+        "a": "$x",
+        "b": {
+          "$not": "$x"
+        }
+      },
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "result": "match"
+    },
+    {
+      "name": "$ne matches a value that differs from the bound variable",
+      "matcher": {
+        "a": "$x",
+        "b": {
+          "$ne": "$x"
+        }
+      },
+      "value": {
+        "a": 1,
+        "b": 2
+      },
+      "result": "match"
+    },
+    {
+      "name": "$ne fails on the bound value",
+      "matcher": {
+        "a": "$x",
+        "b": {
+          "$ne": "$x"
+        }
+      },
+      "value": {
+        "a": 1,
+        "b": 1
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "$ne of an unbound variable is a transcript error",
+      "matcher": {
+        "b": {
+          "$ne": "$x"
+        }
+      },
+      "value": {
+        "b": 1
+      },
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$starts_with matches a prefix",
+      "matcher": {
+        "$starts_with": "/"
+      },
+      "value": "/etc",
+      "result": "match"
+    },
+    {
+      "name": "$not $starts_with matches a relative path",
+      "matcher": {
+        "$not": {
+          "$starts_with": "/"
+        }
+      },
+      "value": "docs/a",
+      "result": "match"
+    },
+    {
+      "name": "$starts_with fails on a number",
+      "matcher": {
+        "$starts_with": "1"
+      },
+      "value": 1,
+      "result": "no_match"
+    },
+    {
+      "name": "$contains matches a substring",
+      "matcher": {
+        "$contains": "cr"
+      },
+      "value": "secret",
+      "result": "match"
+    },
+    {
+      "name": "$contains fails when the text is absent",
+      "matcher": {
+        "$contains": "zz"
+      },
+      "value": "secret",
+      "result": "no_match"
+    },
+    {
+      "name": "$between matches an inclusive bound",
+      "matcher": {
+        "$between": [
+          1,
+          3
+        ]
+      },
+      "value": 3,
+      "result": "match"
+    },
+    {
+      "name": "$between fails outside the range",
+      "matcher": {
+        "$between": [
+          1,
+          3
+        ]
+      },
+      "value": 4,
+      "result": "no_match"
+    },
+    {
+      "name": "$between fails on a string",
+      "matcher": {
+        "$between": [
+          1,
+          3
+        ]
+      },
+      "value": "2",
+      "result": "no_match"
+    },
+    {
+      "name": "$array matches every element and a length in range",
+      "matcher": {
+        "$array": {
+          "each": {
+            "$type": "integer"
+          },
+          "max": 3
+        }
+      },
+      "value": [
+        1,
+        2
+      ],
+      "result": "match"
+    },
+    {
+      "name": "$array matches an empty array without a minimum",
+      "matcher": {
+        "$array": {
+          "each": {
+            "$type": "integer"
+          }
+        }
+      },
+      "value": [],
+      "result": "match"
+    },
+    {
+      "name": "$array fails above the maximum",
+      "matcher": {
+        "$array": {
+          "max": 1
+        }
+      },
+      "value": [
+        1,
+        2
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$array fails below the minimum",
+      "matcher": {
+        "$array": {
+          "min": 2
+        }
+      },
+      "value": [
+        1
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$array fails when one element differs",
+      "matcher": {
+        "$array": {
+          "each": {
+            "$type": "integer"
+          }
+        }
+      },
+      "value": [
+        1,
+        "a"
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$array fails on an object",
+      "matcher": {
+        "$array": {}
+      },
+      "value": {},
+      "result": "no_match"
+    },
+    {
+      "name": "$array with an unknown key is a transcript error",
+      "matcher": {
+        "$array": {
+          "size": 1
+        }
+      },
+      "value": [
+        1
+      ],
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$array matches a length exactly at the minimum",
+      "matcher": {
+        "$array": {
+          "min": 2
+        }
+      },
+      "value": [
+        1,
+        2
+      ],
+      "result": "match"
+    },
+    {
+      "name": "$array matches a length exactly at the maximum",
+      "matcher": {
+        "$array": {
+          "max": 2
+        }
+      },
+      "value": [
+        1,
+        2
+      ],
+      "result": "match"
+    },
+    {
+      "name": "$array with a minimum that is not an integer is a transcript error",
+      "matcher": {
+        "$array": {
+          "min": "1"
+        }
+      },
+      "value": [
+        1
+      ],
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$array with a maximum that is not an integer is a transcript error",
+      "matcher": {
+        "$array": {
+          "max": "1"
+        }
+      },
+      "value": [
+        1
+      ],
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$array with a negative minimum is a transcript error",
+      "matcher": {
+        "$array": {
+          "min": -1
+        }
+      },
+      "value": [
+        1
+      ],
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$b64 decodes before it matches",
+      "matcher": {
+        "$b64": "hello"
+      },
+      "value": "aGVsbG8=",
+      "result": "match"
+    },
+    {
+      "name": "$b64 with $contains reads the decoded text",
+      "matcher": {
+        "$b64": {
+          "$contains": "ell"
+        }
+      },
+      "value": "aGVsbG8=",
+      "result": "match"
+    },
+    {
+      "name": "$b64 fails when the decoded text differs",
+      "matcher": {
+        "$b64": "hello"
+      },
+      "value": "d29ybGQ=",
+      "result": "no_match"
+    },
+    {
+      "name": "$b64 fails on text that is not base64",
+      "matcher": {
+        "$b64": "x"
+      },
+      "value": "%%%",
+      "result": "no_match"
+    },
+    {
+      "name": "$b64 fails on a number",
+      "matcher": {
+        "$b64": "x"
+      },
+      "value": 1,
+      "result": "no_match"
+    },
+    {
+      "name": "$set matches the elements in any order",
+      "matcher": {
+        "$set": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "b"
+          },
+          {
+            "id": "c"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "c"
+        },
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "result": "match"
+    },
+    {
+      "name": "$set does not accept one element twice",
+      "matcher": {
+        "$set": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "b"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "a"
+        }
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$set needs the same length (an extra element)",
+      "matcher": {
+        "$set": [
+          {
+            "id": "a"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$set needs the same length (a missing element)",
+      "matcher": {
+        "$set": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "b"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "a"
+        }
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$set of a missing element fails",
+      "matcher": {
+        "$set": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "z"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b"
+        }
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$set backtracks when an early matcher fits two elements",
+      "matcher": {
+        "$set": [
+          {
+            "x": {
+              "$any": true
+            }
+          },
+          {
+            "x": 1
+          }
+        ]
+      },
+      "value": [
+        {
+          "x": 1
+        },
+        {
+          "x": 2
+        }
+      ],
+      "result": "match"
+    },
+    {
+      "name": "$set binds a variable from the element that its matcher took",
+      "matcher": {
+        "$set": [
+          {
+            "name": "one",
+            "id": "$one"
+          },
+          {
+            "name": "two",
+            "id": "$two"
+          }
+        ]
+      },
+      "value": [
+        {
+          "name": "two",
+          "id": "B"
+        },
+        {
+          "name": "one",
+          "id": "A"
+        }
+      ],
+      "result": "match",
+      "bindings": {
+        "one": "A",
+        "two": "B"
+      }
+    },
+    {
+      "name": "$set keeps no binding of a failed attempt",
+      "matcher": {
+        "$set": [
+          {
+            "id": "$x"
+          },
+          {
+            "id": "$x"
+          }
+        ]
+      },
+      "value": [
+        {
+          "id": "A"
+        },
+        {
+          "id": "B"
+        }
+      ],
+      "result": "no_match"
+    },
+    {
+      "name": "$set of an empty array matches an empty array",
+      "matcher": {
+        "$set": []
+      },
+      "value": [],
+      "result": "match"
+    },
+    {
+      "name": "$set against a value that is not an array",
+      "matcher": {
+        "$set": [
+          1
+        ]
+      },
+      "value": 1,
+      "result": "no_match"
+    },
+    {
+      "name": "$set against a missing value",
+      "matcher": {
+        "$set": [
+          1
+        ]
+      },
+      "result": "no_match"
+    },
+    {
+      "name": "$set takes an array",
+      "matcher": {
+        "$set": {
+          "id": "a"
+        }
+      },
+      "value": [
+        {
+          "id": "a"
+        }
+      ],
+      "result": "bad_matcher"
+    },
+    {
+      "name": "$set passes on a bad matcher inside",
+      "matcher": {
+        "$set": [
+          {
+            "$type": "nope"
+          }
+        ]
+      },
+      "value": [
+        1
+      ],
+      "result": "bad_matcher"
+    }
+  ]
+}

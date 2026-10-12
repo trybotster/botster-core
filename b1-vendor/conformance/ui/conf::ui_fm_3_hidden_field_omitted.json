@@ -1,0 +1,160 @@
+{
+  "id": "conf::ui_fm_3_hidden_field_omitted",
+  "contract": "ui",
+  "clause": "UI-FM-3",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "h": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "target": {
+                "type": "string",
+                "enum": [
+                  "git",
+                  "dir"
+                ]
+              },
+              "branch": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "target": {
+                          "type": "string",
+                          "enum": [
+                            "git",
+                            "dir"
+                          ]
+                        },
+                        "branch": {
+                          "type": "string",
+                          "ui": {
+                            "visible_when": {
+                              "eq": [
+                                {
+                                  "form": "/target"
+                                },
+                                {
+                                  "lit": "git"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "target",
+            "value": "git"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "branch",
+            "value": "stale"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "target",
+            "value": "dir"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "submit": {}
+        },
+        "node_id": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "h",
+            "count": 1,
+            "args": {
+              "target": "dir",
+              "branch": {
+                "$absent": true
+              }
+            }
+          }
+        },
+        "because": "UI UI-FM-3"
+      }
+    }
+  ]
+}

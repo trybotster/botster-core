@@ -1,0 +1,253 @@
+{
+  "id": "conf::ui_rz_2b_overlay_dialogs",
+  "contract": "ui",
+  "clause": "UI-RZ-2b",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an open action form is a dialog that holds the form",
+      "because": "UI UI-RZ-2b",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container",
+            "type": "dialog",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item",
+                  "type": "form"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+          "type": "form_field"
+        }
+      }
+    },
+    {
+      "name": "a pending confirmation is a dialog with the message, a confirm button and a cancel button",
+      "because": "UI UI-RZ-2b",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "del"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:del9:container",
+            "type": "dialog"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:del9:container": {
+          "slots": {
+            "body": [
+              {
+                "type": "text",
+                "props": {
+                  "text": "Really?"
+                }
+              }
+            ]
+          }
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container7:confirm": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container6:cancel": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "one dialog per open button, in the order each button first appears",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "ren2",
+                  "label": "Ren2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren2"
+            }
+          },
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:4:ren29:container"
+          },
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container"
+          }
+        ]
+      }
+    },
+    {
+      "name": "with no overlay entry the tree has no dialog",
+      "because": "UI UI-RZ-2b",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "overlays": {
+          "$absent": true
+        }
+      }
+    }
+  ]
+}

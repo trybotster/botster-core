@@ -1,0 +1,53 @@
+{
+  "id": "conf::hs_0_ready_line_after_listen_and_adoption",
+  "contract": "hc",
+  "clause": "HS-0",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "adoption_done",
+      "hub_up",
+      "ready_line"
+    ]
+  },
+  "setup": {
+    "start": false,
+    "hub": {
+      "adoption_held": true,
+      "socket_path": "/run/botster/hub.sock"
+    }
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "hub_up"
+      }
+    },
+    {
+      "control": {
+        "op": "ready_line"
+      },
+      "expect": {
+        "state": "none",
+        "closed": false
+      },
+      "because": "HC HS-0"
+    },
+    {
+      "control": {
+        "op": "adoption_done"
+      }
+    },
+    {
+      "control": {
+        "op": "ready_line"
+      },
+      "expect": {
+        "state": "ready",
+        "path": "/run/botster/hub.sock",
+        "closed": true
+      },
+      "because": "HC HS-0"
+    }
+  ]
+}

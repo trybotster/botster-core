@@ -1,0 +1,3126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:botster:schema:plugin:v1:plugin-frames.schema.json",
+  "description": "HP Appendix B: one schema per frame type with the lane, the type byte and the class. The type bytes are pinned here (steward ruling R-4). A frame payload is one JSON object that also carries the connection epoch.",
+  "lanes": {
+    "control": 0,
+    "invoke": 1,
+    "call": 2,
+    "bulk": 3
+  },
+  "classes": {
+    "state_changing": "0x00-0x7F",
+    "advisory": "0x80-0xFF"
+  },
+  "bulk_call": "log.write",
+  "frames": [
+    {
+      "name": "Hello",
+      "type": 1,
+      "type_hex": "0x01",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "HS-1",
+      "schema": {
+        "$ref": "#/$defs/Hello"
+      }
+    },
+    {
+      "name": "Ready",
+      "type": 2,
+      "type_hex": "0x02",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "plugin_to_hub",
+      "clauses": "HS-2",
+      "schema": {
+        "$ref": "#/$defs/Ready"
+      }
+    },
+    {
+      "name": "Activated",
+      "type": 3,
+      "type_hex": "0x03",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "HS-2",
+      "schema": {
+        "$ref": "#/$defs/Activated"
+      }
+    },
+    {
+      "name": "Shutdown",
+      "type": 4,
+      "type_hex": "0x04",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "LD-4, HS-2",
+      "schema": {
+        "$ref": "#/$defs/Shutdown"
+      }
+    },
+    {
+      "name": "Fault",
+      "type": 5,
+      "type_hex": "0x05",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "plugin_to_hub",
+      "clauses": "CR-2, VR-2",
+      "schema": {
+        "$ref": "#/$defs/Fault"
+      }
+    },
+    {
+      "name": "Cancel",
+      "type": 6,
+      "type_hex": "0x06",
+      "lane": 0,
+      "lane_names": [
+        "control"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "IV-5",
+      "schema": {
+        "$ref": "#/$defs/Cancel"
+      }
+    },
+    {
+      "name": "Invoke",
+      "type": 16,
+      "type_hex": "0x10",
+      "lane": 1,
+      "lane_names": [
+        "invoke"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "IV-1",
+      "schema": {
+        "$ref": "#/$defs/Invoke"
+      }
+    },
+    {
+      "name": "Result",
+      "type": 17,
+      "type_hex": "0x11",
+      "lane": 1,
+      "lane_names": [
+        "invoke"
+      ],
+      "class": "state_changing",
+      "direction": "plugin_to_hub",
+      "clauses": "IV-2",
+      "schema": {
+        "$ref": "#/$defs/ResultFrame"
+      }
+    },
+    {
+      "name": "HostCall",
+      "type": 32,
+      "type_hex": "0x20",
+      "lane": "2, or 3 for a bulk-class call",
+      "lane_names": [
+        "call",
+        "bulk"
+      ],
+      "class": "state_changing",
+      "direction": "plugin_to_hub",
+      "clauses": "CA-1",
+      "schema": {
+        "$ref": "#/$defs/HostCall"
+      }
+    },
+    {
+      "name": "HostResult",
+      "type": 33,
+      "type_hex": "0x21",
+      "lane": "2, or 3 for a bulk-class call",
+      "lane_names": [
+        "call",
+        "bulk"
+      ],
+      "class": "state_changing",
+      "direction": "hub_to_plugin",
+      "clauses": "CA-2, CA-5",
+      "schema": {
+        "$ref": "#/$defs/HostResult"
+      }
+    }
+  ],
+  "limits": [
+    {
+      "name": "frame_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "MD-2, WF-1"
+    },
+    {
+      "name": "startup",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "HS-5"
+    },
+    {
+      "name": "shutdown",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "LD-4"
+    },
+    {
+      "name": "orphan_grace",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "CR-6"
+    },
+    {
+      "name": "restart_window",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "CR-3"
+    },
+    {
+      "name": "invoke_queue",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "IV-4"
+    },
+    {
+      "name": "dispatch_deadline",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "IV-3"
+    },
+    {
+      "name": "long_deadline",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "IV-3"
+    },
+    {
+      "name": "page_items",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "ST-4, SS-1"
+    },
+    {
+      "name": "max_result_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "CA-2, ST-4"
+    },
+    {
+      "name": "max_watches",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "ST-6"
+    },
+    {
+      "name": "max_timers",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "CA-12"
+    },
+    {
+      "name": "operations_get_rate",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "A2-35, CA-16"
+    },
+    {
+      "name": "operation_receipt_window",
+      "range": {
+        "kind": "between",
+        "min": 1000,
+        "max": 86400000
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "CA-16"
+    },
+    {
+      "name": "operation_receipts",
+      "range": {
+        "kind": "between",
+        "min": 16,
+        "max": 65536
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "live"
+      },
+      "clauses": "CA-16"
+    },
+    {
+      "name": "log_record_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "logging",
+        "mode": "live"
+      },
+      "clauses": "CA-9"
+    },
+    {
+      "name": "log_ring_records",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "logging",
+        "mode": "live"
+      },
+      "clauses": "CA-9"
+    },
+    {
+      "name": "log_ring_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "logging",
+        "mode": "live"
+      },
+      "clauses": "CA-9"
+    },
+    {
+      "name": "log_rate",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "logging",
+        "mode": "live"
+      },
+      "clauses": "CA-9"
+    },
+    {
+      "name": "log_burst",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "logging",
+        "mode": "live"
+      },
+      "clauses": "CA-9"
+    },
+    {
+      "name": "event_key_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-1, EV-13"
+    },
+    {
+      "name": "event_queue",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-5"
+    },
+    {
+      "name": "event_queue_high",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-11"
+    },
+    {
+      "name": "event_queue_normal",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-11"
+    },
+    {
+      "name": "event_queue_low",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-11"
+    },
+    {
+      "name": "event_starvation_bound",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-11"
+    },
+    {
+      "name": "ingress_queue",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-3"
+    },
+    {
+      "name": "max_event_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-1"
+    },
+    {
+      "name": "loss_ledger_entries",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 65536
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-12"
+    },
+    {
+      "name": "terminal_event_bytes",
+      "range": {
+        "kind": "between",
+        "min": 256,
+        "max": 1048576
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-14"
+    },
+    {
+      "name": "output_tap_chunk_bytes",
+      "range": {
+        "kind": "between",
+        "min": 256,
+        "max": 1048576
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-14"
+    },
+    {
+      "name": "session_family_inflight",
+      "range": {
+        "kind": "between",
+        "min": 1,
+        "max": 16
+      },
+      "toml": {
+        "table": "events",
+        "mode": "live"
+      },
+      "clauses": "EV-6"
+    },
+    {
+      "name": "max_write_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1024,
+        "max": 16777216
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-7"
+    },
+    {
+      "name": "max_raw_write_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1024,
+        "max": 16777216
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "RW-1"
+    },
+    {
+      "name": "write_pending_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1024,
+        "max": 16777216
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-5"
+    },
+    {
+      "name": "echo_deadline_ms",
+      "range": {
+        "kind": "between",
+        "min": 50,
+        "max": 10000
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-4"
+    },
+    {
+      "name": "cleanup_window_ms",
+      "range": {
+        "kind": "between",
+        "min": 50,
+        "max": 60000
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-4"
+    },
+    {
+      "name": "write_client_quiet_ms",
+      "range": {
+        "kind": "between",
+        "min": 0,
+        "max": 600000
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-3"
+    },
+    {
+      "name": "write_max_wait_ms",
+      "range": {
+        "kind": "at_least",
+        "limit": "write_client_quiet_ms"
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "SW-4"
+    },
+    {
+      "name": "probe_width",
+      "range": {
+        "kind": "at_most",
+        "limit": "max_key_repeat"
+      },
+      "toml": null,
+      "clauses": "SW-3, SW-4"
+    },
+    {
+      "name": "max_notification_patterns",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "CA-22"
+    },
+    {
+      "name": "max_argv_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1024,
+        "max": 1048576
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "CA-19"
+    },
+    {
+      "name": "max_env_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1024,
+        "max": 1048576
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "live"
+      },
+      "clauses": "CA-19"
+    },
+    {
+      "name": "max_document_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "store",
+        "mode": "live"
+      },
+      "clauses": "ST-8"
+    },
+    {
+      "name": "max_plugin_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "store",
+        "mode": "live"
+      },
+      "clauses": "ST-8"
+    },
+    {
+      "name": "max_plugin_documents",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "store",
+        "mode": "live"
+      },
+      "clauses": "ST-8"
+    },
+    {
+      "name": "batch_ops",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "store",
+        "mode": "live"
+      },
+      "clauses": "ST-3, ST-8"
+    },
+    {
+      "name": "net_timeout_max_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-3"
+    },
+    {
+      "name": "webhook_timeout_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-7"
+    },
+    {
+      "name": "net_body_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-3, NT-7, WP-5"
+    },
+    {
+      "name": "ws_send_queue_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-4"
+    },
+    {
+      "name": "net_concurrent_requests",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-6"
+    },
+    {
+      "name": "net_open_sockets",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-6"
+    },
+    {
+      "name": "net_bytes_in_flight",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-6"
+    },
+    {
+      "name": "net_rate",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "live"
+      },
+      "clauses": "NT-6"
+    },
+    {
+      "name": "max_relay_envelope_bytes",
+      "range": {
+        "kind": "at_most",
+        "limit": "frame_bytes"
+      },
+      "toml": {
+        "table": "web",
+        "mode": "live"
+      },
+      "clauses": "WP-2"
+    },
+    {
+      "name": "relay_queue",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "web",
+        "mode": "live"
+      },
+      "clauses": "WP-4"
+    },
+    {
+      "name": "relay_attempts_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "web",
+        "mode": "live"
+      },
+      "clauses": "WP-2"
+    },
+    {
+      "name": "relay_attempt_ttl_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "web",
+        "mode": "live"
+      },
+      "clauses": "WP-2"
+    },
+    {
+      "name": "ice_servers_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "web",
+        "mode": "live"
+      },
+      "clauses": "WP-6"
+    },
+    {
+      "name": "asset_bytes_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "assets",
+        "mode": "live"
+      },
+      "clauses": "AS-1"
+    },
+    {
+      "name": "asset_store_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "assets",
+        "mode": "live"
+      },
+      "clauses": "AS-1"
+    },
+    {
+      "name": "asset_count_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "assets",
+        "mode": "live"
+      },
+      "clauses": "AS-1"
+    },
+    {
+      "name": "asset_token_ttl_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "assets",
+        "mode": "live"
+      },
+      "clauses": "AS-2"
+    },
+    {
+      "name": "notice_ttl_max_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "notices",
+        "mode": "live"
+      },
+      "clauses": "VW-9"
+    },
+    {
+      "name": "notice_queue",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "notices",
+        "mode": "live"
+      },
+      "clauses": "VW-9"
+    },
+    {
+      "name": "process_timeout_max_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "process",
+        "mode": "live"
+      },
+      "clauses": "PX-3"
+    },
+    {
+      "name": "process_tail_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "process",
+        "mode": "live"
+      },
+      "clauses": "PX-2"
+    },
+    {
+      "name": "process_concurrent",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "process",
+        "mode": "live"
+      },
+      "clauses": "PX-3"
+    },
+    {
+      "name": "fs_read_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "fs",
+        "mode": "live"
+      },
+      "clauses": "FS-2"
+    },
+    {
+      "name": "max_fs_watches",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "fs",
+        "mode": "live"
+      },
+      "clauses": "FS-3"
+    },
+    {
+      "name": "plugin_call_depth",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_calls",
+        "mode": "live"
+      },
+      "clauses": "PC-3"
+    },
+    {
+      "name": "plugin_call_idempotency_window",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_calls",
+        "mode": "live"
+      },
+      "clauses": "PC-4"
+    },
+    {
+      "name": "plugin_call_timeout_max_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_calls",
+        "mode": "live"
+      },
+      "clauses": "PC-1"
+    },
+    {
+      "name": "package_bytes_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "packages",
+        "mode": "live"
+      },
+      "clauses": "PM-4"
+    },
+    {
+      "name": "lock_history_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "packages",
+        "mode": "live"
+      },
+      "clauses": "PM-3"
+    },
+    {
+      "name": "catalog_bytes_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "packages",
+        "mode": "live"
+      },
+      "clauses": "PM-2"
+    },
+    {
+      "name": "mcp_proxy_call_deadline_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-6"
+    },
+    {
+      "name": "mcp_proxy_concurrent",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-6"
+    },
+    {
+      "name": "mcp_servers_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-1"
+    },
+    {
+      "name": "mcp_proxy_init_deadline_ms",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-12"
+    },
+    {
+      "name": "mcp_proxy_list_pages",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-12"
+    },
+    {
+      "name": "mcp_proxy_tools_max",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-12"
+    },
+    {
+      "name": "mcp_proxy_message_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "mcp_proxy",
+        "mode": "live"
+      },
+      "clauses": "MP-12"
+    },
+    {
+      "name": "host_memory_bytes",
+      "range": {
+        "kind": "between",
+        "min": 1048576,
+        "max": 4294967296
+      },
+      "toml": null,
+      "clauses": "LM-6, LM-7"
+    },
+    {
+      "name": "lanes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "SV-3, section 2"
+    },
+    {
+      "name": "probe_text",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "restart"
+      },
+      "clauses": "SW-4"
+    },
+    {
+      "name": "session_port_range",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "sessions",
+        "mode": "restart"
+      },
+      "clauses": "CA-20"
+    },
+    {
+      "name": "target_plugin_dir",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugins",
+        "mode": "restart"
+      },
+      "clauses": "CP-8, A2-39"
+    },
+    {
+      "name": "process_path",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugins",
+        "mode": "restart"
+      },
+      "clauses": "PX-1"
+    },
+    {
+      "name": "net_listen",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "restart"
+      },
+      "clauses": "NT-7, WP-5, A2-41"
+    },
+    {
+      "name": "assets_listen",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "net",
+        "mode": "restart"
+      },
+      "clauses": "AS-2"
+    },
+    {
+      "name": "cpu_seconds",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "section 15"
+    },
+    {
+      "name": "open_files",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "section 15"
+    },
+    {
+      "name": "processes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "section 15"
+    },
+    {
+      "name": "address_space_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "section 15"
+    },
+    {
+      "name": "stderr_bytes",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "section 15"
+    },
+    {
+      "name": "instruction_budget",
+      "range": {
+        "kind": "hub_bound"
+      },
+      "toml": {
+        "table": "plugin_limits",
+        "mode": "restart"
+      },
+      "clauses": "LM-4"
+    }
+  ],
+  "hub_toml_extra_keys": [
+    {
+      "table": "network",
+      "key": "trusted_hosts",
+      "mode": "restart"
+    }
+  ],
+  "priorities": [
+    {
+      "name": "high",
+      "rank": 2
+    },
+    {
+      "name": "normal",
+      "rank": 1
+    },
+    {
+      "name": "low",
+      "rank": 0
+    }
+  ],
+  "features": {
+    "mcp_proxy": "mcp_proxy"
+  },
+  "$defs": {
+    "Hello": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "protocol_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "min_protocol_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Grant"
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/PluginLimits"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HelloBinding"
+          }
+        },
+        "priorities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Priority"
+          }
+        },
+        "instance": {
+          "type": "string",
+          "description": "An opaque instance id used for fencing and logs (HP section 2)."
+        },
+        "plugin_key": {
+          "type": "string"
+        },
+        "resumed": {
+          "type": "boolean"
+        },
+        "hub_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "protocol_version",
+        "min_protocol_version",
+        "features",
+        "grants",
+        "limits",
+        "bindings",
+        "priorities",
+        "instance",
+        "plugin_key",
+        "resumed",
+        "hub_id"
+      ],
+      "description": "Hub to plugin: the first frame on lane 0 (HP HS-1, LD-2, A2-25)."
+    },
+    "Epoch": {
+      "description": "HP WF-3, MD-4: a u64; a JSON integer up to 2^53, a decimal string above.",
+      "oneOf": [
+        {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740992
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+$"
+        }
+      ]
+    },
+    "Grant": {
+      "type": "object",
+      "properties": {
+        "surface": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "surface"
+      ],
+      "description": "A grant: a surface and an optional scope (HP section 3, HS-1, MN-2)."
+    },
+    "PluginLimits": {
+      "type": "object",
+      "properties": {
+        "frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "startup": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "shutdown": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "orphan_grace": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "restart_window": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "invoke_queue": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "dispatch_deadline": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "long_deadline": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "page_items": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_result_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_watches": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_timers": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operations_get_rate": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operation_receipt_window": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "operation_receipts": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "log_record_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "log_ring_records": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "log_ring_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "log_rate": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "log_burst": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_key_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_queue": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_queue_high": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_queue_normal": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_queue_low": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "event_starvation_bound": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ingress_queue": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_event_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "loss_ledger_entries": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "terminal_event_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "output_tap_chunk_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "session_family_inflight": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_write_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_raw_write_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "write_pending_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "echo_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "cleanup_window_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "write_client_quiet_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "write_max_wait_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "probe_width": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_notification_patterns": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_argv_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_env_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_document_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_plugin_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_plugin_documents": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "batch_ops": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_timeout_max_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "webhook_timeout_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_body_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ws_send_queue_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_concurrent_requests": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_open_sockets": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_bytes_in_flight": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "net_rate": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_relay_envelope_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "relay_queue": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "relay_attempts_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "relay_attempt_ttl_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ice_servers_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "asset_bytes_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "asset_store_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "asset_count_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "asset_token_ttl_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "notice_ttl_max_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "notice_queue": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "process_timeout_max_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "process_tail_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "process_concurrent": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "fs_read_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_fs_watches": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "plugin_call_depth": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "plugin_call_idempotency_window": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "plugin_call_timeout_max_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "package_bytes_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lock_history_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "catalog_bytes_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_call_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_concurrent": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_servers_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_init_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_list_pages": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_tools_max": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "mcp_proxy_message_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "host_memory_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "lanes": {
+          "$ref": "#/$defs/LaneLimits"
+        },
+        "probe_text": {
+          "type": "string"
+        },
+        "session_port_range": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0,
+            "maximum": 65535
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "target_plugin_dir": {
+          "type": "string"
+        },
+        "process_path": {
+          "type": "string"
+        },
+        "net_listen": {
+          "type": "string"
+        },
+        "assets_listen": {
+          "type": "string"
+        },
+        "cpu_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "open_files": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "processes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "address_space_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stderr_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "instruction_budget": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "frame_bytes",
+        "startup",
+        "shutdown",
+        "orphan_grace",
+        "restart_window",
+        "invoke_queue",
+        "dispatch_deadline",
+        "long_deadline",
+        "page_items",
+        "max_result_bytes",
+        "max_watches",
+        "max_timers",
+        "operations_get_rate",
+        "operation_receipt_window",
+        "operation_receipts",
+        "log_record_bytes",
+        "log_ring_records",
+        "log_ring_bytes",
+        "log_rate",
+        "log_burst",
+        "event_key_bytes",
+        "event_queue",
+        "event_queue_high",
+        "event_queue_normal",
+        "event_queue_low",
+        "event_starvation_bound",
+        "ingress_queue",
+        "max_event_bytes",
+        "loss_ledger_entries",
+        "terminal_event_bytes",
+        "output_tap_chunk_bytes",
+        "session_family_inflight",
+        "max_write_bytes",
+        "max_raw_write_bytes",
+        "write_pending_bytes",
+        "echo_deadline_ms",
+        "cleanup_window_ms",
+        "write_client_quiet_ms",
+        "write_max_wait_ms",
+        "probe_width",
+        "max_notification_patterns",
+        "max_argv_bytes",
+        "max_env_bytes",
+        "max_document_bytes",
+        "max_plugin_bytes",
+        "max_plugin_documents",
+        "batch_ops",
+        "net_timeout_max_ms",
+        "webhook_timeout_ms",
+        "net_body_bytes",
+        "ws_send_queue_bytes",
+        "net_concurrent_requests",
+        "net_open_sockets",
+        "net_bytes_in_flight",
+        "net_rate",
+        "max_relay_envelope_bytes",
+        "relay_queue",
+        "relay_attempts_max",
+        "relay_attempt_ttl_ms",
+        "ice_servers_max",
+        "asset_bytes_max",
+        "asset_store_bytes",
+        "asset_count_max",
+        "asset_token_ttl_ms",
+        "notice_ttl_max_ms",
+        "notice_queue",
+        "process_timeout_max_ms",
+        "process_tail_bytes",
+        "process_concurrent",
+        "fs_read_bytes",
+        "max_fs_watches",
+        "plugin_call_depth",
+        "plugin_call_idempotency_window",
+        "plugin_call_timeout_max_ms",
+        "package_bytes_max",
+        "lock_history_max",
+        "catalog_bytes_max",
+        "mcp_proxy_call_deadline_ms",
+        "mcp_proxy_concurrent",
+        "mcp_servers_max",
+        "mcp_proxy_init_deadline_ms",
+        "mcp_proxy_list_pages",
+        "mcp_proxy_tools_max",
+        "mcp_proxy_message_bytes",
+        "host_memory_bytes",
+        "lanes",
+        "probe_text",
+        "session_port_range",
+        "target_plugin_dir",
+        "process_path",
+        "net_listen",
+        "assets_listen"
+      ],
+      "description": "The limits that the Hub chooses per plugin and sends in `Hello` (HP section 15, LM-1).\n\nNumeric fields are u64. `lanes`, `probe_text`, `session_port_range` and the address and path parameters have their own types.\nThe five Core service protections and `instruction_budget` are optional: a protection that Core cannot apply is reported, not set (HP section 15)."
+    },
+    "LaneLimits": {
+      "type": "object",
+      "properties": {
+        "control": {
+          "$ref": "#/$defs/LaneBound"
+        },
+        "invoke": {
+          "$ref": "#/$defs/LaneBound"
+        },
+        "call": {
+          "$ref": "#/$defs/LaneBound"
+        },
+        "bulk": {
+          "$ref": "#/$defs/LaneBound"
+        }
+      },
+      "required": [
+        "control",
+        "invoke",
+        "call",
+        "bulk"
+      ],
+      "description": "The four lanes, by name (HP section 2)."
+    },
+    "LaneBound": {
+      "type": "object",
+      "properties": {
+        "frames": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "frames",
+        "bytes"
+      ],
+      "description": "The lane bounds of `lanes[lane] = {frames, bytes}` (HP section 15, SV-3)."
+    },
+    "HelloBinding": {
+      "type": "object",
+      "properties": {
+        "interface": {
+          "type": "string"
+        },
+        "interface_version": {
+          "type": "string"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "`null` for an unmet optional binding (HP HS-1, PD-5, PD-8); an absent key is accepted as well (A2-25)."
+        },
+        "provider_version": {
+          "type": "string"
+        },
+        "interface_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "interface",
+        "interface_version"
+      ],
+      "description": "A resolved interface binding (HP HS-1, PD-5, A2-25). `provider` is absent for an unmet optional one."
+    },
+    "Priority": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "rank": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "rank"
+      ],
+      "description": "A priority name and its rank (HP EV-11, A2-25). v1: `high` 2, `normal` 1, `low` 0."
+    },
+    "Ready": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "protocol_version": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "handlers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/HandlerDecl"
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToolDecl"
+          }
+        },
+        "prompts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PromptDecl"
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ResourceDecl"
+          }
+        },
+        "events": {
+          "$ref": "#/$defs/EventsDecl"
+        },
+        "entity_providers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/EntityFamilyDecl"
+          },
+          "description": "Entity family declarations (HP EN-1). The contract states no field names beyond EN-1's list; see `entities`."
+        },
+        "timers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TimerDecl"
+          }
+        },
+        "watches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/WatchDecl"
+          }
+        },
+        "fs_watches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FsWatchDecl"
+          }
+        },
+        "session_actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SessionActionMap"
+          }
+        },
+        "operations": {
+          "$ref": "#/$defs/OperationsDecl"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Capability"
+          }
+        },
+        "host": {
+          "$ref": "#/$defs/HostInfo"
+        },
+        "features": {
+          "$ref": "#/$defs/Features"
+        }
+      },
+      "required": [
+        "epoch",
+        "protocol_version",
+        "handlers",
+        "tools",
+        "prompts",
+        "resources",
+        "events",
+        "entity_providers",
+        "timers",
+        "watches",
+        "fs_watches",
+        "session_actions",
+        "operations",
+        "grants",
+        "host",
+        "features"
+      ],
+      "description": "Plugin to Hub: the proposed registration (HP HS-2, Appendix B, A2-25)."
+    },
+    "HandlerDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/HandlerKind"
+        },
+        "descriptor": true
+      },
+      "required": [
+        "id",
+        "kind",
+        "descriptor"
+      ],
+      "description": "A handler registration: id, kind and descriptor (HP HS-2, IV-8, A2-5). The descriptor body depends on the kind; see `handlers`."
+    },
+    "HandlerKind": {
+      "type": "string",
+      "enum": [
+        "mcp_tool",
+        "mcp_prompt",
+        "mcp_resource",
+        "ui_action",
+        "event",
+        "event_gap",
+        "entity_provider",
+        "timer",
+        "store_watch",
+        "operation",
+        "webhook",
+        "relay",
+        "fs_watch"
+      ],
+      "description": "The kind of a handler, as a wire string (HP A2-5). A kind outside this set fails closed (HP VR-4)."
+    },
+    "ToolDecl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "input_schema": true,
+        "handler": {
+          "type": "string"
+        },
+        "callable_by": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "`[\"plugins\"]` opts in to plugin calls (HP PC-1)."
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "input_schema",
+        "handler"
+      ],
+      "additionalProperties": true,
+      "description": "An MCP tool registration (HP MT-1, PC-1). The contract states these fields; other keys are accepted."
+    },
+    "PromptDecl": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "arguments": true,
+        "handler": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "arguments",
+        "handler"
+      ],
+      "additionalProperties": true,
+      "description": "An MCP prompt registration (HP MT-1). Other keys are accepted."
+    },
+    "ResourceDecl": {
+      "type": "object",
+      "properties": {
+        "uri_template": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri_template",
+        "name",
+        "handler"
+      ],
+      "additionalProperties": true,
+      "description": "An MCP resource registration (HP MT-1, A2-5 descriptor). Other keys are accepted."
+    },
+    "EventsDecl": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "declared": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DeclaredEvent"
+          },
+          "default": []
+        },
+        "subscribed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Subscription"
+          },
+          "default": []
+        },
+        "gap_handler": {
+          "type": "string",
+          "description": "The handler id of the `event_gap` handler (HP EV-15)."
+        }
+      },
+      "description": "The events section of `Ready` and of the manifest (HP HS-2, MN-3, EV-15)."
+    },
+    "DeclaredEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "payload_schema": true,
+        "audience": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Audience"
+          }
+        },
+        "public": {
+          "type": "boolean"
+        },
+        "priority": {
+          "type": "string"
+        },
+        "keyed": {
+          "type": "boolean",
+          "description": "The event may carry a coalescing `key` (HP EV-13, MN-3). Present in the manifest entry."
+        },
+        "state_source": {
+          "$ref": "#/$defs/StateSource"
+        }
+      },
+      "required": [
+        "name",
+        "payload_schema",
+        "audience",
+        "public"
+      ],
+      "description": "An event a plugin declares that it emits (HP EV-1, MN-3, Appendix B). `priority` is a name of `Hello.priorities` (default `normal`)."
+    },
+    "Audience": {
+      "type": "string",
+      "enum": [
+        "plugins",
+        "clients"
+      ],
+      "description": "An event audience (HP EV-1, MN-3)."
+    },
+    "StateSource": {
+      "type": "object",
+      "properties": {
+        "read": {
+          "type": "string"
+        },
+        "grant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "read",
+        "grant"
+      ],
+      "description": "The `state_source` of an event declaration (HP EV-1, EV-12, MN-3)."
+    },
+    "Subscription": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "handler_id": {
+          "type": "string"
+        },
+        "pattern": {
+          "$ref": "#/$defs/EventPattern"
+        },
+        "subjects": {
+          "$ref": "#/$defs/SubjectsScope"
+        },
+        "min_priority": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "handler_id",
+        "pattern"
+      ],
+      "description": "A subscription entry (HP EV-2, MN-3)."
+    },
+    "EventPattern": {
+      "type": "object",
+      "properties": {
+        "owner": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "owner",
+        "name"
+      ],
+      "description": "The `{owner, name}` pattern of a subscription (HP EV-2)."
+    },
+    "SubjectsScope": {
+      "type": "string",
+      "enum": [
+        "own",
+        "any"
+      ],
+      "description": "Which sessions a subscription covers (HP EV-2, CP-4)."
+    },
+    "EntityFamilyDecl": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "schema": true,
+        "schema_version": {
+          "type": "string"
+        },
+        "verbs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "schema",
+        "schema_version",
+        "verbs"
+      ],
+      "additionalProperties": true,
+      "description": "A declared entity family (HP EN-1). `kind` is the family name in the plugin's own namespace, `schema_version` is `M.m`.\nEN-1 names `actions` (\"argument and result schemas and required permissions\") without field names, so each action is an open object.\nOther keys are accepted: the contract states no more fields here."
+    },
+    "TimerDecl": {
+      "type": "object",
+      "properties": {
+        "timer_id": {
+          "type": "string"
+        },
+        "delay_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "handler_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "timer_id",
+        "delay_ms"
+      ],
+      "description": "A timer to re-arm (HP HS-2, CA-12, A2-25, A2-53)."
+    },
+    "WatchDecl": {
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "index": {
+          "type": "string"
+        },
+        "equals": {
+          "type": "array",
+          "items": true
+        },
+        "handler_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "collection"
+      ],
+      "description": "A store watch to re-arm (HP HS-2, ST-6, A2-14, A2-25, A2-53)."
+    },
+    "FsWatchDecl": {
+      "type": "object",
+      "properties": {
+        "root": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "handler_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "root",
+        "path",
+        "handler_id"
+      ],
+      "description": "A filesystem watch to re-arm (HP FS-3, A2-25). `handler_id` is mandatory."
+    },
+    "SessionActionMap": {
+      "type": "object",
+      "properties": {
+        "action_id": {
+          "type": "string"
+        },
+        "handler_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_id",
+        "handler_id"
+      ],
+      "description": "The action-to-handler mapping of a contributed session action (HP VW-8, A2-25)."
+    },
+    "OperationsDecl": {
+      "type": "object",
+      "properties": {
+        "subscribed": {
+          "type": "string"
+        }
+      },
+      "description": "The operation-completion subscription (HP CA-16, A2-5): the handler of kind `operation` that receives it."
+    },
+    "Capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "surface": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "Only on a capability the plugin can do without (HP CP-8, MN-1)."
+        },
+        "allow": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Only on surface `net` (HP NT-2, MN-1)."
+        }
+      },
+      "required": [
+        "surface"
+      ],
+      "description": "A manifest capability (HP MN-1, MN-2, NT-2, CP-8). Also the entry of `Ready.grants`. `allow` is only on surface `net` (HP MN-1): the decoder and the schema refuse it elsewhere.",
+      "if": {
+        "required": [
+          "allow"
+        ]
+      },
+      "then": {
+        "properties": {
+          "surface": {
+            "const": "net"
+          }
+        }
+      }
+    },
+    "HostInfo": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "globals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "globals"
+      ],
+      "description": "The host facts of `Ready` (HP HS-2, LH-2, LH-4)."
+    },
+    "Features": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "required",
+        "optional"
+      ],
+      "description": "The feature names a plugin needs (HP HS-4). The two sets are distinct names."
+    },
+    "Activated": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "description": "Hub to plugin: the Hub published the registration (HP HS-2). The payload is the epoch only."
+    },
+    "Shutdown": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "deadline_ms",
+        "reason"
+      ],
+      "description": "Hub to plugin: orderly stop or refused registration (HP LD-4, HS-2). `reason` is a typed reason string."
+    },
+    "Fault": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "code": {
+          "type": "string"
+        },
+        "detail": true
+      },
+      "required": [
+        "epoch",
+        "code"
+      ],
+      "description": "Plugin to Hub, or Hub to plugin for an unknown frame: the host cannot continue (HP CR-2, VR-2)."
+    },
+    "Cancel": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "request_id": {
+          "$ref": "#/$defs/WireId"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "epoch",
+        "request_id",
+        "reason"
+      ],
+      "description": "Hub to plugin: cancel one invocation (HP IV-5)."
+    },
+    "WireId": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "An opaque id as it crosses the wire: a JSON integer in range, or a decimal string (HP WF-3, section 3 `RequestId`, `CallId`).\nThe form is kept, so an id echoes back exactly as it was sent."
+    },
+    "Invoke": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "request_id": {
+          "$ref": "#/$defs/WireId"
+        },
+        "handler": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/HandlerKind"
+        },
+        "payload": true,
+        "caller": {
+          "$ref": "#/$defs/Caller"
+        },
+        "origin": {
+          "$ref": "#/$defs/Origin"
+        },
+        "source": {
+          "$ref": "#/$defs/EventSourceRef"
+        },
+        "descriptor_id": {
+          "type": "string",
+          "description": "The opaque descriptor identity, revalidated at dispatch (HP IV-8)."
+        },
+        "deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "epoch",
+        "request_id",
+        "handler",
+        "kind",
+        "payload",
+        "caller",
+        "origin",
+        "descriptor_id",
+        "deadline_ms"
+      ],
+      "description": "Hub to plugin: run one handler (HP IV-1, Appendix B)."
+    },
+    "Caller": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "credential_id": {
+              "type": "string"
+            },
+            "hub_id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "operator"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "plugin_key": {
+              "type": "string"
+            },
+            "instance": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "plugin"
+            }
+          },
+          "required": [
+            "kind",
+            "plugin_key",
+            "instance"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "session": {
+              "$ref": "#/$defs/SessionRef"
+            },
+            "kind": {
+              "type": "string",
+              "const": "session"
+            }
+          },
+          "required": [
+            "kind",
+            "session"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "system"
+            }
+          },
+          "required": [
+            "kind"
+          ]
+        }
+      ],
+      "description": "Who asked (HP section 7, VC-1). A kind outside this set fails closed (HP VR-4)."
+    },
+    "SessionRef": {
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "session_id"
+      ],
+      "description": "A session reference (HP WF-6, VC-8)."
+    },
+    "Origin": {
+      "description": "HP VC-5, A2-5: how the handler was reached. Non-exhaustive; an unknown string is opaque.",
+      "type": "string",
+      "examples": [
+        "mcp_tool",
+        "mcp_prompt",
+        "mcp_resource",
+        "ui_action",
+        "event",
+        "event_gap",
+        "entity_provider",
+        "timer",
+        "store_watch",
+        "operation",
+        "webhook",
+        "relay",
+        "fs_watch"
+      ]
+    },
+    "EventSourceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/SourceKind"
+        },
+        "instance": {
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionRef"
+        },
+        "hub_id": {
+          "type": "string",
+          "description": "Absent means this Hub (HP EV-9)."
+        }
+      },
+      "required": [
+        "kind",
+        "instance"
+      ],
+      "description": "The source of an event invocation (HP VC-7, EV-9)."
+    },
+    "SourceKind": {
+      "type": "string",
+      "enum": [
+        "hub",
+        "plugin",
+        "terminal"
+      ],
+      "description": "The kind of an event source (HP EV-9)."
+    },
+    "ResultFrame": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "request_id": {
+          "$ref": "#/$defs/WireId"
+        },
+        "result": {
+          "$ref": "#/$defs/PluginResult"
+        }
+      },
+      "required": [
+        "epoch",
+        "request_id",
+        "result"
+      ],
+      "description": "Plugin to Hub: the handler finished (HP IV-2). The frame type is named `Result` on the wire."
+    },
+    "PluginResult": {
+      "description": "HP section 3, section 14. Descriptive extension fields are accepted and ignored (HP section 18, VR-3); an `error` in a successful result and a `value` in a failed result are refused.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "ok",
+            "value"
+          ],
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "value": true
+          },
+          "not": {
+            "required": [
+              "error"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "ok",
+            "error"
+          ],
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "error": {
+              "$ref": "#/$defs/ErrorBody"
+            }
+          },
+          "not": {
+            "required": [
+              "value"
+            ]
+          }
+        }
+      ]
+    },
+    "ErrorBody": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/ErrorKind"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        },
+        "detail": {
+          "$ref": "#/$defs/Detail"
+        }
+      },
+      "required": [
+        "kind",
+        "message",
+        "retryable"
+      ],
+      "description": "The body of a failure (HP section 14, ER-2, ER-5). `effect` is set where the caller sees the failure; a plugin's own `Result` may omit it, because the Hub adds it (HP section 2, ER-5)."
+    },
+    "ErrorKind": {
+      "description": "HP section 14, ER-1: the closed set of kinds. A reader treats an unknown string as `failed`.",
+      "type": "string",
+      "enum": [
+        "invalid_request",
+        "capability_denied",
+        "not_found",
+        "conflict",
+        "quota_exceeded",
+        "response_too_large",
+        "backpressured",
+        "timed_out",
+        "cancelled",
+        "unavailable",
+        "failed"
+      ]
+    },
+    "Effect": {
+      "type": "string",
+      "enum": [
+        "none",
+        "committed",
+        "unknown"
+      ],
+      "description": "Whether a mutating call had an effect (HP CA-5, ER-5)."
+    },
+    "Detail": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true,
+      "description": "The `detail` of an error (HP section 14, ER-3). `code` is the stable specific code; `reason` is the closed reason of a state refusal (A2-2).\nOther keys carry the descriptive fields that individual clauses name (for example `names`, `op_index`, `status`); the contract states them per clause."
+    },
+    "HostCall": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "call_id": {
+          "$ref": "#/$defs/WireId"
+        },
+        "context": {
+          "$ref": "#/$defs/CallContext"
+        },
+        "call": {
+          "type": "string",
+          "description": "`<area>.<name>` (HP CA-1)."
+        },
+        "args": true,
+        "max_result_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "epoch",
+        "call_id",
+        "context",
+        "call",
+        "args",
+        "max_result_bytes"
+      ],
+      "description": "Plugin to Hub: ask the Hub to do one operation (HP CA-1)."
+    },
+    "CallContext": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "bootstrap",
+            "autonomous"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/WireId"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "The context of a host call: exactly one of three (HP section 2, CA-3).\nWire form: `{\"request\": <request_id>}`, `\"bootstrap\"` or `\"autonomous\"`."
+    },
+    "HostResult": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "$ref": "#/$defs/Epoch"
+        },
+        "call_id": {
+          "$ref": "#/$defs/WireId"
+        },
+        "result": {
+          "$ref": "#/$defs/PluginResult"
+        },
+        "effect": {
+          "$ref": "#/$defs/Effect"
+        }
+      },
+      "required": [
+        "epoch",
+        "call_id",
+        "result",
+        "effect"
+      ],
+      "description": "Hub to plugin: the Hub's answer (HP CA-2, CA-5). `effect` describes that call only (HP ER-5)."
+    }
+  }
+}

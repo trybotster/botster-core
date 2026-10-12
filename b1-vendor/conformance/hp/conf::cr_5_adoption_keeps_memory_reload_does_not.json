@@ -1,0 +1,249 @@
+{
+ "id": "conf::cr_5_adoption_keeps_memory_reload_does_not",
+ "contract": "hp",
+ "clause": "CR-5",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "reconnect",
+   "restart_process"
+  ]
+ },
+ "setup": {
+  "fixture": "host_hold"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "request_id": 5,
+     "result": {
+      "ok": true,
+      "value": 1
+     }
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "request_id": 6,
+     "result": {
+      "ok": true,
+      "value": 2
+     }
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "control": {
+    "op": "reconnect"
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 9,
+     "resumed": true
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 9
+    }
+   },
+   "because": "HP HS-6"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 9
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 9,
+     "request_id": 7,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 9,
+     "request_id": 7,
+     "result": {
+      "ok": true,
+      "value": 3
+     }
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 9,
+     "request_id": 8,
+     "handler": "h3"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 9,
+     "request_id": 8,
+     "result": {
+      "ok": true,
+      "value": 1
+     }
+    }
+   },
+   "because": "HP CR-5"
+  },
+  {
+   "control": {
+    "op": "restart_process"
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 11,
+     "resumed": false
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 11
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 11
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 11,
+     "request_id": 9,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 11,
+     "request_id": 9,
+     "result": {
+      "ok": true,
+      "value": 1
+     }
+    }
+   },
+   "because": "HP CR-5"
+  }
+ ]
+}

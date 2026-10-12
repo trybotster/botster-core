@@ -1,0 +1,209 @@
+{
+ "id": "conf::vc_4_no_caller_outside_a_request",
+ "contract": "hp",
+ "clause": "VC-4",
+ "subject": "plugin_hub",
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "sessions.get",
+     "context": "bootstrap",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP VC-4",
+    "HP CA-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "sessions.list",
+     "context": "autonomous",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP VC-4",
+    "HP CA-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "log.write",
+     "context": "autonomous",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP CA-3"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "sessions.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1",
+       "label": "s1",
+       "state": "running",
+       "lifecycle_class": "current",
+       "exit": {},
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "session_type": {
+        "id": "st1",
+        "source": "device"
+       },
+       "traits": [],
+       "restartable": true,
+       "activity": "idle",
+       "presentation": "default",
+       "metadata": {}
+      }
+     }
+    }
+   ],
+   "sessions.list": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "sessions": []
+      }
+     }
+    }
+   ],
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    }
+   ]
+  }
+ }
+}

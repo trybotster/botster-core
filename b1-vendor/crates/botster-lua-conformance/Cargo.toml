@@ -1,0 +1,28 @@
+[package]
+name = "botster-lua-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-conformance.workspace = true
+botster-plugin-conformance = { path = "../botster-plugin-conformance" }
+include_dir.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+include_dir.workspace = true
+botster-conformance.workspace = true
+# The runner self-test drives the Lua adapter against FakePlugin, a frame-level stand-in for a plugin host (it runs no Lua).
+botster-plugin-conformance = { path = "../botster-plugin-conformance", features = ["fake"] }
+botster-plugin-contract = { path = "../botster-plugin-contract" }
+jsonschema.workspace = true
+full_moon = { version = "2", features = ["lua54"] }
+
+[build-dependencies]
+serde_json.workspace = true

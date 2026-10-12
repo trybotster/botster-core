@@ -1,0 +1,437 @@
+{
+  "id": "conf::in_9_kitty_unknown_flag_bits_ignored",
+  "contract": "core",
+  "clause": "IN-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "oracle_encode",
+      "oracle_state",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "print": {
+                    "bytes_hex": "1b5b3d303b3175",
+                    "fake": {
+                      "modes": {
+                        "kitty_flags": 0
+                      }
+                    }
+                  }
+                },
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3d36333b31751b5d323b7232382d6b697474791b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "r28-kitty"
+      },
+      "because": "Core EV-7"
+    },
+    {
+      "forbid_events": {
+        "events": [
+          {
+            "ModesChanged": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core 5.1A",
+        "Core E2-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_state",
+        "session": "s1"
+      },
+      "bind_fields": {
+        "modes": "$om"
+      }
+    },
+    {
+      "let": {
+        "$k": {
+          "field": [
+            "$om",
+            "kitty_flags"
+          ]
+        }
+      }
+    },
+    {
+      "call": {
+        "method": "terminal_state",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "expect": {
+        "modes": {
+          "kitty_flags": "$k"
+        }
+      },
+      "because": [
+        "Core 5.1A",
+        "Core ST-4"
+      ]
+    },
+    {
+      "check": {
+        "lt": [
+          "$k",
+          32
+        ]
+      },
+      "because": "Core 5.1A"
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "char": "a"
+          },
+          "mods": [],
+          "event": "press",
+          "text": "a"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": "$k"
+        }
+      },
+      "bind": "$e0"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "char": "a"
+                },
+                "mods": [],
+                "event": "press",
+                "text": "a"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w0"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w0",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n0",
+                  "pty_bytes_written": "$n0"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": "$n0"
+      }
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log0"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log0",
+          "$e0"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e0",
+          "$n0"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "enter"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": "$k"
+        }
+      },
+      "bind": "$e1"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "enter"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w1",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n1",
+                  "pty_bytes_written": "$n1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e1",
+          "$n1"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_encode",
+        "session": "s1",
+        "input": {
+          "key": {
+            "named": "arrow_up"
+          },
+          "mods": [],
+          "event": "press"
+        },
+        "kind": "key",
+        "modes": {
+          "kitty_flags": "$k"
+        }
+      },
+      "bind": "$e2"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "key": {
+                "key": {
+                  "named": "arrow_up"
+                },
+                "mods": [],
+                "event": "press"
+              }
+            }
+          }
+        }
+      },
+      "bind": "$w2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$w2",
+            "result": {
+              "ok": {
+                "input": {
+                  "outcome": "Written",
+                  "payload_bytes_written": "$n2",
+                  "pty_bytes_written": "$n2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "let": {
+        "$total_n1": {
+          "add": [
+            "$n0",
+            "$n1"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$total_n2": {
+          "add": [
+            "$total_n1",
+            "$n2"
+          ]
+        }
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": "$total_n2"
+      }
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log2"
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_ends_with": [
+          "$log2",
+          "$e2"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$e2",
+          "$n2"
+        ]
+      },
+      "because": [
+        "Core IN-9",
+        "Core 5.1A"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-5"
+}

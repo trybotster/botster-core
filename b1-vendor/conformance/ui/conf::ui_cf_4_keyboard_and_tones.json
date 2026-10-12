@@ -1,0 +1,202 @@
+{
+  "id": "conf::ui_cf_4_keyboard_and_tones",
+  "contract": "ui",
+  "clause": "UI-CF-4",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "ha": {
+          "schema": {
+            "type": "object"
+          }
+        },
+        "hb": {
+          "schema": {
+            "type": "object"
+          }
+        },
+        "hc": {
+          "schema": {
+            "type": "object"
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "kb"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "kb",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "a",
+                    "label": "A",
+                    "handler": "ha"
+                  },
+                  {
+                    "id": "b",
+                    "label": "B",
+                    "handler": "hb"
+                  },
+                  {
+                    "id": "c",
+                    "label": "C",
+                    "handler": "hc"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "id": "t",
+                "value": "x",
+                "tone": "danger"
+              },
+              {
+                "type": "status_badge",
+                "id": "sb",
+                "value": {
+                  "lit": "ok"
+                },
+                "map": {
+                  "ok": {
+                    "label": "OK",
+                    "tone": "warning"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "key": {
+            "key": "Tab"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "a",
+        "observation": {
+          "focused": true
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "key": {
+            "key": "Tab"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "b",
+        "observation": {
+          "focused": true
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "a",
+        "observation": {
+          "focused": false
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "key": {
+            "key": "Tab"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "c",
+        "observation": {
+          "focused": true
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "key": {
+            "key": "Shift+Tab"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "b",
+        "observation": {
+          "focused": true
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "key": {
+            "key": "Enter"
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "hb",
+            "count": 1
+          }
+        },
+        "because": "UI UI-CF-4"
+      }
+    },
+    {
+      "client_expect": {
+        "node_id": "t",
+        "observation": {
+          "shows": {
+            "text": "x",
+            "tone": "danger"
+          }
+        },
+        "because": "UI UI-CF-4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "conf::ui_cp_3_copy_is_literal",
+  "contract": "ui",
+  "clause": "UI-CP-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "copy is shown as written",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "empty": {
+            "title": "<b>{{x}} %s</b>",
+            "body": "a & b"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "props": {
+                "title": "<b>{{x}} %s</b>",
+                "description": "a & b"
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CP-3"
+    },
+    {
+      "name": "static text is literal",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "{{name}}"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "t": {
+          "props": {
+            "text": "{{name}}"
+          }
+        }
+      },
+      "because": "UI UI-CP-3"
+    }
+  ]
+}

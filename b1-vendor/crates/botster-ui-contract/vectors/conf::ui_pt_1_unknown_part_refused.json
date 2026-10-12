@@ -1,0 +1,97 @@
+{
+  "id": "conf::ui_pt_1_unknown_part_refused",
+  "contract": "ui",
+  "clause": "UI-PT-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a part type outside the set",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "carousel",
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_part",
+        "path": "/root/children/0/type"
+      },
+      "because": "UI UI-PT-1"
+    },
+    {
+      "name": "dialog is not a part",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "dialog",
+              "id": "d",
+              "children": []
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_part",
+        "path": "/root/children/0/type"
+      },
+      "because": "UI UI-PT-1"
+    },
+    {
+      "name": "a part with no type",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_part",
+        "path": "/root/children/0"
+      },
+      "because": "UI UI-PT-1"
+    },
+    {
+      "name": "an unknown root part",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "grid",
+          "id": "g"
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_part",
+        "path": "/root/type"
+      },
+      "because": "UI UI-PT-1"
+    }
+  ]
+}

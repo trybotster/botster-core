@@ -1,0 +1,368 @@
+{
+  "id": "conf::ui_fm_6_optional_group",
+  "contract": "ui",
+  "clause": "UI-FM-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a group of only advanced fields collapses",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string",
+                        "ui": {
+                          "group": "g",
+                          "advanced": true
+                        }
+                      },
+                      "b": {
+                        "type": "string",
+                        "ui": {
+                          "group": "g",
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "ui": {
+                      "group": "g",
+                      "advanced": true
+                    }
+                  },
+                  "b": {
+                    "type": "string",
+                    "ui": {
+                      "group": "g",
+                      "advanced": true
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:item7:group:g": {
+          "type": "form_section",
+          "props": {
+            "collapsed": true
+          },
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-FM-6"
+    },
+    {
+      "name": "an advanced field in a group with a plain field is shown in place",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "c": {
+                        "type": "string",
+                        "ui": {
+                          "group": "h"
+                        }
+                      },
+                      "d": {
+                        "type": "string",
+                        "ui": {
+                          "group": "h",
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "string",
+                    "ui": {
+                      "group": "h"
+                    }
+                  },
+                  "d": {
+                    "type": "string",
+                    "ui": {
+                      "group": "h",
+                      "advanced": true
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:item7:group:h": {
+          "type": "form_section",
+          "props": {
+            "collapsed": {
+              "$absent": true
+            }
+          },
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:d"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-FM-6"
+    },
+    {
+      "name": "advanced fields with no group go to one collapsed optional section",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "p": {
+                        "type": "string"
+                      },
+                      "e": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      },
+                      "f": {
+                        "type": "string",
+                        "ui": {
+                          "advanced": true
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "type": "string"
+                  },
+                  "e": {
+                    "type": "string",
+                    "ui": {
+                      "advanced": true
+                    }
+                  },
+                  "f": {
+                    "type": "string",
+                    "ui": {
+                      "advanced": true
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:item8:optional": {
+          "type": "form_section",
+          "props": {
+            "collapsed": true
+          },
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:e"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:f"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-FM-6",
+      "expect_absent": []
+    },
+    {
+      "name": "order follows the order hint, then declaration (equal order keeps declaration order)",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "x": {
+                        "type": "string",
+                        "ui": {
+                          "order": 3,
+                          "group": "g"
+                        }
+                      },
+                      "y": {
+                        "type": "string",
+                        "ui": {
+                          "order": 1,
+                          "group": "g"
+                        }
+                      },
+                      "z": {
+                        "type": "string",
+                        "ui": {
+                          "order": 3,
+                          "group": "g"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "x": {
+                    "type": "string",
+                    "ui": {
+                      "order": 3,
+                      "group": "g"
+                    }
+                  },
+                  "y": {
+                    "type": "string",
+                    "ui": {
+                      "order": 1,
+                      "group": "g"
+                    }
+                  },
+                  "z": {
+                    "type": "string",
+                    "ui": {
+                      "order": 3,
+                      "group": "g"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:item7:group:g": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:y"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:x"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:z"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-FM-6"
+    }
+  ]
+}

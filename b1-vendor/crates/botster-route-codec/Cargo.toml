@@ -1,0 +1,28 @@
+[package]
+name = "botster-route-codec"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The schema generation and the strict parser, for the repo tooling and the runners.
+unstable = []
+
+[dependencies]
+bytes.workspace = true
+miniz_oxide.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+proptest = "1.11"
+test-strategy = "0.4.5"
+bolero = "0.13.6"
+# The schema tests need the unstable surface.
+botster-route-codec = { path = ".", features = ["unstable"] }

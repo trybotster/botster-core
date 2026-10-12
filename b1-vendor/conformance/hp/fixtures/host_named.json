@@ -1,0 +1,27 @@
+{
+ "host": {
+  "name": "fixture-host",
+  "version": "2.3",
+  "globals": [
+   "json"
+  ]
+ },
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "return": {
+     "ok": 1
+    }
+   }
+  ]
+ }
+}

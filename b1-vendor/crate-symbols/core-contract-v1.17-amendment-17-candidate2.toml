@@ -1,0 +1,459 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-17-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# # Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+[rows."1"]
+"Stream" = ["core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# The base is the Core contract of `frozen/current` (manifest final35), with Amendments 2 to 16 and Errata 1 to 4, which are unchanged except where A17-4 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-09. Authority: **a user decision, relayed by the orchestrator on 2026-10-09:** WebRTC moves out of Core and into the Hub. Core keeps only the DP-2 `Stream` transport. The Hub terminates WebRTC and bridges each route's data channel to a Core `Stream`. The Hub side is stated in the Hub→client contract and the route codec (their own amendments), not here.
+[rows."5"]
+"Stream" = ["core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# - DP-2 makes the session worker terminate a WebRTC route (`WebRtc{offer, expected_fingerprint}`: DTLS, SCTP and a DataChannel named `terminal`). DP-11 records the reason: zero local hops through the host. It also records the costs: "every worker process links a WebRTC stack and opens network sockets", "a browser with N sessions holds N peer connections instead of one", and "ICE and TURN reachability are per session". It names the Hub-terminated alternative as "**not** what the user's requirement selects".
+[rows."10"]
+"WebRtc{offer, expected_fingerprint}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"terminal" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# - DP-2 already says that "any connected, reliable, ordered byte stream handed to the worker (a Unix stream, a future QUIC or TCP/TLS stream) is a `RouteTransport::Stream` and needs **no Core contract change**". A Hub bridge is such a stream. So Core gains no new mechanism. This amendment only removes text.
+[rows."12"]
+"RouteTransport::Stream" = ["core::RouteTransport", "core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# 1. **A remote client reconnects when the Hub restarts.** The Hub holds the remote end of a bridged route, so a Hub restart closes it. The worker and its session keep running, and the client attaches again. A local `Stream` route is unchanged: it ends at the worker.
+[rows."15"]
+"Stream" = ["core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# | A17-1 | **Core has one route transport, `Stream`.**<br>- `RouteTransport` is `Stream` only (DP-2). There is no `WebRtc` transport, no `AttachWebRtc` operation, no `Answer` value, no `InvalidOffer` code, no `StartFailed{WebRtcFailed}` and no `connect_deadline` option.<br>- `features()` lists `route_transport:stream` and never `route_transport:webrtc` (A2-6, section 13).<br>- Core opens no network socket for a route, and the worker links no WebRTC, DTLS, SCTP or ICE stack. | `conf::a17_1_features_list_only_the_stream_transport`, `conf::a17_1_attach_webrtc_is_not_an_operation` |
+[rows."22"]
+"Answer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidOffer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"RouteTransport" = ["core::RouteTransport"]
+"StartFailed{WebRtcFailed}" = { symbols = ["core::ErrorCode::StartFailed"], uncovered = { WebRtcFailed = "WebRTC-only; removed from Core by Core A17 (final37)" } }
+"Stream" = ["core::RouteTransport::Stream"]
+"WebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"features()" = ["core::CoreApi::features"]
+"route_transport:stream" = { symbols = ["core::Feature::RouteTransportStream"], uncovered = { route_transport = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)", stream = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)" } }
+"route_transport:webrtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# | A17-2 | **A host-terminated binding is an ordinary `Stream`.** A host that terminates a remote transport itself (the Hub terminates WebRTC) passes its end of a connected, reliable, ordered byte stream to `attach` as `RouteTransport::Stream`. Core treats it as any other `Stream` route, with no special case:<br>- the framing is Core's stream framing (DP-3);<br>- the progress point is the `Stream` one: "bytes that the kernel accepted from the worker's write to the route socket" (OU-3). The host's bridge has its own bounded queue toward the remote peer, and its backpressure reaches the worker only as a socket the host does not drain. That queue, the remote peer's progress and the peer's authentication are the host's, and its own contract states them;<br>- the route closes as a `Stream` route closes. When the host closes its end (for example, because the remote peer left or the host restarted), the route closes with the reason that a peer close of a `Stream` has today.<br>A stream that the host creates for itself (for example, one end of a socket pair) has no `route_connect` handshake: TB-L2's single-use token admits a client that connects to the host's listener. It is not a step of `attach`. | `conf::a17_2_host_socketpair_route_is_an_ordinary_stream_route` |
+[rows."23"]
+"RouteTransport::Stream" = ["core::RouteTransport", "core::RouteTransport::Stream"]
+"Stream" = ["core::RouteTransport::Stream"]
+"attach" = ["core::CoreApi::attach"]
+"route_connect" = ["hub::RouteConnect"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# - **Withdrawn**, with authority A17-4 item 2: `conf::ou_1_unavailable_binding_auth_is_unsupported_and_never_attached_unauthenticated`. `Stream` has no Core-side peer authentication, so Core has no case of this refusal.
+[rows."28"]
+"Stream" = ["core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream`
+# - **Kept, with their WebRTC steps or rows removed** (the ids and their other assertions are unchanged): `conf::dp_11_hop_counts_match_the_stated_topologies` (T1 only), `conf::ou_2b_every_core_close_reason_maps_to_one_wire_reason`, `conf::a2_3_every_route_close_reason_maps_to_one_wire_reason`, `conf::a2_1_every_begin_operation_has_a_row_and_the_documented_ok_value`, `conf::a2_1_not_admitted_state_is_wrong_state_sync_for_every_row`, `conf::a2_1_sync_errors_allocate_no_op_for_every_row`, `conf::a2_1_no_deadline_code_exists` (with a deadline other than `connect_deadline`), `conf::a2_6_features_lists_every_documented_name`, `conf::a2_6_per_worker_features_in_worker_features`, `conf::a5_3_every_code_reachable_or_listed_real_only` (no `InvalidOffer`), `conf::lm_1_zero_limit_is_invalid_config` (no `max_connect_deadline`, `route_send_buffer_bytes`), `conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads` (its setup no longer sets `route_send_buffer_bytes`).
+[rows."29"]
+"InvalidOffer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"route_send_buffer_bytes" = "n/a: moved from Core 9B to the Hub by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# Each quotation below is exact, with no ellipsis. "Base" is `frozen/current/core-contract-v1.17.md`. "A2" is `core-contract-v1.17-amendment-2-candidate4.md`. "A7" is `core-contract-v1.17-amendment-7-candidate4.md`. Each quotation is followed by **is removed** or by **reads:** and its new text.
+[rows."34"]
+"core-contract-v1.17-amendment-2-candidate4.md" = "n/a: a repository path"
+"core-contract-v1.17-amendment-7-candidate4.md" = "n/a: a repository path"
+"frozen/current/core-contract-v1.17.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `RouteTransport` is one of: **`Stream`**, a connected stream endpoint (a Unix stream socket, or any connected stream) that the host hands over; or **`WebRtc{offer, expected_fingerprint}`**, where the **worker terminates the peer connection** (DTLS, SCTP, one reliable ordered DataChannel named `terminal`).
+[rows."38"]
+"RouteTransport" = ["core::RouteTransport"]
+"Stream" = ["core::RouteTransport::Stream"]
+"WebRtc{offer, expected_fingerprint}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"terminal" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `RouteTransport` is **`Stream`**, a connected stream endpoint (a Unix stream socket, or any connected stream) that the host hands over (A17-1, A17-2).
+[rows."40"]
+"RouteTransport" = ["core::RouteTransport"]
+"Stream" = ["core::RouteTransport::Stream"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **WebRTC:** `begin(AttachWebRtc{client, session, offer, expected_fingerprint, options})` completes with `Answer{route, answer}`.
+[rows."42"]
+"Answer{route, answer}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"begin(AttachWebRtc{client, session, offer, expected_fingerprint, options})" = { symbols = ["core::CoreApi::begin"], uncovered = { session = "WebRTC-only; removed from Core by Core A17 (final37)", AttachWebRtc = "WebRTC-only; removed from Core by Core A17 (final37)", options = "WebRTC-only; removed from Core by Core A17 (final37)", offer = "WebRTC-only; removed from Core by Core A17 (final37)", expected_fingerprint = "WebRTC-only; removed from Core by Core A17 (final37)", client = "WebRTC-only; removed from Core by Core A17 (final37)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > The worker accepts **only the DataChannel named `terminal`** (a fixed name: each route has its own peer connection, so no reserved label is needed) on that peer connection, and checks the client's DTLS fingerprint against `expected_fingerprint` (the client's signature over its route id and fingerprint is the host's check, BP-4); a mismatch closes the route `BadPeer`, and any other channel name is refused.
+[rows."48"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"expected_fingerprint" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"terminal" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `connect_deadline: Duration` (for a WebRTC route: the time the peer has to connect; positive and at most `CoreLimits.max_connect_deadline`, default 60 s; expiry closes the route `NotConnected`)
+[rows."57"]
+"CoreLimits.max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline: Duration" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `route_limits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_chunk_bytes}`
+[rows."60"]
+"route_limits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_chunk_bytes}" = { symbols = ["core::AttachOptions::route_limits", "core::RouteLimitChoices::max_frame_bytes", "core::RouteLimitChoices::max_screen_frame_bytes", "core::RouteLimitChoices::max_history_page_bytes"], uncovered = { max_chunk_bytes = "the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `route_limits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes}`
+[rows."62"]
+"route_limits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes}" = ["core::AttachOptions::route_limits", "core::RouteLimitChoices::max_frame_bytes", "core::RouteLimitChoices::max_screen_frame_bytes", "core::RouteLimitChoices::max_history_page_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_history_page_bytes` defaults to 256 KiB; `max_chunk_bytes` applies to a WebRTC route and is at most the SCTP maximum message size)
+[rows."64"]
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+"max_history_page_bytes" = ["core::RouteLimitChoices::max_history_page_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "codec::RouteLimits::max_history_page_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_history_page_bytes` defaults to 256 KiB)
+[rows."66"]
+"max_history_page_bytes" = ["core::RouteLimitChoices::max_history_page_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "codec::RouteLimits::max_history_page_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **Attach refusals, before any route is reserved (sync `Unsupported`):** `Unsupported{terminal_format}` when the target worker can emit none of the client's `terminal_formats`; `Unsupported{binding_auth_unavailable}` when the requested binding's peer authentication cannot be performed (for WebRTC, no `expected_fingerprint`; for any binding, no authentication mechanism), so **no binding is ever attached unauthenticated**.
+[rows."68"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"Unsupported{binding_auth_unavailable}" = { symbols = ["core::ErrorCode::Unsupported", "core::ErrorCode::Unsupported::what"], uncovered = { binding_auth_unavailable = "WebRTC-only; removed from Core by Core A17 (final37)" } }
+"Unsupported{terminal_format}" = ["core::ErrorCode::Unsupported", "core::ErrorCode::Unsupported::what", "core::UnsupportedReason::TerminalFormat"]
+"expected_fingerprint" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"terminal_formats" = ["core::AttachOptions::terminal_formats"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **Attach refusal, before any route is reserved (sync `Unsupported`):** `Unsupported{terminal_format}` when the target worker can emit none of the client's `terminal_formats`. A host authenticates the remote peer of a binding that it terminates before it calls `attach` (A17-2).
+[rows."70"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"Unsupported{terminal_format}" = ["core::ErrorCode::Unsupported", "core::ErrorCode::Unsupported::what", "core::UnsupportedReason::TerminalFormat"]
+"attach" = ["core::CoreApi::attach"]
+"terminal_formats" = ["core::AttachOptions::terminal_formats"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `RouteLimits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_chunk_bytes, max_paste_bytes, max_query_bytes, max_query_reply_bytes, max_file_bytes, query_deadline, stall_deadline, stall_close_after, route_input_queue_bytes}`
+[rows."72"]
+"RouteLimits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_chunk_bytes, max_paste_bytes, max_query_bytes, max_query_reply_bytes, max_file_bytes, query_deadline, stall_deadline, stall_close_after, route_input_queue_bytes}" = { symbols = ["core::AttachResult::limits", "core::AppliedRouteLimits", "core::AppliedRouteLimits::max_frame_bytes", "core::AppliedRouteLimits::max_screen_frame_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "core::AppliedRouteLimits::max_paste_bytes", "core::AppliedRouteLimits::max_query_bytes", "core::AppliedRouteLimits::max_query_reply_bytes", "core::AppliedRouteLimits::max_file_bytes", "core::AppliedRouteLimits::query_deadline", "core::AppliedRouteLimits::stall_deadline", "core::AppliedRouteLimits::stall_close_after", "core::AppliedRouteLimits::route_input_queue_bytes"], uncovered = { RouteLimits = "the Core contract's name of the attach result's limits; the crate type is core::AppliedRouteLimits", max_chunk_bytes = "the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `RouteLimits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_paste_bytes, max_query_bytes, max_query_reply_bytes, max_file_bytes, query_deadline, stall_deadline, stall_close_after, route_input_queue_bytes}`
+[rows."74"]
+"RouteLimits{max_frame_bytes, max_screen_frame_bytes, max_history_page_bytes, max_paste_bytes, max_query_bytes, max_query_reply_bytes, max_file_bytes, query_deadline, stall_deadline, stall_close_after, route_input_queue_bytes}" = { symbols = ["core::AttachResult::limits", "core::AppliedRouteLimits", "core::AppliedRouteLimits::max_frame_bytes", "core::AppliedRouteLimits::max_screen_frame_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "core::AppliedRouteLimits::max_paste_bytes", "core::AppliedRouteLimits::max_query_bytes", "core::AppliedRouteLimits::max_query_reply_bytes", "core::AppliedRouteLimits::max_file_bytes", "core::AppliedRouteLimits::query_deadline", "core::AppliedRouteLimits::stall_deadline", "core::AppliedRouteLimits::stall_close_after", "core::AppliedRouteLimits::route_input_queue_bytes"], uncovered = { RouteLimits = "the Core contract's name of the attach result's limits; the crate type is core::AppliedRouteLimits" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_frame_bytes`, `max_screen_frame_bytes`, `max_history_page_bytes`, `max_chunk_bytes`, `max_paste_bytes`, `max_query_reply_bytes` and `max_file_bytes` are the same on the wire.
+[rows."76"]
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+"max_file_bytes" = ["core::AppliedRouteLimits::max_file_bytes", "codec::RouteLimits::max_file_bytes"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AppliedRouteLimits::max_frame_bytes", "codec::RouteLimits::max_frame_bytes"]
+"max_history_page_bytes" = ["core::RouteLimitChoices::max_history_page_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "codec::RouteLimits::max_history_page_bytes"]
+"max_paste_bytes" = ["core::AppliedRouteLimits::max_paste_bytes", "codec::RouteLimits::max_paste_bytes"]
+"max_query_reply_bytes" = ["core::AppliedRouteLimits::max_query_reply_bytes", "codec::RouteLimits::max_query_reply_bytes"]
+"max_screen_frame_bytes" = ["core::RouteLimitChoices::max_screen_frame_bytes", "core::AppliedRouteLimits::max_screen_frame_bytes", "codec::RouteLimits::max_screen_frame_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_frame_bytes`, `max_screen_frame_bytes`, `max_history_page_bytes`, `max_paste_bytes`, `max_query_reply_bytes` and `max_file_bytes` are the same on the wire.
+[rows."78"]
+"max_file_bytes" = ["core::AppliedRouteLimits::max_file_bytes", "codec::RouteLimits::max_file_bytes"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AppliedRouteLimits::max_frame_bytes", "codec::RouteLimits::max_frame_bytes"]
+"max_history_page_bytes" = ["core::RouteLimitChoices::max_history_page_bytes", "core::AppliedRouteLimits::max_history_page_bytes", "codec::RouteLimits::max_history_page_bytes"]
+"max_paste_bytes" = ["core::AppliedRouteLimits::max_paste_bytes", "codec::RouteLimits::max_paste_bytes"]
+"max_query_reply_bytes" = ["core::AppliedRouteLimits::max_query_reply_bytes", "codec::RouteLimits::max_query_reply_bytes"]
+"max_screen_frame_bytes" = ["core::RouteLimitChoices::max_screen_frame_bytes", "core::AppliedRouteLimits::max_screen_frame_bytes", "codec::RouteLimits::max_screen_frame_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `SnapshotTooLarge` → `route_closed{attach_failed{snapshot_too_large}}`; `BadPeer` → `route_closed{attach_failed{bad_peer}}`; `BadFrame`
+[rows."83"]
+"BadFrame" = ["core::RouteCloseReason::BadFrame"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+"route_closed{attach_failed{bad_peer}}" = ["codec::ToClient::RouteClosed", "codec::CloseReason::AttachFailed", "codec::AttachFailedReason::BadPeer"]
+"route_closed{attach_failed{snapshot_too_large}}" = ["codec::ToClient::RouteClosed", "codec::CloseReason::AttachFailed", "codec::AttachFailedReason::SnapshotTooLarge"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `SnapshotTooLarge` → `route_closed{attach_failed{snapshot_too_large}}`; `BadFrame`
+[rows."85"]
+"BadFrame" = ["core::RouteCloseReason::BadFrame"]
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+"route_closed{attach_failed{snapshot_too_large}}" = ["codec::ToClient::RouteClosed", "codec::CloseReason::AttachFailed", "codec::AttachFailedReason::SnapshotTooLarge"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > (the route may lack `route_closed`): `NotConnected` → `not_connected` (the WebRTC `connect_deadline` passed, OU-1), `HandoffFailed`
+[rows."87"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > (the route may lack `route_closed`): `HandoffFailed`
+[rows."89"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# - The OU-2b test column loses `conf::ou_2b_connect_deadline_closes_not_connected`. The codec's wire values `bad_peer` and `not_connected` stay, for the Hub's own use.
+[rows."90"]
+"bad_peer" = ["codec::AttachFailedReason::BadPeer"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **The WebRTC send queue is bounded** (`CoreLimits.route_send_buffer_bytes`, default 1 MiB): the worker enqueues no more than that beyond the acknowledged point, exactly as a full socket buffer stops a Unix write, and that bound is part of route backpressure (OU-3b, OU-3d).
+[rows."101"]
+"CoreLimits.route_send_buffer_bytes" = { symbols = ["core::CoreLimits"], uncovered = { route_send_buffer_bytes = "moved from Core 9B to the Hub by Core A17 (final37)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# - The rule that every `RouteTransport` binding states its progress point, and that a binding without one cannot be added, is unchanged. A17-2 states the `Stream` point for a host bridge. The OU-3 test column loses the three `ou_3_webrtc_*` ids.
+[rows."103"]
+"RouteTransport" = ["core::RouteTransport"]
+"Stream" = ["core::RouteTransport::Stream"]
+"ou_3_webrtc_*" = "n/a: a conformance test id pattern"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **On a WebRTC DataChannel the framing is the client contract's TR-3, exactly:** each message is `[u8 flags][chunk]`, bit 0 of `flags` is `final` and the other bits are 0; a frame is the concatenation of its chunks up to and including the one marked `final`, **without the length prefix** (`[u8 type][body]`); each chunk is at most `max_chunk_bytes` (chosen by the host at attach, at or below the SCTP maximum message size); a frame that is incomplete when the channel closes is discarded.
+[rows."113"]
+"[u8 flags][chunk]" = "n/a: the TR-3 DataChannel message layout (a flags byte and a chunk); codec::ChunkReader reads it"
+"[u8 type][body]" = "n/a: a byte layout (a frame without its length prefix)"
+"final" = "n/a: the name of bit 0 of the TR-3 flags byte; codec::ChunkReader reads it"
+"flags" = "n/a: the flags byte of a TR-3 DataChannel message; codec::ChunkReader reads it"
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# - The DP-3 test column loses `conf::dp_3_datachannel_chunking_matches_tr3` and `conf::dp_3_incomplete_datachannel_frame_is_discarded`. The `attached.limits` change needs the agreed codec revision (DP-3: "A change to any of it needs a new extract and hash agreed by both pairs").
+[rows."126"]
+"attached.limits" = ["codec::ToClient::Attached", "codec::Attached::limits"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# 11. **9B `CoreLimits` (base).** Each of these three rows **is removed**:
+[rows."162"]
+"CoreLimits" = ["core::CoreLimits"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_file_bytes` 1 KiB to 1 GiB; `route_send_buffer_bytes` 4 KiB to 64 MiB; `max_paste_bytes` 1 KiB to 64 MiB.
+[rows."175"]
+"max_file_bytes" = ["core::CoreLimits::max_file_bytes"]
+"max_paste_bytes" = ["core::CoreLimits::max_paste_bytes"]
+"route_send_buffer_bytes" = "n/a: moved from Core 9B to the Hub by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `max_file_bytes` 1 KiB to 1 GiB; `max_paste_bytes` 1 KiB to 64 MiB.
+[rows."177"]
+"max_file_bytes" = ["core::CoreLimits::max_file_bytes"]
+"max_paste_bytes" = ["core::CoreLimits::max_paste_bytes"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `features()` lists `route_transport:stream` and `route_transport:webrtc`.
+[rows."180"]
+"features()" = ["core::CoreApi::features"]
+"route_transport:stream" = { symbols = ["core::Feature::RouteTransportStream"], uncovered = { route_transport = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)", stream = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)" } }
+"route_transport:webrtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `features()` lists `route_transport:stream`.
+[rows."182"]
+"features()" = ["core::CoreApi::features"]
+"route_transport:stream" = { symbols = ["core::Feature::RouteTransportStream"], uncovered = { route_transport = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)", stream = "the words of the feature name route_transport:stream (core::Feature::RouteTransportStream)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `Facts` (ST-7); `Answer{route, answer}` (DP-2); `SpawnReport` (SV-4).
+[rows."186"]
+"Answer{route, answer}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"Facts" = ["core::Facts"]
+"SpawnReport" = ["core::SpawnReport"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `Facts` (ST-7); `SpawnReport` (SV-4).
+[rows."188"]
+"Facts" = ["core::Facts"]
+"SpawnReport" = ["core::SpawnReport"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# - **A2-1, `StartFailReason` (A2).** The text
+[rows."189"]
+"StartFailReason" = ["core::StartFailReason"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `StartFailReason` (non-exhaustive) = `ExecFailed{errno}`, `CwdMissing`, `StartupTimeout`, `WorkerFailed`, `GuardianFailed`, `WebRtcFailed`.
+[rows."190"]
+"CwdMissing" = ["core::StartFailReason::CwdMissing"]
+"ExecFailed{errno}" = ["core::StartFailReason::ExecFailed::errno"]
+"GuardianFailed" = ["core::StartFailReason::GuardianFailed"]
+"StartFailReason" = ["core::StartFailReason"]
+"StartupTimeout" = ["core::StartFailReason::StartupTimeout"]
+"WebRtcFailed" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"WorkerFailed" = ["core::StartFailReason::WorkerFailed"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `StartFailReason` (non-exhaustive) = `ExecFailed{errno}`, `CwdMissing`, `StartupTimeout`, `WorkerFailed`, `GuardianFailed`.
+[rows."192"]
+"CwdMissing" = ["core::StartFailReason::CwdMissing"]
+"ExecFailed{errno}" = ["core::StartFailReason::ExecFailed::errno"]
+"GuardianFailed" = ["core::StartFailReason::GuardianFailed"]
+"StartFailReason" = ["core::StartFailReason"]
+"StartupTimeout" = ["core::StartFailReason::StartupTimeout"]
+"WorkerFailed" = ["core::StartFailReason::WorkerFailed"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > (A2-5); a WebRTC `connect_deadline` closes the route `NotConnected` (OU-1); a `query_deadline` hands the query to the shadow (EV-8).
+[rows."199"]
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > (A2-5); a `query_deadline` hands the query to the shadow (EV-8).
+[rows."201"]
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **New codes (additive, 9.3).** `UnknownService` (caller, sync: the id names no service); `InvalidOffer{reason: bad_offer | offer_without_candidates}` (caller, **async**: the worker parsed the offer and refused it).
+[rows."203"]
+"InvalidOffer{reason: bad_offer | offer_without_candidates}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **New code (additive, 9.3).** `UnknownService` (caller, sync: the id names no service).
+[rows."205"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `BadFrame{code}` (`code` is one of the codec's `frame_too_large`, `malformed_frame`, `unknown_frame`, `invalid_input`); `BadPeer`; `NotConnected`; `SnapshotTooLarge`;
+[rows."207"]
+"BadFrame{code}" = ["core::RouteCloseReason::BadFrame::code"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+"code" = ["core::RouteCloseReason::BadFrame::code"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"invalid_input" = ["codec::ProtocolErrorCode::InvalidInput"]
+"malformed_frame" = ["codec::ProtocolErrorCode::MalformedFrame"]
+"unknown_frame" = ["codec::ProtocolErrorCode::UnknownFrame"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `BadFrame{code}` (`code` is one of the codec's `frame_too_large`, `malformed_frame`, `unknown_frame`, `invalid_input`); `SnapshotTooLarge`;
+[rows."209"]
+"BadFrame{code}" = ["core::RouteCloseReason::BadFrame::code"]
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+"code" = ["core::RouteCloseReason::BadFrame::code"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"invalid_input" = ["codec::ProtocolErrorCode::InvalidInput"]
+"malformed_frame" = ["codec::ProtocolErrorCode::MalformedFrame"]
+"unknown_frame" = ["codec::ProtocolErrorCode::UnknownFrame"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `Detached`, `Replaced`, `Revoked`, `SessionEnded`, `SessionRemoved`, `SnapshotTooLarge`, `BadPeer` and `BadFrame` map as OU-2b says.
+[rows."211"]
+"BadFrame" = ["core::RouteCloseReason::BadFrame"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"Detached" = ["core::RouteCloseReason::Detached"]
+"Replaced" = ["core::RouteCloseReason::Replaced"]
+"Revoked" = ["core::RouteCloseReason::Revoked"]
+"SessionEnded" = ["core::RouteCloseReason::SessionEnded"]
+"SessionRemoved" = ["core::RouteCloseReason::SessionRemoved"]
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `Detached`, `Replaced`, `Revoked`, `SessionEnded`, `SessionRemoved`, `SnapshotTooLarge` and `BadFrame` map as OU-2b says.
+[rows."213"]
+"BadFrame" = ["core::RouteCloseReason::BadFrame"]
+"Detached" = ["core::RouteCloseReason::Detached"]
+"Replaced" = ["core::RouteCloseReason::Replaced"]
+"Revoked" = ["core::RouteCloseReason::Revoked"]
+"SessionEnded" = ["core::RouteCloseReason::SessionEnded"]
+"SessionRemoved" = ["core::RouteCloseReason::SessionRemoved"]
+"SnapshotTooLarge" = ["core::RouteCloseReason::SnapshotTooLarge"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > The failed-route reasons map to the codec's route-ended reasons: `NotConnected` → `not_connected`, `HandoffFailed` → `handoff_failed`,
+[rows."216"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"handoff_failed" = ["codec::RouteEndReason::HandoffFailed"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > The failed-route reasons map to the codec's route-ended reasons: `HandoffFailed` → `handoff_failed`,
+[rows."218"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"handoff_failed" = ["codec::RouteEndReason::HandoffFailed"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > Section 9.3: `DeadlineExpired` removed; `UnknownService` and `InvalidOffer` added;
+[rows."229"]
+"DeadlineExpired" = "n/a: a code that this amendment removes (B2-56); the crate has no such code"
+"InvalidOffer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > Section 9.3: `DeadlineExpired` removed; `UnknownService` added (`InvalidOffer`, which A2 added, is removed by A17);
+[rows."231"]
+"DeadlineExpired" = "n/a: a code that this amendment removes (B2-56); the crate has no such code"
+"InvalidOffer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > It applies to `attach` and to `AttachWebRtc` alike.
+[rows."235"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"attach" = ["core::CoreApi::attach"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > It applies to `attach`.
+[rows."237"]
+"attach" = ["core::CoreApi::attach"]
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `connect_deadline` that is zero, or above `CoreLimits.max_connect_deadline`;
+[rows."239"]
+"CoreLimits.max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **Not refused: a bound known only from the transport.** `route_limits.max_chunk_bytes` above the WebRTC route's SCTP maximum message size is not an error. **The worker never sends a chunk larger than the smaller of the two.** The SCTP maximum is the one negotiated for that route's data channel (the offer's `max-message-size`) (steward ruling R-9.2; HC TR-3: "chosen at or below the SCTP maximum message size"). No result or read changes. On a stream route, `max_chunk_bytes` does not apply.
+[rows."242"]
+"max-message-size" = "n/a: the WebRTC SDP attribute name"
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+"route_limits.max_chunk_bytes" = { symbols = ["core::AttachOptions::route_limits"], uncovered = { max_chunk_bytes = "the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)" } }
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > **A2-1, the `AttachWebRtc` row:** "plus `InvalidInput` for an `options` field" reads with A7-1.
+[rows."245"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"options" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > `connect_deadline` "positive and at most `CoreLimits.max_connect_deadline`";
+[rows."248"]
+"CoreLimits.max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# > A2-1 names "`InvalidInput` for an `options` field" only in the `AttachWebRtc` row;
+[rows."250"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"options" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# Core contract v1.17, Amendment 17 (candidate 2): Core has no WebRTC; a remote binding reaches Core as a `Stream` > A17-4. Text replaced
+# 15. **Steward ruling R-9.2** (the transport maximum of `default_route_chunk_bytes`) no longer applies to Core.
+[rows."253"]
+"default_route_chunk_bytes" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"

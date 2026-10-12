@@ -1,0 +1,34 @@
+{
+  "id": "conf::er_unknown_session",
+  "contract": "core",
+  "clause": "ER-0",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s9"
+          }
+        }
+      },
+      "bind": "$x",
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": "Core ER-0"
+    },
+    {
+      "call": {
+        "method": "get",
+        "args": {
+          "id": "s9"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": "Core ER-0"
+    }
+  ]
+}

@@ -1,0 +1,354 @@
+{
+ "id": "conf::lb_6_session_family_frames",
+ "contract": "lb",
+ "clause": "LB-6",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.events.on({ owner = \"hub\", name = \"session_family\" }, function(record, request)\n  local f = record.payload\n  local out = { frame = f.frame, has_generation = f.generation ~= nil }\n  if f.frame == \"snapshot_chunk\" then out.sessions = #f.sessions; out.first = f.sessions[1].id end\n  if f.frame == \"delta\" then out.op = f.op; out.session_id = f.session_id; out.has_session = f.session ~= nil end\n  return out\nend)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "$he",
+        "pattern": {
+         "owner": "hub",
+         "name": "session_family"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "HP HS-1",
+    "LB LB-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "session_family",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "frame": "snapshot_begin"
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "frame": "snapshot_begin",
+       "has_generation": false
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "session_family",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "frame": "snapshot_chunk",
+       "sessions": [
+        {
+         "id": "s1",
+         "hub_id": "hub-1",
+         "label": "l",
+         "state": "running",
+         "lifecycle_class": "current",
+         "exit": {},
+         "size": {
+          "rows": 24,
+          "cols": 80
+         },
+         "session_type": {
+          "id": "t",
+          "source": "device"
+         },
+         "traits": [],
+         "restartable": false,
+         "activity": "idle",
+         "presentation": "default",
+         "metadata": {}
+        }
+       ]
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "frame": "snapshot_chunk",
+       "has_generation": false,
+       "sessions": 1,
+       "first": "s1"
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 3,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "session_family",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "frame": "snapshot_end"
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "frame": "snapshot_end",
+       "has_generation": false
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 4,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "session_family",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "frame": "delta",
+       "op": "upsert",
+       "session": {
+        "id": "s2",
+        "hub_id": "hub-1",
+        "label": "l",
+        "state": "running",
+        "lifecycle_class": "current",
+        "exit": {},
+        "size": {
+         "rows": 24,
+         "cols": 80
+        },
+        "session_type": {
+         "id": "t",
+         "source": "device"
+        },
+        "traits": [],
+        "restartable": false,
+        "activity": "idle",
+        "presentation": "default",
+        "metadata": {}
+       },
+       "session_id": "s2"
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "frame": "delta",
+       "has_generation": false,
+       "op": "upsert",
+       "session_id": "s2",
+       "has_session": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "session_family",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "frame": "delta",
+       "op": "remove",
+       "session_id": "s2"
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "frame": "delta",
+       "has_generation": false,
+       "op": "remove",
+       "session_id": "s2",
+       "has_session": false
+      }
+     }
+    }
+   },
+   "because": "LB LB-6"
+  }
+ ]
+}

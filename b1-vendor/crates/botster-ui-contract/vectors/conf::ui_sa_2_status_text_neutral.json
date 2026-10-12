@@ -1,0 +1,458 @@
+{
+  "id": "conf::ui_sa_2_status_text_neutral",
+  "contract": "ui",
+  "clause": "UI-SA-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a status string shows beside the action as neutral text, even when it names an error",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "sessions",
+              "source": {
+                "kind": "session"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "tunnel",
+                    "label": "Start tunnel",
+                    "handler": "tunnel"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "title": "Build",
+              "metadata": {
+                "acme-tunnel": {
+                  "status": "Retry: tunnel failed"
+                }
+              }
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "owner": "acme-tunnel",
+                  "label_pointer": "/label",
+                  "status_pointer": "/status",
+                  "url_pointer": "/url"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:action": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:tunnel"
+            },
+            {
+              "type": "text",
+              "props": {
+                "text": "Retry: tunnel failed",
+                "tone": "neutral"
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-SA-2"
+    },
+    {
+      "name": "a status pointer that resolves to null shows nothing and raises no diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "sessions",
+              "source": {
+                "kind": "session"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "tunnel",
+                    "label": "Start tunnel",
+                    "handler": "tunnel"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "title": "Build",
+              "metadata": {
+                "acme-tunnel": {
+                  "status": null
+                }
+              }
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "owner": "acme-tunnel",
+                  "label_pointer": "/label",
+                  "status_pointer": "/status",
+                  "url_pointer": "/url"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:action": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:tunnel"
+            }
+          ]
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-SA-1"
+    },
+    {
+      "name": "a status pointer that resolves to a number shows nothing and raises no diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "sessions",
+              "source": {
+                "kind": "session"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "tunnel",
+                    "label": "Start tunnel",
+                    "handler": "tunnel"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "title": "Build",
+              "metadata": {
+                "acme-tunnel": {
+                  "status": 42
+                }
+              }
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "owner": "acme-tunnel",
+                  "label_pointer": "/label",
+                  "status_pointer": "/status",
+                  "url_pointer": "/url"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:action": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:tunnel"
+            }
+          ]
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-SA-1"
+    },
+    {
+      "name": "a status pointer that resolves to an object shows nothing and raises no diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "sessions",
+              "source": {
+                "kind": "session"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "tunnel",
+                    "label": "Start tunnel",
+                    "handler": "tunnel"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "title": "Build",
+              "metadata": {
+                "acme-tunnel": {
+                  "status": {
+                    "a": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "owner": "acme-tunnel",
+                  "label_pointer": "/label",
+                  "status_pointer": "/status",
+                  "url_pointer": "/url"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:action": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:tunnel"
+            }
+          ]
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-SA-1"
+    },
+    {
+      "name": "a status pointer that resolves to an array shows nothing and raises no diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "sessions",
+              "source": {
+                "kind": "session"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "tunnel",
+                    "label": "Start tunnel",
+                    "handler": "tunnel"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "title": "Build",
+              "metadata": {
+                "acme-tunnel": {
+                  "status": [
+                    1
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "owner": "acme-tunnel",
+                  "label_pointer": "/label",
+                  "status_pointer": "/status",
+                  "url_pointer": "/url"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:action": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:8:sessions2:s16:tunnel"
+            }
+          ]
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-SA-1"
+    }
+  ]
+}

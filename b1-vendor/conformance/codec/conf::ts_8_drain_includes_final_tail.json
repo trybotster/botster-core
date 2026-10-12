@@ -1,0 +1,124 @@
+{
+  "id": "conf::ts_8_drain_includes_final_tail",
+  "contract": "codec",
+  "clause": "TS-8",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_exit",
+      "pty_output"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "bytes_hex": "6279650d0a"
+      }
+    },
+    {
+      "control": {
+        "op": "pty_exit",
+        "code": 3
+      }
+    },
+    {
+      "route_expect_output": {
+        "bytes_hex": "6279650d0a"
+      },
+      "because": [
+        "Codec BP-2",
+        "Codec TS-8"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "route_closed",
+        "reason": "session_ended",
+        "exit": {
+          "code": 3
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-8",
+        "Codec A.4"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r1",
+      "because": "Codec TS-8"
+    }
+  ]
+}

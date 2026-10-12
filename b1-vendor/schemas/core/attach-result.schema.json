@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttachResult",
+  "description": "The result of the sync `attach`.\n\nClause: Core OU-1.",
+  "type": "object",
+  "properties": {
+    "route": {
+      "$ref": "#/$defs/RouteId"
+    },
+    "limits": {
+      "$ref": "#/$defs/AppliedRouteLimits"
+    }
+  },
+  "required": [
+    "route",
+    "limits"
+  ],
+  "$defs": {
+    "RouteId": {
+      "description": "The id of a route.\n\nClause: Core 3, Core ID-1, Core ID-2.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "AppliedRouteLimits": {
+      "description": "The route limits that the attach result returns.\n\nClause: Core OU-1.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_screen_frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_history_page_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_paste_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_query_bytes": {
+          "description": "Not on the wire (OU-1).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_query_reply_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "query_deadline": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stall_deadline": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stall_close_after": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "route_input_queue_bytes": {
+          "description": "Not on the wire (OU-1).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "max_screen_frame_bytes",
+        "max_history_page_bytes",
+        "max_paste_bytes",
+        "max_query_bytes",
+        "max_query_reply_bytes",
+        "max_file_bytes",
+        "query_deadline",
+        "stall_deadline",
+        "stall_close_after",
+        "route_input_queue_bytes"
+      ]
+    }
+  }
+}

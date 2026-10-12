@@ -1,0 +1,78 @@
+{
+  "id": "conf::hs_2_selects_highest_common",
+  "contract": "hc",
+  "clause": "HS-2",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "version": 2
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 9
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "version": 2
+      },
+      "on": "c1",
+      "because": "HC HS-2"
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 1
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "version": 1
+      },
+      "on": "c2",
+      "because": "HC HS-2"
+    }
+  ]
+}

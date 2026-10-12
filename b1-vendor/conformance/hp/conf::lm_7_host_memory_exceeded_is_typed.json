@@ -1,0 +1,102 @@
+{
+ "id": "conf::lm_7_host_memory_exceeded_is_typed",
+ "contract": "hp",
+ "clause": "LM-7",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_alloc"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "limits": {
+      "host_memory_bytes": 1048576
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "quota_exceeded",
+       "detail": {
+        "code": "host_memory"
+       }
+      }
+     }
+    }
+   },
+   "because": "HP LM-7"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h3"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "result": {
+      "ok": true,
+      "value": "alive"
+     }
+    }
+   },
+   "because": "HP LM-7"
+  }
+ ]
+}

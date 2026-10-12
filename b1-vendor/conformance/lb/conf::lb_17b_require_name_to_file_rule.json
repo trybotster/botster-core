@@ -1,0 +1,89 @@
+{
+ "id": "conf::lb_17b_require_name_to_file_rule",
+ "contract": "lb",
+ "clause": "LB-17b",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local ok1 = pcall(require, \"nope\")\n      local ok2 = pcall(require, \"os\")\n      return { dotted = require(\"a.b\"), init = require(\"c\"), file_before_init = require(\"d\"),\n               unknown_name_errors = not ok1, stdlib_name_errors = not ok2 }\n    end }},\n}\n",
+    "a/b.lua": "return \"a.b file\"\n",
+    "c/init.lua": "return \"c init\"\n",
+    "d.lua": "return \"d file\"\n",
+    "d/init.lua": "return \"d init\"\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "LB LB-17b"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "dotted": "a.b file",
+       "init": "c init",
+       "file_before_init": "d file",
+       "unknown_name_errors": true,
+       "stdlib_name_errors": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-17b"
+  }
+ ]
+}

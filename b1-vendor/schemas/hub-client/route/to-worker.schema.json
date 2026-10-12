@@ -1,0 +1,879 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToWorker",
+  "description": "A frame from the client to the worker (A.4, Client → Hub). In a binary frame, `op` 0 means \"no op\".\n\nClause: Codec A.4, A.5, TS-3.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "input"
+        }
+      },
+      "$ref": "#/$defs/Input",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "bytes": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "paste_chunk"
+        }
+      },
+      "required": [
+        "frame",
+        "op",
+        "bytes"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "bytes": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "bytes"
+        }
+      },
+      "required": [
+        "frame",
+        "op",
+        "bytes"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "text": {
+          "type": "string"
+        },
+        "frame": {
+          "type": "string",
+          "const": "text"
+        }
+      },
+      "required": [
+        "frame",
+        "op",
+        "text"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "bytes": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "file_chunk"
+        }
+      },
+      "required": [
+        "frame",
+        "op",
+        "bytes"
+      ]
+    }
+  ],
+  "$defs": {
+    "Op": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18}|18446744073709551615|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|1844674407370955[0-0][0-9]{3}|18446744073709551[0-5][0-9]{2}|184467440737095516[0-0][0-9]{1}|1844674407370955161[0-4][0-9]{0})$",
+      "maxLength": 20
+    },
+    "Key": {
+      "description": "A key: `{\"named\": <NamedKey>}` or `{\"char\": \"<one scalar>\"}`.\n\nClause: Codec A.5, Core 5.1A.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedKey"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "char": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1
+            }
+          },
+          "required": [
+            "char"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NamedKey": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "tab",
+        "backspace",
+        "escape",
+        "insert",
+        "delete",
+        "home",
+        "end",
+        "page_up",
+        "page_down",
+        "arrow_up",
+        "arrow_down",
+        "arrow_left",
+        "arrow_right",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17",
+        "f18",
+        "f19",
+        "f20",
+        "f21",
+        "f22",
+        "f23",
+        "f24",
+        "f25",
+        "f26",
+        "f27",
+        "f28",
+        "f29",
+        "f30",
+        "f31",
+        "f32",
+        "f33",
+        "f34",
+        "f35",
+        "kp_0",
+        "kp_1",
+        "kp_2",
+        "kp_3",
+        "kp_4",
+        "kp_5",
+        "kp_6",
+        "kp_7",
+        "kp_8",
+        "kp_9",
+        "kp_decimal",
+        "kp_divide",
+        "kp_multiply",
+        "kp_subtract",
+        "kp_add",
+        "kp_enter",
+        "kp_equal",
+        "caps_lock",
+        "scroll_lock",
+        "num_lock",
+        "print_screen",
+        "pause",
+        "menu",
+        "left_shift",
+        "left_control",
+        "left_alt",
+        "left_super",
+        "right_shift",
+        "right_control",
+        "right_alt",
+        "right_super"
+      ]
+    },
+    "Modifier": {
+      "description": "A modifier of Core 5.1A.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "shift",
+        "alt",
+        "ctrl",
+        "meta",
+        "super",
+        "hyper",
+        "caps_lock",
+        "num_lock"
+      ]
+    },
+    "KeyEvent": {
+      "description": "The `event` of a key input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "repeat",
+        "release"
+      ]
+    },
+    "MouseAction": {
+      "description": "The `action` of a mouse input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "release",
+        "move",
+        "wheel"
+      ]
+    },
+    "MouseButton": {
+      "description": "The `button` of a mouse input. `action` is `wheel` exactly when the button is a `wheel_*` value.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right",
+        "back",
+        "forward",
+        "none",
+        "wheel_up",
+        "wheel_down",
+        "wheel_left",
+        "wheel_right"
+      ]
+    },
+    "QueryReply": {
+      "description": "The `reply` of `reply_terminal_query`: the JSON projection of Core's `ReplyTerminalQuery`.\n\nClause: Codec A.5, P9.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "decline"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "clipboard": {
+              "type": "object",
+              "properties": {
+                "selection": {
+                  "type": "string"
+                },
+                "data_base64": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "selection",
+                "data_base64"
+              ]
+            }
+          },
+          "required": [
+            "clipboard"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "pixels": {
+              "type": "object",
+              "properties": {
+                "width": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "height": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "width",
+                "height"
+              ]
+            }
+          },
+          "required": [
+            "pixels"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "chars": {
+              "type": "object",
+              "properties": {
+                "rows": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "cols": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "rows",
+                "cols"
+              ]
+            }
+          },
+          "required": [
+            "chars"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "window_state": {
+              "type": "object",
+              "properties": {
+                "iconified": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "iconified"
+              ]
+            }
+          },
+          "required": [
+            "window_state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "position": {
+              "type": "object",
+              "properties": {
+                "x": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "maximum": 65535
+                },
+                "y": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "maximum": 65535
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            }
+          },
+          "required": [
+            "position"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "object",
+              "properties": {
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ]
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "color_scheme": {
+              "$ref": "#/$defs/ColorScheme"
+            }
+          },
+          "required": [
+            "color_scheme"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "encoded": {
+              "type": "object",
+              "properties": {
+                "bytes_base64": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "bytes_base64"
+              ]
+            }
+          },
+          "required": [
+            "encoded"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "ColorScheme": {
+      "description": "`color_scheme` reply values.\n\nClause: Codec A.5.",
+      "type": "string",
+      "enum": [
+        "dark",
+        "light"
+      ]
+    },
+    "Input": {
+      "description": "One input shape of the `0x81 input` frame. `op` is a decimal string, optional except on a paste and a file.\n\nClause: Codec A.5, TS-5, TS-5d, TS-5f.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "key": {
+              "$ref": "#/$defs/Key"
+            },
+            "mods": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Modifier"
+              },
+              "default": [],
+              "uniqueItems": true
+            },
+            "event": {
+              "$ref": "#/$defs/KeyEvent"
+            },
+            "text": {
+              "type": "string"
+            },
+            "shifted_key": {
+              "type": "object",
+              "properties": {
+                "char": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1
+                }
+              },
+              "required": [
+                "char"
+              ],
+              "additionalProperties": false
+            },
+            "base_layout_key": {
+              "type": "object",
+              "properties": {
+                "char": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1
+                }
+              },
+              "required": [
+                "char"
+              ],
+              "additionalProperties": false
+            },
+            "kind": {
+              "type": "string",
+              "const": "key"
+            }
+          },
+          "required": [
+            "kind",
+            "key",
+            "event"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "required": [
+                  "shifted_key"
+                ]
+              },
+              "then": {
+                "required": [
+                  "mods"
+                ],
+                "properties": {
+                  "mods": {
+                    "contains": {
+                      "const": "shift"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "action": {
+              "$ref": "#/$defs/MouseAction"
+            },
+            "button": {
+              "$ref": "#/$defs/MouseButton"
+            },
+            "row": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "col": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "x": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "y": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "mods": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "shift",
+                  "alt",
+                  "ctrl"
+                ]
+              },
+              "uniqueItems": true,
+              "default": []
+            },
+            "notches": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "mouse"
+            }
+          },
+          "required": [
+            "kind",
+            "action",
+            "button",
+            "row",
+            "col"
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "button": {
+                    "enum": [
+                      "wheel_up",
+                      "wheel_down",
+                      "wheel_left",
+                      "wheel_right"
+                    ]
+                  }
+                },
+                "required": [
+                  "button"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "action": {
+                    "const": "wheel"
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "action": {
+                    "not": {
+                      "const": "wheel"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "if": {
+                "required": [
+                  "notches"
+                ]
+              },
+              "then": {
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "const": "wheel"
+                  },
+                  "notches": {
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "focused": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "focus"
+            }
+          },
+          "required": [
+            "kind",
+            "focused"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "rows": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "cols": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "resize"
+            }
+          },
+          "required": [
+            "kind",
+            "rows",
+            "cols"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "query_id": {
+              "type": "string"
+            },
+            "reply": {
+              "$ref": "#/$defs/QueryReply"
+            },
+            "kind": {
+              "type": "string",
+              "const": "reply_terminal_query"
+            }
+          },
+          "required": [
+            "kind",
+            "query_id",
+            "reply"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "total_bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "require_bracketed": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "paste_begin"
+            }
+          },
+          "required": [
+            "kind",
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "want_result": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string",
+              "const": "paste_commit"
+            }
+          },
+          "required": [
+            "kind",
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "kind": {
+              "type": "string",
+              "const": "paste_abort"
+            }
+          },
+          "required": [
+            "kind",
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "name": {
+              "type": "string"
+            },
+            "mime": {
+              "type": "string"
+            },
+            "total_bytes": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "file_begin"
+            }
+          },
+          "required": [
+            "kind",
+            "op",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "kind": {
+              "type": "string",
+              "const": "file_commit"
+            }
+          },
+          "required": [
+            "kind",
+            "op"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/Op"
+            },
+            "kind": {
+              "type": "string",
+              "const": "file_abort"
+            }
+          },
+          "required": [
+            "kind",
+            "op"
+          ]
+        }
+      ]
+    },
+    "HexBytes": {
+      "type": "object",
+      "properties": {
+        "$bytes_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})*$"
+        }
+      },
+      "required": [
+        "$bytes_hex"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

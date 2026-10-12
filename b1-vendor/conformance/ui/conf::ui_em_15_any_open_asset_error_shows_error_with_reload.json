@@ -1,0 +1,289 @@
+{
+  "id": "conf::ui_em_15_any_open_asset_error_shows_error_with_reload",
+  "contract": "ui",
+  "clause": "UI-EM-15",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {},
+      "package": "botster-graph",
+      "views": []
+    },
+    "app_origin": "https://app.example.test"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "graph",
+          "title": "Graph",
+          "requires": [
+            "ui_embed"
+          ],
+          "root": {
+            "type": "embed",
+            "id": "page",
+            "title": "Knowledge graph",
+            "page": {
+              "asset": {
+                "name": "graph"
+              }
+            },
+            "empty": {
+              "title": "No page"
+            },
+            "error": {
+              "title": "Page unavailable"
+            }
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed",
+            "embed"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 1,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "err": {
+              "code": "not_found",
+              "message": "open_asset failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {
+            "reload": true
+          }
+        },
+        "because": "UI UI-EM-15",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "reload": {}
+        },
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 2,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 2,
+            "err": {
+              "code": "permission_denied",
+              "message": "open_asset failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {
+            "reload": true
+          }
+        },
+        "because": "UI UI-EM-15",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "reload": {}
+        },
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 3,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 3,
+            "err": {
+              "code": "busy",
+              "message": "open_asset failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {
+            "reload": true
+          }
+        },
+        "because": "UI UI-EM-15",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "reload": {}
+        },
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 4,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 4,
+            "err": {
+              "code": "unsupported",
+              "message": "open_asset failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {
+            "reload": true
+          }
+        },
+        "because": "UI UI-EM-15",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "reload": {}
+        },
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 5,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 5,
+            "err": {
+              "code": "hub_shutdown",
+              "message": "open_asset failed"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {
+            "reload": true
+          }
+        },
+        "because": "UI UI-EM-15",
+        "node_id": "page"
+      }
+    }
+  ]
+}

@@ -1,0 +1,329 @@
+{
+  "id": "conf::ui_cf_6_absent_parts_and_widgets_mean_all",
+  "contract": "ui",
+  "clause": "UI-CF-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an absent parts list means every part: status_badge is drawn as itself",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "run"
+              },
+              "map": {
+                "run": {
+                  "label": "Running",
+                  "tone": "success"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "sb": {
+          "type": "status_badge",
+          "props": {
+            "label": "Running"
+          }
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "a parts list without status_badge gets the UI-CF-2 fallback text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "run"
+              },
+              "map": {
+                "run": {
+                  "label": "Running",
+                  "tone": "success"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "stack",
+          "text"
+        ]
+      },
+      "expect_nodes": {
+        "sb": {
+          "type": "text"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "an empty parts list means no part: status_badge gets the fallback text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "run"
+              },
+              "map": {
+                "run": {
+                  "label": "Running",
+                  "tone": "success"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": []
+      },
+      "expect_nodes": {
+        "sb": {
+          "type": "text"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "an absent widgets list means every widget: the textarea hint is kept",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "textarea"
+        }
+      },
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "a widgets list without textarea falls back to the default of the JSON type",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "widgets": [
+          "text"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input"
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "an empty widgets list means no widget: the default of the JSON type",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "widgets": []
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input"
+        }
+      },
+      "because": "UI UI-CF-2"
+    }
+  ]
+}

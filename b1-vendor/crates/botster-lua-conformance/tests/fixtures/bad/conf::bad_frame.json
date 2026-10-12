@@ -1,0 +1,11 @@
+{
+ "id": "conf::bad_frame",
+ "contract": "lb",
+ "clause": "LB-1",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "steps": [
+  {"send_frame": {"lane": "control", "type": "Hello", "payload": {"epoch": 7}}}
+ ]
+}

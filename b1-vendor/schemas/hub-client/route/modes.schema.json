@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Modes",
+  "description": "Body of `0x08 modes`: the modes and the size that the worker applied.\n\nClause: Codec A.4, TS-4d.",
+  "type": "object",
+  "properties": {
+    "modes": {
+      "$ref": "#/$defs/ModeFlags"
+    },
+    "rows": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "cols": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "modes",
+    "rows",
+    "cols"
+  ],
+  "$defs": {
+    "ModeFlags": {
+      "description": "The session's modes on the route: `ModeFlags` of A.6, which is Core 5.1A verbatim.\n\nClause: Codec A.6, TS-4d.",
+      "type": "object",
+      "properties": {
+        "alt_screen": {
+          "type": "boolean"
+        },
+        "cursor_visible": {
+          "type": "boolean"
+        },
+        "bracketed_paste": {
+          "type": "boolean"
+        },
+        "application_cursor_keys": {
+          "type": "boolean"
+        },
+        "application_keypad": {
+          "type": "boolean"
+        },
+        "focus_reporting": {
+          "type": "boolean"
+        },
+        "kitty_flags": {
+          "description": "A bitset of the kitty flags 1, 2, 4, 8 and 16.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mouse_tracking": {
+          "$ref": "#/$defs/MouseTracking"
+        },
+        "mouse_encoding": {
+          "$ref": "#/$defs/MouseEncoding"
+        },
+        "other_modes": {
+          "description": "Modes outside this list. A receiver ignores names it does not know.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "alt_screen",
+        "cursor_visible",
+        "bracketed_paste",
+        "application_cursor_keys",
+        "application_keypad",
+        "focus_reporting",
+        "kitty_flags",
+        "mouse_tracking",
+        "mouse_encoding"
+      ]
+    },
+    "MouseTracking": {
+      "anyOf": [
+        {
+          "description": "`mouse_tracking` of A.6.\n\nClause: Codec A.6.",
+          "type": "string",
+          "enum": [
+            "none",
+            "x10",
+            "normal",
+            "button_event",
+            "any_event",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "MouseEncoding": {
+      "anyOf": [
+        {
+          "description": "`mouse_encoding` of A.6.\n\nClause: Codec A.6.",
+          "type": "string",
+          "enum": [
+            "x10",
+            "utf8",
+            "sgr",
+            "urxvt",
+            "sgr_pixels",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    }
+  }
+}

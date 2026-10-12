@@ -1,0 +1,153 @@
+{
+  "id": "conf::ui_nv_7_overflow_defaults",
+  "contract": "ui",
+  "clause": "UI-NV-7",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "overflow defaults to never: no menu",
+      "because": "UI UI-NV-7",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "tb",
+              "items": [
+                {
+                  "id": "p",
+                  "label": "P",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "s",
+                  "label": "S",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:tb9:container4:item"
+      ],
+      "expect_nodes": {
+        "p": {
+          "type": "button"
+        },
+        "s": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "overflow auto moves a lower-priority item into the menu and keeps the highest",
+      "because": "UI UI-NV-7",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "tb",
+              "items": [
+                {
+                  "id": "p",
+                  "label": "P",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "s",
+                  "label": "S",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:tb9:container4:item": {
+          "type": "menu"
+        },
+        "p": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "with one priority level nothing moves",
+      "because": "UI UI-NV-7",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "tb",
+              "items": [
+                {
+                  "id": "s1",
+                  "label": "S1",
+                  "handler": "h"
+                },
+                {
+                  "id": "s2",
+                  "label": "S2",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:tb9:container4:item"
+      ],
+      "expect_nodes": {
+        "s1": {
+          "type": "button"
+        },
+        "s2": {
+          "type": "button"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "id": "conf::en_3b_cancel_one_response",
+  "contract": "hc",
+  "clause": "EN-3b",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "hold_completion",
+      "release_completion"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "hold_completion",
+        "count": 1
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "create",
+        "kind": "spawn_target",
+        "args": {
+          "label": "c1",
+          "path": "/p/c1",
+          "kind": "directory"
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "cancel",
+        "id": "1"
+      },
+      "on": "c1"
+    },
+    {
+      "control": {
+        "op": "release_completion"
+      }
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1"
+      },
+      "on": "c1",
+      "because": "HC EN-3b"
+    },
+    {
+      "expect_quiet_until": {
+        "type": "res",
+        "id": "1"
+      },
+      "barrier": {
+        "send": {
+          "type": "req",
+          "id": "2",
+          "verb": "get",
+          "kind": "session",
+          "target": "s1"
+        },
+        "on": "c1"
+      },
+      "until": {
+        "type": "res",
+        "id": "2"
+      },
+      "on": "c1",
+      "because": "HC EN-3b"
+    }
+  ]
+}

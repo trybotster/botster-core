@@ -1,0 +1,40 @@
+{
+ "id": "conf::cr_4_crash_in_load_is_load_failure",
+ "contract": "hp",
+ "clause": "CR-4",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "status"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "close_channel": {}
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "load_failed",
+    "code": "plugin_crashed",
+    "restart_requested": 0
+   },
+   "because": [
+    "HP CR-4",
+    "HP LD-1"
+   ]
+  }
+ ]
+}

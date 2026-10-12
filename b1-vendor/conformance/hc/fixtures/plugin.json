@@ -1,0 +1,62 @@
+{
+  "rows": {
+    "session": [
+      {
+        "id": "s1",
+        "hub_id": "hub-1",
+        "label": "session s1",
+        "state": "running",
+        "lifecycle_class": "current",
+        "exit": {},
+        "size": {
+          "rows": 24,
+          "cols": 80
+        },
+        "session_type": {
+          "id": "shell",
+          "source": "device"
+        },
+        "traits": [],
+        "restartable": true,
+        "activity": "idle",
+        "presentation": "default",
+        "metadata": {}
+      }
+    ]
+  },
+  "plugins": [
+    {
+      "key": "acme",
+      "kinds": [
+        {
+          "kind": "acme.note",
+          "rows": [
+            {
+              "id": "n1",
+              "title": "first"
+            }
+          ],
+          "actions": {
+            "archive": {
+              "effect": "committed",
+              "result": {}
+            },
+            "boom": {
+              "effect": "committed",
+              "fail": {
+                "reason": "quota"
+              }
+            }
+          }
+        }
+      ],
+      "contributes": [
+        {
+          "kind": "session",
+          "name": "acme.sync"
+        }
+      ]
+    }
+  ],
+  "hub_id": "hub-1"
+}

@@ -1,0 +1,141 @@
+{
+  "id": "conf::ds_5_allowed_matches_enforcement",
+  "contract": "hc",
+  "clause": "DS-5",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "denied": [
+        "hub.diagnostics"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "kind",
+        "args": {
+          "filter": {
+            "kind": "hub"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": [
+            {
+              "actions": {
+                "diagnostics": {
+                  "allowed": false,
+                  "permission": "hub.diagnostics"
+                },
+                "check_update": {
+                  "allowed": true
+                }
+              }
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC DS-5",
+        "HC A.7"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "invoke",
+        "kind": "hub",
+        "action": "diagnostics",
+        "args": {}
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "err": {
+          "code": "permission_denied",
+          "effect": "none"
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-5"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "invoke",
+        "kind": "hub",
+        "action": "check_update",
+        "args": {}
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "$any": true
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-5"
+    }
+  ]
+}

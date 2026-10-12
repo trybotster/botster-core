@@ -1,0 +1,191 @@
+{
+  "id": "conf::ui_id_2_node_ids_from_ids_and_row_keys",
+  "contract": "ui",
+  "clause": "UI-ID-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "static part, row node and row child ids",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x"
+            },
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": "a"
+            },
+            {
+              "id": "r2",
+              "v": "b"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "t": {
+          "type": "text"
+        },
+        "root": {
+          "type": "stack"
+        },
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "type": "list_item",
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f",
+              "props": {
+                "text": "a"
+              }
+            }
+          ]
+        },
+        "botster-ui-descendant-v1:1:l2:r2": {
+          "type": "list_item"
+        }
+      },
+      "because": "UI UI-ID-2"
+    },
+    {
+      "name": "a node id never uses an array index",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "0",
+              "v": "a"
+            },
+            {
+              "id": "1",
+              "v": "b"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l1:0": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:1:l1:1": {
+          "type": "list_item"
+        }
+      },
+      "because": "UI UI-ID-2"
+    },
+    {
+      "name": "a labeled field gets role segments",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v",
+                    "label": "Name"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": "a"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f9:container": {
+          "type": "inline",
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f5:label"
+            },
+            {
+              "id": "botster-ui-descendant-v1:63:botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f5:value"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-ID-2"
+    }
+  ]
+}

@@ -1,0 +1,408 @@
+{
+ "id": "conf::lb_15_files_assets_web_relay_shapes",
+ "contract": "lb",
+ "clause": "LB-15",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.relay.on(function(p, request) return { got = p.relay_id } end)\nbotster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local r = botster.fs.read{ root = \"docs\", path = \"a.txt\" }\n      local p = botster.assets.publish{ name = \"page\", content_type = \"text/html\", bytes_b64 = \"PGI+\" }\n      local l = botster.assets.lookup{ name = \"page\" }\n      local c = botster.web.set_origin{ origin = botster.json.null }\n      local s = botster.web.set_origin{ origin = { served = true } }\n      local o = botster.relay.open{}\n      local d = botster.relay.deliver{ relay_id = o.value.relay_id, envelope_b64 = \"e30=\" }\n      return { bytes = r.value.bytes_b64, eof = r.value.eof, asset = p.value.asset_id, lookup_type = l.value.content_type,\n               cleared = c.ok, served = s.ok,\n               relay = o.value.relay_id, delivered = d.value.status }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local n = botster.web.set_origin{}\n      return { ok = n.ok, kind = n.error and n.error.kind, effect = n.error and n.error.effect }\n    end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "handlers": {
+      "$array": {
+       "each": {
+        "kind": {
+         "$one_of": [
+          "mcp_tool",
+          "relay"
+         ]
+        }
+       },
+       "min": 3,
+       "max": 3
+      }
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "fs.read",
+     "args": {
+      "root": "docs",
+      "path": "a.txt"
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "bytes_b64": "aGk=",
+       "eof": true
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "assets.publish",
+     "args": {
+      "name": "page",
+      "content_type": "text/html",
+      "bytes_b64": "PGI+"
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "a1"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "assets.lookup",
+     "args": {
+      "name": "page"
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "a1",
+       "content_type": "text/html"
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "context": {
+      "request": 1
+     },
+     "call": "web.set_origin",
+     "args": {
+      "origin": null
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "context": {
+      "request": 1
+     },
+     "call": "web.set_origin",
+     "args": {
+      "origin": {
+       "served": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c5",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c6",
+     "context": {
+      "request": 1
+     },
+     "call": "relay.open",
+     "args": {}
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c6",
+     "result": {
+      "ok": true,
+      "value": {
+       "relay_id": "r1"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c7",
+     "context": {
+      "request": 1
+     },
+     "call": "relay.deliver",
+     "args": {
+      "relay_id": "r1",
+      "envelope_b64": "e30="
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c7",
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "bytes": "aGk=",
+       "eof": true,
+       "asset": "a1",
+       "lookup_type": "text/html",
+       "cleared": true,
+       "served": true,
+       "relay": "r1",
+       "delivered": "accepted"
+      }
+     }
+    }
+   },
+   "because": "LB LB-15"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "kind": "invalid_request",
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "web.set_origin"
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "because": "LB LB-15"
+  }
+ ]
+}

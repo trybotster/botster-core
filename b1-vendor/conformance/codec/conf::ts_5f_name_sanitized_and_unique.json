@@ -1,0 +1,269 @@
+{
+  "id": "conf::ts_5f_name_sanitized_and_unique",
+  "contract": "codec",
+  "clause": "TS-5f",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "fs_count"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "file_name_limit": 24,
+      "file_directory": "/files"
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "../my we!rd name.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "6f6e65"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "2",
+        "name": "../my we!rd name.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "74776f"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "2"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "3",
+        "name": "!!!"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "7468726565"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "3"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "4",
+        "name": "an-extremely-long-file-name-that-is-over-the-limit.markdown"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "666f7572"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "4"
+      }
+    },
+    {
+      "expect": {
+        "frame": "input_done",
+        "op": "1",
+        "path": "$p1"
+      },
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "expect": {
+        "frame": "input_done",
+        "op": "2",
+        "path": "$p2"
+      },
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "expect": {
+        "frame": "input_done",
+        "op": "3",
+        "path": "$p3"
+      },
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "expect": {
+        "frame": "input_done",
+        "op": "4",
+        "path": "$p4"
+      },
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_check_path": {
+        "path": "$p1",
+        "under": "/files",
+        "max_component_bytes": 24,
+        "contains": ".txt"
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_check_path": {
+        "path": "$p2",
+        "under": "/files",
+        "max_component_bytes": 24,
+        "contains": ".txt",
+        "differs_from": [
+          "$p1"
+        ]
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_check_path": {
+        "path": "$p3",
+        "under": "/files",
+        "max_component_bytes": 24,
+        "contains": "file"
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_check_path": {
+        "path": "$p4",
+        "under": "/files",
+        "max_component_bytes": 24,
+        "contains": ".markdown"
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "control": {
+        "op": "fs_count"
+      },
+      "expect": {
+        "count": 4
+      },
+      "because": "Codec TS-5f"
+    }
+  ]
+}

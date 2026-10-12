@@ -1,0 +1,200 @@
+{
+ "id": "conf::iv_7_result_cancel_race_one_answer",
+ "contract": "hp",
+ "clause": "IV-7",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "cancel",
+   "completions"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "dispatch_deadline": 100
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "cancel",
+    "ticket": "$t"
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "$one_of": [
+       {
+        "ok": true
+       },
+       {
+        "ok": false,
+        "error": {
+         "kind": "cancelled"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "because": "HP IV-7"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "handler": "h1"
+    }
+   },
+   "ignore": [
+    {
+     "lane": "control",
+     "type": "Cancel"
+    }
+   ],
+   "because": "HP IV-7"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "advance_clock": {
+    "ms": 100
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "ok": {
+       "$type": "boolean"
+      }
+     }
+    },
+    {
+     "ticket": "$t2",
+     "answer": {
+      "$one_of": [
+       {
+        "ok": true
+       },
+       {
+        "ok": false,
+        "error": {
+         "kind": "timed_out"
+        }
+       }
+      ]
+     }
+    }
+   ],
+   "because": "HP IV-7"
+  }
+ ]
+}

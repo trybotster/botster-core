@@ -1,0 +1,67 @@
+{
+ "id": "conf::hs_3_negotiates_highest",
+ "contract": "hp",
+ "clause": "HS-3",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "reconnect"
+  ]
+ },
+ "setup": {
+  "fixture": "host_proto_1_2"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "protocol_version": 2,
+     "min_protocol_version": 1
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "protocol_version": 2
+    }
+   },
+   "because": "HP HS-3"
+  },
+  {
+   "control": {
+    "op": "reconnect"
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 8,
+     "protocol_version": 1,
+     "min_protocol_version": 1
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 8,
+     "protocol_version": 1
+    }
+   },
+   "because": "HP HS-3"
+  }
+ ]
+}

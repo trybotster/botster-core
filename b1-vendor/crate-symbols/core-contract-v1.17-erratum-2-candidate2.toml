@@ -1,0 +1,36 @@
+# The crate symbols of each code span of core-contract-v1.17-erratum-2-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Core contract of `frozen/current` (manifest final13). It is unchanged except for the three readings below. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 1** (`6b1f5af5…c968`, commit `3eab5a4`), which the Amendment reviewer rejected (verdict `8314379`). E2-3's second bullet contradicted its first when a mode starts set: "set then reset" leaves the flags changed. Can...
+[rows."5"]
+"6b1f5af5…c968" = "n/a: a commit or file hash"
+
+# Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-01. Found by the Stage 1 Core lead's libghostty audit (`botster-core@fd1471ea:docs/stage1/libghostty-audit.md`).
+[rows."7"]
+"botster-core@fd1471ea:docs/stage1/libghostty-audit.md" = "n/a: a repository path"
+
+# **Why.** Steward rule R-7 makes libghostty, run in the worker, the only terminal oracle. BUILD.md also forbids a second terminal parser. Three phrases of EV-7 and the `ModeFlags` text read as if Core observed more than the terminal model...
+[rows."9"]
+"ModeFlags" = ["codec::ModeFlags"]
+"Output" = ["codec::ToClient::Output"]
+
+# | E2-1 | **Title: OSC 0 and OSC 2 only.** In EV-7, "title (OSC 0/1/2) → `TitleChanged`" becomes "title (OSC 0/2) → `TitleChanged`". This matches the `TitleChanged` row of section 6.2: "The title (OSC 0/2) … changed". OSC 1 sets the icon ...
+[rows."13"]
+"Output" = ["codec::ToClient::Output"]
+"TitleChanged" = ["core::Event::TitleChanged"]
+
+# | E2-2 | **`other_modes` is model state.** "An unknown mode is carried in `other_modes`" means: a mode that the terminal model tracks and that has no normative `ModeFlags` field. A mode number that the model does not recognize has **no s...
+[rows."14"]
+"ModeFlags" = ["codec::ModeFlags"]
+"Output" = ["codec::ToClient::Output"]
+"other_modes" = ["codec::ModeFlags::other_modes"]
+
+# | E2-3 | **A mode change is a change of the model's state between observations.**<br>- In EV-7, "every mode change → `ModesChanged`" means: whenever the session's `ModeFlags` (as the terminal model holds them) differ from the last posted...
+[rows."15"]
+"ModeFlags" = ["codec::ModeFlags"]
+"ModesChanged" = ["core::Event::ModesChanged"]
+"Output" = ["codec::ToClient::Output"]

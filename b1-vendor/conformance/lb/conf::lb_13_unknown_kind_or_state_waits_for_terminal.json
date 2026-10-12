@@ -1,0 +1,138 @@
+{
+ "id": "conf::lb_13_unknown_kind_or_state_waits_for_terminal",
+ "contract": "lb",
+ "clause": "LB-13",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.operations.on(function(record, request)\n  local finished = record.terminal == true\n  return { seen_kind = record.kind, seen_state = record.state, finished = finished }\nend)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "operations": {
+      "subscribed": "$ho"
+     }
+    }
+   },
+   "because": [
+    "LB LB-7"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-3",
+      "kind": "future_kind",
+      "state": "future_state",
+      "terminal": false
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "seen_kind": "future_kind",
+       "seen_state": "future_state",
+       "finished": false
+      }
+     }
+    }
+   },
+   "because": "LB LB-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-3",
+      "kind": "future_kind",
+      "state": "other_state",
+      "terminal": true
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "seen_kind": "future_kind",
+       "seen_state": "other_state",
+       "finished": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-13"
+  }
+ ]
+}

@@ -1,0 +1,229 @@
+{
+  "id": "conf::ui_pl_1_home_order_and_size_fallback",
+  "contract": "ui",
+  "clause": "UI-PL-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "views show in ascending order, ties by view id",
+      "home": {
+        "views": [
+          {
+            "id": "b",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 2
+            }
+          },
+          {
+            "id": "c",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 1
+            }
+          },
+          {
+            "id": "a",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 2
+            }
+          },
+          {
+            "id": "z",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 0
+            }
+          }
+        ],
+        "area": {
+          "sizes": [
+            "small",
+            "medium",
+            "wide",
+            "full"
+          ]
+        },
+        "expect": [
+          {
+            "view": "z"
+          },
+          {
+            "view": "c"
+          },
+          {
+            "view": "a"
+          },
+          {
+            "view": "b"
+          }
+        ]
+      },
+      "because": "UI UI-PL-1"
+    },
+    {
+      "name": "a client that has every size keeps each size",
+      "home": {
+        "views": [
+          {
+            "id": "s",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 1
+            }
+          },
+          {
+            "id": "m",
+            "placement": {
+              "area": "home",
+              "size": "medium",
+              "order": 2
+            }
+          },
+          {
+            "id": "w",
+            "placement": {
+              "area": "home",
+              "size": "wide",
+              "order": 3
+            }
+          },
+          {
+            "id": "f",
+            "placement": {
+              "area": "home",
+              "size": "full",
+              "order": 4
+            }
+          }
+        ],
+        "area": {
+          "sizes": [
+            "small",
+            "medium",
+            "wide",
+            "full"
+          ]
+        },
+        "expect": [
+          {
+            "view": "s",
+            "size": "small"
+          },
+          {
+            "view": "m",
+            "size": "medium"
+          },
+          {
+            "view": "w",
+            "size": "wide"
+          },
+          {
+            "view": "f",
+            "size": "full"
+          }
+        ]
+      },
+      "because": "UI UI-PL-1"
+    },
+    {
+      "name": "a client without full maps full to wide",
+      "home": {
+        "views": [
+          {
+            "id": "f",
+            "placement": {
+              "area": "home",
+              "size": "full",
+              "order": 1
+            }
+          }
+        ],
+        "area": {
+          "sizes": [
+            "small",
+            "medium",
+            "wide"
+          ]
+        },
+        "expect": [
+          {
+            "view": "f",
+            "size": "wide"
+          }
+        ]
+      },
+      "because": "UI UI-PL-1"
+    },
+    {
+      "name": "a client without full and wide maps full to wide and wide to medium",
+      "home": {
+        "views": [
+          {
+            "id": "f",
+            "placement": {
+              "area": "home",
+              "size": "full",
+              "order": 1
+            }
+          },
+          {
+            "id": "w",
+            "placement": {
+              "area": "home",
+              "size": "wide",
+              "order": 2
+            }
+          },
+          {
+            "id": "m",
+            "placement": {
+              "area": "home",
+              "size": "medium",
+              "order": 3
+            }
+          },
+          {
+            "id": "s",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 4
+            }
+          }
+        ],
+        "area": {
+          "sizes": [
+            "small",
+            "medium"
+          ]
+        },
+        "expect": [
+          {
+            "view": "f",
+            "size": "medium"
+          },
+          {
+            "view": "w",
+            "size": "medium"
+          },
+          {
+            "view": "m",
+            "size": "medium"
+          },
+          {
+            "view": "s",
+            "size": "small"
+          }
+        ]
+      },
+      "because": "UI UI-PL-1"
+    }
+  ]
+}

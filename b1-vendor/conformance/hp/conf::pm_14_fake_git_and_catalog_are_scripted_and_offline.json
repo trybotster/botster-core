@@ -1,0 +1,187 @@
+{
+ "id": "conf::pm_14_fake_git_and_catalog_are_scripted_and_offline",
+ "contract": "hp",
+ "clause": "PM-14",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "await_package",
+   "client_read",
+   "client_verb",
+   "edge_requests",
+   "real_network_attempts",
+   "script_catalog",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "the Hub's test harness provides a scripted git source and a scripted catalog as injected I/O edges of the real Hub (A3-1); the run has no real network",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "e1",
+       "kind": "plugin",
+       "name": "demo",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/a.git",
+        "ref": "v1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "catalog",
+      "catalog_id": "https://catalog.example/k1.json",
+      "entry_id": "e1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "1111111111111111111111111111111111111111",
+     "content_hash": "26f3af0752aeba29330f592116e00a79b2d3cee1168f2e7dc62182a56064d98d"
+    }
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "url": "https://git.example/a.git"
+      },
+      "min": 1
+     }
+    }
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "catalog"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "url": "https://catalog.example/k1.json"
+      },
+      "min": 1
+     }
+    }
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "real_network_attempts"
+   },
+   "expect": {
+    "count": 0
+   },
+   "because": "HP PM-14"
+  }
+ ]
+}

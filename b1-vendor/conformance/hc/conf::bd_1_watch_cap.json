@@ -1,0 +1,1041 @@
+{
+  "id": "conf::bd_1_watch_cap",
+  "contract": "hc",
+  "clause": "BD-1",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "limits": {
+        "max_watches": 32
+      }
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "limits": {
+          "max_watches": 32
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC HS-3",
+        "HC BD-1"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "4",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "5",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "5",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "6",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "6",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "7",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "7",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "8",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "8",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "9",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "9",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "10",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "10",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "11",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "11",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "12",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "12",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "13",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "13",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "14",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "14",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "15",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "15",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "16",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "16",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "17",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "17",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "18",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "18",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "19",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "19",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "20",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "20",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "21",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "21",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "22",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "22",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "23",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "23",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "24",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "24",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "25",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "25",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "26",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "26",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "27",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "27",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "28",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "28",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "29",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "29",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "30",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "30",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "31",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "31",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "32",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "32",
+        "ok": {
+          "watch_id": {
+            "$type": "string"
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "33",
+        "verb": "watch",
+        "kind": "hub"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "33",
+        "err": {
+          "code": "busy"
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC BD-1"
+    }
+  ]
+}

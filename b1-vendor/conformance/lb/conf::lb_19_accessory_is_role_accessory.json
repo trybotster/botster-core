@@ -1,0 +1,57 @@
+{
+ "id": "conf::lb_19_accessory_is_role_accessory",
+ "contract": "lb",
+ "clause": "LB-19",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "admit_package",
+   "package_session_types"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {},
+ "steps": [
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n",
+      "botster-accessory.json": "{\"id\": \"dev\", \"label\": \"Dev server\", \"command\": \"npm\", \"args\": [\"run\", \"dev\"]}"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LB-19"
+  },
+  {
+   "control": {
+    "op": "package_session_types"
+   },
+   "expect": {
+    "session_types": [
+     {
+      "id": "dev",
+      "label": "Dev server",
+      "command": "npm",
+      "args": [
+       "run",
+       "dev"
+      ],
+      "role": "accessory"
+     }
+    ]
+   },
+   "because": "LB LB-19"
+  }
+ ]
+}

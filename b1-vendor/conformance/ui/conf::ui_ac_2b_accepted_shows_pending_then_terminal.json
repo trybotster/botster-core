@@ -1,0 +1,146 @@
+{
+  "id": "conf::ui_ac_2b_accepted_shows_pending_then_terminal",
+  "contract": "ui",
+  "clause": "UI-AC-2b",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "restart": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "ops"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "ops",
+          "title": "Ops",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "restart"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_1_3"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "operation": {
+                "id": "op1"
+              },
+              "message": "Delivered"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "operation",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "op1",
+                "kind": "safe_write",
+                "state": "typing",
+                "terminal": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "pending": true
+        },
+        "because": "UI UI-AC-2b",
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "operation",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "op1",
+                "kind": "safe_write",
+                "state": "delivered",
+                "terminal": true
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "pending": false
+        },
+        "because": "UI UI-AC-2b",
+        "node_id": "go"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "Delivered"
+          }
+        },
+        "because": "UI UI-AC-2b"
+      }
+    }
+  ]
+}

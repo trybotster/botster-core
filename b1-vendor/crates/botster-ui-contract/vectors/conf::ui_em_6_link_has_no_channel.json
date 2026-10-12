@@ -1,0 +1,145 @@
+{
+  "id": "conf::ui_em_6_link_has_no_channel",
+  "contract": "ui",
+  "clause": "UI-EM-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a renderer that does not embed gets no channel",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "props": {
+            "channel": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-6"
+    },
+    {
+      "name": "a renderer that embeds gets the channel",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "props": {
+            "channel": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-6"
+    }
+  ]
+}

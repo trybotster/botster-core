@@ -1,0 +1,179 @@
+{
+ "id": "conf::er_3_detail_code_stability",
+ "contract": "hp",
+ "clause": "ER-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "store.put",
+     "context": "bootstrap",
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP ER-3",
+    "HP CA-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "no.such_call",
+     "context": "bootstrap",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "detail": {
+        "code": "unknown_call"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP ER-3",
+    "HP CA-1"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "descriptor_id": "desc-from-an-older-load"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "conflict",
+       "detail": {
+        "code": "stale_descriptor"
+       }
+      }
+     }
+    }
+   ],
+   "because": [
+    "HP ER-3",
+    "HP IV-8"
+   ]
+  }
+ ],
+ "setup": {
+  "calls": {
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    }
+   ]
+  }
+ }
+}

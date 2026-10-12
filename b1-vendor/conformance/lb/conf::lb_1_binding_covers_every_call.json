@@ -1,0 +1,85 @@
+{
+ "id": "conf::lb_1_binding_covers_every_call",
+ "contract": "lb",
+ "clause": "LB-1",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "local names = {\n  \"assets.lookup\",\n  \"assets.publish\",\n  \"base64.decode\",\n  \"base64.encode\",\n  \"clock.monotonic\",\n  \"clock.now\",\n  \"config.get\",\n  \"crypto.hmac_sha256\",\n  \"crypto.random_bytes\",\n  \"crypto.sha256\",\n  \"entity.publish\",\n  \"events.emit\",\n  \"events.on\",\n  \"events.on_gap\",\n  \"fs.list\",\n  \"fs.on_watch\",\n  \"fs.read\",\n  \"fs.stat\",\n  \"fs.unwatch\",\n  \"fs.watch\",\n  \"http.request\",\n  \"hub.identity\",\n  \"ids.new\",\n  \"json.array\",\n  \"json.decode\",\n  \"json.empty_array\",\n  \"json.encode\",\n  \"json.null\",\n  \"log.debug\",\n  \"log.error\",\n  \"log.info\",\n  \"log.warn\",\n  \"log.write\",\n  \"operations.cancel\",\n  \"operations.get\",\n  \"operations.on\",\n  \"plugins.bindings\",\n  \"plugins.call\",\n  \"process.run\",\n  \"register\",\n  \"relay.deliver\",\n  \"relay.on\",\n  \"relay.open\",\n  \"secrets.get\",\n  \"secrets.put\",\n  \"session_types.ensure_worktree_and_spawn\",\n  \"session_types.list\",\n  \"session_types.show\",\n  \"session_types.spawn\",\n  \"sessions.create_command\",\n  \"sessions.delete\",\n  \"sessions.get\",\n  \"sessions.list\",\n  \"sessions.read_cursor\",\n  \"sessions.read_screen\",\n  \"sessions.restart\",\n  \"sessions.safe_write\",\n  \"sessions.stop\",\n  \"sessions.terminal_state\",\n  \"sessions.update\",\n  \"sessions.write\",\n  \"spawn_targets.list\",\n  \"spawn_targets.validate\",\n  \"store.batch\",\n  \"store.delete\",\n  \"store.get\",\n  \"store.put\",\n  \"store.query\",\n  \"store.unwatch\",\n  \"store.watch\",\n  \"timers.arm\",\n  \"timers.cancel\",\n  \"web.set_ice_servers\",\n  \"web.set_origin\",\n  \"webhooks.on\",\n  \"worktrees.delete\",\n  \"worktrees.list\",\n  \"worktrees.show\",\n  \"ws.close\",\n  \"ws.open\",\n  \"ws.send\",\n}\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local missing = {}\n      for _, n in ipairs(names) do\n        local area, name = string.match(n, \"^([%w_]+)%.([%w_]+)$\")\n        local found\n        if area then\n          found = botster[area] ~= nil and botster[area][name] ~= nil\n        else\n          found = botster[n] ~= nil\n        end\n        if not found then missing[#missing + 1] = n end\n      end\n      return { checked = #names, missing = #missing, first_missing = missing[1] }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "checked": 81,
+       "missing": 0,
+       "first_missing": {
+        "$absent": true
+       }
+      }
+     }
+    }
+   },
+   "because": "LB LB-1"
+  }
+ ]
+}

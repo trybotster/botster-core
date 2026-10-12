@@ -1,0 +1,24 @@
+{
+ "protocol": [
+  1,
+  2
+ ],
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "return": {
+     "ok": 1
+    }
+   }
+  ]
+ }
+}

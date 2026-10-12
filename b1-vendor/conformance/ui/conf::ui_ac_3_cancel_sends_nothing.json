@@ -1,0 +1,139 @@
+{
+  "id": "conf::ui_ac_3_cancel_sends_nothing",
+  "contract": "ui",
+  "clause": "UI-AC-3",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "del": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "del",
+                    "label": "del",
+                    "handler": "del",
+                    "confirm": {
+                      "message": "Really?",
+                      "tone": "danger"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "del"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "confirm"
+          }
+        },
+        "because": "UI UI-AC-3",
+        "node_id": "del"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "del",
+            "count": 0
+          }
+        },
+        "because": "UI UI-AC-3"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "cancel": {}
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container6:cancel"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "no_dialog": true
+        },
+        "because": "UI UI-AC-3"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "del",
+            "count": 0
+          }
+        },
+        "because": "UI UI-AC-3"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "del"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "confirm": {}
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container7:confirm"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "del",
+            "count": 1
+          }
+        },
+        "because": "UI UI-AC-3"
+      }
+    }
+  ]
+}

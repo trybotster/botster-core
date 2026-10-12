@@ -1,0 +1,176 @@
+{
+  "id": "conf::ui_sa_5_warning_survives_confirm",
+  "contract": "ui",
+  "clause": "UI-SA-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the open action form shows the warning",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "tunnel",
+                  "label": "Stop tunnel",
+                  "handler": "tunnel",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "reason"
+                    ],
+                    "properties": {
+                      "reason": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Stop the tunnel?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "warning": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "tunnel"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:6:tunnel9:container"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:44:botster-ui-descendant-v1:6:tunnel9:container7:warning": {
+          "type": "text",
+          "props": {
+            "text": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again.",
+            "tone": "warning"
+          }
+        }
+      },
+      "because": "UI UI-SA-5"
+    },
+    {
+      "name": "the pending confirmation shows the warning",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "tunnel",
+                  "label": "Stop tunnel",
+                  "handler": "tunnel",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "reason"
+                    ],
+                    "properties": {
+                      "reason": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Stop the tunnel?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "actions": {
+                "tunnel": {
+                  "allowed": true,
+                  "warning": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again."
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "tunnel"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:6:tunnel9:container"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:44:botster-ui-descendant-v1:6:tunnel9:container7:warning": {
+          "type": "text",
+          "props": {
+            "text": "Stopping the tunnel closes every open connection for every user of this session, and the public link stops working until somebody starts the tunnel again.",
+            "tone": "warning"
+          }
+        }
+      },
+      "because": "UI UI-SA-5"
+    }
+  ]
+}

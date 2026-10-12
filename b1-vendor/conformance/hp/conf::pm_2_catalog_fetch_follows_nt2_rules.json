@@ -1,0 +1,144 @@
+{
+ "id": "conf::pm_2_catalog_fetch_follows_nt2_rules",
+ "contract": "hp",
+ "clause": "PM-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "client_read",
+   "client_verb",
+   "edge_requests",
+   "script_catalog",
+   "script_redirect",
+   "script_resolve"
+  ]
+ },
+ "setup": {
+  "given": "the operator approves a catalog url that resolves to a private address, and a second that redirects to a private address; neither is fetched",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_resolve",
+    "host": "catalog.private.example",
+    "addresses": [
+     "10.0.0.9"
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.private.example/k.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "zz",
+       "kind": "plugin",
+       "name": "zz",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/a.git"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_resolve",
+    "host": "catalog.example",
+    "addresses": [
+     "93.184.216.34"
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_redirect",
+    "url": "https://catalog.example/k2.json",
+    "to": "https://catalog.private.example/k.json"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.private.example/k.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k2.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.private.example/k.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k2.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "connections"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "address": {
+        "$not": "10.0.0.9"
+       }
+      }
+     }
+    }
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package"
+   },
+   "expect": {
+    "rows": []
+   },
+   "because": "HP PM-2"
+  }
+ ]
+}

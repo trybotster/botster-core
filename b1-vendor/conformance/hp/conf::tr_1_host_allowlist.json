@@ -1,0 +1,81 @@
+{
+ "id": "conf::tr_1_host_allowlist",
+ "contract": "hp",
+ "clause": "TR-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "load_plugin"
+  ]
+ },
+ "setup": {
+  "shipped_hosts": [
+   "/hub/hosts/lua"
+  ],
+  "trusted_hosts": [
+   {
+    "path": "/opt/hosts/js",
+    "digest": "sha256:aa11"
+   }
+  ],
+  "given": "the Hub ships the host /hub/hosts/lua; the operator's trusted-host list holds /opt/hosts/js with digest sha256:aa11"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "p2",
+    "as": "p2",
+    "host": {
+     "path": "/opt/hosts/js",
+     "digest": "sha256:aa11"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "plugin_key": "p2"
+    }
+   },
+   "because": "HP TR-1",
+   "on": "p2"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "p3",
+    "as": "p3",
+    "host": {
+     "path": "/hub/hosts/lua",
+     "digest": "sha256:any"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e3",
+     "plugin_key": "p3"
+    }
+   },
+   "because": "HP TR-1",
+   "on": "p3"
+  }
+ ]
+}

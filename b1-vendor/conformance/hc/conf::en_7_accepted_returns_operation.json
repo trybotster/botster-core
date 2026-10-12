@@ -1,0 +1,162 @@
+{
+  "id": "conf::en_7_accepted_returns_operation",
+  "contract": "hc",
+  "clause": "EN-7",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "invoke",
+        "kind": "session",
+        "action": "stop",
+        "args": {},
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "operation": {
+            "id": "$op",
+            "kind": {
+              "$type": "string"
+            },
+            "terminal": false
+          }
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC EN-7",
+        "HC A.7b"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "get",
+        "kind": "operation",
+        "target": "$op"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "id": "$op"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-7"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "create",
+        "kind": "session",
+        "args": {
+          "command": {
+            "argv": [
+              "sh"
+            ]
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "operation_id": "$o2",
+          "session": {
+            "hub_id": {
+              "$type": "string"
+            },
+            "session_id": "$sid"
+          },
+          "state": "starting"
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC EN-7",
+        "HC A.9"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "get",
+        "kind": "operation",
+        "target": "$o2"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "ok": {
+          "id": "$o2"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-7"
+    }
+  ]
+}

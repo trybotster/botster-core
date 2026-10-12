@@ -1,0 +1,297 @@
+{
+  "id": "conf::ui_fm_4_stale_selection_cleared",
+  "contract": "ui",
+  "clause": "UI-FM-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a chosen value that left the options is unset and marked option_unavailable",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha",
+              "team": "t1"
+            },
+            {
+              "id": "w2",
+              "name": "Beta",
+              "team": "t2"
+            },
+            {
+              "id": "w3",
+              "name": "Gamma",
+              "team": "t1"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:team": {
+            "value": "t2"
+          },
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws": {
+            "value": "w1"
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws"
+          ],
+          "stamped_errors": [
+            {
+              "draft_key": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws",
+              "code": "option_unavailable"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws6:widget": {
+          "props": {
+            "value": {
+              "$absent": true
+            }
+          }
+        },
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws": {
+          "props": {
+            "error": {
+              "code": "option_unavailable"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-4",
+      "expect_idempotent": true
+    },
+    {
+      "name": "a value that is still an option stays",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "team": {
+                        "type": "string"
+                      },
+                      "ws": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "ws",
+                            "value_field": "/id",
+                            "label_field": "/name",
+                            "where": {
+                              "eq": [
+                                {
+                                  "path": "/team"
+                                },
+                                {
+                                  "form": "/team"
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "team": {
+                    "type": "string"
+                  },
+                  "ws": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "ws",
+                        "value_field": "/id",
+                        "label_field": "/name",
+                        "where": {
+                          "eq": [
+                            {
+                              "path": "/team"
+                            },
+                            {
+                              "form": "/team"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "Alpha",
+              "team": "t1"
+            },
+            {
+              "id": "w2",
+              "name": "Beta",
+              "team": "t2"
+            },
+            {
+              "id": "w3",
+              "name": "Gamma",
+              "team": "t1"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:team": {
+            "value": "t1"
+          },
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws": {
+            "value": "w1"
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws6:widget": {
+          "props": {
+            "value": "w1"
+          }
+        },
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container2:ws": {
+          "props": {
+            "error": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-4"
+    }
+  ]
+}

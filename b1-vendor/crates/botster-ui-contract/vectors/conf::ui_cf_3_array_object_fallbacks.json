@@ -1,0 +1,442 @@
+{
+  "id": "conf::ui_cf_3_array_object_fallbacks",
+  "contract": "ui",
+  "clause": "UI-CF-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an array of strings is one text field with one element per line",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "default": [
+                          "a",
+                          "b"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [
+                      "a",
+                      "b"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:tags6:widget": {
+          "props": {
+            "value": "a\nb",
+            "read_only": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "an element with a newline is shown read-only as JSON",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:tags": {
+            "value": [
+              "a\nb",
+              "c"
+            ]
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:tags6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "an array of anything else is read-only JSON",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "nums": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer"
+                        },
+                        "default": [
+                          1,
+                          2
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nums": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    },
+                    "default": [
+                      1,
+                      2
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:nums6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a nested array is read-only JSON",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "m": {
+                        "type": "array",
+                        "items": {
+                          "type": "array"
+                        },
+                        "default": [
+                          [
+                            1
+                          ]
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "m": {
+                    "type": "array",
+                    "items": {
+                      "type": "array"
+                    },
+                    "default": [
+                      [
+                        1
+                      ]
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:m6:widget": {
+          "props": {
+            "read_only": true
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    },
+    {
+      "name": "a required array with no default and no editor refuses the form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "nums": {
+                        "type": "array",
+                        "items": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    "required": [
+                      "nums"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nums": {
+                    "type": "array",
+                    "items": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "required": [
+                  "nums"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "uneditable_required_property"
+      ],
+      "because": "UI UI-CF-3",
+      "expect_absent": [
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:nums",
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:nums6:widget"
+      ]
+    },
+    {
+      "name": "an array default with a newline in an element is refused at admission",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "tags": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "default": [
+                          "a\nb"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [
+                      "a\nb"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "bad_default"
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [
+                    "a\nb"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-CF-3"
+    }
+  ]
+}

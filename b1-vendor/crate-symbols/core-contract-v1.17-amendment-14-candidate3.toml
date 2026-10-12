@@ -1,0 +1,76 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-14-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Core contract v1.17, Amendment 14 (candidate 3): `clipboard_bytes` bounds every payload byte the model holds for one clipboard write
+[rows."1"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+
+# The base is the Core contract of `frozen/current` (manifest final31), with Amendment 13, which are unchanged except where A14-4 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 2** (`f105f2f0…e992`, commit `a9efd6c`), which the Amendment reviewer rejected (verdict `a8a6997`):
+[rows."5"]
+"a8a6997" = "n/a: a commit or file hash"
+"a9efd6c" = "n/a: a commit or file hash"
+"f105f2f0…e992" = "n/a: a commit or file hash"
+
+# 3. "May set the model's limit" did not establish a memory guarantee, and it conflicted with R-32's exception for a `clipboard_bytes` above the model's limit. Candidate 2 **requires** the model's limit to equal `clipboard_bytes`, so that ...
+[rows."12"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+
+# **Why.** 9B says `clipboard_bytes` is "the largest clipboard write Core carries (a memory bound; a larger one is reported, never dropped silently)". EV-3, as A13-2 replaces it, calls it "a memory bound, not a filter". A13 measures a writ...
+[rows."16"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"src/terminal/kitty/clipboard_write.zig" = "n/a: a source path of libghostty"
+
+# So, at a 64 MiB model limit with a 1 MiB `clipboard_bytes`, the model may hold 64 times the stated bound. At a model limit of 1 MiB, A13 would require `SUCCESS` for a write whose final sum is small but which the model did not carry.
+[rows."21"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+
+# | A14-1 | **Two sizes per write, from payload bytes only.**<br>- **The decoded size** of a write is the number of payload bytes the terminal model decodes for it: every chunk of every region, **including regions that a later region of th...
+[rows."25"]
+"Copy" = "n/a: the OSC 1337 Copy command name"
+"contents" = ["core::Event::ClipboardWrite::contents"]
+
+# | A14-2 | **The bound and the outcomes.**<br>- **Step 1, the decoded size.** When the decoded size is over `CoreLimits.clipboard_bytes`, the model has kept no payload (A14-3). The write is posted with `contents: none`, `reason: TooLarge`...
+[rows."26"]
+"CoreLimits.clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"TooLarge" = ["core::ClipboardReason::TooLarge"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"contents" = ["core::Event::ClipboardWrite::contents"]
+"contents: none" = { symbols = ["core::Event::ClipboardWrite::contents"], uncovered = { none = "the absent (None) value" } }
+"reason: TooLarge" = ["core::ClipboardReason::TooLarge", "core::Event::ClipboardWrite::reason"]
+"text/html" = "n/a: a MIME type"
+"text/plain" = "n/a: a MIME type"
+"text/x-copy" = "n/a: a MIME type"
+"total_bytes" = ["core::Event::ClipboardWrite::total_bytes"]
+"total_bytes: 1048577" = ["core::Event::ClipboardWrite::total_bytes"]
+"total_bytes: 1048578" = ["core::Event::ClipboardWrite::total_bytes"]
+"total_bytes: 1228800" = ["core::Event::ClipboardWrite::total_bytes"]
+
+# | A14-3 | **The model's limit equals the bound, and what the bound guarantees.**<br>- **Core configures the terminal model so that its own limit on a write's decoded payload equals `clipboard_bytes`.** Then the model holds the decoded pa...
+[rows."27"]
+"TooLarge" = ["core::ClipboardReason::TooLarge"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"total_bytes: N + 1" = ["core::Event::ClipboardWrite::total_bytes"]
+
+# 1. **A13-1, "Size":** "`total_bytes` is the sum of all representations' byte lengths. Over `CoreLimits.clipboard_bytes`, the write is surfaced with `contents: none`, `total_bytes` and `reason: TooLarge`" reads with A14-1 and A14-2. The b...
+[rows."31"]
+"CoreLimits.clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"TooLarge" = ["core::ClipboardReason::TooLarge"]
+"contents: none" = { symbols = ["core::Event::ClipboardWrite::contents"], uncovered = { none = "the absent (None) value" } }
+"reason: TooLarge" = ["core::ClipboardReason::TooLarge", "core::Event::ClipboardWrite::reason"]
+"total_bytes" = ["core::Event::ClipboardWrite::total_bytes"]
+
+# 2. **A13-1b, the status:** "the write's total bytes are within `clipboard_bytes`" reads "neither step of A14-2 applies", and "the write is over `clipboard_bytes`" reads "a step of A14-2 applies".
+[rows."32"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+
+# 3. **9B, `clipboard_bytes`:** "the largest clipboard write Core carries" means the largest write that passes both steps of A14-2. The model's own decode limit equals it (A14-3).
+[rows."33"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+
+# 4. **Steward ruling R-32**, the case of a `clipboard_bytes` above the model's limit: it no longer arises (A14-3). R-32's report (no contents, the decoded size) is unchanged, and step 1 of A14-2 uses it. The rest of R-32 stands.
+[rows."34"]
+"clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]

@@ -1,0 +1,67 @@
+# The crate symbols of each code span of hub-client-contract-v1-amendment-6-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Hub→client contract of `frozen/current` (manifest final31), with Amendments 1 to 5, which are unchanged except where A6-3 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# - **The install result.** CLI-PL3 prints `Installed <name> <version> (<source>)`, "with `<version>` from the version of the installed `package` row, read by `get(package, <key>)` after the operation", and treats a `staged` package as suc...
+[rows."8"]
+"<name>" = ["hub::PackageRow::name"]
+"<name>@<target_id>" = ["hub::PackageRow::name", "hub::PackageRow::target_id"]
+"<version>" = ["hub::PackageRow::version"]
+"Installed <name> <version> (<source>)" = { symbols = ["hub::PackageRow::name", "hub::PackageRow::version", "hub::PackageRow::source"], uncovered = { Installed = "a word of the CLI output text" } }
+"create(package, {source, enable?})" = ["hub.kind:package", "hub.action:package.enable", "hub::Verb::Create", "hub::PackageRow::source"]
+"get(package, <key>)" = { symbols = ["hub::Verb::Get", "hub.kind:package"], uncovered = { key = "the row key argument" } }
+"install" = "n/a: the CLI command name (CLI-PL3)"
+"list(package)" = ["hub.kind:package", "hub::Verb::List"]
+"package" = ["hub.kind:package"]
+"package.install" = ["hub.operation:package.install"]
+"staged" = ["hub.reason:package.enable:wrong_state:staged"]
+
+# - **The detached head.** The `worktree` row is `id`, `target_id`, `path`, `branch`, `state`, `active_sessions`, and `branch` is a string. A worktree whose HEAD is detached has no branch. The CLI spec (CLI-WT1) prints "a marker for a deta...
+[rows."9"]
+"active_sessions" = ["hub::WorktreeRow::active_sessions"]
+"branch" = ["hub::WorktreeRow::branch"]
+"id" = ["hub::WorktreeRow::id"]
+"path" = ["hub::WorktreeRow::path"]
+"state" = ["hub::WorktreeRow::state"]
+"target_id" = ["hub::WorktreeRow::target_id"]
+"worktree" = ["hub.kind:worktree"]
+
+# | A6-1 | **`package.install` names the package it installed.** The A.7b row for `package.install` gains `result { package, version }`, in the same place as `package.upgrade`'s result: `package` is the package key (the `package` row's `id...
+[rows."13"]
+"failed" = ["hub.operation_state:package.install:failed"]
+"get(package, <package>)" = ["hub.kind:package", "hub::Verb::Get"]
+"id" = ["hub::PackageRow::id"]
+"package" = ["hub.kind:package"]
+"package.install" = ["hub.operation:package.install"]
+"package.upgrade" = ["hub.operation:package.upgrade"]
+"result { package, version }" = ["hub.operation_result:package.install", "hub::PackageInstallResult::package", "hub::PackageInstallResult::version", "hub::OperationRow::result"]
+"staged" = ["hub.reason:package.enable:wrong_state:staged"]
+"succeeded" = ["hub.operation_state:package.install:succeeded"]
+"version" = ["hub::PackageInstallResult::version"]
+
+# | A6-2 | **A worktree row shows a detached head.** In the `worktree` row, **`branch` is optional**: it is present, as the branch name, when the worktree's HEAD is on a branch, and **absent when HEAD is detached** (absent, not null, as th...
+[rows."14"]
+"branch" = ["hub::WorktreeRow::branch"]
+"head" = ["hub::WorktreeRow::head"]
+"worktree" = ["hub.kind:worktree"]
+
+# 1. **A.7b, the `package.install` entry** (Hub→client Amendment 2): "`package.install` (`failed` with …)" reads "`package.install` (`result { package, version }`; `failed` with …)" (A6-1).
+[rows."18"]
+"failed" = ["hub.operation_state:package.install:failed"]
+"package.install" = ["hub.operation:package.install"]
+"result { package, version }" = ["hub.operation_result:package.install", "hub::PackageInstallResult::package", "hub::PackageInstallResult::version", "hub::OperationRow::result"]
+
+# 2. **Section 6, the `worktree` row:** "`id`, `target_id`, `path`, `branch`, `state`, `active_sessions`" reads "`id`, `target_id`, `path`, `branch?`, `head`, `state`, `active_sessions`" (A6-2).
+[rows."19"]
+"active_sessions" = ["hub::WorktreeRow::active_sessions"]
+"branch" = ["hub::WorktreeRow::branch"]
+"branch?" = ["hub::WorktreeRow::branch"]
+"head" = ["hub::WorktreeRow::head"]
+"id" = ["hub::WorktreeRow::id"]
+"path" = ["hub::WorktreeRow::path"]
+"state" = ["hub::WorktreeRow::state"]
+"target_id" = ["hub::WorktreeRow::target_id"]
+"worktree" = ["hub.kind:worktree"]

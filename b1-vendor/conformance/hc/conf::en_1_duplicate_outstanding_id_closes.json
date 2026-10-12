@@ -1,0 +1,102 @@
+{
+  "id": "conf::en_1_duplicate_outstanding_id_closes",
+  "contract": "hc",
+  "clause": "EN-1",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "hold_completion"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "hold_completion",
+        "count": 1
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "get",
+        "kind": "session",
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "get",
+        "kind": "session",
+        "target": "s2"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "close",
+        "reason": {
+          "protocol_error": {
+            "code": "duplicate_request_id"
+          }
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC EN-1",
+        "HC A.1"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "c1",
+      "because": "HC HS-9"
+    }
+  ]
+}

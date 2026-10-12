@@ -1,0 +1,231 @@
+{
+ "id": "conf::ld_9_paused_old_write_refused_after_activation",
+ "contract": "hp",
+ "clause": "LD-9",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "reload",
+   "expire_drain",
+   "hold_commits",
+   "release_commits",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "hold_commits"
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 51,
+     "call": "store.put",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostResult"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LD-9"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": false,
+     "instance": "$i2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "control": {
+    "op": "expire_drain"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "control": {
+    "op": "release_commits"
+   }
+  },
+  {
+   "expect_set": [
+    {
+     "lane": "control",
+     "type": "Cancel",
+     "payload": {
+      "epoch": "$e",
+      "request_id": "$r"
+     }
+    },
+    {
+     "lane": "control",
+     "type": "Shutdown",
+     "payload": {
+      "epoch": "$e"
+     }
+    },
+    {
+     "lane": "call",
+     "type": "HostResult",
+     "payload": {
+      "epoch": "$e",
+      "call_id": 51,
+      "result": {
+       "ok": false,
+       "error": {
+        "kind": "unavailable",
+        "detail": {
+         "code": "instance_fenced"
+        }
+       }
+      },
+      "effect": "none"
+     }
+    }
+   ],
+   "because": [
+    "HP LD-9",
+    "HP A2-11"
+   ]
+  }
+ ],
+ "setup": {
+  "calls": {
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    }
+   ]
+  }
+ }
+}

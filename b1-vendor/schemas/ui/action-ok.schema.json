@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionOk",
+  "description": "The `ok` value of a `ui_action` (UI-AC-1, UI-AC-1b, UI-AC-6). A successful result carries no replacement tree.",
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "navigate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NavigationTarget"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "NavigationTarget": {
+      "description": "A navigation target with row keys (UI-SL-6, UI-AC-6).",
+      "type": "object",
+      "properties": {
+        "view": {
+          "type": "string"
+        },
+        "select": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "view"
+      ]
+    }
+  }
+}

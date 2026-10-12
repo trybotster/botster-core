@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Script",
+  "description": "A probe script. `F` is the type of the top-level `fake` part: the opaque JSON value by default, or a fake's own type.",
+  "type": "object",
+  "properties": {
+    "program": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Step"
+      },
+      "default": []
+    },
+    "fake": {
+      "description": "Script data for a fake (R-5). Real Core and the probe binary ignore it."
+    }
+  },
+  "$defs": {
+    "Step": {
+      "description": "One step of the program. The program runs its steps in order; a step that waits holds the later ones back (Core A5-1). Every step\ncontinues with the next one, except `Exit`, `SignalSelf` and `Hold`, which end the program or never finish (design 6.2).",
+      "oneOf": [
+        {
+          "description": "Writes bytes to the terminal.",
+          "type": "object",
+          "properties": {
+            "print": {
+              "type": "object",
+              "properties": {
+                "bytes_hex": {
+                  "type": "string"
+                },
+                "fake": {
+                  "$ref": "#/$defs/StepFake",
+                  "default": {
+                    "modes": null
+                  }
+                }
+              },
+              "required": [
+                "bytes_hex"
+              ]
+            }
+          },
+          "required": [
+            "print"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Waits until the program has read the matching input, then writes bytes. The match consumes the input up to its end: a later\n`print_after_input` matches only input that comes after that point (design 6.2). Input after the match stays for the later step. An empty `match_hex` matches at once and consumes nothing.",
+          "type": "object",
+          "properties": {
+            "print_after_input": {
+              "type": "object",
+              "properties": {
+                "match_hex": {
+                  "type": "string"
+                },
+                "bytes_hex": {
+                  "type": "string"
+                },
+                "fake": {
+                  "$ref": "#/$defs/StepFake",
+                  "default": {
+                    "modes": null
+                  }
+                }
+              },
+              "required": [
+                "match_hex",
+                "bytes_hex"
+              ]
+            }
+          },
+          "required": [
+            "print_after_input"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Exits with a code.",
+          "type": "object",
+          "properties": {
+            "exit": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "required": [
+                "code"
+              ]
+            }
+          },
+          "required": [
+            "exit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Kills itself with a signal.",
+          "type": "object",
+          "properties": {
+            "signal_self": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "required": [
+                "n"
+              ]
+            }
+          },
+          "required": [
+            "signal_self"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Ignores `SIGTERM`. This applies to this process only; a `fork_child` process follows only its own script (design 6.2).",
+          "type": "object",
+          "properties": {
+            "ignore_sigterm": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "ignore_sigterm"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Starts a child process that runs a script in the same process group.",
+          "type": "object",
+          "properties": {
+            "fork_child": {
+              "type": "object",
+              "properties": {
+                "script": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/Step"
+                  }
+                }
+              },
+              "required": [
+                "script"
+              ]
+            }
+          },
+          "required": [
+            "fork_child"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Runs until a signal ends it.",
+          "type": "object",
+          "properties": {
+            "hold": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "hold"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StepFake": {
+      "description": "Script data of one step for a fake (R-5): what a terminal library would find in the printed bytes. A real subject ignores it.",
+      "type": "object",
+      "properties": {
+        "modes": {
+          "description": "The modes that the printed bytes set, as a partial `ModeFlags`.",
+          "default": null
+        }
+      }
+    }
+  }
+}

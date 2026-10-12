@@ -1,0 +1,216 @@
+{
+ "id": "conf::hs_7_bootstrap_reads_only",
+ "contract": "hp",
+ "clause": "HS-7",
+ "subject": "plugin_hub",
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "config.get",
+     "context": "bootstrap",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP HS-7"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "store.put",
+     "context": "bootstrap",
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP HS-7",
+    "HP CA-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "log.write",
+     "context": "bootstrap",
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP HS-7"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "config.get",
+     "context": "bootstrap",
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP HS-7",
+    "HP CA-3"
+   ]
+  }
+ ],
+ "setup": {
+  "calls": {
+   "config.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "values": {},
+       "missing_required": [],
+       "diagnostics": []
+      }
+     }
+    }
+   ],
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    }
+   ]
+  }
+ }
+}

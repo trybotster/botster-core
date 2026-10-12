@@ -1,0 +1,363 @@
+# The crate symbols of each code span of ui-contract-v1.4-realize-completeness-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # ui-contract 1.4 amendment (candidate 3): what `realize` emits
+[rows."1"]
+"realize" = ["ui::realize"]
+
+# Owner: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-09-30. MINOR 1.4, feature `ui_1_4`. **This file is the amendment, in the post-freeze amendment path.** The base is the ui-contract of `frozen/final6` (1.0, 1...
+[rows."3"]
+"frozen/final6" = "n/a: a repository path"
+"ui_1_4" = ["ui.feature:ui_1_4"]
+
+# **History.** Supersedes candidate 2 (`6a33b4bf…88ef`, commit `c693231`). The changes answer the Amendment reviewer's second REJECT (`verdicts/amendments.md`, commit `8cbb821`):
+[rows."5"]
+"c693231" = "n/a: a commit or file hash"
+"verdicts/amendments.md" = "n/a: a repository path"
+
+# 1. `realize` never discards a draft or an overlay. A draft or overlay whose property or button is gone is **kept and not shown**, so UI-AC-7(b) holds across a descriptor re-read (UI-NV-4, UI-NV-5).
+[rows."6"]
+"realize" = ["ui::realize"]
+
+# 2. For one button, a `form` entry always shows before a `confirm` entry, whatever their order in the list (UI-NV-4).
+[rows."7"]
+"confirm" = ["ui::Overlay::Confirm"]
+"form" = ["ui::Overlay::Form"]
+
+# 3. Each `errors` entry maps to a defined node. A field error is the field's `error` prop. A form error or an action error is an `error`-tone `text` node that UI-NV-3 places (UI-AC-7(a)).
+[rows."8"]
+"error" = { symbols = ["ui.prop:form_field:error", "ui::Tone::Danger"], uncovered = { error = "also the tone word that UI 1.4 erratum 1 (UI-NV-8) maps to Tone::Danger" } }
+"errors" = ["ui::LocalState::errors"]
+"text" = ["ui::UiNodeKind::Text"]
+
+# 4. The UI-FM-4 clear is an explicit draft, `{ unset: true }`. It hides the schema default, so the next `realize` finds nothing to clear. The stamped error replaces the field's earlier error. `realize` computes the tree as if its changes ...
+[rows."9"]
+"realize" = ["ui::realize"]
+"{ unset: true }" = { symbols = ["ui::Draft::Unset"], uncovered = { true = "a JSON literal value" } }
+
+# Candidate 2 superseded candidate 1 (`bf0b4e00…8360`, commit `8b920a9`). Its changes answered the Amendment reviewer's REJECT (`verdicts/amendments.md`, commit `74e4f4f`):
+[rows."11"]
+"bf0b4e00…8360" = "n/a: a commit or file hash"
+"verdicts/amendments.md" = "n/a: a repository path"
+
+# 2. UI-CF-6 keeps `external_open` (1.1 UI-CF-5) and `embed` (1.2 UI-EM-6) and separates `embed` from `ui_embed`. Each list has its own absence rule. An absent `features` or `screens` list means "none", so UI-CF-5(a), UI-EM-6 and UI-SL-3 k...
+[rows."13"]
+"embed" = ["ui.client_feature:embed"]
+"external_open" = ["ui.client_feature:external_open"]
+"features" = ["ui::Capabilities::features"]
+"screens" = ["ui::Capabilities::screens"]
+"ui_embed" = ["ui.feature:ui_embed"]
+
+# 3. UI-NV-3 no longer changes admission. Every new role segment sits below a segment that UI-ID-1 already reserves, or below a node with no authored children. The reserved word set of UI-ID-1 (with `warning`, 1.2 UI-SA-5) is unchanged, an...
+[rows."14"]
+"warning" = ["ui.role:warning"]
+
+# 5. UI-NV-6 defines the `Text` value: a JSON string is authored text, and a `{ copy }` object is a copy key. It lists the props that may hold a copy key, and it defines the keys that take parameters.
+[rows."16"]
+"Text" = ["ui::Text"]
+"{ copy }" = ["ui::Text::Copy", "ui::CopyKey::copy"]
+
+# - The `error` prop is now `{ code, message? }`. In candidate 1, a bare string could not tell a code from a message. `required_missing` is now an error code, not a copy key.
+[rows."19"]
+"error" = ["ui.prop:form_field:error", "ui::ErrorValue"]
+"required_missing" = ["ui::ErrorValue::code", "ui.local_error:required_missing"]
+"{ code, message? }" = ["ui::ErrorValue::code", "ui::ErrorValue::message"]
+
+# - Overlays are keyed by the button node id. An `{ action, row_key }` key could not tell apart two buttons that refer to the same action.
+[rows."20"]
+"{ action, row_key }" = "n/a: a key shape that UI-NV-4 rejects, because it cannot tell two buttons apart; no type holds a rejected shape"
+
+# - The default labels of `form.submit` (UI-PT-5) and of UI-RC-5 ("Nothing selected") are now copy keys.
+[rows."21"]
+"form.submit" = ["ui::Part::Form", "ui::FormPart::submit"]
+
+# **Why.** The Foundation build of `botster-ui-contract` found items that `realize` must emit, and that the vectors therefore fix. Neither a frozen clause nor the adopted UiNode schema names them (steward ruling R-2.3). The UI section 16 r...
+[rows."23"]
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"realize" = ["ui::realize"]
+
+# **Adopted vocabulary.** The UiNode kinds and the per-kind prop schema are the existing `botster-ui-contract` `UiNode` (UI section 12), taken from `botster-hub@9e1ba42803eeab4856181e4012d3435f9a763949:crates/botster-ui-contract/src/lib.rs...
+[rows."25"]
+"UiNode" = ["ui::UiNode"]
+"botster-hub@9e1ba42803eeab4856181e4012d3435f9a763949:crates/botster-ui-contract/src/lib.rs" = "n/a: a repository path"
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+
+# | UI-NV-1 | **Added props.** These props join the per-kind schema. Each prop takes its value only from the clause that names it. A prop with no value is omitted (UI-RZ-2a). The props are:<br>- `state`: `"loading"`, `"empty"` or `"error"`...
+[rows."31"]
+"\"empty\"" = { symbols = ["ui.prop:list:state"], uncovered = { empty = "GAP(ui): a value of the list, table and panel state prop (realize.rs); no public type holds the state values" } }
+"\"error\"" = { symbols = ["ui.prop:list:state"], uncovered = { error = "GAP(ui): a value of the list, table and panel state prop (realize.rs); no public type holds the state values" } }
+"\"loading\"" = { symbols = ["ui.prop:list:state"], uncovered = { loading = "GAP(ui): a value of the list, table and panel state prop (realize.rs); no public type holds the state values" } }
+"Text" = ["ui::Text"]
+"activate" = "n/a: GAP(ui): a member of a table.rows entry (realize.rs); no type holds the table row entry"
+"asset_id" = ["ui.prop:embed:asset_id"]
+"checkbox" = ["ui::UiNodeKind::Checkbox"]
+"collapsed: bool" = { symbols = ["ui.prop:form_section:collapsed"], uncovered = { bool = "a primitive type name" } }
+"detail: string" = { symbols = ["ui.prop:list:detail", "ui.prop:table:detail", "ui.prop:panel:detail"], uncovered = { string = "a primitive type name" } }
+"embed" = ["ui::UiNodeKind::Embed"]
+"error" = { symbols = ["ui.prop:list:state"], uncovered = { error = "GAP(ui): a value of the list, table and panel state prop (realize.rs); no public type holds the state values" } }
+"form_section" = ["ui::UiNodeKind::FormSection"]
+"indent: bool" = { symbols = ["ui.prop:stack:indent"], uncovered = { bool = "a primitive type name" } }
+"input: \"text\" \\| \"number\"" = { symbols = ["ui.prop:text_input:input"], uncovered = { text = "GAP(ui): a value of the text_input input prop (realize.rs); no public type holds the values", number = "GAP(ui): a value of the text_input input prop (realize.rs); no public type holds the values" } }
+"list" = ["ui::UiNodeKind::List"]
+"masked: bool" = { symbols = ["ui.prop:text_input:masked"], uncovered = { bool = "a primitive type name" } }
+"name" = ["ui.prop:embed:name"]
+"panel" = ["ui::UiNodeKind::Panel"]
+"read_only: bool" = { symbols = ["ui.prop:text_input:read_only", "ui.prop:textarea:read_only", "ui.prop:checkbox:read_only", "ui.prop:select:read_only"], uncovered = { bool = "a primitive type name" } }
+"secret: true" = { symbols = ["ui::FormPart::schema"], uncovered = { secret = "a form schema keyword (UI-FM-8) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"secret_set: bool" = { symbols = ["ui.prop:text_input:secret_set"], uncovered = { bool = "a primitive type name" } }
+"section" = ["ui::UiNodeKind::Section"]
+"select" = ["ui::UiNodeKind::Select"]
+"selected: bool" = "n/a: GAP(ui): a member of a table.rows entry (realize.rs); no type holds the table row entry"
+"set: bool" = { symbols = ["plugin::SecretValue::Set"], uncovered = { bool = "a primitive type name" } }
+"stack" = ["ui::UiNodeKind::Stack"]
+"state" = ["ui.prop:list:state", "ui.prop:table:state", "ui.prop:panel:state", "ui.prop:embed:state"]
+"table" = ["ui::UiNodeKind::Table"]
+"table.rows" = ["ui.prop:table:rows", "ui::UiNodeKind::Table"]
+"text_input" = ["ui::UiNodeKind::TextInput"]
+"textarea" = ["ui::UiNodeKind::Textarea"]
+"{ id, cells, action }" = "n/a: GAP(ui): a table.rows entry (realize.rs); no type holds the table row entry"
+"{ name }" = ["ui::AssetRef::ByName::name"]
+
+# | UI-CF-6 | **Capability values.** The section 11 declaration is `ui_capabilities { ui_contract_view, parts?, features?, widgets?, screens? }`. It stays diagnostic and local (UI-CF-1). The values are:<br>- `ui_contract_view`: required, a...
+[rows."37"]
+"\"<kind>@<MAJOR>\"" = { symbols = ["ui::Capabilities::screens"], uncovered = { kind = "the placeholder for a kind name" } }
+"display_badge" = ["ui.client_feature:display_badge"]
+"display_metric" = ["ui.client_feature:display_metric"]
+"embed" = ["ui.client_feature:embed"]
+"external_open" = ["ui.client_feature:external_open"]
+"features" = ["ui::Capabilities::features"]
+"label: value" = "n/a: the UI-CF-2 fallback text of a metric node (a label, a colon and a value)"
+"metric" = ["ui::UiNodeKind::Metric"]
+"open" = ["ui::Activate::Open"]
+"parts" = ["ui::Capabilities::parts"]
+"requires" = ["ui::ViewDocument::requires"]
+"screens" = ["ui::Capabilities::screens"]
+"ui" = "n/a: the UI-FM-2 widget hint schema keyword; no field types it"
+"ui_1_1" = ["ui.feature:ui_1_1"]
+"ui_1_3" = ["ui.feature:ui_1_3"]
+"ui_1_4" = ["ui.feature:ui_1_4"]
+"ui_capabilities { ui_contract_view, parts?, features?, widgets?, screens? }" = { symbols = ["ui::Capabilities::features", "ui::Capabilities", "ui::Capabilities::parts", "ui::Capabilities::screens", "ui::Capabilities::widgets", "ui::Capabilities::ui_contract_view"], uncovered = { ui_capabilities = "the UI section 11 name of the declaration that ui::Capabilities types (UI-CF-6)" } }
+"ui_contract_view" = ["ui::Capabilities::ui_contract_view"]
+"ui_embed" = ["ui.feature:ui_embed"]
+"widgets" = ["ui::Capabilities::widgets"]
+
+# ## Part C. Shapes that `realize` reads and emits
+[rows."39"]
+"realize" = ["ui::realize"]
+
+# | UI-NV-2 | **Prop value shapes** (the props of UI-RZ-2a, UI-RZ-2e and UI-NV-1):<br>- `confirm`: `{ message, tone? }`;<br>- `activate`: one of `{ select: "<slot>" }`, `{ invoke: "<action id>", row_key? }`, `{ open: { kind, key } }`, `{ n...
+[rows."43"]
+"[{ value, label }]" = { symbols = ["ui.prop:select:options"], uncovered = { value = "GAP(ui): a member of a select option (realize.rs); no type holds the select option", label = "GAP(ui): a member of a select option (realize.rs); no type holds the select option" } }
+"absent_reason" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason"]
+"action" = ["ui.prop:button:action"]
+"activate" = ["ui.prop:text:activate", "ui.prop:badge:activate", "ui.prop:metric:activate", "ui.prop:status_badge:activate", "ui.prop:list_item:activate"]
+"code" = ["ui::ErrorValue::code"]
+"confirm" = ["ui.prop:button:confirm", "ui::Confirm"]
+"error" = ["ui.prop:form_field:error", "ui::ErrorValue"]
+"field_errors" = ["hub::Error::field_errors"]
+"message" = ["ui::ErrorValue::message"]
+"no_baseline" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:no_baseline"]
+"not_found" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:not_found"]
+"option_unavailable" = ["ui::ErrorValue::code", "ui.local_error:option_unavailable"]
+"options" = ["ui.prop:select:options"]
+"remote_hub_unsupported" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:remote_hub_unsupported"]
+"required_missing" = ["ui::ErrorValue::code", "ui.local_error:required_missing"]
+"required_when" = { symbols = ["ui::FormPart::schema"], uncovered = { required_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+"{ code, message? }" = ["ui::ErrorValue::code", "ui::ErrorValue::message"]
+"{ id, payload: { target, args } }" = { symbols = ["ui.prop:button:action"], uncovered = { id = "GAP(ui): a member of the realized button action (realize.rs); no type holds it", payload = "GAP(ui): a member of the realized button action (realize.rs); no type holds it", target = "GAP(ui): a member of the realized button action (realize.rs); no type holds it", args = "GAP(ui): a member of the realized button action (realize.rs); no type holds it" } }
+"{ invoke: \"<action id>\", row_key? }" = { symbols = ["ui::Activate::Invoke"], uncovered = { action = "the placeholder for an action id", id = "the placeholder for an action id", row_key = "GAP(ui): the optional row key of a realized invoke activation (realize.rs); no type holds it" } }
+"{ message, tone? }" = ["ui::Confirm::message", "ui::Confirm::tone"]
+"{ navigate: { view, select? } }" = ["ui::Activate::Navigate", "ui::Navigate::view", "ui::Navigate::select"]
+"{ open: { kind, key } }" = ["ui::Activate::Open", "ui::Ref::kind", "ui::Ref::key"]
+"{ select: \"<slot>\" }" = { symbols = ["ui::Activate::Select"], uncovered = { slot = "the placeholder for a slot id" } }
+"{ url }" = ["ui::Activate::Url"]
+
+# | UI-NV-3 | **Role segments for overlays and forms** (UI-RZ-2, UI-ID-2). Each node id is built by the UI-ID-3 function, written here as `child(parent, segment)`:<br>- an action dialog is `child(<button>, "container")`, where `<button>` i...
+[rows."44"]
+"<button>" = ["ui::UiNodeKind::Button"]
+"action" = ["ui.role:action"]
+"cancel" = "n/a: GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments"
+"child(<button>, \"container\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Button", "ui.role:container"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<button>, \"error\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Button", "ui.role:error"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<dialog>, \"cancel\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Dialog"], uncovered = { cancel = "GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<dialog>, \"confirm\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Dialog"], uncovered = { confirm = "GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<dialog>, \"item\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Dialog", "ui.role:item"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<form>, \"error\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form", "ui.role:error"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<form>, <field_id>)" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form"], uncovered = { field_id = "the placeholder for the id of a form field (its property name, UI-ID-5)", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<row>, \"action\")" = { symbols = ["ui::child_id", "ui.role:action"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id", row = "the placeholder for the node id of a row" } }
+"child(<toolbar>, \"item\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Toolbar", "ui.role:item"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(child(<form>, \"action\"), \"cancel\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form", "ui.role:action"], uncovered = { cancel = "GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(child(<form>, \"action\"), \"submit\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form", "ui.role:action"], uncovered = { submit = "GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(child(<form>, \"item\"), \"group:\" + <group name>)" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id", item = "a role segment; ROLE_WORDS holds it", group = "the group: prefix of an authored form section segment (realize.rs)", name = "the placeholder for a group name" } }
+"child(child(<form>, \"item\"), \"optional\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form", "ui.role:item"], uncovered = { optional = "GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments", child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(parent, segment)" = { symbols = ["ui::child_id"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id", parent = "the parameter of ui::child_id", segment = "the parameter of ui::child_id" } }
+"confirm" = "n/a: GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments"
+"error" = { symbols = ["ui.role:error", "ui::Tone::Danger"], uncovered = { error = "also the tone word that UI 1.4 erratum 1 (UI-NV-8) maps to Tone::Danger" } }
+"group" = "n/a: the group: prefix of an authored form section segment (UI-NV-3) and the UI-FM-6 schema keyword; a string literal in realize.rs and admission.rs"
+"group:…" = "n/a: the group: prefix of an authored form section segment (realize.rs); a string literal"
+"help" = ["ui.role:help"]
+"item" = ["ui.role:item"]
+"label" = ["ui.role:label"]
+"optional" = "n/a: GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments"
+"submit" = "n/a: GAP(ui): a generated overlay or form segment (UI-NV-3), a string literal in realize.rs; no public list holds these segments"
+"text" = ["ui::UiNodeKind::Text"]
+"value" = ["ui.role:value"]
+"warning" = ["ui.role:warning"]
+"widget" = ["ui.role:widget"]
+
+# | UI-NV-4 | **RealizedTree fields:**<br>- `root`: the root node;<br>- `overlays`: the dialogs to show. For each button that has an entry in `local_state.overlays` and is in the tree, `realize` shows **its `form` entry when one exists, el...
+[rows."45"]
+"[{ node_id?, code, detail? }]" = ["ui::Diagnostic::detail", "ui::Diagnostic::node_id", "ui::Diagnostic::code"]
+"cleared_selections: [slot id]" = { symbols = ["ui::LocalChanges::cleared_selections"], uncovered = { slot = "the placeholder for a slot id", id = "the placeholder for a slot id" } }
+"confirm" = ["ui::Overlay::Confirm"]
+"diagnostics" = ["ui::RealizedTree::diagnostics"]
+"dropped_view_state: [node id]" = { symbols = ["ui::LocalChanges::dropped_view_state"], uncovered = { node = "the placeholder for a node id", id = "the placeholder for a node id" } }
+"duplicate_node_id" = ["ui::Diagnostic::code", "ui.diagnostic:duplicate_node_id"]
+"errors.fields" = ["ui::LocalState::errors", "ui::LocalErrors::fields"]
+"focus" = ["ui::LocalState::focus"]
+"form" = ["ui::Overlay::Form"]
+"local_changes" = ["ui::RealizedTree::local_changes"]
+"local_state" = ["ui::RealizeInput::local_state"]
+"local_state.overlays" = ["ui::RealizedTree::overlays", "ui::LocalState::overlays"]
+"masked_input_unavailable" = ["ui::Diagnostic::code", "ui.diagnostic:masked_input_unavailable"]
+"open_without_screen" = ["ui::Diagnostic::code", "ui.diagnostic:open_without_screen"]
+"option_unavailable" = ["ui::StampedError::code", "ui.local_error:option_unavailable"]
+"options_source" = ["ui.prop:select:options_source"]
+"overlays" = ["ui::RealizedTree::overlays", "ui::LocalState::overlays"]
+"realize" = ["ui::realize"]
+"root" = ["ui::RealizedTree::root"]
+"row_without_id" = ["ui::Diagnostic::code", "ui.diagnostic:row_without_id"]
+"scroll" = ["ui::LocalState::scroll"]
+"stale" = ["ui::Diagnostic::code", "ui.diagnostic:stale"]
+"stale_descriptor" = ["hub::ErrorCode::StaleDescriptor"]
+"stamped_errors: [{ draft_key, code }]" = ["ui::LocalChanges::stamped_errors", "ui::StampedError::draft_key", "ui::StampedError::code"]
+"uneditable_required_property" = ["ui::Diagnostic::code", "ui.diagnostic:uneditable_required_property"]
+"unknown_display" = ["ui::Diagnostic::code", "ui.diagnostic:unknown_display"]
+"unknown_tone" = ["ui::Diagnostic::code", "ui.diagnostic:unknown_tone"]
+"unparsable_view" = ["ui::Diagnostic::code", "ui.diagnostic:unparsable_view"]
+"unset" = ["ui::Draft::Unset"]
+"unset_drafts" = ["ui::LocalChanges::unset_drafts"]
+"unset_drafts: [draft key]" = { symbols = ["ui::LocalChanges::unset_drafts", "ui::Draft"], uncovered = { key = "the placeholder for a draft key (ui::draft_key builds it)" } }
+"unsupported_view_feature" = ["ui::Diagnostic::code", "ui.diagnostic:unsupported_view_feature"]
+"unsupported_view_version" = ["ui::Diagnostic::code", "ui.diagnostic:unsupported_view_version"]
+"when" = ["ui::Part::when", "ui::Action::when"]
+"{ unset: true }" = { symbols = ["ui::Draft::Unset"], uncovered = { true = "a JSON literal value" } }
+
+# | UI-NV-5 | **Input shapes.** `local_state` holds every item of the UI-RZ-2d rule: drafts, selections, row focus, scroll and overlays. It also holds the errors that the renderer and `realize` stamp. Its shape is:<br>- `selections: { <slo...
+[rows."46"]
+"Error.message" = ["hub::Error::message"]
+"actions" = { symbols = ["ui::LocalErrors::actions", "hub::ActionDescriptor"], uncovered = { actions = "also the actions member of a kind row (DS-1), keyed by action name" } }
+"allowed" = ["hub::ActionDescriptor::allowed"]
+"baseline: false" = { symbols = ["ui::KindSnapshot::baseline"], uncovered = { false = "a JSON literal value" } }
+"button" = ["ui::OverlayButton::button"]
+"child(<button>, \"error\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Button", "ui.role:error"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"child(<form>, \"error\")" = { symbols = ["ui::child_id", "ui::UiNodeKind::Form", "ui.role:error"], uncovered = { child = "the UI-NV-3 name of the UI-ID-3 function, typed as ui::child_id" } }
+"drafts: { <draft key>: { value } \\| { unset: true } \\| { clear: true } }" = { symbols = ["ui::Draft::Clear", "ui::LocalState::drafts", "ui::draft_key", "ui::Draft::Unset", "ui::Draft::Value"], uncovered = { true = "a JSON literal value", key = "the placeholder for a draft key (ui::draft_key builds it)" } }
+"dropped_view_state" = ["ui::LocalChanges::dropped_view_state"]
+"error" = { symbols = ["ui.prop:form_field:error", "ui::Tone::Danger"], uncovered = { error = "also the tone word that UI 1.4 erratum 1 (UI-NV-8) maps to Tone::Danger" } }
+"errors" = ["ui::LocalState::errors"]
+"errors: { fields?: { <draft key>: { code, message? } }, forms?: { <form node id>: string }, actions?: { <button node id>: string } }" = { symbols = ["ui::LocalState::errors", "ui::LocalErrors::fields", "ui::LocalErrors::forms", "ui::LocalErrors::actions", "ui::ErrorValue::code", "ui::ErrorValue::message"], uncovered = { draft = "the placeholder for a draft key", key = "the placeholder for a draft key", form = "the placeholder for a form node id", node = "the placeholder for a node id", id = "the placeholder for a node id", button = "the placeholder for a button node id", string = "a primitive type name" } }
+"field_errors" = ["hub::Error::field_errors"]
+"fields" = ["ui::LocalErrors::fields"]
+"focus" = ["ui::LocalState::focus"]
+"focus: <node id>" = { symbols = ["ui::LocalState::focus"], uncovered = { node = "the placeholder for a node id", id = "the placeholder for a node id" } }
+"forms" = ["ui::LocalErrors::forms"]
+"hub_id" = ["ui::KindSnapshot::hub_id"]
+"id" = { symbols = ["ui::KindSnapshot::rows"], uncovered = { id = "the row key member of each row (UI-ID-3); KindSnapshot::rows holds JSON values" } }
+"kind" = ["ui::Ref::kind"]
+"kind_snapshots: { <kind name>: { baseline: bool, hub_id?, rows: [row], error?: { message? } } }" = { symbols = ["ui::RealizeInput::kind_snapshots", "ui::KindSnapshot::baseline", "ui::KindSnapshot::hub_id", "ui::KindSnapshot::rows", "ui::KindSnapshot::error", "ui::SnapshotError::message"], uncovered = { kind = "the placeholder for a kind name", name = "the placeholder for a kind name", bool = "a primitive type name", row = "a row of the kind (KindSnapshot::rows holds JSON values)" } }
+"local_state" = ["ui::RealizeInput::local_state"]
+"overlays: [{ form: { button } } \\| { confirm: { button } }]" = ["ui::LocalState::overlays", "ui::Overlay::Form", "ui::Overlay::Confirm", "ui::OverlayButton::button"]
+"realize" = ["ui::realize"]
+"reasons" = ["hub::ActionDescriptor::reasons"]
+"scroll" = ["ui::LocalState::scroll"]
+"scroll: { <node id>: <renderer value> }" = { symbols = ["ui::LocalState::scroll"], uncovered = { node = "the placeholder for a node id", id = "the placeholder for a node id", renderer = "the placeholder for a renderer value", value = "the placeholder for a renderer value" } }
+"secret: true" = { symbols = ["ui::FormPart::schema"], uncovered = { secret = "a form schema keyword (UI-FM-8) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"selections: { <slot id>: <row key> }" = { symbols = ["ui::LocalState::selections"], uncovered = { slot = "the placeholder for a slot id", id = "the placeholder for a slot id", row = "the placeholder for a row key", key = "the placeholder for a row key" } }
+"state: \"loading\"" = { symbols = ["ui.prop:list:state"], uncovered = { loading = "GAP(ui): a value of the list, table and panel state prop (realize.rs); no public type holds the state values" } }
+"text" = ["ui::UiNodeKind::Text"]
+"value" = ["ui::Draft::Value"]
+"{ clear: true }" = { symbols = ["ui::Draft::Clear"], uncovered = { true = "a JSON literal value" } }
+"{ unset: true }" = { symbols = ["ui::Draft::Unset"], uncovered = { true = "a JSON literal value" } }
+
+# | UI-AD-5 | **Admission failure codes.** UI-AD-1's "typed admission failures" are these codes. Each comes with the JSON path of the defect, and a plugin load reports them as the Hub→plugin load failure `invalid_request { detail.code, det...
+[rows."47"]
+"arg_type_mismatch" = ["ui::AdmissionCode::ArgTypeMismatch"]
+"bad_alternatives" = ["ui::AdmissionCode::BadAlternatives"]
+"bad_default" = ["ui::AdmissionCode::BadDefault"]
+"bad_placement" = ["ui::AdmissionCode::BadPlacement"]
+"bad_property_type" = ["ui::AdmissionCode::BadPropertyType"]
+"duplicate_id" = ["ui::AdmissionCode::DuplicateId"]
+"embed_source_not_own" = ["ui::AdmissionCode::EmbedSourceNotOwn"]
+"invalid_id" = ["ui::AdmissionCode::InvalidId"]
+"invalid_request { detail.code, detail.path }" = { symbols = ["plugin::ErrorKind::InvalidRequest", "plugin::Detail::code", "ui::AdmissionFailure::code", "ui::AdmissionFailure::path", "plugin::Detail::extra"], uncovered = { path = "a detail key of the load failure (Detail::extra is an open object) that carries AdmissionFailure::path" } }
+"kind_not_admitted" = ["ui::AdmissionCode::KindNotAdmitted"]
+"link_not_text" = ["ui::AdmissionCode::LinkNotText"]
+"missing_requires" = ["ui::AdmissionCode::MissingRequires"]
+"non_canonical_map_key" = ["ui::AdmissionCode::NonCanonicalMapKey"]
+"number_out_of_range" = ["ui::AdmissionCode::NumberOutOfRange"]
+"path_not_allowed" = ["ui::AdmissionCode::PathNotAllowed"]
+"reserved_id" = ["ui::AdmissionCode::ReservedId"]
+"schema_mismatch" = ["ui::AdmissionCode::SchemaMismatch"]
+"schema_unsupported" = ["ui::AdmissionCode::SchemaUnsupported"]
+"unbound_context" = ["ui::AdmissionCode::UnboundContext"]
+"unknown_action" = ["ui::AdmissionCode::UnknownAction"]
+"unknown_bound_property" = ["ui::AdmissionCode::UnknownBoundProperty"]
+"unknown_handler" = ["ui::AdmissionCode::UnknownHandler"]
+"unknown_property" = ["ui::AdmissionCode::UnknownProperty"]
+"unknown_ref" = ["ui::AdmissionCode::UnknownRef"]
+"unknown_slot" = ["ui::AdmissionCode::UnknownSlot"]
+"unknown_view" = ["ui::AdmissionCode::UnknownView"]
+"unsupported_part" = ["ui::AdmissionCode::UnsupportedPart"]
+"unsupported_version" = ["ui::AdmissionCode::UnsupportedVersion"]
+"visible_when_required" = ["ui::AdmissionCode::VisibleWhenRequired"]
+"when_not_exclusive" = ["ui::AdmissionCode::WhenNotExclusive"]
+
+# | UI-NV-6 | **Default copy is a copy key, never text** (UI-PT-5: "defaults are client copy"; UI-CP-2).<br>**The `Text` value.** A prop that can show a default holds `Text = string \| { copy: "<key>", args?: { <name>: string } }`:<br>- a ...
+[rows."48"]
+"\"cancel\"" = ["ui::Text::Authored", "ui.copy_key:cancel"]
+"Text" = ["ui::Text"]
+"Text = string \\| { copy: \"<key>\", args?: { <name>: string } }" = { symbols = ["ui::Text", "ui::Text::Authored", "ui::Text::Copy", "ui::CopyKey::copy", "ui::CopyKey::args"], uncovered = { string = "a JSON type name", key = "a placeholder: a copy key", name = "a placeholder: an arg name" } }
+"body" = ["ui.prop:empty_state:description", "ui.slot:dialog:body"]
+"cancel" = ["ui.copy_key:cancel"]
+"confirm" = ["ui.copy_key:confirm"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+"disabled_reason" = ["ui.prop:button:disabled_reason", "ui.prop:menu_item:disabled_reason"]
+"empty_state" = ["ui::UiNodeKind::EmptyState"]
+"form.cancel" = ["ui::Part::Form", "ui::FormPart::cancel"]
+"form.submit" = ["ui::Part::Form", "ui::FormPart::submit"]
+"form_section" = ["ui::UiNodeKind::FormSection"]
+"form_unavailable" = ["ui.copy_key:form_unavailable"]
+"generic_empty" = ["ui.copy_key:generic_empty"]
+"generic_error" = ["ui.copy_key:generic_error"]
+"label" = ["ui.prop:button:label", "ui.prop:form_section:label"]
+"nothing_selected" = ["ui.copy_key:nothing_selected"]
+"optional_section" = ["ui.copy_key:optional_section"]
+"reason" = ["ui.copy_key_arg:view_unavailable:reason"]
+"submit" = ["ui.copy_key:submit"]
+"title" = ["ui.prop:empty_state:title", "ui.prop:dialog:title"]
+"view_unavailable" = ["ui.copy_key:view_unavailable"]
+"{ view_id, reason }" = ["ui.copy_key_arg:view_unavailable:view_id", "ui.copy_key_arg:view_unavailable:reason"]
+
+# | UI-NV-7 | **Defaults:**<br>- `overflow` defaults to `never` (UI-PT-4, UI-PT-5);<br>- `overflow: auto` never moves an item of the highest priority present, so with one priority level nothing moves;<br>- fields with `advanced: true` and ...
+[rows."49"]
+"advanced: true" = { symbols = ["ui::FormPart::schema"], uncovered = { advanced = "a form schema keyword (UI-FM-6) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"group" = "n/a: the group: prefix of an authored form section segment (UI-NV-3) and the UI-FM-6 schema keyword; a string literal in realize.rs and admission.rs"
+"never" = ["ui::Overflow::Never"]
+"optional_section" = ["ui.copy_key:optional_section"]
+"overflow" = ["ui::Overflow"]
+"overflow: auto" = ["ui::Overflow::Auto"]
+
+# - The UI-ID-1 reserved words, and the `warning` word that 1.2 UI-SA-5 added.
+[rows."53"]
+"warning" = ["ui.role:warning"]
+
+# - The adopted UiNode kind `iframe`. It stays in the enum as a deprecated kind, and `realize` never emits it (UI-EM-10). `embed` is the frame kind (UI-RZ-2f).
+[rows."55"]
+"embed" = ["ui::UiNodeKind::Embed"]
+"iframe" = ["ui::UiNodeKind::Iframe"]
+"realize" = ["ui::realize"]
+
+# A client that supports only 1.0 to 1.3 shows a local diagnostic for a view that sets `requires: ["ui_1_4"]` (UI-CF-1). The vectors of this amendment bind every renderer (UI section 16).
+[rows."57"]
+"requires: [\"ui_1_4\"]" = ["ui::ViewDocument::requires", "ui.feature:ui_1_4"]

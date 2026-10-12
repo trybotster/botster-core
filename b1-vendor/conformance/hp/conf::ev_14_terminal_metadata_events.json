@@ -1,0 +1,533 @@
+{
+ "id": "conf::ev_14_terminal_metadata_events",
+ "contract": "hp",
+ "clause": "EV-14",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "terminal_feed"
+  ]
+ },
+ "setup": {
+  "given": "the session s1 is spawned by the plugin; the plugin holds events_terminal",
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_terminal"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "terminal",
+         "name": "*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "T"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_title",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "title",
+      "priority": "normal",
+      "payload": {
+       "text": "T"
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_title",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "cwd",
+    "cwd": "/work"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_cwd",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "cwd",
+      "priority": "normal",
+      "payload": {
+       "cwd": "/work"
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_cwd",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "bell"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_bell",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "bell",
+      "priority": "normal",
+      "payload": {},
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_bell",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "notification",
+    "source": "osc9",
+    "body": "B"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_notification",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "notification",
+      "priority": "normal",
+      "payload": {
+       "source": "osc9",
+       "body": "B"
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_notification",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "prompt_mark",
+    "mark": "d",
+    "exit_code": 0
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_prompt_mark",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "prompt_mark",
+      "priority": "normal",
+      "payload": {
+       "mark": "d",
+       "exit_code": 0
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_prompt_mark",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "modes",
+    "modes": {
+     "alternate_screen": true
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_modes",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "modes",
+      "priority": "normal",
+      "payload": {
+       "modes": {
+        "alternate_screen": true
+       }
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_modes",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "exit",
+    "code": 0,
+    "cause": "exited"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_exit",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "exit",
+      "priority": "high",
+      "payload": {
+       "code": 0,
+       "cause": {
+        "$any": true
+       }
+      },
+      "subject": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "source": {
+       "kind": "terminal",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "instance": {
+        "$type": "string"
+       }
+      }
+     }
+    }
+   },
+   "because": [
+    "HP EV-14",
+    "HP A2-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c_exit",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

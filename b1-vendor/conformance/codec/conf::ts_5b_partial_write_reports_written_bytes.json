@@ -1,0 +1,160 @@
+{
+  "id": "conf::ts_5b_partial_write_reports_written_bytes",
+  "contract": "codec",
+  "clause": "TS-5b",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_blocked",
+      "pty_exit",
+      "pty_fail_after",
+      "pty_input"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "pty_fail_after",
+        "bytes": 3
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "616263646566"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "failed",
+        "op": "7",
+        "written_bytes": 3
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5b"
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "616263"
+        }
+      ],
+      "because": "Codec BP-2"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "on": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "78797a"
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "pty_exit",
+        "code": 0
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "8",
+        "reason": "session_ended"
+      },
+      "on": "r1",
+      "because": "Codec TS-5b"
+    }
+  ]
+}

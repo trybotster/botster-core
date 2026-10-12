@@ -1,0 +1,15 @@
+# Core contract v1.17, erratum 2 (candidate 1): title, other modes and mode changes as the terminal model sees them
+
+The base is the Core contract of `frozen/current` (manifest final13). It is unchanged except for the three readings below. Other contracts are cited by contract name and clause id only.
+
+Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-01. Found by the Stage 1 Core lead's libghostty audit (`botster-core@fd1471ea:docs/stage1/libghostty-audit.md`).
+
+**Why.** Steward rule R-7 makes libghostty, run in the worker, the only terminal oracle. BUILD.md also forbids a second terminal parser. Three phrases of EV-7 and the `ModeFlags` text read as if Core observed more than the terminal model holds. Each erratum below states the reading that matches the model and the rest of the contract. None removes a byte from `Output` (OU-12).
+
+| # | Clause | Test |
+|---|---|---|
+| E2-1 | **Title: OSC 0 and OSC 2 only.** In EV-7, "title (OSC 0/1/2) → `TitleChanged`" becomes "title (OSC 0/2) → `TitleChanged`". This matches the `TitleChanged` row of section 6.2: "The title (OSC 0/2) … changed". OSC 1 sets the icon label, not the title. The terminal model keeps no icon-label state, so OSC 1 produces **no** event. Its bytes stay in `Output` (OU-12), and a client that interprets bytes still sees them. | `conf::e2_1_osc_0_and_2_give_title_changed`, `conf::e2_1_osc_1_gives_no_title_changed_and_stays_in_output` |
+| E2-2 | **`other_modes` is model state.** "An unknown mode is carried in `other_modes`" means: a mode that the terminal model tracks and that has no normative `ModeFlags` field. A mode number that the model does not recognize has **no state**, so it is not a mode change and appears in no field. Its bytes stay in `Output` (OU-12). Core runs no second parser to find such modes (steward rule R-7). | `conf::e2_2_other_modes_are_tracked_model_modes`, `conf::e2_2_unrecognized_mode_number_changes_no_field` |
+| E2-3 | **A mode change is a change of the model's state between observations.**<br>- In EV-7, "every mode change → `ModesChanged`" means: whenever the session's `ModeFlags` (as the terminal model holds them) differ from the last posted value, a `ModesChanged` with the full latest flags is posted. `ModesChanged` is class K, carrying the latest value (section 6.2, EV-6).<br>- A set and a reset that the model processes in one step, with no observation in between, are no change, and no event is posted. The bytes stay in `Output` (OU-12).<br>- **The write-start rule is unchanged** (IN-8, IN-9): the worker decides a write's mode check and encoding with the model's modes at the admission point (AM-2). The worker admits a write only between model steps, so those modes are always the model's current state. | `conf::e2_3_mode_change_posts_latest_flags`, `conf::e2_3_set_and_reset_in_one_step_posts_nothing`, `conf::e2_3_write_start_uses_current_model_modes` |
+
+Every other clause is unchanged. A conformance test for EV-7 feeds each feature in its own step, so that every listed feature produces its event.

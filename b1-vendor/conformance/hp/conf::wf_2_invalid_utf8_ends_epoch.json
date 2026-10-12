@@ -1,0 +1,51 @@
+{
+ "id": "conf::wf_2_invalid_utf8_ends_epoch",
+ "contract": "hp",
+ "clause": "WF-2",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_calls"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame_raw": {
+    "lane": 1,
+    "type": 16,
+    "payload_hex": "7b2265706f6368223a372c2278223a22ff227d"
+   }
+  },
+  {
+   "expect_closed": null,
+   "because": "HP WF-2"
+  }
+ ]
+}

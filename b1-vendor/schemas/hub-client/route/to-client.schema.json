@@ -1,0 +1,990 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToClient",
+  "description": "A frame from the worker to the client (A.4, Hub → client).\n\nClause: Codec A.4, TS-3.",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "attached"
+        }
+      },
+      "$ref": "#/$defs/Attached",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "baseline_begin"
+        }
+      },
+      "$ref": "#/$defs/BaselineBegin",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "screen"
+        }
+      },
+      "required": [
+        "frame",
+        "payload"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "history"
+        }
+      },
+      "required": [
+        "frame",
+        "payload"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "baseline_end"
+        }
+      },
+      "$ref": "#/$defs/BaselineEnd",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "live"
+        }
+      },
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "output"
+        }
+      },
+      "required": [
+        "frame",
+        "payload"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "frame": {
+          "type": "string",
+          "const": "output_deflate"
+        }
+      },
+      "required": [
+        "frame",
+        "payload"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "modes"
+        }
+      },
+      "$ref": "#/$defs/Modes",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "resync"
+        }
+      },
+      "$ref": "#/$defs/Resync",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "input_refused"
+        }
+      },
+      "$ref": "#/$defs/InputRefused",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "input_done"
+        }
+      },
+      "$ref": "#/$defs/InputDone",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "terminal_query"
+        }
+      },
+      "$ref": "#/$defs/TerminalQuery",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "output_dropped"
+        }
+      },
+      "$ref": "#/$defs/OutputDropped",
+      "required": [
+        "frame"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "frame": {
+          "type": "string",
+          "const": "route_closed"
+        }
+      },
+      "$ref": "#/$defs/RouteClosed",
+      "required": [
+        "frame"
+      ]
+    }
+  ],
+  "$defs": {
+    "RouteLimits": {
+      "description": "The limits of one route (TS-1), as the worker applies them (A.4 `attached`).\n\nClause: Codec TS-1, TS-3, A.4.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_screen_frame_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_history_page_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_paste_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_file_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_query_reply_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "query_client_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stall_deadline_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "stall_close_after_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "max_screen_frame_bytes",
+        "max_history_page_bytes",
+        "max_paste_bytes",
+        "max_file_bytes",
+        "max_query_reply_bytes",
+        "query_client_deadline_ms",
+        "stall_deadline_ms",
+        "stall_close_after_ms"
+      ]
+    },
+    "Attached": {
+      "description": "Body of `0x01 attached`.\n\nClause: Codec A.4, TS-1, TS-4.",
+      "type": "object",
+      "properties": {
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "terminal_format": {
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/RouteLimits"
+        }
+      },
+      "required": [
+        "features",
+        "terminal_format",
+        "limits"
+      ]
+    },
+    "ModeFlags": {
+      "description": "The session's modes on the route: `ModeFlags` of A.6, which is Core 5.1A verbatim.\n\nClause: Codec A.6, TS-4d.",
+      "type": "object",
+      "properties": {
+        "alt_screen": {
+          "type": "boolean"
+        },
+        "cursor_visible": {
+          "type": "boolean"
+        },
+        "bracketed_paste": {
+          "type": "boolean"
+        },
+        "application_cursor_keys": {
+          "type": "boolean"
+        },
+        "application_keypad": {
+          "type": "boolean"
+        },
+        "focus_reporting": {
+          "type": "boolean"
+        },
+        "kitty_flags": {
+          "description": "A bitset of the kitty flags 1, 2, 4, 8 and 16.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mouse_tracking": {
+          "$ref": "#/$defs/MouseTracking"
+        },
+        "mouse_encoding": {
+          "$ref": "#/$defs/MouseEncoding"
+        },
+        "other_modes": {
+          "description": "Modes outside this list. A receiver ignores names it does not know.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "alt_screen",
+        "cursor_visible",
+        "bracketed_paste",
+        "application_cursor_keys",
+        "application_keypad",
+        "focus_reporting",
+        "kitty_flags",
+        "mouse_tracking",
+        "mouse_encoding"
+      ]
+    },
+    "MouseTracking": {
+      "anyOf": [
+        {
+          "description": "`mouse_tracking` of A.6.\n\nClause: Codec A.6.",
+          "type": "string",
+          "enum": [
+            "none",
+            "x10",
+            "normal",
+            "button_event",
+            "any_event",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "MouseEncoding": {
+      "anyOf": [
+        {
+          "description": "`mouse_encoding` of A.6.\n\nClause: Codec A.6.",
+          "type": "string",
+          "enum": [
+            "x10",
+            "utf8",
+            "sgr",
+            "urxvt",
+            "sgr_pixels",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "BaselineBegin": {
+      "description": "Body of `0x02 baseline_begin`.\n\nClause: Codec A.4, TS-4.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "modes": {
+          "$ref": "#/$defs/ModeFlags"
+        }
+      },
+      "required": [
+        "rows",
+        "cols",
+        "modes"
+      ]
+    },
+    "HexBytes": {
+      "type": "object",
+      "properties": {
+        "$bytes_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})*$"
+        }
+      },
+      "required": [
+        "$bytes_hex"
+      ],
+      "additionalProperties": false
+    },
+    "HistoryState": {
+      "description": "`baseline_end.history` (A.4). `unavailable` and `incomplete` carry a reason string: the A.1 exception.\n\nClause: Codec A.4, A.1, A.2b, TS-4.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "not_requested",
+            "complete"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unavailable": {
+              "$ref": "#/$defs/HistoryUnavailable"
+            }
+          },
+          "required": [
+            "unavailable"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "incomplete": {
+              "$ref": "#/$defs/HistoryIncomplete"
+            }
+          },
+          "required": [
+            "incomplete"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HistoryUnavailable": {
+      "anyOf": [
+        {
+          "description": "History `unavailable` reasons (A.2b).\n\nClause: Codec A.2b.",
+          "type": "string",
+          "enum": [
+            "evicted",
+            "restart",
+            "oversize",
+            "capture_failed",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "HistoryIncomplete": {
+      "anyOf": [
+        {
+          "description": "History `incomplete` reasons (A.2b).\n\nClause: Codec A.2b.",
+          "type": "string",
+          "enum": [
+            "truncated",
+            "capture_failed",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "BaselineEnd": {
+      "description": "Body of `0x05 baseline_end`.\n\nClause: Codec A.4, TS-4, A.1.",
+      "type": "object",
+      "properties": {
+        "history": {
+          "$ref": "#/$defs/HistoryState"
+        }
+      },
+      "required": [
+        "history"
+      ]
+    },
+    "Modes": {
+      "description": "Body of `0x08 modes`: the modes and the size that the worker applied.\n\nClause: Codec A.4, TS-4d.",
+      "type": "object",
+      "properties": {
+        "modes": {
+          "$ref": "#/$defs/ModeFlags"
+        },
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "modes",
+        "rows",
+        "cols"
+      ]
+    },
+    "ResyncReason": {
+      "anyOf": [
+        {
+          "description": "`resync.reason` (A.4).\n\nClause: Codec A.4, TS-4c, TS-7.",
+          "type": "string",
+          "enum": [
+            "stalled",
+            "overflow",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "Resync": {
+      "description": "Body of `0x09 resync`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/ResyncReason"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "Op": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,18}|18446744073709551615|1[0-7][0-9]{18}|18[0-3][0-9]{17}|184[0-3][0-9]{16}|1844[0-5][0-9]{15}|18446[0-6][0-9]{14}|184467[0-3][0-9]{13}|1844674[0-3][0-9]{12}|184467440[0-6][0-9]{10}|1844674407[0-2][0-9]{9}|18446744073[0-6][0-9]{8}|1844674407370[0-8][0-9]{6}|18446744073709[0-4][0-9]{5}|184467440737095[0-4][0-9]{4}|1844674407370955[0-0][0-9]{3}|18446744073709551[0-5][0-9]{2}|184467440737095516[0-0][0-9]{1}|1844674407370955161[0-4][0-9]{0})$",
+      "maxLength": 20
+    },
+    "RefusalReason": {
+      "anyOf": [
+        {
+          "description": "`input_refused.reason` (TS-5b), with the query-reply refusals of A.5. The set is non-exhaustive.\n\nClause: Codec TS-5b, A.5, P9.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "not_ready",
+                "not_writable",
+                "too_large",
+                "mode_precondition_failed",
+                "refused",
+                "session_ended",
+                "failed",
+                "write_failed",
+                "already_replied",
+                "query_expired",
+                "unknown_query",
+                "wrong_route",
+                "invalid_input",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "unsupported": {
+                  "type": "object",
+                  "properties": {
+                    "what": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "what"
+                  ]
+                }
+              },
+              "required": [
+                "unsupported"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "InputRefused": {
+      "description": "Body of `0x0A input_refused`.\n\nClause: Codec A.4, TS-5b, TS-5f.",
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "reason": {
+          "$ref": "#/$defs/RefusalReason"
+        },
+        "written_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    },
+    "InputDone": {
+      "description": "Body of `0x0D input_done`.\n\nClause: Codec A.4, TS-5b, TS-5f.",
+      "type": "object",
+      "properties": {
+        "op": {
+          "$ref": "#/$defs/Op"
+        },
+        "written_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "written_bytes"
+      ]
+    },
+    "QueryKind": {
+      "anyOf": [
+        {
+          "description": "`terminal_query.kind` (A.4): Core's typed query kinds in snake_case. The set is non-exhaustive.\n\nClause: Codec A.4, P9.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "text_area_pixels",
+                "cell_pixels",
+                "screen_pixels",
+                "window_pixels",
+                "screen_chars",
+                "window_state",
+                "window_title",
+                "icon_label",
+                "color_scheme",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "clipboard_read": {
+                  "type": "object",
+                  "properties": {
+                    "selection": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "selection"
+                  ]
+                }
+              },
+              "required": [
+                "clipboard_read"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "window_position": {
+                  "type": "object",
+                  "properties": {
+                    "area": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "area"
+                  ]
+                }
+              },
+              "required": [
+                "window_position"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "TerminalQuery": {
+      "description": "Body of `0x0C terminal_query`.\n\nClause: Codec A.4, P9.",
+      "type": "object",
+      "properties": {
+        "query_id": {
+          "description": "Opaque to a client, which must not depend on its form (Core EV-8). The worker mints it as a u64 and sends it as a decimal\nstring, by the rule for a u64 identifier (Codec A.1, Core A19-1). So its widest value is `18446744073709551615`.\n\nClause: Core EV-8, Core A19-1, Codec A.1.",
+          "type": "string"
+        },
+        "request_bytes_base64": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/QueryKind"
+        },
+        "shadow_answerable": {
+          "type": "boolean"
+        },
+        "answer_within_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "query_id",
+        "request_bytes_base64",
+        "shadow_answerable",
+        "answer_within_ms"
+      ]
+    },
+    "DroppedNotification": {
+      "description": "The last notification that passed the policy, in `output_dropped`. An empty `title` or `body` is omitted, never sent as `\"\"`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/NotificationSource"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source"
+      ]
+    },
+    "NotificationSource": {
+      "description": "The source of a notification in `output_dropped`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "string",
+      "enum": [
+        "bell",
+        "osc9",
+        "osc777"
+      ]
+    },
+    "OutputDropped": {
+      "description": "Body of `0x0F output_dropped`: sent only when `notifications` is at least 1, and before the `resync`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "object",
+      "properties": {
+        "notifications": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "last": {
+          "$ref": "#/$defs/DroppedNotification"
+        }
+      },
+      "required": [
+        "notifications",
+        "last"
+      ]
+    },
+    "CloseReason": {
+      "anyOf": [
+        {
+          "description": "`route_closed.reason` (A.2, TS-8).\n\nClause: Codec A.2, TS-8, A.1.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "detached",
+                "replaced",
+                "session_ended",
+                "revoked",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "attach_failed": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "$ref": "#/$defs/AttachFailedReason"
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ]
+                }
+              },
+              "required": [
+                "attach_failed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "protocol_error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "$ref": "#/$defs/ProtocolErrorCode"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ]
+                }
+              },
+              "required": [
+                "protocol_error"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "AttachFailedReason": {
+      "anyOf": [
+        {
+          "description": "`attach_failed` reasons (A.2b).\n\nClause: Codec A.2b, TS-4.",
+          "type": "string",
+          "enum": [
+            "session_not_running",
+            "screen_unavailable",
+            "not_attachable",
+            "snapshot_too_large",
+            "bad_peer",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "ProtocolErrorCode": {
+      "anyOf": [
+        {
+          "description": "The `protocol_error` codes of A.1. The set is non-exhaustive on the wire (A.2).\n\nClause: Codec A.1, A.2.",
+          "type": "string",
+          "enum": [
+            "frame_too_large",
+            "malformed_frame",
+            "unknown_frame",
+            "handshake_order",
+            "duplicate_request_id",
+            "invalid_input",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "Exit": {
+      "description": "The `exit` beside `session_ended` in `route_closed`.\n\nClause: Codec A.4, TS-8.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "signal": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "RouteClosed": {
+      "description": "Body of `0x0B route_closed`. `exit` is present only when the reason is `session_ended`.\n\nClause: Codec A.4, TS-8.",
+      "type": "object",
+      "properties": {
+        "reason": {
+          "$ref": "#/$defs/CloseReason"
+        },
+        "exit": {
+          "$ref": "#/$defs/Exit"
+        }
+      },
+      "required": [
+        "reason"
+      ]
+    }
+  }
+}

@@ -1,0 +1,188 @@
+{
+ "id": "conf::wp_6_client_fetches_from_the_web_origin_route",
+ "contract": "hp",
+ "clause": "WP-6",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke",
+   "web_request"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds web_origin, net_serve and fs:web and declares a static route; its served origin is the web origin; an operator client is connected",
+  "grants": [
+   {
+    "surface": "web_origin"
+   },
+   {
+    "surface": "net_serve"
+   },
+   {
+    "surface": "fs",
+    "scope": "fs:web"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "web.set_ice_servers",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "servers": [
+       {
+        "urls": [
+         "stun:stun.example:3478"
+        ]
+       },
+       {
+        "urls": [
+         "turn:turn.example:3478"
+        ],
+        "username": "u",
+        "credential": "turnS3cret"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP WP-6"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "route": "ice"
+   },
+   "expect": {
+    "status": 200,
+    "body_b64": {
+     "$b64": {
+      "$contains": "turn:turn.example:3478"
+     }
+    }
+   },
+   "because": [
+    "HP WP-6",
+    "HP WP-5"
+   ]
+  }
+ ]
+}

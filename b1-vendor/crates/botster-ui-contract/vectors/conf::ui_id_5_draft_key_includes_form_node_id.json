@@ -1,0 +1,229 @@
+{
+  "id": "conf::ui_id_5_draft_key_includes_form_node_id",
+  "contract": "ui",
+  "clause": "UI-ID-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the draft key is the form node id plus the field_id",
+      "ids": {
+        "op": "draft_key",
+        "form_node": "botster-ui-descendant-v1:2:f19:container",
+        "field_id": "name",
+        "expect": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f19:container4:name"
+      },
+      "because": "UI UI-ID-5"
+    },
+    {
+      "name": "two forms may both have a name property",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a1",
+                  "label": "A1",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a2",
+                  "label": "A2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f1",
+              "action": "a1",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "form",
+              "id": "f2",
+              "action": "a2",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-ID-5"
+    },
+    {
+      "name": "a draft for one form does not fill the other",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a1",
+                  "label": "A1",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a2",
+                  "label": "A2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f1",
+              "action": "a1",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "form",
+              "id": "f2",
+              "action": "a2",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "drafts": {
+          "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f19:container4:name": {
+            "value": "Alpha"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f19:container4:name6:widget": {
+          "props": {
+            "value": "Alpha"
+          }
+        },
+        "botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f29:container4:name6:widget": {
+          "props": {
+            "value": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-ID-5"
+    }
+  ]
+}

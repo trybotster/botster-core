@@ -1,0 +1,14 @@
+{
+ "id": "conf::lh_3_second_host_passes_same_suite",
+ "contract": "hp",
+ "clause": "LH-3",
+ "subject": "plugin_host",
+ "steps": [
+  {
+   "run_suite": {
+    "subject": "plugin_host"
+   },
+   "because": "HP LH-3"
+  }
+ ]
+}

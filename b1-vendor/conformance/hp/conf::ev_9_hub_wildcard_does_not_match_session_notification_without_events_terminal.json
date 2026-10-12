@@ -1,0 +1,212 @@
+{
+ "id": "conf::ev_9_hub_wildcard_does_not_match_session_notification_without_events_terminal",
+ "contract": "hp",
+ "clause": "EV-9",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "load_plugin",
+   "settle",
+   "terminal_feed"
+  ]
+ },
+ "setup": {
+  "given": "the session s1 is spawned by the plugin; the plugin holds events_hub and no events_terminal; the session type of s1 declares no notification policy",
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_hub"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "notification",
+    "source": "osc9",
+    "body": "done"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "payload": {
+      "name": "session_notification"
+     }
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP EV-9"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "b",
+    "as": "b"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_b",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [],
+      "gap_handler": "hg"
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-2"
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "plugin.loaded",
+      "payload": {
+       "plugin_key": "b"
+      }
+     }
+    }
+   },
+   "because": "HP EV-9"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

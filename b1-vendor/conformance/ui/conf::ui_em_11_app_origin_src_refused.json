@@ -1,0 +1,152 @@
+{
+  "id": "conf::ui_em_11_app_origin_src_refused",
+  "contract": "ui",
+  "clause": "UI-EM-11",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "pkg.items": {
+          "projection_allowlist": [
+            "/title"
+          ],
+          "owner": "pkg"
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "del": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "pages"
+      ]
+    },
+    "app_origin": "https://app.example"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "pages",
+          "title": "Pages",
+          "requires": [
+            "ui_embed"
+          ],
+          "selections": [
+            {
+              "id": "sel_p"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "embed",
+                "id": "page1",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                }
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed",
+            "embed"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "target": "pkg",
+            "args": {
+              "name": "graph"
+            },
+            "count": 1
+          }
+        },
+        "because": "UI UI-EM-7",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "url": "https://app.example/assets/pkg/a1?t=tok1",
+              "expires_at": "2026-10-01T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-11",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "error_state": {}
+        },
+        "because": "UI UI-EM-11",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "diagnostic": {}
+        },
+        "because": "UI UI-EM-11"
+      }
+    }
+  ]
+}

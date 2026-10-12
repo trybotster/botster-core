@@ -1,0 +1,529 @@
+{
+  "id": "conf::ts_5d_sequencing_errors_refused",
+  "contract": "codec",
+  "clause": "TS-5d",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "max_paste_bytes": 16,
+      "script": {
+        "writes": {
+          "paste": "5041535445"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      },
+      "route": "r2"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "1"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "2"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "2"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "3"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "3"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "4"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "5"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "5"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "77726f6e67206f70"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "6"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "7"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "7"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "8"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "8"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "4"
+      }
+    },
+    {
+      "route_expect_pty": [],
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "9",
+        "total_bytes": 3
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "9",
+        "bytes": {
+          "$bytes_hex": "3132333435363738"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "9"
+      }
+    },
+    {
+      "route_expect_pty": [
+        {
+          "written_by_op": "9"
+        }
+      ],
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "10"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "31323334353637383930313233343536373839"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "10"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "10"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "10"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_expect_pty": [
+        {
+          "written_by_op": "9"
+        }
+      ],
+      "because": "Codec TS-5d"
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "817b226b696e64223a2270617374655f626567696e227d"
+      },
+      "route": "r2"
+    },
+    {
+      "expect": {
+        "frame": "route_closed",
+        "reason": {
+          "protocol_error": {
+            "code": "malformed_frame"
+          }
+        }
+      },
+      "on": "r2",
+      "because": [
+        "Codec TS-5d",
+        "Codec A.1"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r2",
+      "because": "Codec A.1"
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "82000000000000000061"
+      }
+    },
+    {
+      "expect": {
+        "frame": "route_closed",
+        "reason": {
+          "protocol_error": {
+            "code": "malformed_frame"
+          }
+        }
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-5d",
+        "Codec A.1"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "r1",
+      "because": "Codec A.1"
+    }
+  ]
+}

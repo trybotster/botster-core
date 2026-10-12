@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoreLimits",
+  "description": "The limits of one `Core`. One value passed to `open`.\n\nClause: Core 9B, Core LM-1.",
+  "type": "object",
+  "properties": {
+    "max_session_id_bytes": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 128
+    },
+    "max_sessions": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "pending_ops": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "input_ops_per_session": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 32
+    },
+    "input_retained_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 2097152
+    },
+    "max_key_repeat": {
+      "description": "Range 1 to 4,096.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 64
+    },
+    "max_paste_bytes": {
+      "description": "Range 1 KiB to 64 MiB.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "event_queue": {
+      "description": "Range 16 to 2^20.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1024
+    },
+    "mandatory_events": {
+      "description": "At least `max_sessions`.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 4096
+    },
+    "routes_per_session": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 16
+    },
+    "output_deflate_min_bytes": {
+      "description": "Range 256 to `max_route_frame_bytes`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 4096
+    },
+    "max_file_bytes": {
+      "description": "Range 1 KiB to 1 GiB.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 33554432
+    },
+    "route_input_queue_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "tap_queue_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 4194304
+    },
+    "max_route_tag_bytes": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "max_history_page_bytes": {
+      "description": "Range 4 KiB to `max_route_frame_bytes`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 262144
+    },
+    "max_query_text_bytes": {
+      "description": "Range 64 to `max_query_reply_bytes`.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1024
+    },
+    "max_key_text_bytes": {
+      "description": "Range 1 to 4,096 (Core A15-1).",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "tap_chunk_bytes": {
+      "description": "Range 4 KiB to 1 MiB.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 65536
+    },
+    "tap_inflight_bytes": {
+      "description": "Absent means `tap_chunk_bytes`.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "admission_fairness_frames": {
+      "description": "Range 1 to 64.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1
+    },
+    "input_events_kept": {
+      "description": "At least 2.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 64
+    },
+    "input_events_bytes": {
+      "description": "At least `2 * (128 + 2 * max_route_tag_bytes)`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 16384
+    },
+    "input_event_payload_bytes": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "input_tail_bytes": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 1024
+    },
+    "max_route_frame_bytes": {
+      "description": "Absent means `max_paste_bytes + 4096`.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "route_queue_bytes": {
+      "description": "At least `max_snapshot_bytes`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 33554432
+    },
+    "reader_progress_deadline": {
+      "description": "Range 100 ms to 600 s.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 10000
+    },
+    "stall_close_after": {
+      "description": "At least `reader_progress_deadline`, at most 24 h.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 60000
+    },
+    "open_captures_per_client": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 4
+    },
+    "capture_ttl": {
+      "description": "Range 1 s to 24 h.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 60000
+    },
+    "max_snapshot_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 16777216
+    },
+    "snapshot_retained_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 67108864
+    },
+    "query_history": {
+      "description": "Range `pending_queries` to 4,096.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 64
+    },
+    "pending_queries": {
+      "description": "Range 1 to 256.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 8
+    },
+    "max_query_deadline": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 60000
+    },
+    "max_query_bytes": {
+      "description": "Range 64 to `max_route_frame_bytes`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 4096
+    },
+    "max_query_reply_bytes": {
+      "description": "Range 64 to `max_route_frame_bytes`.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 65536
+    },
+    "clipboard_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "service_log_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 262144
+    },
+    "max_services": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    },
+    "startup": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 10000
+    },
+    "stop_grace": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 5000
+    },
+    "pump_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "default": 1048576
+    },
+    "pump_events": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "default": 256
+    }
+  },
+  "additionalProperties": false
+}

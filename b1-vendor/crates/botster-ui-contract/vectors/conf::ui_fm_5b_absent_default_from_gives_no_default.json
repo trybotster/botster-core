@@ -1,0 +1,315 @@
+{
+  "id": "conf::ui_fm_5b_absent_default_from_gives_no_default",
+  "contract": "ui",
+  "clause": "UI-SL-8",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "no row selected: the default_from operand is absent and the field starts empty",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "selects": "sel"
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "default_from": {
+                          "sel": "sel/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f2",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "default_from": {
+                      "sel": "sel/name"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1,
+              "name": "Picked"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f29:container1:s6:widget": {
+          "props": {
+            "value": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-8",
+      "expect_no_diagnostics": true
+    },
+    {
+      "name": "a selected row has no value at the operand path: the field starts empty",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "selects": "sel"
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "default_from": {
+                          "sel": "sel/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f2",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "default_from": {
+                      "sel": "sel/name"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1,
+              "name": "Picked"
+            },
+            {
+              "id": "r2",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f29:container1:s6:widget": {
+          "props": {
+            "value": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-8",
+      "expect_no_diagnostics": true,
+      "local_state": {
+        "selections": {
+          "sel": "r2"
+        }
+      }
+    },
+    {
+      "name": "contrast: a selected row with the value gives the default",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "selects": "sel"
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "default_from": {
+                          "sel": "sel/name"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f2",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "default_from": {
+                      "sel": "sel/name"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1,
+              "name": "Picked"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "sel": "r1"
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:71:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:f29:container1:s6:widget": {
+          "props": {
+            "value": "Picked"
+          }
+        }
+      },
+      "because": "UI UI-FM-5",
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      }
+    }
+  ]
+}

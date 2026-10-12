@@ -1,0 +1,19 @@
+[package]
+name = "botster-plugin-fakes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-plugin-contract = { path = "../botster-plugin-contract" }
+rand_chacha.workspace = true
+rand_core.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest = "1.11"
+test-strategy = "0.4.5"

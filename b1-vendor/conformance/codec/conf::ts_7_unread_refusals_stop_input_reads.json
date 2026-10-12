@@ -1,0 +1,1624 @@
+{
+  "id": "conf::ts_7_unread_refusals_stop_input_reads",
+  "contract": "codec",
+  "clause": "TS-7",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "advance_clock",
+      "input_blocked",
+      "stall_reader"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "route_queue_bytes": 600,
+      "stall_deadline_ms": 1000,
+      "stall_close_after_ms": 100000,
+      "file_name_limit": 32,
+      "file_directory": "/f"
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": false,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "9",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "11",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "12",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "13",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "14",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "15",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "16",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "17",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "18",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "19",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "20",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "21",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "22",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "23",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "24",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "25",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "26",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "27",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "28",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "29",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "30",
+        "bytes": {
+          "$bytes_hex": "78"
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": true
+      },
+      "because": "Codec TS-7"
+    },
+    {
+      "control": {
+        "op": "advance_clock",
+        "ms": 1001
+      }
+    },
+    {
+      "control": {
+        "op": "stall_reader",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "1",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "2",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "3",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "4",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "5",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "6",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "7",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "8",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "9",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "10",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "11",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "12",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "13",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "14",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "15",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "16",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "17",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "18",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "19",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "20",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "21",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "22",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "23",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "24",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "25",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "26",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "27",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "28",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "29",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "30",
+        "reason": "not_writable"
+      },
+      "ignore": [
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        },
+        {
+          "frame": "output_dropped"
+        },
+        {
+          "frame": "resync"
+        },
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "baseline_begin"
+        },
+        {
+          "frame": "screen"
+        },
+        {
+          "frame": "baseline_end"
+        },
+        {
+          "frame": "live"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec TS-7"
+      ]
+    }
+  ]
+}

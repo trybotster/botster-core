@@ -1,0 +1,78 @@
+{
+  "id": "conf::hs_8_busy_close",
+  "contract": "hc",
+  "clause": "HS-8",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "max_connections": 1
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "expect": {
+        "type": "close",
+        "reason": {
+          "busy": {
+            "retry_after_ms": {
+              "$type": "integer"
+            }
+          }
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-8"
+    },
+    {
+      "expect_closed": null,
+      "on": "c2",
+      "because": "HC HS-8"
+    }
+  ]
+}

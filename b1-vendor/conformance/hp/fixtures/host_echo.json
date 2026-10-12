@@ -1,0 +1,36 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   },
+   {
+    "id": "h2",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "return": {
+     "ok": {
+      "caller": "$caller",
+      "origin": "$origin",
+      "payload": "$payload"
+     }
+    }
+   }
+  ],
+  "h2": [
+   {
+    "return": {
+     "ok": "ran"
+    }
+   }
+  ]
+ }
+}

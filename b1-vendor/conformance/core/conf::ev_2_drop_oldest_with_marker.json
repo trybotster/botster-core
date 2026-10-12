@@ -1,0 +1,819 @@
+{
+  "id": "conf::ev_2_drop_oldest_with_marker",
+  "contract": "core",
+  "clause": "EV-2",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_output"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "event_queue": 16
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 2000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42301b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B0"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42311b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B1"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2002
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42321b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B2"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2003
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42331b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B3"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2004
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42341b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B4"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2005
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42351b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B5"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2006
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42361b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B6"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2007
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42371b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B7"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2008
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42381b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B8"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2009
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b42391b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B9"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2010
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231301b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B10"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2011
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231311b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B11"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2012
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231321b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B12"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2013
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231331b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B13"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2014
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231341b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B14"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2015
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231351b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B15"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2016
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231361b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B16"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2017
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231371b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B17"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2018
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231381b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B18"
+      }
+    },
+    {
+      "advance_clock": {
+        "unix": 2019
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "071b5d323b4231391b5c"
+      }
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "B19"
+      }
+    },
+    {
+      "expect_eventually": {
+        "EventsLost": {
+          "id": "s1",
+          "kinds": [
+            "Bell"
+          ]
+        }
+      },
+      "because": [
+        "Core EV-2",
+        "Core EV-6"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2004
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2005
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2006
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2007
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2008
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2009
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2010
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2011
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2012
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2013
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2014
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2015
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2016
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2017
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2018
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "Bell": {
+          "id": "s1",
+          "at": 2019
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_eventually": {
+        "TitleChanged": {
+          "id": "s1",
+          "title": "B19"
+        }
+      },
+      "because": [
+        "Core EV-1",
+        "Core EV-6"
+      ],
+      "ignore": [
+        {
+          "Activity": {
+            "id": "s1"
+          }
+        }
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "Bell": {
+              "id": "s1"
+            }
+          },
+          {
+            "EventsLost": {
+              "id": "s1"
+            }
+          },
+          {
+            "TitleChanged": {
+              "id": "s1"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "s1",
+              "labels": {
+                "b": "1"
+              }
+            }
+          }
+        },
+        "bind": "$bar_s1"
+      },
+      "until": {
+        "Completed": {
+          "op": "$bar_s1",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core EV-2"
+      ]
+    }
+  ]
+}

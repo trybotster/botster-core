@@ -1,0 +1,745 @@
+{
+  "id": "conf::e4_1_fallback_reserves_its_reply_length",
+  "contract": "core",
+  "clause": "E4-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "oracle_query_reply",
+      "pty_blocked",
+      "pty_input",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "oracle_query_reply",
+        "session": "s1",
+        "request_hex": "1b5b63"
+      },
+      "bind": "$or_sh"
+    },
+    {
+      "let": {
+        "$ans_sh": {
+          "field": [
+            "$or_sh",
+            "answerable"
+          ]
+        }
+      }
+    },
+    {
+      "assume": {
+        "eq": [
+          "$ans_sh",
+          true
+        ]
+      },
+      "because": [
+        "Core EV-8"
+      ]
+    },
+    {
+      "let": {
+        "$sh": {
+          "field": [
+            "$or_sh",
+            "reply_hex"
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$L": {
+          "hex_len": [
+            "$sh",
+            0
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$room": {
+          "add": [
+            "$L",
+            0
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$bound": {
+          "add": [
+            "$room",
+            8
+          ]
+        }
+      }
+    },
+    {
+      "data_dir": "dfe"
+    },
+    {
+      "open": {
+        "as": "fe",
+        "data_dir": "dfe",
+        "limits": {
+          "input_retained_bytes": "$bound"
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "fe"
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fe"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        },
+        "handle": "fe"
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fe"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "rfe",
+        "session": "s1",
+        "client": "c1",
+        "handle": "fe",
+        "options": {
+          "history": "none",
+          "answers_queries": true,
+          "query_deadline": 60000
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfe"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfe"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfe"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "rfe"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "rfe"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true,
+        "handle": "fe"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6161616161616161"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fe"
+      },
+      "bind": "$fill_fe"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "411b5b63",
+        "handle": "fe"
+      }
+    },
+    {
+      "await_quiet": {
+        "handle": "fe"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "terminal_query",
+        "query_id": "$q"
+      },
+      "because": [
+        "Core EV-8",
+        "Core DP-3"
+      ],
+      "ignore": [
+        {
+          "$any": true
+        }
+      ],
+      "on": "rfe"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "reply_terminal_query",
+        "op": "1",
+        "query_id": "$q",
+        "reply": "decline"
+      },
+      "route": "rfe"
+    },
+    {
+      "await_quiet": {
+        "handle": "fe"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "reply_terminal_query",
+        "op": "2",
+        "query_id": "$q",
+        "reply": {
+          "encoded": {
+            "bytes_base64": "G1s/NjJj"
+          }
+        }
+      },
+      "route": "rfe"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "2",
+        "reason": "already_replied"
+      },
+      "because": [
+        "Core EV-8",
+        "Core E4-1",
+        "Core IN-5"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "rfe"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "62"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fe"
+      },
+      "bind": "$probe_fe",
+      "expect_error": {
+        "code": "LaneFull"
+      },
+      "because": [
+        "Core EV-8",
+        "Core E4-1",
+        "Core IN-5"
+      ]
+    },
+    {
+      "let": {
+        "$L": {
+          "hex_len": [
+            "$sh",
+            0
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$room": {
+          "sub": [
+            "$L",
+            1
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$bound": {
+          "add": [
+            "$room",
+            8
+          ]
+        }
+      }
+    },
+    {
+      "data_dir": "dfs"
+    },
+    {
+      "open": {
+        "as": "fs",
+        "data_dir": "dfs",
+        "limits": {
+          "input_retained_bytes": "$bound"
+        }
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        },
+        "handle": "fs"
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fs"
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        },
+        "handle": "fs"
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fs"
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "rfs",
+        "session": "s1",
+        "client": "c1",
+        "handle": "fs",
+        "options": {
+          "history": "none",
+          "answers_queries": true,
+          "query_deadline": 60000
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfs"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfs"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "rfs"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "rfs"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "rfs"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true,
+        "handle": "fs"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "6161616161616161"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fs"
+      },
+      "bind": "$fill_fs"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "411b5b63",
+        "handle": "fs"
+      }
+    },
+    {
+      "await_quiet": {
+        "handle": "fs"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "terminal_query",
+        "query_id": "$q"
+      },
+      "because": [
+        "Core EV-8",
+        "Core DP-3"
+      ],
+      "ignore": [
+        {
+          "$any": true
+        }
+      ],
+      "on": "rfs"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "reply_terminal_query",
+        "op": "1",
+        "query_id": "$q",
+        "reply": "decline"
+      },
+      "route": "rfs"
+    },
+    {
+      "await_quiet": {
+        "handle": "fs"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "reply_terminal_query",
+        "op": "2",
+        "query_id": "$q",
+        "reply": {
+          "encoded": {
+            "bytes_base64": "G1s/NjJj"
+          }
+        }
+      },
+      "route": "rfs"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "op": "2",
+        "reason": "query_expired"
+      },
+      "because": [
+        "Core EV-8",
+        "Core E4-1",
+        "Core IN-5"
+      ],
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "rfs"
+    },
+    {
+      "begin": {
+        "op": {
+          "WriteInput": {
+            "session": "s1",
+            "payload": {
+              "bytes": {
+                "bytes": {
+                  "$bytes_hex": "62"
+                }
+              }
+            }
+          }
+        },
+        "handle": "fs"
+      },
+      "bind": "$probe_fs"
+    }
+  ]
+}

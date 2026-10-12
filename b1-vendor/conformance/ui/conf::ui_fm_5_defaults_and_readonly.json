@@ -1,0 +1,127 @@
+{
+  "id": "conf::ui_fm_5_defaults_and_readonly",
+  "contract": "ui",
+  "clause": "UI-FM-5",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "h": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "s": {
+                "type": "string",
+                "default": "dflt"
+              },
+              "ro": {
+                "type": "string",
+                "default": "fixed"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "v"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "s": {
+                          "type": "string",
+                          "default": "dflt"
+                        },
+                        "ro": {
+                          "type": "string",
+                          "default": "fixed",
+                          "ui": {
+                            "read_only": true
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "form",
+            "values": {
+              "s": "dflt",
+              "ro": "fixed"
+            }
+          }
+        },
+        "because": "UI UI-FM-5",
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "submit": {}
+        },
+        "node_id": "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "h",
+            "count": 1,
+            "args": {
+              "s": "dflt",
+              "ro": "fixed"
+            }
+          }
+        },
+        "because": "UI UI-FM-5"
+      }
+    }
+  ]
+}

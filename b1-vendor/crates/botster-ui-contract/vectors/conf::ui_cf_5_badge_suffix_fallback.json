@@ -1,0 +1,151 @@
+{
+  "id": "conf::ui_cf_5_badge_suffix_fallback",
+  "contract": "ui",
+  "clause": "UI-CF-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a count badge without a badge widget is the suffix (n)",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "open": 3,
+              "flag": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "external_open"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "suffix": "(3)"
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "a dot badge without a badge widget is the suffix dot",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/flag"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "open": 3,
+              "flag": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "external_open"
+        ]
+      },
+      "expect": {
+        "display": "dot",
+        "suffix": "●"
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "an absent features list means no badge widget",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "open": 3,
+              "flag": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect": {
+        "suffix": "(3)"
+      },
+      "because": "UI UI-CF-5"
+    },
+    {
+      "name": "with a badge widget there is no suffix",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/open"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "open": 3,
+              "flag": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": {
+        "display": "count",
+        "value": 3,
+        "suffix": {
+          "$absent": true
+        }
+      },
+      "because": "UI UI-CF-5"
+    }
+  ]
+}

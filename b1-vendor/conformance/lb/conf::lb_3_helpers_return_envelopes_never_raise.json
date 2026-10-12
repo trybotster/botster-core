@@ -1,0 +1,110 @@
+{
+ "id": "conf::lb_3_helpers_return_envelopes_never_raise",
+ "contract": "lb",
+ "clause": "LB-3",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local bad = botster.base64.decode{ text = \"***\" }\n      local good = botster.ids.new{}\n      local effect = bad.error and bad.error.effect\n      return {\n        bad_ok = bad.ok,\n        bad_kind = bad.error and bad.error.kind,\n        message_type = type(bad.error and bad.error.message),\n        retryable_type = type(bad.error and bad.error.retryable),\n        effect_ok = effect == \"none\" or effect == \"committed\" or effect == \"unknown\",\n        good_ok = good.ok,\n        returned = true,\n      }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "bad_ok": false,
+       "bad_kind": "invalid_request",
+       "message_type": "string",
+       "retryable_type": "boolean",
+       "effect_ok": true,
+       "good_ok": true,
+       "returned": true
+      }
+     }
+    }
+   },
+   "because": [
+    "LB LB-3",
+    "LB LB-8"
+   ]
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LH-1"
+  }
+ ]
+}

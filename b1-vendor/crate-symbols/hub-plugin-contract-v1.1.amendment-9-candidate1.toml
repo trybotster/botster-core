@@ -1,0 +1,17 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-9-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Hub→plugin contract v1.1, Amendment 9 (candidate 1): only the Hub uses the ICE configuration
+# The base is the Hub→plugin contract of `frozen/current` (manifest final35): v1.1 joint J4e, with Amendments 1 to 8, which are unchanged except where A9-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Hub→plugin contract v1.1, Amendment 9 (candidate 1): only the Hub uses the ICE configuration
+# | A9-1 | **The Hub alone uses the ICE configuration.** The configuration that `web.set_ice_servers` stores (WP-6) is the one that the **Hub** uses for its own peer connections, which carry every channel of a client (Hub→client A8-1). No session worker uses it or receives it. The other rules of WP-6 are unchanged. | `conf::a9_1_hub_uses_the_ice_configuration` |
+[rows."11"]
+"web.set_ice_servers" = ["plugin.call:web.set_ice_servers"]
+
+# Hub→plugin contract v1.1, Amendment 9 (candidate 1): only the Hub uses the ICE configuration
+# **Ids.** `conf::wp_6_hub_and_workers_use_the_configuration` is **withdrawn**, with authority A9-1, and `conf::a9_1_hub_uses_the_ice_configuration` replaces it. The other `wp_6_*` ids are unchanged.
+[rows."13"]
+"wp_6_*" = "n/a: a conformance test id pattern"

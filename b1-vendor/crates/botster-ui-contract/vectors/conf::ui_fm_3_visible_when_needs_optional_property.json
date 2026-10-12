@@ -1,0 +1,238 @@
+{
+  "id": "conf::ui_fm_3_visible_when_needs_optional_property",
+  "contract": "ui",
+  "clause": "UI-FM-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "visible_when on an optional property",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "type": "string",
+                        "enum": [
+                          "git",
+                          "dir"
+                        ]
+                      },
+                      "branch": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/target"
+                              },
+                              {
+                                "lit": "git"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "target"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string",
+                    "enum": [
+                      "git",
+                      "dir"
+                    ]
+                  },
+                  "branch": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "eq": [
+                          {
+                            "form": "/target"
+                          },
+                          {
+                            "lit": "git"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "target"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "target": {
+                  "type": "string",
+                  "enum": [
+                    "git",
+                    "dir"
+                  ]
+                },
+                "branch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-3"
+    },
+    {
+      "name": "visible_when on a required property",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "target": {
+                        "type": "string"
+                      },
+                      "branch": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/target"
+                              },
+                              {
+                                "lit": "git"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "target",
+                      "branch"
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "target": {
+                    "type": "string"
+                  },
+                  "branch": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "eq": [
+                          {
+                            "form": "/target"
+                          },
+                          {
+                            "lit": "git"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "target",
+                  "branch"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "visible_when_required",
+        "path": "/root/children/0/items/0/args_schema/properties/branch/ui/visible_when"
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "target": {
+                  "type": "string"
+                },
+                "branch": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "target",
+                "branch"
+              ]
+            }
+          }
+        }
+      },
+      "because": "UI UI-FM-3"
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "id": "conf::hs_9_disconnect_releases_watches",
+  "contract": "hc",
+  "clause": "HS-9",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "watch_count"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "watch",
+        "kind": "spawn_target"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "watch_id": "$w"
+        }
+      },
+      "on": "c1",
+      "because": "HC WT-1"
+    },
+    {
+      "control": {
+        "op": "watch_count",
+        "conn": "c1"
+      },
+      "expect": {
+        "count": 1
+      },
+      "because": "HC HS-9"
+    },
+    {
+      "disconnect": {},
+      "on": "c1"
+    },
+    {
+      "control": {
+        "op": "watch_count",
+        "conn": "c1"
+      },
+      "expect": {
+        "count": 0
+      },
+      "because": "HC HS-9"
+    }
+  ]
+}

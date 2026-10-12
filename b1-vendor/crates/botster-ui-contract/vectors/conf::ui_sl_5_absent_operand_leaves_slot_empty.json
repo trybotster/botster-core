@@ -1,0 +1,177 @@
+{
+  "id": "conf::ui_sl_5_absent_operand_leaves_slot_empty",
+  "contract": "ui",
+  "clause": "UI-SL-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "admission of the fixture: an absent operand leaves the slot out and raises a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "navigate": {
+                  "view": "acme-tickets/detail",
+                  "select": {
+                    "sel_t": {
+                      "path": "/id"
+                    },
+                    "sel_o": {
+                      "path": "/owner"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "package": "acme-tickets",
+        "views": [
+          "detail",
+          "board"
+        ],
+        "kinds": {
+          "acme.ticket": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner",
+              "/web_url"
+            ]
+          }
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-SL-5"
+    },
+    {
+      "name": "an absent operand leaves the slot out and raises a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "navigate": {
+                  "view": "acme-tickets/detail",
+                  "select": {
+                    "sel_t": {
+                      "path": "/id"
+                    },
+                    "sel_o": {
+                      "path": "/owner"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "navigate": {
+                "view": "acme-tickets/detail",
+                "select": {
+                  "sel_t": "t1",
+                  "sel_o": {
+                    "$absent": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "diagnostics": [
+          {
+            "code": {
+              "$any": true
+            }
+          }
+        ]
+      },
+      "because": "UI UI-SL-5",
+      "capabilities": {
+        "features": [
+          "ui_1_1"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      }
+    }
+  ]
+}

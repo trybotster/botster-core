@@ -1,0 +1,161 @@
+{
+  "id": "conf::st_6_snapshot_versioned",
+  "contract": "core",
+  "clause": "ST-6",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "call": {
+        "method": "snapshot_formats",
+        "args": {
+          "id": "s1"
+        }
+      },
+      "bind": "$fmts",
+      "because": [
+        "Core ST-6",
+        "Core OU-1"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$fmts",
+          []
+        ]
+      },
+      "because": [
+        "Core ST-6"
+      ]
+    },
+    {
+      "call": {
+        "method": "snapshot_formats",
+        "args": {
+          "id": "nope"
+        }
+      },
+      "expect_error": {
+        "code": "UnknownSession"
+      },
+      "because": [
+        "Core ST-6",
+        "Core ER-0"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k_cap"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k_cap",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "control": {
+        "op": "snapshot_unsupported_version",
+        "capture": "$cap"
+      },
+      "expect": {
+        "supported": false,
+        "refused": true,
+        "error": {
+          "$type": "string"
+        }
+      },
+      "because": [
+        "Core ST-6"
+      ]
+    }
+  ],
+  "requires": {
+    "controls": [
+      "snapshot_unsupported_version"
+    ]
+  }
+}

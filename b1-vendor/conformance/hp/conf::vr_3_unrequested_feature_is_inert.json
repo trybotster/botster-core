@@ -1,0 +1,73 @@
+{
+ "id": "conf::vr_3_unrequested_feature_is_inert",
+ "contract": "hp",
+ "clause": "VR-3",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_calls"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "features": [
+      "f_new"
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "features": {
+      "required": [],
+      "optional": []
+     }
+    }
+   },
+   "because": [
+    "HP VR-3",
+    "HP HS-4"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call": "store.get"
+    }
+   },
+   "because": "HP VR-3"
+  }
+ ]
+}

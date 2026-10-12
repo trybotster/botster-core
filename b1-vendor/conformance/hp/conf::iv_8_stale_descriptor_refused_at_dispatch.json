@@ -1,0 +1,101 @@
+{
+ "id": "conf::iv_8_stale_descriptor_refused_at_dispatch",
+ "contract": "hp",
+ "clause": "IV-8",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "descriptor_id": "desc-from-an-older-load"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP IV-8"
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "conflict",
+       "detail": {
+        "code": "stale_descriptor"
+       },
+       "effect": "none"
+      }
+     }
+    }
+   ],
+   "because": [
+    "HP IV-8",
+    "HP ER-5"
+   ]
+  }
+ ]
+}

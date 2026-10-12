@@ -1,0 +1,799 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string",
+      "description": "Non-exhaustive: an unknown kind is shown as \"other\" and the client waits for `terminal`."
+    },
+    "state": {
+      "$ref": "#/$defs/OperationState"
+    },
+    "terminal": {
+      "type": "boolean",
+      "description": "Whether the state is final."
+    },
+    "progress": {
+      "$ref": "#/$defs/Progress"
+    },
+    "result": {
+      "description": "The per-kind result of A.7b."
+    },
+    "error": {
+      "$ref": "#/$defs/Error"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "state",
+    "terminal"
+  ],
+  "description": "The wire form of `OperationRow`. The reader checks the `result` of a known kind after it reads the members (A.7b).",
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "spawn"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/SessionRef"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "hub.update"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/UpdateResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "hub.upgrade_packages"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/BulkPackagesResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "hub.rollback_packages"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/BulkPackagesResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "package.install"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/PackageInstallResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "package.upgrade"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/PackageUpgradeResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "package.rollback"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/PackageRollbackResult"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "spawn_target.rescan_packages"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/RescanResult"
+          }
+        }
+      }
+    }
+  ],
+  "x-kind": "operation",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "get": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-2"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {},
+  "x-operation-kinds": {
+    "spawn": {
+      "states": [
+        "starting",
+        "installed",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "exec_failed",
+        "cwd_missing",
+        "worktree_failed",
+        "worker_failed",
+        "session_type_unavailable"
+      ],
+      "result": "SessionRef"
+    },
+    "safe_write": {
+      "states": [
+        "queued",
+        "typing",
+        "delivered",
+        "abandoned",
+        "replaced",
+        "cancelled",
+        "failed",
+        "unknown"
+      ],
+      "failed_reasons": []
+    },
+    "hub.update": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "download_failed",
+        "verify_failed",
+        "install_failed"
+      ],
+      "result": "UpdateResult"
+    },
+    "hub.shutdown": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "hub.restart": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "hub.swap": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "hub.upgrade_packages": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [],
+      "result": "BulkPackagesResult"
+    },
+    "hub.rollback_packages": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [],
+      "result": "BulkPackagesResult"
+    },
+    "session.stop": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "worktree.create": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "git_failed"
+      ]
+    },
+    "worktree.delete": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.install": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "fetch_failed",
+        "url_refused",
+        "too_large",
+        "hash_mismatch",
+        "path_not_found",
+        "path_not_contained"
+      ],
+      "result": "PackageInstallResult"
+    },
+    "package.remove": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.enable": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.disable": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.reload": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.entrypoint": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": []
+    },
+    "package.upgrade": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "fetch_failed",
+        "hash_mismatch",
+        "activation_failed"
+      ],
+      "result": "PackageUpgradeResult"
+    },
+    "package.rollback": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "hash_mismatch"
+      ],
+      "result": "PackageRollbackResult"
+    },
+    "catalog.refresh": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [
+        "fetch_failed",
+        "url_refused",
+        "malformed",
+        "too_large"
+      ]
+    },
+    "spawn_target.rescan_packages": {
+      "states": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "failed_reasons": [],
+      "result": "RescanResult"
+    }
+  },
+  "$defs": {
+    "SessionRef": {
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "session_id"
+      ],
+      "description": "A session identity: `{hub_id, session_id}`.\n\nClause: HC P5."
+    },
+    "UpdateResult": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "description": "`result` of a `hub.update` operation.\n\nClause: HC A.7b."
+    },
+    "BulkPackagesResult": {
+      "type": "object",
+      "properties": {
+        "packages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PackageOutcome"
+          }
+        }
+      },
+      "required": [
+        "packages"
+      ],
+      "description": "`result` of `hub.upgrade_packages` and `hub.rollback_packages`.\n\nClause: HC A.7b."
+    },
+    "PackageOutcome": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "description": "`succeeded` or `failed`."
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "state"
+      ],
+      "description": "One package outcome of a bulk package operation.\n\nClause: HC A.7b."
+    },
+    "PackageInstallResult": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "version"
+      ],
+      "description": "`result` of `package.install`: the package key and the admitted manifest version, on every end that admitted a package.\n\nClause: HC A.7b, HC A6-1."
+    },
+    "PackageUpgradeResult": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "resolved_commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "version",
+        "resolved_commit"
+      ],
+      "description": "`result` of `package.upgrade`.\n\nClause: HC A.7b."
+    },
+    "PackageRollbackResult": {
+      "type": "object",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "resolved_commit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "ref",
+        "resolved_commit"
+      ],
+      "description": "`result` of `package.rollback`.\n\nClause: HC A.7b."
+    },
+    "RescanResult": {
+      "type": "object",
+      "properties": {
+        "found": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "removed": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "found",
+        "removed"
+      ],
+      "description": "`result` of `spawn_target.rescan_packages`: the instances found and removed.\n\nClause: HC A.7b, A2 part 1."
+    },
+    "OperationState": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "enum": [
+              "failed",
+              "abandoned",
+              "cancelled",
+              "unknown"
+            ]
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "reason"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "failed",
+                "abandoned",
+                "cancelled",
+                "unknown"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "Progress": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "fraction": {
+          "type": "number",
+          "format": "double",
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "description": "`progress` of a generic operation: `{ message, fraction? }`, `fraction` in 0..1.\n\nClause: HC A.7b."
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "category": {
+          "$ref": "#/$defs/Category"
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "effect": {
+          "description": "Present on every error that answers a mutating request.",
+          "$ref": "#/$defs/ErrorEffect"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string",
+          "description": "A kind-specific sub-code, listed in the kind's `describe`."
+        },
+        "detail": {
+          "type": "object",
+          "additionalProperties": true,
+          "description": "The data that the contract names next to a code (`sessions`, `candidates`, `interface`, `range`, `key`)."
+        },
+        "field_errors": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FieldError"
+          }
+        },
+        "retry_after_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "code",
+        "category",
+        "retryable",
+        "message"
+      ],
+      "description": "The error object of a `res`, a tool result and an operation.\n\nClause: HC section 11, A.1b (`detail`), EN-3b."
+    },
+    "ErrorCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "invalid_arguments",
+            "not_found",
+            "unsupported",
+            "conflict",
+            "wrong_state",
+            "permission_denied",
+            "too_many_requests",
+            "busy",
+            "response_too_large",
+            "plugin_failed",
+            "remote_hub_unsupported",
+            "hub_shutdown",
+            "expired_cursor",
+            "stale_descriptor",
+            "cancelled",
+            "internal"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Category": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "caller",
+            "state",
+            "auth",
+            "capacity",
+            "fault"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ErrorEffect": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "none",
+            "unknown",
+            "partial"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "FieldError": {
+      "type": "object",
+      "properties": {
+        "pointer": {
+          "type": "string"
+        },
+        "field_id": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "code",
+        "message"
+      ],
+      "description": "One entry of `field_errors`: a JSON Pointer, an optional stable field id, a code and a message.\n\nClause: HC section 11, SF-2."
+    }
+  }
+}

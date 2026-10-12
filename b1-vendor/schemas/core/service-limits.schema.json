@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ServiceLimits",
+  "description": "The limits of a service. Durations travel as milliseconds.\n\nClause: Core SV-2, Core SV-4, Core A2-5.",
+  "type": "object",
+  "properties": {
+    "lanes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LaneSpec"
+      }
+    },
+    "rlimits": {
+      "$ref": "#/$defs/Rlimits",
+      "default": {}
+    },
+    "startup": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "stop_grace": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "orphan_grace": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "peer_identity": {
+      "description": "The uid that a lane peer must have. Absent means the host's uid.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "lanes",
+    "startup",
+    "stop_grace",
+    "orphan_grace"
+  ],
+  "$defs": {
+    "LaneSpec": {
+      "description": "The limits of one lane (SV-2).\n\nClause: Core SV-2, Core SV-4.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "outbound_queue_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "inbound_queue_bytes": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "max_frame_bytes",
+        "outbound_queue_bytes",
+        "inbound_queue_bytes"
+      ]
+    },
+    "Rlimits": {
+      "description": "The optional rlimits of a service.\n\nClause: Core SV-4, Core A2-5.",
+      "type": "object",
+      "properties": {
+        "cpu_seconds": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "open_files": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "processes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address_space_bytes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RlimitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "RlimitSpec": {
+      "description": "One requested rlimit.\n\nClause: Core A2-5, Core SV-4.",
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "required": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "value",
+        "required"
+      ]
+    }
+  }
+}

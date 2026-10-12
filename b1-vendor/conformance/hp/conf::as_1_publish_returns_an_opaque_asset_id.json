@@ -1,0 +1,288 @@
+{
+ "id": "conf::as_1_publish_returns_an_opaque_asset_id",
+ "contract": "hp",
+ "clause": "AS-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke",
+   "plugin_assets"
+  ]
+ },
+ "setup": {
+  "given": "demo holds the assets grant; the package of demo declares the embed view view (permission embed.view, action refresh) and the viewer holds embed.view",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "assets"
+     }
+    ],
+    "views": [
+     {
+      "key": "view",
+      "kind": "embed",
+      "permission": "embed.view",
+      "actions": [
+       {
+        "id": "refresh",
+        "handler": "h1"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "assets.publish",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "page-a",
+      "content_type": "text/html",
+      "bytes_b64": "PGh0bWw+PGJvZHk+b25lPC9ib2R5PjwvaHRtbD4="
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "$a1"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "assets.publish",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "page-b",
+      "content_type": "text/html",
+      "bytes_b64": "PGh0bWw+PGJvZHk+dHdvPC9ib2R5PjwvaHRtbD4="
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": {
+        "$ne": "$a1"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "assets.lookup",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "page-a"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "$a1",
+       "content_type": "text/html"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "assets.lookup",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "page-b"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "asset_id": "$a2",
+       "content_type": "text/html"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "control": {
+    "op": "plugin_assets",
+    "plugin": "demo"
+   },
+   "expect": {
+    "assets": {
+     "$array": {
+      "each": {
+       "asset_id": {
+        "$type": "string"
+       },
+       "name": {
+        "$type": "string"
+       }
+      },
+      "min": 2,
+      "max": 2
+     }
+    }
+   },
+   "because": "HP AS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

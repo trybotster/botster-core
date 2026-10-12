@@ -1,0 +1,115 @@
+{
+  "id": "conf::tr_3_incomplete_frame_discarded",
+  "contract": "codec",
+  "clause": "TR-3",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "client_close",
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "framing": "chunked",
+      "max_chunk_bytes": 7
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send_wire": {
+        "bytes_hex": "00830000000000"
+      }
+    },
+    {
+      "control": {
+        "op": "client_close"
+      },
+      "route": "r1"
+    },
+    {
+      "expect_closed": {
+        "ended": "transport_lost"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TR-3",
+        "Codec TS-9"
+      ]
+    },
+    {
+      "route_expect_pty": [],
+      "because": "Codec TR-3"
+    }
+  ]
+}

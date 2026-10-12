@@ -1,0 +1,372 @@
+{
+  "id": "conf::ui_nv_4_draft_kept_across_reload_and_stale_descriptor",
+  "contract": "ui",
+  "clause": "UI-NV-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the draft and its error are shown",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+            "value": "Alpha"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:109:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name6:widget": {
+          "props": {
+            "value": "Alpha"
+          }
+        },
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+          "props": {
+            "error": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "the property is gone: draft, error and overlay are kept and not shown, and nothing is discarded",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+            "value": "Alpha"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container"
+          }
+        ],
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name"
+      ]
+    },
+    {
+      "name": "a when that became false hides the field and keeps the draft",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/kind"
+                              },
+                              {
+                                "lit": "x"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+            "value": "Alpha"
+          },
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:kind": {
+            "value": "y"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name"
+      ]
+    },
+    {
+      "name": "the when is true again: the kept draft shows again",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "eq": [
+                              {
+                                "form": "/kind"
+                              },
+                              {
+                                "lit": "x"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+            "value": "Alpha"
+          },
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:kind": {
+            "value": "x"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:109:botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name6:widget": {
+          "props": {
+            "value": "Alpha"
+          }
+        }
+      }
+    },
+    {
+      "name": "the button is gone: its overlay is kept and not shown",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "other",
+                  "label": "Other",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+            "value": "Alpha"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect": {
+        "overlays": {
+          "$absent": true
+        },
+        "local_changes": {
+          "$absent": true
+        }
+      }
+    }
+  ]
+}

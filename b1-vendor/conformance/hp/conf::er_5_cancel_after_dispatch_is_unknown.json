@@ -1,0 +1,158 @@
+{
+ "id": "conf::er_5_cancel_after_dispatch_is_unknown",
+ "contract": "hp",
+ "clause": "ER-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "cancel",
+   "completions"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "dispatch_deadline": 100
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "ta": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "cancel",
+    "ticket": "$ta"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "request_id": "$ra"
+    }
+   },
+   "because": "HP IV-5"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "tb": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rb",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "advance_clock": {
+    "ms": 100
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$ta",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "cancelled",
+       "effect": {
+        "$one_of": [
+         "unknown",
+         "committed"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "ticket": "$tb",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "timed_out",
+       "effect": {
+        "$one_of": [
+         "unknown",
+         "committed"
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "because": "HP ER-5"
+  }
+ ]
+}

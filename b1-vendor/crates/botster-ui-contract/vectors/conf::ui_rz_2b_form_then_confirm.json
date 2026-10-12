@@ -1,0 +1,206 @@
+{
+  "id": "conf::ui_rz_2b_form_then_confirm",
+  "contract": "ui",
+  "clause": "UI-RZ-2b",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "both pending, form entry first: only the form shows",
+      "because": "UI UI-RZ-2b",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          },
+          {
+            "confirm": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm",
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container6:cancel"
+      ]
+    },
+    {
+      "name": "both pending, confirm entry first: only the form shows",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "ren"
+            }
+          },
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm",
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container6:cancel"
+      ]
+    },
+    {
+      "name": "only the confirmation pending: the confirmation shows",
+      "because": "UI UI-RZ-2b",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm": {
+          "type": "button"
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+{
+ "id": "conf::lb_16_other_call_shapes",
+ "contract": "lb",
+ "clause": "LB-16",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest",
+    "secrets": [
+     {
+      "name": "k",
+      "plugin_writable": true
+     }
+    ]
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local a = botster.secrets.put{ name = \"k\", value = botster.json.null }\n      local b = botster.secrets.put{ name = \"k\", value = \"v\" }\n      local c = botster.worktrees.delete{ worktree_id = \"w1\", delete_branch = true }\n      local d = botster.worktrees.delete{ worktree_id = \"w2\" }\n      return { deleted_secret = a.ok, set_secret = b.ok, worktree_ok = c.ok,\n               occupied = { d.error.kind, d.error.detail.code, d.error.detail.reason } }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "secrets.put",
+     "args": {
+      "name": "k",
+      "value": null
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "secrets.put",
+     "args": {
+      "name": "k",
+      "value": "v"
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "worktrees.delete",
+     "args": {
+      "worktree_id": "w1",
+      "delete_branch": true
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "context": {
+      "request": 1
+     },
+     "call": "worktrees.delete",
+     "args": {
+      "worktree_id": "w2"
+     }
+    }
+   },
+   "because": "LB LB-16"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c4",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "wrong_state",
+        "reason": "occupied"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "deleted_secret": true,
+       "set_secret": true,
+       "worktree_ok": true,
+       "occupied": [
+        "failed",
+        "wrong_state",
+        "occupied"
+       ]
+      }
+     }
+    }
+   },
+   "because": "LB LB-16"
+  }
+ ]
+}

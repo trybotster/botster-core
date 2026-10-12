@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "$ref": "#/$defs/LogRecord"
+    },
+    {
+      "$ref": "#/$defs/LogMarker"
+    }
+  ],
+  "description": "The `plugin_log` row: a record, or a marker.\n\nClause: HC section 6 (`plugin_log`).",
+  "x-kind": "plugin_log",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {},
+  "$defs": {
+    "LogRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Opaque, ordered within a package."
+        },
+        "package": {
+          "type": "string"
+        },
+        "load_id": {
+          "type": "string",
+          "description": "Changes at each plugin load."
+        },
+        "at": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "level": {
+          "$ref": "#/$defs/LogLevel"
+        },
+        "message": {
+          "type": "string"
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "id",
+        "package",
+        "load_id",
+        "at",
+        "level",
+        "message",
+        "fields"
+      ],
+      "description": "A log record.\n\nClause: HC section 6 (`plugin_log`), KR-1."
+    },
+    "LogLevel": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "debug",
+            "info",
+            "warn",
+            "error"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "LogMarker": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "gap": {
+              "$ref": "#/$defs/LogGap"
+            },
+            "count": {
+              "type": "integer",
+              "format": "uint64",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "gap"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "restarted": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "restarted"
+          ]
+        }
+      ],
+      "description": "A marker row: a gap, or a restart.\n\nClause: HC section 6 (`plugin_log`)."
+    },
+    "LogGap": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "evicted",
+            "rate_limited"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

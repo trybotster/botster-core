@@ -1,0 +1,191 @@
+{
+  "id": "conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut",
+  "contract": "core",
+  "clause": "ST-6b",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "edges_quiet",
+      "oracle_resume",
+      "pty_output"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 5000
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b333b35481b5b313b33316d1b371b5b313b3130481b481b5b323b34721b28301b5b306d1b5d323b7236322d737436622d6465632d311b5c"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "r62-st6b-dec-1"
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "drain": {}
+    },
+    {
+      "advance_clock": {
+        "unix": 5001
+      }
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b3878096c716b1b441b441b441b2842791b5d323b7236322d737436622d6465632d321b5c"
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "await_title": {
+        "session": "s1",
+        "title": "r62-st6b-dec-2"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          },
+          {
+            "TitleChanged": {
+              "id": "s1",
+              "title": "r62-st6b-dec-2"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core EV-7",
+        "Core 6.2"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_resume",
+        "session": "s1",
+        "capture": "$cap"
+      },
+      "expect": {
+        "equal": true
+      },
+      "because": [
+        "Core ST-6b"
+      ]
+    }
+  ]
+}

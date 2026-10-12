@@ -1,0 +1,283 @@
+{
+  "id": "conf::ui_fd_2_number_key_is_rfc8785_text",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "1.0 and 1 are both the key 1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "1": {
+                    "label": "One"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": 1.0
+            },
+            {
+              "id": "r1",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "One"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "One"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "1e21 has one spelling",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "1e+21": {
+                    "label": "Big"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": 1e+21
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Big"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "-0 is the key 0",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "0": {
+                    "label": "Zero"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": -0.0
+            },
+            {
+              "id": "r1",
+              "v": 0
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Zero"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "Zero"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a number with a fraction has its RFC 8785 text as key",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "1888570120608320.2": {
+                    "label": "Exact"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": 1888570120608320.2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Exact"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a key that is not the RFC 8785 text matches no number",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "1.0": {
+                    "label": "Never"
+                  },
+                  "1e21": {
+                    "label": "Never"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": 1.0
+            },
+            {
+              "id": "r1",
+              "v": 1e+21
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "1",
+            "tone": "neutral"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "1e+21",
+            "tone": "neutral"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    }
+  ]
+}

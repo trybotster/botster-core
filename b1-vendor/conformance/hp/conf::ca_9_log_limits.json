@@ -1,0 +1,323 @@
+{
+ "id": "conf::ca_9_log_limits",
+ "contract": "hp",
+ "clause": "CA-9",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "PluginLimits.log_record_bytes is 64 and the log rate is spent after one record",
+  "calls": {
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "quota_exceeded",
+       "message": "quota_exceeded",
+       "retryable": false,
+       "detail": {
+        "code": "record_too_large"
+       }
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "backpressured",
+       "message": "backpressured",
+       "retryable": false
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 2,
+       "dropped_before": 1
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "log.write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": "$s1"
+      }
+     }
+    }
+   },
+   "because": "HP CA-9"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "log.write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-9"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "log.write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "level": "info",
+      "message": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "quota_exceeded",
+       "detail": {
+        "code": "record_too_large"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-9"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "log.write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "backpressured"
+      }
+     }
+    }
+   },
+   "because": "HP CA-9"
+  },
+  {
+   "send_frame": {
+    "lane": "bulk",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "log.write",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "level": "info",
+      "message": "m"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": {
+        "$ne": "$s1"
+       },
+       "dropped_before": {
+        "$type": "integer"
+       }
+      }
+     }
+    }
+   },
+   "because": "HP CA-9"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

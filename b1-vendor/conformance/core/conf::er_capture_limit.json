@@ -1,0 +1,131 @@
+{
+  "id": "conf::er_capture_limit",
+  "contract": "core",
+  "clause": "ER-0",
+  "subject": "core",
+  "setup": {
+    "limits": {
+      "open_captures_per_client": 1
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k1",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k2",
+      "expect_error": {
+        "code": "CaptureLimit"
+      },
+      "because": "Core ER-0"
+    },
+    {
+      "call": {
+        "method": "release",
+        "args": {
+          "capture": "$cap"
+        }
+      },
+      "because": "Core ST-6"
+    },
+    {
+      "begin": {
+        "op": {
+          "CaptureSnapshot": {
+            "session": "s1",
+            "owner": "c1"
+          }
+        }
+      },
+      "bind": "$k3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$k3",
+            "result": {
+              "ok": {
+                "capture": {
+                  "capture": "$cap2"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ER-0"
+    }
+  ]
+}

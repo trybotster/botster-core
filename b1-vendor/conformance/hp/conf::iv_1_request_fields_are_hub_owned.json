@@ -1,0 +1,88 @@
+{
+ "id": "conf::iv_1_request_fields_are_hub_owned",
+ "contract": "hp",
+ "clause": "IV-1",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_echo"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1",
+     "caller": {
+      "kind": "system"
+     },
+     "origin": "mcp_tool",
+     "payload": {
+      "caller": {
+       "kind": "operator"
+      },
+      "origin": "command"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "caller": {
+        "kind": "system"
+       },
+       "origin": "mcp_tool",
+       "payload": {
+        "caller": {
+         "kind": "operator"
+        },
+        "origin": "command"
+       }
+      }
+     }
+    }
+   },
+   "because": "HP IV-1"
+  }
+ ]
+}

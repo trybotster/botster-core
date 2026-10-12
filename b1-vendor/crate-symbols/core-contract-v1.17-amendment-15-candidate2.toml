@@ -1,0 +1,72 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-15-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Core contract v1.17, Amendment 15 (candidate 2): a bound on a key's `text`
+[rows."1"]
+"text" = ["core::KeyInput::text"]
+
+# The base is the Core contract of `frozen/current` (manifest final34), which is unchanged except where A15-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 1** (`5ecf3e03…cc6e`, commit `c75cf39`), which the Amendment reviewer rejected (verdict `d5ee329`) on one finding: its default and range had no stated authority. **The numbers now rest on a user ruling** (2026-10-0...
+[rows."5"]
+"5ecf3e03…cc6e" = "n/a: a commit or file hash"
+"CoreLimits.max_key_text_bytes" = ["core::CoreLimits::max_key_text_bytes"]
+"c75cf39" = "n/a: a commit or file hash"
+"d5ee329" = "n/a: a commit or file hash"
+
+# - IN-9 bounds every semantic input at `begin`: Core computes "the **worst-case encoded size over every possible mode** (… the longest key sequence of **any** legacy or kitty flag combination, including every modifier parameter and associ...
+[rows."10"]
+"CoreLimits.max_paste_bytes" = ["core::CoreLimits::max_paste_bytes"]
+"PayloadTooLarge" = ["core::ErrorCode::PayloadTooLarge"]
+"begin" = ["core::CoreApi::begin"]
+
+# - 5.1A defines a key's `text` as "the text the key produces", with no bound of its own. The terminal model (libghostty, the only oracle, R-7) is the only encoder, so Core finds the worst case by asking the model to encode the key in ever...
+[rows."11"]
+"begin" = ["core::CoreApi::begin"]
+"max_paste_bytes" = ["core::CoreLimits::max_paste_bytes"]
+"text" = ["core::KeyInput::text"]
+
+# - A key produces a short text in practice: one character or one grapheme cluster. Long text arrives as `Text` or `Paste`, which have their own bounds.
+[rows."12"]
+"Paste" = ["core::InputPayload::Paste"]
+"Text" = ["core::InputPayload::Text"]
+
+# - `CoreLimits.max_query_text_bytes` already bounds the text of a query reply in the same way.
+[rows."13"]
+"CoreLimits.max_query_text_bytes" = ["core::CoreLimits::max_query_text_bytes"]
+
+# | A15-1 | **A key's `text` is at most `CoreLimits.max_key_text_bytes` bytes of UTF-8** (default **256**, range 1 to 4,096, by the user ruling of 2026-10-05; a value outside it makes `open` fail `InvalidConfig`). The check comes before an...
+[rows."17"]
+"CoreLimits.max_key_text_bytes" = ["core::CoreLimits::max_key_text_bytes"]
+"InvalidConfig" = ["core::ErrorCode::InvalidConfig"]
+"InvalidInput{field: \"text\"}" = ["core::ErrorCode::InvalidInput::field", "core::KeyInput::text"]
+"Key" = ["core::InputPayload::Key"]
+"OpId" = ["core::OpId"]
+"WriteInput" = ["core::Op::WriteInput"]
+"base_layout_key" = ["core::KeyInput::base_layout_key"]
+"begin" = ["core::CoreApi::begin"]
+"input_refused{too_large}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::TooLarge"]
+"key" = ["codec::Input::Key"]
+"open" = { symbols = ["core::OpenConfig"], uncovered = { open = "the constructor of the real Core; the contract crate holds its argument OpenConfig" } }
+"shifted_key" = ["core::KeyInput::shifted_key"]
+"text" = ["core::KeyInput::text"]
+
+# 1. **5.1A, `text`:** "optional, the **text the key produces** on the client's keyboard layout" reads "optional, the text the key produces on the client's keyboard layout, at most `CoreLimits.max_key_text_bytes` bytes (A15-1)".
+[rows."21"]
+"CoreLimits.max_key_text_bytes" = ["core::CoreLimits::max_key_text_bytes"]
+"text" = ["core::KeyInput::text"]
+
+# 2. **9B, `CoreLimits`:** a new row `max_key_text_bytes`, default 256, "5.1A, IN-9: the largest `text` of one key event; range 1 to 4,096 (A15-1)".
+[rows."22"]
+"CoreLimits" = ["core::CoreLimits"]
+"max_key_text_bytes" = ["core::CoreLimits::max_key_text_bytes"]
+"text" = ["core::KeyInput::text"]
+
+# 3. **Section 9.3, `InvalidInput`:** its meaning also covers a key `text` over `max_key_text_bytes` (A15-1). It is still sync, with no `OpId`.
+[rows."23"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"OpId" = ["core::OpId"]
+"max_key_text_bytes" = ["core::CoreLimits::max_key_text_bytes"]
+"text" = ["core::KeyInput::text"]

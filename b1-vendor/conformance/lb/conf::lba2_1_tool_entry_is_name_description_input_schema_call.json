@@ -1,0 +1,168 @@
+{
+ "id": "conf::lba2_1_tool_entry_is_name_description_input_schema_call",
+ "contract": "lb",
+ "clause": "LBA2-1",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  tools = {\n    { name = \"t1\", description = \"first\", input_schema = { type = \"object\" }, id = \"my_id\",\n      call = function(payload, request) return { who = \"t1\", got = payload.x } end },\n    { name = \"t2\", description = \"second\", input_schema = { type = \"object\" }, callable_by = { \"plugins\" },\n      call = function(payload, request) return { who = \"t2\" } end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "tools": {
+      "$set": [
+       {
+        "name": "t1",
+        "description": "first",
+        "input_schema": {
+         "type": "object"
+        },
+        "handler": "my_id"
+       },
+       {
+        "name": "t2",
+        "description": "second",
+        "input_schema": {
+         "type": "object"
+        },
+        "handler": "$h2",
+        "callable_by": [
+         "plugins"
+        ]
+       }
+      ]
+     },
+     "handlers": {
+      "$set": [
+       {
+        "id": "my_id",
+        "kind": "mcp_tool",
+        "descriptor": {
+         "name": "t1",
+         "description": "first",
+         "input_schema": {
+          "type": "object"
+         }
+        }
+       },
+       {
+        "id": "$h2",
+        "kind": "mcp_tool",
+        "descriptor": {
+         "name": "t2",
+         "description": "second",
+         "input_schema": {
+          "type": "object"
+         }
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "LB LBA2-1",
+    "HP MT-1"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "my_id",
+     "kind": "mcp_tool",
+     "payload": {
+      "x": 4
+     },
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "who": "t1",
+       "got": 4
+      }
+     }
+    }
+   },
+   "because": "LB LBA2-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$h2",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "who": "t2"
+      }
+     }
+    }
+   },
+   "because": "LB LBA2-1"
+  }
+ ]
+}

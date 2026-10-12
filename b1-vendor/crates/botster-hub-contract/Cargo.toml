@@ -1,0 +1,26 @@
+[package]
+name = "botster-hub-contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The schema generation and the descriptor registry, for the repo tooling and the conformance runners.
+unstable = []
+
+[dependencies]
+botster-route-codec.workspace = true
+botster-ui-contract.workspace = true
+data-encoding.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true
+# The schema tests need the unstable surface.
+botster-hub-contract = { path = ".", features = ["unstable"] }

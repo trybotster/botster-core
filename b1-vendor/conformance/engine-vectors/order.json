@@ -1,0 +1,1206 @@
+{
+  "suite": "order",
+  "cases": [
+    {
+      "name": "expect: the next item matches",
+      "step": {
+        "expect": {
+          "type": "res",
+          "id": "1"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect: the next item differs",
+      "step": {
+        "expect": {
+          "type": "res",
+          "id": "2"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect: no item arrives",
+      "step": {
+        "expect": {
+          "type": "res"
+        }
+      },
+      "stream": [],
+      "result": "failed"
+    },
+    {
+      "name": "expect: the route closed instead",
+      "step": {
+        "expect": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "closed": "peer"
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect: pending polls are retried",
+      "step": {
+        "expect": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect: binds a variable",
+      "step": {
+        "expect": {
+          "id": "$i"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed",
+      "bindings": {
+        "i": "1"
+      }
+    },
+    {
+      "name": "expect: the scope is passed on",
+      "step": {
+        "expect": {
+          "type": "res"
+        },
+        "on": "stream-a"
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_set: any order",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "2"
+          }
+        },
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_set: the same order",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        },
+        {
+          "item": {
+            "id": "2"
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_set: an item is missing",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_set: an item that matches no matcher",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        },
+        {
+          "item": {
+            "id": "3"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_set: one item cannot serve two matchers",
+      "step": {
+        "expect_set": [
+          {
+            "a": 1
+          },
+          {
+            "a": 1
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "a": 1,
+            "x": 0
+          }
+        },
+        {
+          "item": {
+            "a": 2
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_set: bindings are consistent across matchers",
+      "step": {
+        "expect_set": [
+          {
+            "id": "$a"
+          },
+          {
+            "id": "$b"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        },
+        {
+          "item": {
+            "id": "2"
+          }
+        }
+      ],
+      "result": "passed",
+      "bindings": {
+        "a": "1",
+        "b": "2"
+      }
+    },
+    {
+      "name": "expect_set: backtracks over an early binding",
+      "step": {
+        "expect_set": [
+          {
+            "k": "$v"
+          },
+          {
+            "k": "x"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "k": "x"
+          }
+        },
+        {
+          "item": {
+            "k": "y"
+          }
+        }
+      ],
+      "result": "passed",
+      "bindings": {
+        "v": "y"
+      }
+    },
+    {
+      "name": "expect_set: an empty set passes",
+      "step": {
+        "expect_set": []
+      },
+      "stream": [],
+      "result": "passed"
+    },
+    {
+      "name": "expect_set: must be an array",
+      "step": {
+        "expect_set": {
+          "id": "1"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_eventually: ignored items may come first",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        },
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "event"
+          }
+        },
+        {
+          "item": {
+            "type": "event"
+          }
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_eventually: the target may be first",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        },
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_eventually: an item that is not ignored fails",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        },
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "other"
+          }
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_eventually: no ignore list means no other item",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "event"
+          }
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_eventually: the target never arrives",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        },
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "event"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_eventually: pending polls are retried",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_eventually: the close is not a match",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "closed": "x"
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_eventually: a limit that expires is inconclusive",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        }
+      },
+      "stream": [
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "pending": true
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "inconclusive",
+      "max_polls": 3
+    },
+    {
+      "name": "expect_eventually: ignore may use $any",
+      "step": {
+        "expect_eventually": {
+          "type": "res"
+        },
+        "ignore": [
+          {
+            "$any": true
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": 1
+        },
+        {
+          "item": "x"
+        },
+        {
+          "item": {
+            "type": "res",
+            "id": "1",
+            "ok": true
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_eventually: binds from the matching item",
+      "step": {
+        "expect_eventually": {
+          "id": "$i"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "9"
+          }
+        }
+      ],
+      "result": "passed",
+      "bindings": {
+        "i": "9"
+      }
+    },
+    {
+      "name": "expect_quiet_until: the barrier runs, then the answer ends the wait",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        },
+        "barrier": {
+          "poke": {
+            "type": "ping"
+          }
+        },
+        "until": {
+          "type": "pong"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "other"
+          }
+        },
+        {
+          "item": {
+            "type": "pong"
+          }
+        }
+      ],
+      "result": "passed",
+      "executed": [
+        {
+          "poke": {
+            "type": "ping"
+          }
+        }
+      ]
+    },
+    {
+      "name": "expect_quiet_until: a forbidden item before the answer fails",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        },
+        "barrier": {
+          "poke": {
+            "type": "ping"
+          }
+        },
+        "until": {
+          "type": "pong"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "forbidden"
+          }
+        },
+        {
+          "item": {
+            "type": "pong"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_quiet_until: items after the answer are not examined",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        },
+        "barrier": {
+          "poke": {
+            "type": "ping"
+          }
+        },
+        "until": {
+          "type": "pong"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "pong"
+          }
+        },
+        {
+          "item": {
+            "type": "forbidden"
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_quiet_until: the answer never arrives",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        },
+        "barrier": {
+          "poke": {
+            "type": "ping"
+          }
+        },
+        "until": {
+          "type": "pong"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "other"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_quiet_until: the close before the answer fails",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        },
+        "barrier": {
+          "poke": {
+            "type": "ping"
+          }
+        },
+        "until": {
+          "type": "pong"
+        }
+      },
+      "stream": [
+        {
+          "closed": "x"
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_quiet_until: needs a barrier and an answer",
+      "step": {
+        "expect_quiet_until": {
+          "type": "forbidden"
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "pong"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_closed: the reason matches",
+      "step": {
+        "expect_closed": {
+          "reason": "idle"
+        }
+      },
+      "stream": [
+        {
+          "closed": {
+            "reason": "idle",
+            "extra": 1
+          }
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_closed: the reason differs",
+      "step": {
+        "expect_closed": {
+          "reason": "idle"
+        }
+      },
+      "stream": [
+        {
+          "closed": {
+            "reason": "error"
+          }
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_closed: a null reason accepts any reason",
+      "step": {
+        "expect_closed": null
+      },
+      "stream": [
+        {
+          "closed": "anything"
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_closed: ignored items may come first",
+      "step": {
+        "expect_closed": null,
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "event"
+          }
+        },
+        {
+          "closed": "x"
+        }
+      ],
+      "result": "passed"
+    },
+    {
+      "name": "expect_closed: an item that is not ignored fails",
+      "step": {
+        "expect_closed": null,
+        "ignore": [
+          {
+            "type": "event"
+          }
+        ]
+      },
+      "stream": [
+        {
+          "item": {
+            "type": "other"
+          }
+        },
+        {
+          "closed": "x"
+        }
+      ],
+      "result": "failed"
+    },
+    {
+      "name": "expect_closed: no close arrives",
+      "step": {
+        "expect_closed": null
+      },
+      "stream": [],
+      "result": "failed"
+    },
+    {
+      "name": "expect_closed: binds from the reason",
+      "step": {
+        "expect_closed": {
+          "reason": "$r"
+        }
+      },
+      "stream": [
+        {
+          "closed": {
+            "reason": "gone"
+          }
+        }
+      ],
+      "result": "passed",
+      "bindings": {
+        "r": "gone"
+      }
+    },
+    {
+      "name": "a step that is not an order step goes to the driver",
+      "step": {
+        "poke": {
+          "type": "req"
+        }
+      },
+      "stream": [],
+      "result": "passed",
+      "executed": [
+        {
+          "poke": {
+            "type": "req"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a step with a sibling expect key goes to the driver",
+      "step": {
+        "get": {
+          "id": "s1"
+        },
+        "expect": {
+          "state": "Running"
+        }
+      },
+      "stream": [],
+      "result": "passed",
+      "executed": [
+        {
+          "get": {
+            "id": "s1"
+          },
+          "expect": {
+            "state": "Running"
+          }
+        }
+      ]
+    },
+    {
+      "name": "an order key with an unknown sibling goes to the driver",
+      "step": {
+        "expect": {
+          "a": 1
+        },
+        "bind": "$x"
+      },
+      "stream": [],
+      "result": "passed",
+      "executed": [
+        {
+          "expect": {
+            "a": 1
+          },
+          "bind": "$x"
+        }
+      ]
+    },
+    {
+      "name": "expect_set ack: each item is answered as it arrives, in arrival order",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/id"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "2"
+          }
+        },
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "passed",
+      "executed": [
+        {
+          "answer": "2"
+        },
+        {
+          "answer": "1"
+        }
+      ]
+    },
+    {
+      "name": "expect_set ack: an ack of the driver that fails fails the step",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/id"
+          },
+          "fail": true
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        },
+        {
+          "item": {
+            "id": "2"
+          }
+        }
+      ],
+      "result": "failed",
+      "executed": [
+        {
+          "answer": "1",
+          "fail": true
+        }
+      ]
+    },
+    {
+      "name": "expect_set ack: a pointer that the item lacks fails the step",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/missing"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "failed",
+      "executed": []
+    },
+    {
+      "name": "expect_set ack: the set still fails when an item matches no matcher",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          },
+          {
+            "id": "2"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/id"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        },
+        {
+          "item": {
+            "id": "3"
+          }
+        }
+      ],
+      "result": "failed",
+      "executed": [
+        {
+          "answer": "1"
+        },
+        {
+          "answer": "3"
+        }
+      ]
+    },
+    {
+      "name": "expect_set ack: a nested template is substituted",
+      "step": {
+        "expect_set": [
+          {
+            "id": "1"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "frame": {
+              "ref": {
+                "$item": "/id"
+              },
+              "list": [
+                {
+                  "$item": "/id"
+                },
+                "x"
+              ]
+            }
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1"
+          }
+        }
+      ],
+      "result": "passed",
+      "executed": [
+        {
+          "answer": {
+            "frame": {
+              "ref": "1",
+              "list": [
+                "1",
+                "x"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "expect_eventually ack: ignored items and the target are answered",
+      "step": {
+        "expect_eventually": {
+          "id": "3"
+        },
+        "ignore": [
+          {
+            "kind": "noise"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/id"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "1",
+            "kind": "noise"
+          }
+        },
+        {
+          "item": {
+            "id": "2",
+            "kind": "noise"
+          }
+        },
+        {
+          "item": {
+            "id": "3"
+          }
+        }
+      ],
+      "result": "passed",
+      "executed": [
+        {
+          "answer": "1"
+        },
+        {
+          "answer": "2"
+        },
+        {
+          "answer": "3"
+        }
+      ]
+    },
+    {
+      "name": "expect_eventually ack: an item that is neither the target nor ignored fails before any answer",
+      "step": {
+        "expect_eventually": {
+          "id": "3"
+        },
+        "ignore": [
+          {
+            "kind": "noise"
+          }
+        ],
+        "ack": {
+          "answer": {
+            "$item": "/id"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "9"
+          }
+        }
+      ],
+      "result": "failed",
+      "executed": []
+    },
+    {
+      "name": "expect_eventually ack: a pointer that the target lacks fails the step",
+      "step": {
+        "expect_eventually": {
+          "id": "3"
+        },
+        "ack": {
+          "answer": {
+            "$item": "/missing"
+          }
+        }
+      },
+      "stream": [
+        {
+          "item": {
+            "id": "3"
+          }
+        }
+      ],
+      "result": "failed",
+      "executed": []
+    }
+  ]
+}

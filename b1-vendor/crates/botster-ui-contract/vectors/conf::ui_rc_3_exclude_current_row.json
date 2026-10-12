@@ -1,0 +1,319 @@
+{
+  "id": "conf::ui_rc_3_exclude_current_row",
+  "contract": "ui",
+  "clause": "UI-RC-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the options leave out the row being acted on",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "wl",
+              "source": {
+                "kind": "ws"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "mv",
+                    "label": "Mv",
+                    "handler": "h",
+                    "args": {
+                      "from": {
+                        "row": "/id"
+                      }
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "to": {
+                          "type": "string",
+                          "ui": {
+                            "options_source": {
+                              "kind": "ws",
+                              "where": {
+                                "ne": [
+                                  {
+                                    "path": "/id"
+                                  },
+                                  {
+                                    "row": "/id"
+                                  }
+                                ]
+                              },
+                              "value_field": "/id",
+                              "label_field": "/name"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "A"
+            },
+            {
+              "id": "w2",
+              "name": "B"
+            },
+            {
+              "id": "w3",
+              "name": "C"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "botster-ui-descendant-v1:33:botster-ui-descendant-v1:2:wl2:w12:mv"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:172:botster-ui-descendant-v1:139:botster-ui-descendant-v1:104:botster-ui-descendant-v1:65:botster-ui-descendant-v1:33:botster-ui-descendant-v1:2:wl2:w12:mv9:container4:item2:to6:widget": {
+          "type": "select",
+          "props": {
+            "options": [
+              {
+                "value": "w2",
+                "label": "B"
+              },
+              {
+                "value": "w3",
+                "label": "C"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-RC-3"
+    },
+    {
+      "name": "another row gives its own exclusion",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "wl",
+              "source": {
+                "kind": "ws"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "mv",
+                    "label": "Mv",
+                    "handler": "h",
+                    "args": {
+                      "from": {
+                        "row": "/id"
+                      }
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "to": {
+                          "type": "string",
+                          "ui": {
+                            "options_source": {
+                              "kind": "ws",
+                              "where": {
+                                "ne": [
+                                  {
+                                    "path": "/id"
+                                  },
+                                  {
+                                    "row": "/id"
+                                  }
+                                ]
+                              },
+                              "value_field": "/id",
+                              "label_field": "/name"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "ws": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "w1",
+              "name": "A"
+            },
+            {
+              "id": "w2",
+              "name": "B"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "botster-ui-descendant-v1:33:botster-ui-descendant-v1:2:wl2:w22:mv"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:172:botster-ui-descendant-v1:139:botster-ui-descendant-v1:104:botster-ui-descendant-v1:65:botster-ui-descendant-v1:33:botster-ui-descendant-v1:2:wl2:w22:mv9:container4:item2:to6:widget": {
+          "props": {
+            "options": [
+              {
+                "value": "w1",
+                "label": "A"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-RC-3"
+    },
+    {
+      "name": "row in options_source.where of a row action",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "wl",
+              "source": {
+                "kind": "ws"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/name"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "mv",
+                    "label": "Mv",
+                    "handler": "h",
+                    "args": {
+                      "from": {
+                        "row": "/id"
+                      }
+                    },
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "to": {
+                          "type": "string",
+                          "ui": {
+                            "options_source": {
+                              "kind": "ws",
+                              "where": {
+                                "ne": [
+                                  {
+                                    "path": "/id"
+                                  },
+                                  {
+                                    "row": "/id"
+                                  }
+                                ]
+                              },
+                              "value_field": "/id",
+                              "label_field": "/name"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "ws": {
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RC-3"
+    }
+  ]
+}

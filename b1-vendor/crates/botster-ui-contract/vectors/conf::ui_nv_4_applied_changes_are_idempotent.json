@@ -1,0 +1,341 @@
+{
+  "id": "conf::ui_nv_4_applied_changes_are_idempotent",
+  "contract": "ui",
+  "clause": "UI-NV-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an unavailable draft: after the changes are applied the tree is the same and no changes remain",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+            "value": "z"
+          }
+        }
+      },
+      "expect_idempotent": true,
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an existing error is replaced by the stamped error",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+            "value": "z"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+              "code": "other",
+              "message": "Old"
+            }
+          }
+        }
+      },
+      "expect_idempotent": true,
+      "expect_nodes": {
+        "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+          "props": {
+            "error": {
+              "code": "option_unavailable",
+              "message": {
+                "$absent": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an unavailable default: the unset draft hides the default",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "default": "z",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ]
+      },
+      "expect_idempotent": true,
+      "expect": {
+        "local_changes": {
+          "unset_drafts": [
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an existing error on a valid draft stays and nothing changes",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "pick"
+            }
+          }
+        ],
+        "drafts": {
+          "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+            "value": "a"
+          }
+        },
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+              "code": "too_long",
+              "message": "Long"
+            }
+          }
+        }
+      },
+      "expect_idempotent": true,
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:76:botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:pick9:container4:item1:o": {
+          "props": {
+            "error": {
+              "code": "too_long",
+              "message": "Long"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

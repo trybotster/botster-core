@@ -1,0 +1,124 @@
+{
+ "id": "conf::wp_5_binds_where_the_operator_configures",
+ "contract": "hp",
+ "clause": "WP-5",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "admit_manifest",
+   "listener"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds net_serve and fs:web and declares the static route {route: /, root: web}; the root web holds index.html (<h1>hi</h1>), other.html, data.json, app.js, and a link escape that points to the file /outside/secret.txt (content OUTSIDE-SECRET); the operator configured net_listen 0.0.0.0:0",
+  "limits": {
+   "net_listen": "0.0.0.0:0"
+  },
+  "grants": [
+   {
+    "surface": "net_serve"
+   },
+   {
+    "surface": "fs",
+    "scope": "fs:web"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "listener"
+   },
+   "expect": {
+    "bound": {
+     "$array": {
+      "each": {
+       "$starts_with": "0.0.0.0"
+      },
+      "min": 1
+     }
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "static_routes": [
+      {
+       "route": "/",
+       "root": "web",
+       "bind": "0.0.0.0:80"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request"
+    }
+   },
+   "because": "HP WP-5"
+  }
+ ]
+}

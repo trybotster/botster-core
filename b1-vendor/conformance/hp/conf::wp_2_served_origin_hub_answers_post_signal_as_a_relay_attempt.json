@@ -1,0 +1,165 @@
+{
+ "id": "conf::wp_2_served_origin_hub_answers_post_signal_as_a_relay_attempt",
+ "contract": "hp",
+ "clause": "WP-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "relay_attempts",
+   "settle",
+   "web_request"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds relay_signaling and registers the relay handler rl; the Hub mints relay ids; a client is connecting; the web origin is the plugin's served origin; the plugin holds net_serve",
+  "grants": [
+   {
+    "surface": "web_origin"
+   },
+   {
+    "surface": "relay",
+    "scope": "relay_signaling"
+   },
+   {
+    "surface": "net_serve"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      },
+      {
+       "id": "rl",
+       "kind": "relay",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     },
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "net",
+         "name": "ws.*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "POST",
+    "route": "signal",
+    "body_b64": "AAEC",
+    "bind": null
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      200,
+      299
+     ]
+    }
+   },
+   "because": "HP WP-2"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "handler": {
+      "$not": "rl"
+     }
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP WP-2"
+  },
+  {
+   "control": {
+    "op": "relay_attempts"
+   },
+   "expect": {
+    "attempts": {
+     "$array": {
+      "each": {
+       "relay_id": {
+        "$type": "string"
+       },
+       "plugin": {
+        "$absent": true
+       }
+      },
+      "min": 1,
+      "max": 1
+     }
+    }
+   },
+   "because": "HP WP-2"
+  }
+ ]
+}

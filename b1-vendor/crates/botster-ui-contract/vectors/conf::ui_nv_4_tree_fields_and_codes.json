@@ -1,0 +1,201 @@
+{
+  "id": "conf::ui_nv_4_tree_fields_and_codes",
+  "contract": "ui",
+  "clause": "UI-NV-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the tree has a root and the overlays of the open buttons",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "root": {
+          "id": "root"
+        },
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container"
+          }
+        ]
+      },
+      "expect_no_diagnostics": true
+    },
+    {
+      "name": "a view that requires an unsupported feature is a diagnostic tree",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "L",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_3"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": []
+      },
+      "expect_diagnostics": [
+        "unsupported_view_feature"
+      ]
+    },
+    {
+      "name": "a view of an unsupported version is a diagnostic tree",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "2.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "L",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_diagnostics": [
+        "unsupported_view_version"
+      ]
+    },
+    {
+      "name": "a view with an unknown part is an unparsable view",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "gizmo",
+          "id": "root"
+        }
+      },
+      "expect_unparsable": true,
+      "expect_diagnostics": [
+        "unparsable_view"
+      ]
+    },
+    {
+      "name": "two rows with one key give a duplicate node id diagnostic",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "duplicate_node_id"
+      ]
+    }
+  ]
+}

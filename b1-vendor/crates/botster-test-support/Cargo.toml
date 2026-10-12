@@ -1,0 +1,17 @@
+[package]
+name = "botster-test-support"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# The real-process controls of this crate (BUILD.md Testing rule 2).
+slow = []
+
+[[test]]
+name = "slow"
+required-features = ["slow"]

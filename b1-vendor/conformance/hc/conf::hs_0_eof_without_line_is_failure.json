@@ -1,0 +1,33 @@
+{
+  "id": "conf::hs_0_eof_without_line_is_failure",
+  "contract": "hc",
+  "clause": "HS-0",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "crash_before_ready",
+      "ready_line"
+    ]
+  },
+  "setup": {
+    "start": false
+  },
+  "steps": [
+    {
+      "control": {
+        "op": "crash_before_ready"
+      }
+    },
+    {
+      "control": {
+        "op": "ready_line"
+      },
+      "expect": {
+        "state": "none",
+        "closed": true,
+        "exit_nonzero": true
+      },
+      "because": "HC HS-0"
+    }
+  ]
+}

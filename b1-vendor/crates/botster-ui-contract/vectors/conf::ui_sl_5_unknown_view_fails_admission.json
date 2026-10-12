@@ -1,0 +1,180 @@
+{
+  "id": "conf::ui_sl_5_unknown_view_fails_admission",
+  "contract": "ui",
+  "clause": "UI-SL-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "navigate to a view of the package",
+      "because": "UI UI-SL-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/other"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {},
+        "package": "p",
+        "views": [
+          "other"
+        ]
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "navigate to a view id the package does not have",
+      "because": "UI UI-SL-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/nope"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {},
+        "package": "p",
+        "views": [
+          "other"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_view"
+      }
+    },
+    {
+      "name": "navigate to a view of another package",
+      "because": "UI UI-SL-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "q/other"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {},
+        "package": "p",
+        "views": [
+          "other"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_view"
+      }
+    }
+  ]
+}

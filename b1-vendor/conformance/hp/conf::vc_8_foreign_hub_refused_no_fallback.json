@@ -1,0 +1,198 @@
+{
+ "id": "conf::vc_8_foreign_hub_refused_no_fallback",
+ "contract": "hp",
+ "clause": "VC-8",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "this Hub is hub-1 and runs session s1; no other Hub exists",
+  "calls": {
+   "sessions.get": [
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "detail": {
+        "code": "remote_hub_unsupported"
+       },
+       "message": "invalid_request",
+       "retryable": false
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1",
+       "label": "s1",
+       "state": "running",
+       "lifecycle_class": "current",
+       "exit": {},
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "session_type": {
+        "id": "st1",
+        "source": "device"
+       },
+       "traits": [],
+       "restartable": true,
+       "activity": "idle",
+       "presentation": "default",
+       "metadata": {}
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "sessions.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session": {
+       "hub_id": "other-hub",
+       "session_id": "s1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "detail": {
+        "code": "remote_hub_unsupported"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP VC-8"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "sessions.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1"
+      }
+     }
+    }
+   },
+   "because": "HP VC-8"
+  }
+ ]
+}

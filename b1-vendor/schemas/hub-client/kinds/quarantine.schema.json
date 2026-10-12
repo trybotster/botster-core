@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "package": {
+      "type": "string"
+    },
+    "reason": {
+      "$ref": "#/$defs/QuarantineReason"
+    },
+    "since": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "package",
+    "reason",
+    "since"
+  ],
+  "description": "The `quarantine` row.\n\nClause: HC section 6 (`quarantine`), A2 H-19.",
+  "x-kind": "quarantine",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "get": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-2"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {
+    "resolve": {
+      "effect": "committed",
+      "durable_operation": false,
+      "reasons": [],
+      "args": "ResolveDecisionArgs",
+      "result": "Empty",
+      "clause": "A.7, A.9, A.9b"
+    }
+  },
+  "$defs": {
+    "ResolveDecisionArgs": {
+      "type": "object",
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/Decision"
+        }
+      },
+      "required": [
+        "decision"
+      ],
+      "description": "Arguments of `quarantine.resolve`.\n\nClause: HC A.9."
+    },
+    "Decision": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "release",
+            "remove"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Empty": {
+      "type": "object",
+      "description": "The empty arguments or result: `{}`.\n\nClause: HC A.9."
+    },
+    "QuarantineReason": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "crash_loop",
+            "hash_mismatch",
+            "admission_failed",
+            "bootstrap_failed"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

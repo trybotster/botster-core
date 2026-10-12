@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "InputResult",
+  "description": "The completion value of `WriteInput`. `detail` has no compatibility promise.\n\nClause: Core IN-2, Core A2-2, Core IN-9.",
+  "type": "object",
+  "properties": {
+    "outcome": {
+      "$ref": "#/$defs/WriteOutcome"
+    },
+    "payload_bytes_written": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "pty_bytes_written": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "detail": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "required": [
+    "outcome",
+    "payload_bytes_written",
+    "pty_bytes_written"
+  ],
+  "$defs": {
+    "WriteOutcome": {
+      "description": "The outcome of one write. The counts are exact for every outcome except `Unknown`.\n\nClause: Core IN-2, Core A2-2.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Written",
+            "Partial",
+            "Failed",
+            "Cancelled"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "NotWritten": {
+              "$ref": "#/$defs/NotWrittenReason"
+            }
+          },
+          "required": [
+            "NotWritten"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unknown": {
+              "type": "object",
+              "properties": {
+                "max_payload_bytes": {
+                  "type": "integer",
+                  "format": "uint64",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "max_payload_bytes"
+              ]
+            }
+          },
+          "required": [
+            "Unknown"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NotWrittenReason": {
+      "description": "Why a write is a certain zero.\n\nClause: Core IN-2, Core A2-2, Core IN-7, Core IN-8, Core IN-10.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "LaneFull",
+            "SessionEnded",
+            "Stopping",
+            "Stale",
+            "ModePreconditionFailed",
+            "NotReported"
+          ]
+        },
+        {
+          "description": "Route input (A2-2).",
+          "type": "string",
+          "const": "Refused"
+        },
+        {
+          "description": "Route input (IN-2).",
+          "type": "string",
+          "const": "PayloadTooLarge"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unsupported": {
+              "type": "object",
+              "properties": {
+                "what": {
+                  "$ref": "#/$defs/UnsupportedWhat"
+                }
+              },
+              "required": [
+                "what"
+              ]
+            }
+          },
+          "required": [
+            "Unsupported"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "UnsupportedWhat": {
+      "anyOf": [
+        {
+          "description": "What an event had no encoding for. A receiver treats an unknown value as opaque.\n\nClause: Core A2-2, Core 5.1A.",
+          "type": "string",
+          "enum": [
+            "pixel_position",
+            "produced_text",
+            "named_key",
+            "wheel_direction",
+            "coordinate",
+            "release_event",
+            "other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "pixel_position",
+              "produced_text",
+              "named_key",
+              "wheel_direction",
+              "coordinate",
+              "release_event",
+              "other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "pixel_position",
+                "produced_text",
+                "named_key",
+                "wheel_direction",
+                "coordinate",
+                "release_event",
+                "other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    }
+  }
+}

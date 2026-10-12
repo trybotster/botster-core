@@ -1,0 +1,310 @@
+{
+ "id": "conf::wp_4_outbound_queue_bounded_with_counted_gap",
+ "contract": "hp",
+ "clause": "WP-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke",
+   "peer_signal"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds relay_signaling and registers the relay handler rl; the Hub mints relay ids; a client is connecting",
+  "limits": {
+   "relay_queue": 2
+  },
+  "grants": [
+   {
+    "surface": "web_origin"
+   },
+   {
+    "surface": "relay",
+    "scope": "relay_signaling"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      },
+      {
+       "id": "rl",
+       "kind": "relay",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     },
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "net",
+         "name": "ws.*"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "relay.open",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "relay_id": "$r1"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP WP-4"
+  },
+  {
+   "control": {
+    "op": "peer_signal",
+    "relay_id": "$r1",
+    "envelope_b64": "bTA="
+   }
+  },
+  {
+   "control": {
+    "op": "peer_signal",
+    "relay_id": "$r1",
+    "envelope_b64": "bTE="
+   }
+  },
+  {
+   "control": {
+    "op": "peer_signal",
+    "relay_id": "$r1",
+    "envelope_b64": "bTI="
+   }
+  },
+  {
+   "control": {
+    "op": "peer_signal",
+    "relay_id": "$r1",
+    "envelope_b64": "bTM="
+   }
+  },
+  {
+   "control": {
+    "op": "peer_signal",
+    "relay_id": "$r1",
+    "envelope_b64": "bTQ="
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$g",
+     "handler": "hg",
+     "origin": "event_gap",
+     "payload": {
+      "owner": "hub",
+      "name": "relay",
+      "count": 3
+     }
+    }
+   },
+   "because": [
+    "HP WP-4",
+    "HP EV-13"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$g",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$q3",
+     "handler": "rl",
+     "origin": "relay",
+     "payload": {
+      "relay_id": "$r1",
+      "envelope_b64": "bTM="
+     }
+    }
+   },
+   "because": [
+    "HP WP-4",
+    "HP EV-13"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$q3",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$q4",
+     "handler": "rl",
+     "origin": "relay",
+     "payload": {
+      "relay_id": "$r1",
+      "envelope_b64": "bTQ="
+     }
+    }
+   },
+   "because": [
+    "HP WP-4",
+    "HP EV-13"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$q4",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

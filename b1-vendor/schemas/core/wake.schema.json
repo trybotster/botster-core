@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wake",
+  "description": "The result of `WakeHandle::wait`. A spurious `Woken` is allowed.\n\nClause: Core TH-2.",
+  "type": "string",
+  "enum": [
+    "Woken",
+    "TimedOut"
+  ]
+}

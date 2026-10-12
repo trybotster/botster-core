@@ -1,0 +1,323 @@
+{
+  "id": "conf::ui_fm_7_field_errors_by_field_id",
+  "contract": "ui",
+  "clause": "UI-FM-7",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "field_errors carry field_id, pointer, code and message",
+      "parse": {
+        "type": "ActionError",
+        "valid": true,
+        "value": {
+          "field_errors": [
+            {
+              "field_id": "name",
+              "pointer": "/name",
+              "code": "required",
+              "message": "Required"
+            }
+          ],
+          "message": "Check the form"
+        }
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "an error with no field is a form-level message",
+      "parse": {
+        "type": "ActionError",
+        "valid": true,
+        "value": {
+          "message": "Failed"
+        }
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "the field is the form node id plus the field_id",
+      "ids": {
+        "op": "draft_key",
+        "form_node": "botster-ui-descendant-v1:1:f9:container",
+        "field_id": "name",
+        "expect": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name"
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "two forms with the same property name keep separate fields",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a1",
+                  "label": "A1",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a2",
+                  "label": "A2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "g1",
+              "action": "a1",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "form",
+              "id": "g2",
+              "action": "a2",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g19:container4:name": {
+          "type": "form_field"
+        },
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g29:container4:name": {
+          "type": "form_field"
+        }
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "a field error marks only the field of its own form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a1",
+                  "label": "A1",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a2",
+                  "label": "A2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "g1",
+              "action": "a1",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "form",
+              "id": "g2",
+              "action": "a2",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g19:container4:name": {
+          "props": {
+            "error": {
+              "code": "required",
+              "message": "Required"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g29:container4:name": {
+          "props": {
+            "error": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-5",
+      "local_state": {
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g19:container4:name": {
+              "code": "required",
+              "message": "Required"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an error with no field is the form-level message of its form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a1",
+                  "label": "A1",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                },
+                {
+                  "id": "a2",
+                  "label": "A2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "g1",
+              "action": "a1",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "form",
+              "id": "g2",
+              "action": "a2",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g19:container5:error": {
+          "type": "text",
+          "props": {
+            "tone": "danger"
+          }
+        }
+      },
+      "because": "UI UI-NV-5",
+      "local_state": {
+        "errors": {
+          "forms": {
+            "botster-ui-descendant-v1:2:g19:container": "Failed"
+          }
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:g29:container5:error"
+      ]
+    }
+  ]
+}

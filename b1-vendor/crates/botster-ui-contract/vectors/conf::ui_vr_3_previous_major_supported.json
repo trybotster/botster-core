@@ -1,0 +1,102 @@
+{
+  "id": "conf::ui_vr_3_previous_major_supported",
+  "contract": "ui",
+  "clause": "UI-VR-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the current MAJOR",
+      "document": {
+        "ui_contract_view": "2.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "supported_majors": [
+          1,
+          2
+        ]
+      },
+      "because": "UI UI-VR-3"
+    },
+    {
+      "name": "the previous MAJOR",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "supported_majors": [
+          1,
+          2
+        ]
+      },
+      "because": "UI UI-VR-3"
+    },
+    {
+      "name": "a MAJOR before the previous one",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_version",
+        "path": "/ui_contract_view"
+      },
+      "context": {
+        "supported_majors": [
+          2,
+          3
+        ]
+      },
+      "because": "UI UI-VR-3"
+    },
+    {
+      "name": "a MAJOR after the current one",
+      "document": {
+        "ui_contract_view": "3.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_version",
+        "path": "/ui_contract_view"
+      },
+      "context": {
+        "supported_majors": [
+          1,
+          2
+        ]
+      },
+      "because": "UI UI-VR-3"
+    }
+  ]
+}

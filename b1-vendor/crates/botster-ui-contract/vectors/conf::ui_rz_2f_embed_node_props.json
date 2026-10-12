@@ -1,0 +1,350 @@
+{
+  "id": "conf::ui_rz_2f_embed_node_props",
+  "contract": "ui",
+  "clause": "UI-RZ-2f",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an asset_id reference realizes as an embed node with title, asset_id and state ready",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "asset_id": "a1"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "type": "embed",
+          "props": {
+            "title": "Graph",
+            "asset_id": "a1",
+            "state": "ready"
+          }
+        }
+      },
+      "because": "UI UI-RZ-2f"
+    },
+    {
+      "name": "a name reference carries name and no asset_id",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "name": "graph-page"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "type": "embed",
+          "props": {
+            "name": "graph-page",
+            "asset_id": {
+              "$absent": true
+            },
+            "state": "ready"
+          }
+        }
+      },
+      "because": "UI UI-EM-7"
+    },
+    {
+      "name": "an invalid reference gives the state empty",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "url": "https://example.com/"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "type": "embed",
+          "props": {
+            "state": "empty",
+            "asset_id": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-EM-1"
+    },
+    {
+      "name": "an absent reference gives the state empty",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "sel": "sel_a/asset"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ],
+        "selections": [
+          {
+            "id": "sel_a"
+          }
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "type": "embed",
+          "props": {
+            "state": "empty"
+          }
+        }
+      },
+      "because": "UI UI-EM-1"
+    },
+    {
+      "name": "a declared channel gives the channel prop",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "asset_id": "a1"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_a"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ],
+        "selections": [
+          {
+            "id": "sel_a"
+          }
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "props": {
+            "channel": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2f"
+    },
+    {
+      "name": "no declared channel gives no channel prop",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "graph",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "asset_id": "a1"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "features": [
+          "ui_embed",
+          "embed"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "graph": {
+          "props": {
+            "channel": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    }
+  ]
+}

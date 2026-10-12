@@ -1,0 +1,294 @@
+{
+  "id": "conf::ui_pt_4_overflow_by_priority",
+  "contract": "ui",
+  "clause": "UI-PT-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "order is priority first, then declaration, on a regular width",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "type": "toolbar",
+          "children": [
+            {
+              "id": "b"
+            },
+            {
+              "id": "a"
+            },
+            {
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-PT-4"
+    },
+    {
+      "name": "overflow auto at a compact width moves the lower priority items into the overflow menu",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:bar9:container4:item",
+              "type": "menu",
+              "slots": {
+                "items": [
+                  {
+                    "id": "a",
+                    "type": "menu_item"
+                  },
+                  {
+                    "id": "c"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "because": "UI UI-PT-4"
+    },
+    {
+      "name": "overflow never keeps every item",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "never"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "b"
+            },
+            {
+              "id": "a"
+            },
+            {
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-PT-4"
+    },
+    {
+      "name": "with one priority level overflow auto moves nothing",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-NV-7"
+    },
+    {
+      "name": "a toolbar part orders the same way",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "never"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "b"
+            },
+            {
+              "id": "a"
+            },
+            {
+              "id": "c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-PT-4"
+    }
+  ]
+}

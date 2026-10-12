@@ -1,0 +1,161 @@
+{
+  "id": "conf::ui_ac_6_no_move_with_open_draft",
+  "contract": "ui",
+  "clause": "UI-AC-6",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "create_ticket": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "tickets",
+        "ticket"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "tickets",
+          "title": "Tickets",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "create",
+                    "label": "Create",
+                    "handler": "create_ticket"
+                  },
+                  {
+                    "id": "ren",
+                    "label": "Rename",
+                    "handler": "rename",
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "create"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "ren"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "edit": {
+            "field": "name",
+            "value": "Draft"
+          }
+        },
+        "node_id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "message": "Ticket created",
+              "navigate": {
+                "view": "pkg/ticket",
+                "select": {
+                  "sel_t": "t9"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "follow_up": {
+            "view": "pkg/ticket",
+            "select": {
+              "sel_t": "t9"
+            }
+          }
+        },
+        "because": "UI UI-AC-6"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "stayed": true
+        },
+        "because": "UI UI-AC-6"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "dialog": {
+            "kind": "form",
+            "values": {
+              "name": "Draft"
+            }
+          }
+        },
+        "because": "UI UI-AC-6",
+        "node_id": "ren"
+      }
+    }
+  ]
+}

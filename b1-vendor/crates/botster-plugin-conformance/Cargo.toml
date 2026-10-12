@@ -1,0 +1,31 @@
+[package]
+name = "botster-plugin-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[features]
+# The adapters that wrap `botster-plugin-fakes` as `HpSubject`s (design section 4).
+fake = ["dep:botster-plugin-fakes"]
+
+[dependencies]
+botster-conformance.workspace = true
+botster-plugin-contract = { path = "../botster-plugin-contract" }
+botster-plugin-fakes = { path = "../botster-plugin-fakes", optional = true }
+include_dir.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
+jsonschema.workspace = true
+# The self-test runs the transcripts against the fakes.
+botster-plugin-conformance = { path = ".", features = ["fake"] }
+botster-plugin-fakes = { path = "../botster-plugin-fakes" }
+
+[build-dependencies]
+serde_json.workspace = true

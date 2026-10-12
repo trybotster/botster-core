@@ -1,0 +1,235 @@
+{
+ "id": "conf::fs_2_dotdot_and_absolute_refused",
+ "contract": "hp",
+ "clause": "FS-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "calls": {
+   "fs.read": [
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "invalid_request",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "invalid_request",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    },
+    {
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "invalid_request",
+       "retryable": false
+      }
+     },
+     "effect": "none"
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "fs.read",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "../x"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "fs.read",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "a/../../x"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "fs.read",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "root": "vault",
+      "path": "/etc/passwd"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP FS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

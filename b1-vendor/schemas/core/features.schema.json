@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Features",
+  "description": "The result of `features()`.\n\nClause: Core A2-6, Core SV-2, Core 9.3.",
+  "type": "object",
+  "properties": {
+    "names": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/Feature"
+      }
+    },
+    "service_preamble_versions": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "format": "uint8",
+        "minimum": 0,
+        "maximum": 255
+      }
+    }
+  },
+  "required": [
+    "names",
+    "service_preamble_versions"
+  ],
+  "$defs": {
+    "Feature": {
+      "description": "One feature name, spelled as in the A2-6 table.\n\nClause: Core A2-6, Core A3-3, Core SV-4, Core SV-8, Core DP-12, Core ST-6b.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "route_transport:stream",
+            "service_preamble_versions",
+            "bound:cpu_seconds",
+            "bound:open_files",
+            "bound:processes",
+            "bound:address_space_bytes"
+          ]
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "silence"
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "size_policy_other"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "snapshot_graphics"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "focus_report"
+        },
+        {
+          "description": "Per platform (A2-6).",
+          "type": "string",
+          "const": "payload_dies_with_guardian"
+        },
+        {
+          "description": "A route feature (A3-3).",
+          "type": "string",
+          "const": "output_dropped"
+        },
+        {
+          "description": "Per worker (A3-3).",
+          "type": "string",
+          "const": "notification_policy"
+        }
+      ]
+    }
+  }
+}

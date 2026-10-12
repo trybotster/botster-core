@@ -1,0 +1,507 @@
+{
+  "id": "conf::ui_rz_4_order_stable_ids",
+  "contract": "ui",
+  "clause": "UI-RZ-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "ascending order",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "descending order",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "desc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "equal values tie-break by row key",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "z",
+              "n": 1
+            },
+            {
+              "id": "a",
+              "n": 1
+            },
+            {
+              "id": "m",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:m"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:z"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "a live change moves a row",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 0
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "after the change the row ids are the same set",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            },
+            {
+              "id": "a",
+              "n": 9
+            }
+          ]
+        }
+      },
+      "same_ids_as": "a live change moves a row",
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "a table: rows in order",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "tb",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "N",
+              "path": "/n"
+            }
+          ],
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "rows": [
+              {
+                "id": "botster-ui-descendant-v1:2:tb1:b"
+              },
+              {
+                "id": "botster-ui-descendant-v1:2:tb1:c"
+              },
+              {
+                "id": "botster-ui-descendant-v1:2:tb1:a"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "a table: a live change keeps the row ids",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "tb",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "N",
+              "path": "/n"
+            }
+          ],
+          "order": [
+            {
+              "field": "/n",
+              "dir": "asc"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 0
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "same_ids_as": "a table: rows in order",
+      "because": "UI UI-RZ-4"
+    },
+    {
+      "name": "rows of the document order the same in the source order key",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k",
+            "order": [
+              {
+                "field": "/n",
+                "dir": "desc"
+              }
+            ]
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 3
+            },
+            {
+              "id": "b",
+              "n": 1
+            },
+            {
+              "id": "c",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:1:l1:a"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:c"
+            },
+            {
+              "id": "botster-ui-descendant-v1:1:l1:b"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-RZ-4"
+    }
+  ]
+}

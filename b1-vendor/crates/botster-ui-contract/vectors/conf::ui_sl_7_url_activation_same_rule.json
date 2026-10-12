@@ -1,0 +1,695 @@
+{
+  "id": "conf::ui_sl_7_url_activation_same_rule",
+  "contract": "ui",
+  "clause": "UI-SL-7",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a valid https value gives the activation",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One",
+              "owner": "u1",
+              "web_url": "https://example.com/t/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "url": "https://example.com/t/1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7"
+    },
+    {
+      "name": "a value with another scheme makes the activation inert with a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "web_url": "ftp://example.com/x"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7",
+      "expect": {
+        "diagnostics": [
+          {
+            "code": {
+              "$any": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a value with userinfo makes the activation inert with a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "web_url": "https://user:pw@example.com/x"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7",
+      "expect": {
+        "diagnostics": [
+          {
+            "code": {
+              "$any": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a value that is not a URL makes the activation inert with a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "web_url": "not a url"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7",
+      "expect": {
+        "diagnostics": [
+          {
+            "code": {
+              "$any": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "an absent value makes the activation inert with a local diagnostic",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "path": "/title"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              },
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:7:tickets2:t1": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7",
+      "expect": {
+        "diagnostics": [
+          {
+            "code": {
+              "$any": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a table row follows the same rule",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tickets",
+              "source": {
+                "kind": "acme.ticket"
+              },
+              "columns": [
+                {
+                  "id": "title",
+                  "label": "Title",
+                  "path": "/title"
+                }
+              ],
+              "activate": {
+                "url": {
+                  "path": "/web_url"
+                }
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.ticket": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "t1",
+              "title": "One",
+              "owner": "u1",
+              "web_url": "https://example.com/t/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "tickets": {
+          "props": {
+            "rows": [
+              {
+                "id": "botster-ui-descendant-v1:7:tickets2:t1",
+                "activate": {
+                  "url": "https://example.com/t/1"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-SL-7"
+    },
+    {
+      "name": "a ref activation with a valid value",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "members",
+              "source": {
+                "kind": "acme.member"
+              },
+              "refs": {
+                "r_s": {
+                  "kind": "session",
+                  "key": {
+                    "hub_id": "/hub_id",
+                    "id": "/session_id"
+                  },
+                  "absent": {
+                    "text": "Session unavailable",
+                    "tone": "warning"
+                  },
+                  "activate": {
+                    "url": {
+                      "ref": "r_s/web_url"
+                    }
+                  }
+                }
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "value": {
+                      "ref": "r_s/label"
+                    }
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.member": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "hub_id": "h1",
+              "session_id": "s1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build",
+              "web_url": "https://ci.example.com/b/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m15:title": {
+          "props": {
+            "activate": {
+              "url": "https://ci.example.com/b/1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7"
+    },
+    {
+      "name": "a ref activation with a value with userinfo",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "members",
+              "source": {
+                "kind": "acme.member"
+              },
+              "refs": {
+                "r_s": {
+                  "kind": "session",
+                  "key": {
+                    "hub_id": "/hub_id",
+                    "id": "/session_id"
+                  },
+                  "absent": {
+                    "text": "Session unavailable",
+                    "tone": "warning"
+                  },
+                  "activate": {
+                    "url": {
+                      "ref": "r_s/web_url"
+                    }
+                  }
+                }
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "title",
+                    "value": {
+                      "ref": "r_s/label"
+                    }
+                  }
+                ]
+              },
+              "empty": {
+                "title": "Nothing here"
+              },
+              "error": {
+                "title": "Nothing here"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "acme.member": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "hub_id": "h1",
+              "session_id": "s1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build",
+              "web_url": "https://u:p@ci.example.com/b/1"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ],
+        "ui_contract_view": [
+          "1.4"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:38:botster-ui-descendant-v1:7:members2:m15:title": {
+          "props": {
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-7"
+    }
+  ]
+}

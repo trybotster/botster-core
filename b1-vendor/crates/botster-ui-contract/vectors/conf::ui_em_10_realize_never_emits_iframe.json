@@ -1,0 +1,218 @@
+{
+  "id": "conf::ui_em_10_realize_never_emits_iframe",
+  "contract": "ui",
+  "clause": "UI-EM-10",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an embed part realizes as the embed node and nothing else",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect": {
+        "root": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-EM-10"
+    },
+    {
+      "name": "a renderer that does not embed still gets an embed node, never an iframe node",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed"
+        ]
+      },
+      "expect": {
+        "root": {
+          "type": "stack",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-EM-10"
+    },
+    {
+      "name": "an embed with an asset by name realizes as the embed node",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "type": "embed"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-EM-10"
+    }
+  ]
+}

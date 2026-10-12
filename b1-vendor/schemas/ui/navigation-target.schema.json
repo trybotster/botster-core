@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NavigationTarget",
+  "description": "A navigation target with row keys (UI-SL-6, UI-AC-6).",
+  "type": "object",
+  "properties": {
+    "view": {
+      "type": "string"
+    },
+    "select": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "view"
+  ]
+}

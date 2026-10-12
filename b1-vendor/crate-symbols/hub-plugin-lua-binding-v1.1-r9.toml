@@ -1,0 +1,1187 @@
+# The crate symbols of each code span of hub-plugin-lua-binding-v1.1-r9.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9)
+# Author: plugin kit writer (Claude, sess-1790726020-0017), 2026-09-30. Supersedes `hub-plugin-lua-binding-draft.md` (draft 1, kept for history).
+[rows."3"]
+"hub-plugin-lua-binding-draft.md" = "n/a: a repository file name (the first draft of this binding)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9)
+# Revision 9 (supersedes r8 `902e5d22…05b1`, Sol Hub B REJECT): `hub/route.ended` is a client-only event on the owning route stream and a plugin cannot subscribe to it (LB-21); observation grants follow A2-23: `hub/session.activity|modes|size|silent` need `events_hub` AND `session_observe[:own|:any]`, `terminal/*` need `events_terminal[:own|:any]` (LB-12); `web.set_origin{}` with the key absent (a Lua `nil`) fails `invalid_request`, and `botster.json.null` clears (LB-15); an unmet optional binding has `provider = botster.json.null` (LB-18). Absent and null are distinct everywhere. Revision 8 additions for candidate7: descriptors per handler kind and the handler_id dispatch of `timers.arm` and `store.watch` (A2-53; `fs.watch.handler_id` stays mandatory), `Ready.timers` and `Ready.watches` entries with `handler_id?`, and the A2-8 `botster.json.null` / `nil` absence rule. Revision 8 (supersedes r7 `e5d04cd1…d1d7`; follows HP Amendment 2 candidate7, `c961d54f…47fa`, Hub B candidate-accepted; r8 was never pinned before this text): the one-timer/one-store_watch handler cap is withdrawn (LB-10); session-family frames carry no `generation` (LB-6); `hub/route.ended` has subject `{route_id}` and payload `{reason}` (LB-12); two config events `hub/config.changed` and `hub/package.configuration_changed` (new LB-21); operation kind and state tables are non-exhaustive and `reason` appears on safe_write and spawn records and on the `hub_restarted` answer of every kind (LB-13). Revision 7 (supersedes r6 `fab7d3b4…51e9`; follows HP Amendment 2 candidate2, `00eb967a…a29c0`): the 13 handler kind strings and their payloads (LB-10, A2-5); `botster.json.null` (LB-9, LB-15, LB-16, A2-8); one `wrong_state` shape with closed reasons (LB-12, A2-2); `sessions.write` result and error mapping (LB-16, A2-3); `store.batch` create and delete rules (LB-20, A2-9); http method set and header pairs (LB-11, A2-17); `sessions.update` metadata replace (LB-16b, A2-21); one timer and one store_watch handler (LB-10, A2-26); Hello and Ready fields (LB-18, A2-25); session-family frames (LB-6, A2-28); host-local names (LB-9, A2-34); the Lua `require` rule (new LB-17b, A2-47); `$schema` in the manifest (LB-17, A2-43); packaged agent definition files (new LB-19, A2-40). Revision 6 (supersedes r5 `4e778f5b…113b`): spawn arguments match Appendix A and LN-2 exactly (`worktree_id?`, `prompt?`, `context?`); LB-16b names its test; F-6 says only `response_too_large`; typed codes from the latest HP (restart failures, dependency conflicts, WP-5 exceptions) mirrored in LB-12, LB-18 and LB-15. Revision 5 (supersedes r4 `9b63a7ce…55ae`): LB-5 adds the `plugin` caller `{kind, plugin_key, instance}` (HP VC-1, PC-2) and makes the operator `credential_id` optional, with two tests (Sol Hub B, J4c review). Revision 4 (supersedes r3 `e7cd154a…074b`): cites the Hub→plugin contract by name and clause id, not by a text revision; `sessions.update` takes `{session, label?, task?, metadata?}` (the client `title` is the terminal title; no plugin writes it); the `event_gap` record is `count` with `lost_bytes?` (no `lost_events`); spawn `environment?` is `{name = string}` limited to the session type's `allowed_environment_overrides` (and `max_env_bytes`). Revision 3 (supersedes r2 `c24e677c…4655`): every behavioral clause LB-2, LB-5, LB-10 to LB-18 names its own `conf::` test (final gate 4); LB-15 follows the changed WP-1 (`set_origin{origin=nil}` clears; served origin is WP-5); checked against J3 and J4 (section G). Revision 2 (supersedes `15d61f0c…4682`): LB-17 now lists the complete MN-1 key list, including `description`, `license`, `source`, `requirements`, `provides` and `requires`.
+[rows."4"]
+"$schema" = ["plugin::Manifest::$schema"]
+"00eb967a…a29c0" = "n/a: a shortened sha256 of an earlier revision of this text"
+"Ready.timers" = ["plugin::Ready::timers"]
+"Ready.watches" = ["plugin::Ready::watches"]
+"allowed_environment_overrides" = ["plugin::SessionTypeRow::allowed_environment_overrides"]
+"botster.json.null" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"c24e677c…4655" = "n/a: a shortened sha256 of an earlier revision of this text"
+"c961d54f…47fa" = "n/a: a shortened sha256 of an earlier revision of this text"
+"conf::" = "n/a: the prefix of a conformance test id"
+"context?" = ["plugin::SpawnArgs::context"]
+"count" = ["plugin::EventGapRecord::count"]
+"credential_id" = ["plugin::Caller::Operator::credential_id"]
+"description" = ["plugin::Manifest::description"]
+"e5d04cd1…d1d7" = "n/a: a shortened sha256 of an earlier revision of this text"
+"e7cd154a…074b" = "n/a: a shortened sha256 of an earlier revision of this text"
+"environment?" = ["plugin::SpawnArgs::environment"]
+"event_gap" = ["plugin::HandlerKind::EventGap"]
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"events_terminal[:own|:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { events_terminal = "a scope name (Grant::scope is a string)", own = "the own scope suffix (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"fab7d3b4…51e9" = "n/a: a shortened sha256 of an earlier revision of this text"
+"fs.watch.handler_id" = ["plugin.call:fs.watch", "plugin::FsWatchArgs::handler_id"]
+"generation" = "n/a: a field that session-family frames no longer carry (LB-6)"
+"handler_id?" = ["plugin::TimerDecl::handler_id", "plugin::WatchDecl::handler_id"]
+"hub/config.changed" = ["plugin.event:hub/config.changed"]
+"hub/package.configuration_changed" = ["plugin.event:hub/package.configuration_changed"]
+"hub/route.ended" = ["plugin.event:hub/route.ended"]
+"hub/session.activity|modes|size|silent" = ["plugin.event:hub/session.activity", "plugin.event:hub/session.modes", "plugin.event:hub/session.size", "plugin.event:hub/session.silent"]
+"hub_restarted" = ["plugin.value:SAFE_WRITE_UNKNOWN_REASONS:hub_restarted"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"license" = ["plugin::Manifest::license"]
+"lost_bytes?" = ["plugin::EventGapRecord::lost_bytes"]
+"lost_events" = { symbols = ["plugin::EventGapRecord::count"], uncovered = { lost_events = "the name of the lost event count, which EventGapRecord::count holds (EV-13)" } }
+"max_env_bytes" = ["plugin.limit:max_env_bytes"]
+"nil" = "n/a: a Lua value, not a wire value"
+"plugin" = ["plugin::Caller::Plugin"]
+"prompt?" = ["plugin::SpawnArgs::prompt"]
+"provider = botster.json.null" = ["plugin::HelloBinding::provider", "plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"provides" = ["plugin::Manifest::provides"]
+"reason" = ["plugin::OperationFields::reason"]
+"require" = ["plugin.value:LUA_GLOBALS:require"]
+"requirements" = ["plugin::Manifest::requirements"]
+"requires" = ["plugin::Manifest::requires"]
+"response_too_large" = ["plugin::ErrorKind::ResponseTooLarge"]
+"session_observe[:own|:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_observe = "a scope name (Grant::scope is a string)", own = "the own scope suffix (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"sessions.update" = ["plugin.call:sessions.update"]
+"sessions.write" = ["plugin.call:sessions.write"]
+"set_origin{origin=nil}" = { symbols = ["plugin.call:web.set_origin", "plugin::SetOriginArgs::origin"], uncovered = { nil = "a Lua value, not a wire value" } }
+"source" = ["plugin::Manifest::source"]
+"store.batch" = ["plugin.call:store.batch"]
+"store.watch" = ["plugin.call:store.watch"]
+"terminal/*" = ["plugin.event:terminal/title", "plugin.event:terminal/cwd", "plugin.event:terminal/bell", "plugin.event:terminal/notification", "plugin.event:terminal/prompt_mark", "plugin.event:terminal/modes", "plugin.event:terminal/exit"]
+"timers.arm" = ["plugin.call:timers.arm"]
+"title" = ["hub::SessionRow::title"]
+"web.set_origin{}" = ["plugin.call:web.set_origin"]
+"worktree_id?" = ["plugin::SpawnArgs::worktree_id"]
+"wrong_state" = ["plugin.code:failed:wrong_state"]
+"{kind, plugin_key, instance}" = { symbols = ["plugin::Caller::Plugin", "plugin::Caller::Plugin::plugin_key", "plugin::Caller::Plugin::instance"], uncovered = { kind = "the serde tag of Caller" } }
+"{name = string}" = { symbols = ["plugin::SpawnArgs::environment"], uncovered = { name = "a placeholder for an environment variable name", string = "a JSON type name" } }
+"{reason}" = ["plugin::RouteEndedEvent::reason"]
+"{route_id}" = ["hub::RouteEndedSubject::route_id"]
+"{session, label?, task?, metadata?}" = ["plugin::SessionsUpdateArgs::task", "plugin::SessionsUpdateArgs::label", "plugin::SessionsUpdateArgs::metadata", "plugin::SessionsUpdateArgs::session"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9)
+# Against: **the Hub→plugin contract, by name**, with clause ids (Appendix C, section 25: MN-1 to MN-3, LN-1, LN-2, PD-1 to PD-9). The current joint text is pinned in `contracts-v1-joint-manifest.md`, not here. This binding does not copy Appendix C. It adds what Appendix C leaves to the host: Lua-side behavior, handler arguments and plugin changes.
+[rows."5"]
+"contracts-v1-joint-manifest.md" = "n/a: a repository file name (the joint manifest)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9)
+# Evidence: the four plugins' shipped Lua (workspaces `a82b078`, orchestrator `bf2519d`, messaging `3199f33`, project-pipelines `3295408`). "Read" = I read the call site; "(infer)" = I did not.
+[rows."6"]
+"a82b078" = "n/a: a commit id of a plugin repository (the evidence)"
+"bf2519d" = "n/a: a commit id of a plugin repository (the evidence)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-1 Names.** Call `area.name` (CA-1) is `botster.area.name`. No `capabilities.` prefix (grants stay enforced by the Hub).
+[rows."10"]
+"area.name" = "n/a: a placeholder pattern of a call name (CA-1)"
+"botster.area.name" = { symbols = ["plugin.value:LUA_GLOBALS:botster"], uncovered = { area = "a placeholder for the call area (CA-1)", name = "a placeholder for the call name (CA-1)" } }
+"capabilities." = "n/a: the prefix of the old Lua call names, which this binding removes"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-2 Arguments.** One table. Unknown keys are `invalid_request`. *Test: `conf::lb_2_unknown_argument_key_is_invalid_request`.*
+[rows."11"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-3 Results.** Every call returns `{ ok = true, value = <v> }` or `{ ok = false, error = { kind, message, retryable, effect, detail? } }` (section 14). `kind` is one of the eleven closed kinds; a plugin branches on `kind` and `detail.code`, never on `message` (ER-3). `effect` (`none|committed|unknown`) is on every failure (ER-5). LN-1 lists `kind`, `detail` and `effect` but omits `message` and `retryable`; section 14 is authoritative (finding F-8). Only a programming error raises (LM-4). The plugins' `pcall(fn, args)` wrappers go away.
+[rows."12"]
+"detail" = ["plugin::ErrorBody::detail"]
+"detail.code" = ["plugin::ErrorBody::detail", "plugin::Detail::code"]
+"effect" = ["plugin::ErrorBody::effect"]
+"kind" = ["plugin::ErrorBody::kind"]
+"message" = ["plugin::ErrorBody::message"]
+"none|committed|unknown" = ["plugin::Effect::None", "plugin::Effect::Committed", "plugin::Effect::Unknown"]
+"pcall(fn, args)" = "n/a: a Lua standard function call in the plugins' old code"
+"retryable" = ["plugin::ErrorBody::retryable"]
+"{ ok = false, error = { kind, message, retryable, effect, detail? } }" = { symbols = ["plugin::PluginResult::Err", "plugin::ErrorBody::kind", "plugin::ErrorBody::message", "plugin::ErrorBody::retryable", "plugin::ErrorBody::effect", "plugin::ErrorBody::detail"], uncovered = { ok = "the ok key of the result form (PluginResult)", false = "a JSON literal value", error = "the error key of the failed form (PluginResult::Err holds the ErrorBody)" } }
+"{ ok = true, value = <v> }" = { symbols = ["plugin::PluginResult::Ok"], uncovered = { true = "a JSON literal value", value = "the value key of the success form (PluginResult::Ok holds the value)", v = "a placeholder: the result value of the call" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-4 Handlers.** `call = function(payload, request)`. `request` is read-only and Hub-owned: `caller`, `origin`, `id`, `deadline_ms`. For a tool `payload` is the validated arguments. For an event `payload` is the EV-15 record `{ owner, name, subject?, priority, source, payload, at }` (`at` Hub-stamped), so the plugin's own data is `payload.payload` (today workspaces' `session_family` handler receives the frame directly as its argument).
+[rows."13"]
+"at" = ["plugin::EventRecord::at"]
+"call = function(payload, request)" = { symbols = ["plugin::Invoke::payload"], uncovered = { call = "the Lua field that holds the handler function (LB-10)", function = "a Lua keyword", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"caller" = ["plugin::Invoke::caller"]
+"deadline_ms" = ["plugin::Invoke::deadline_ms"]
+"id" = { symbols = ["plugin::Invoke::request_id"], uncovered = { id = "the Lua name of the request id (Invoke::request_id)" } }
+"origin" = ["plugin::Invoke::origin"]
+"payload" = ["plugin::Invoke::payload"]
+"payload.payload" = ["plugin::Invoke::payload", "plugin::EventRecord::payload"]
+"request" = { symbols = ["plugin::Invoke"], uncovered = { request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"session_family" = { symbols = ["plugin::SessionFamilyFrame"], uncovered = { session_family = "the name of the session family (EV-6), whose frames SessionFamilyFrame types" } }
+"{ owner, name, subject?, priority, source, payload, at }" = ["plugin::EventRecord::owner", "plugin::EventRecord::name", "plugin::EventRecord::subject", "plugin::EventRecord::priority", "plugin::EventRecord::source", "plugin::EventRecord::payload", "plugin::EventRecord::at"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-5 Identity and references (WF-6).** `request.caller` is one of `{ kind = "operator", credential_id?, hub_id? }` (`credential_id` is present for a WebRTC credential and **absent for a Unix-socket operator** identified by peer uid, HP section 7, VC-1), `{ kind = "session", session = { hub_id, session_id } }`, `{ kind = "plugin", plugin_key, instance }` (the callee of `plugins.call`: the **authenticated identity of the calling plugin instance**, taken by the Hub, never from `args`; the caller's own caller is not forwarded, PC-2) or `{ kind = "system" }`. The Appendix B shape is `{ kind, credential_id?, hub_id?, session?, plugin_key?, instance? }`. A callee applies its own policy over `request.caller` and never over a field in `payload`. One spelling: **a row's own identifier is `id`; a reference to another resource names its kind** (`session_id`, `target_id`, `operation_id`). So a session row has `id` and a session reference is `{ hub_id, session_id }`; to reference a row a plugin writes `{ hub_id = row.hub_id, session_id = row.id }`. A plugin reads identity from `request.caller` only (VC-6). *Tests: `conf::lb_5_caller_and_reference_spelling`, `conf::lb_5_plugin_caller_variant_is_preserved`, `conf::lb_5_operator_credential_id_is_optional`.*
+[rows."14"]
+"args" = ["plugin::PluginsCallArgs::args"]
+"credential_id" = ["plugin::Caller::Operator::credential_id"]
+"id" = "n/a: the spelling rule's name of a row's own identifier; each row type holds its own id field"
+"operation_id" = ["plugin::OperationArgs::operation_id"]
+"payload" = ["plugin::Invoke::payload"]
+"plugins.call" = ["plugin.call:plugins.call"]
+"request.caller" = { symbols = ["plugin::Invoke::caller"], uncovered = { request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"session_id" = ["plugin::SessionRef::session_id"]
+"target_id" = ["plugin::SessionTypesListArgs::target_id"]
+"{ hub_id = row.hub_id, session_id = row.id }" = { symbols = ["plugin::SessionRef::hub_id", "plugin::SessionRef::session_id", "hub::SessionRow::hub_id", "hub::SessionRow::id"], uncovered = { row = "a placeholder for a session row that the plugin read" } }
+"{ hub_id, session_id }" = ["plugin::SessionRef", "plugin::SessionRef::hub_id", "plugin::SessionRef::session_id"]
+'{ kind = "operator", credential_id?, hub_id? }' = { symbols = ["plugin::Caller::Operator", "plugin::Caller::Operator::credential_id", "plugin::Caller::Operator::hub_id"], uncovered = { kind = "the serde tag of Caller" } }
+'{ kind = "plugin", plugin_key, instance }' = { symbols = ["plugin::Caller::Plugin", "plugin::Caller::Plugin::plugin_key", "plugin::Caller::Plugin::instance"], uncovered = { kind = "the serde tag of Caller" } }
+'{ kind = "session", session = { hub_id, session_id } }' = { symbols = ["plugin::Caller::Session", "plugin::Caller::Session::session", "plugin::SessionRef::hub_id", "plugin::SessionRef::session_id"], uncovered = { kind = "the serde tag of Caller" } }
+'{ kind = "system" }' = { symbols = ["plugin::Caller::System"], uncovered = { kind = "the serde tag of Caller" } }
+"{ kind, credential_id?, hub_id?, session?, plugin_key?, instance? }" = { symbols = ["plugin::Caller::Operator::credential_id", "plugin::Caller::Operator::hub_id", "plugin::Caller::Session::session", "plugin::Caller::Plugin::plugin_key", "plugin::Caller::Plugin::instance"], uncovered = { kind = "the serde tag of Caller" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-6 Events (EV-2, EV-15, A4r7).** `botster.events.on(pattern, opts?, fn)` is valid only while the entrypoint runs (before `register` returns; later it returns `{ ok = false, error.kind = "invalid_request", detail.code = "registration_after_ready" }`). `pattern = { owner, name }` (`*` and a `.*` suffix allowed); `opts = { subjects = "own"|"any", min_priority = "low"|"normal"|"high", handler_id? }` (`min_priority` defaults to `low`). Each call registers one `event` handler (a stable host-made `handler_id`, or `opts.handler_id` when the plugin names it) and adds `{ handler_id, pattern, subjects?, min_priority? }` to `Ready.events.subscribed`; an unknown `handler_id` fails the load. The `hub/session_family` event carries the EV-6 frames `snapshot_begin{}`, `snapshot_chunk{ sessions }`, `snapshot_end{}` and `delta{ op = "upsert"|"remove", session?, session_id }` (**no `generation` field**), where a row is the client `session` resource (A2-28). *Test: `conf::lb_6_session_family_frames`.* `botster.events.on_gap(fn)` registers the one `event_gap` handler (`Ready.events.gap_handler`): `fn(gap, request)` with `gap = { gap_id, owner, name, subject?, count, lost_bytes?, recovery = "state"|"unavailable"|"partial", state_read?, aggregated? }` (A4r8: `resync` is gone; A4r9: `gap_id`, `count` is the number of lost events and `lost_bytes` is present for the output tap; J4b dropped `lost_events`). After a handler failure the Hub retries with the SAME `gap_id` and summary, so a plugin makes its resync idempotent on `gap_id`; it receives every gap regardless of `min_priority`, and a gap obligation stays until it returns success. `recovery = "state"` means a readable authoritative state exists (the session family baseline, `sessions.list`, the plugin's own store or `operations.get`, or the producer's declared `state_source`): the plugin resyncs from it. `"unavailable"` (a foreign event with no `state_source`) and `"partial"` (an aggregated gap) mean the plugin cannot rebuild; it must treat the loss as permanent and may surface it. The manifest event declaration has an optional `state_source = { read, grant }` (MN-3, EV-12) and optional `keyed` and `priority`. `events.subscribed[]` in the manifest and in `Ready` has the same fields as `opts` (MN-3). Handler-table form: `handlers = {{ kind = "event", id, pattern, call }}`, same thing.
+[rows."15"]
+'"partial"' = ["plugin::Recovery::Partial"]
+'"unavailable"' = ["plugin::Recovery::Unavailable"]
+"Ready" = ["plugin::Ready"]
+"Ready.events.gap_handler" = ["plugin::Ready", "plugin::EventsDecl::gap_handler", "plugin::Ready::events"]
+"Ready.events.subscribed" = ["plugin::Ready", "plugin::Ready::events", "plugin::EventsDecl::subscribed"]
+"botster.events.on(pattern, opts?, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on", "plugin::Subscription::pattern"], uncovered = { opts = "a Lua argument: the subscription options (LN-1)", fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.events.on_gap(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on_gap"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"count" = ["plugin::EventGapRecord::count"]
+'delta{ op = "upsert"|"remove", session?, session_id }' = ["plugin::SessionFamilyFrame::Delta", "plugin::SessionFamilyFrame::Delta::op", "plugin::DeltaOp::Upsert", "plugin::DeltaOp::Remove", "plugin::SessionFamilyFrame::Delta::session", "plugin::SessionFamilyFrame::Delta::session_id"]
+"event" = ["plugin::HandlerKind::Event"]
+"event_gap" = ["plugin::HandlerKind::EventGap"]
+"events.subscribed[]" = ["plugin::Manifest::events", "plugin::EventsDecl::subscribed"]
+"fn(gap, request)" = { symbols = ["plugin::EventGapRecord"], uncovered = { fn = "a Lua argument: the handler function (LN-1)", gap = "the Lua name of the gap record (EventGapRecord)", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+'gap = { gap_id, owner, name, subject?, count, lost_bytes?, recovery = "state"|"unavailable"|"partial", state_read?, aggregated? }' = { symbols = ["plugin::EventGapRecord", "plugin::EventGapRecord::gap_id", "plugin::EventGapRecord::owner", "plugin::EventGapRecord::name", "plugin::EventGapRecord::subject", "plugin::EventGapRecord::count", "plugin::EventGapRecord::lost_bytes", "plugin::EventGapRecord::recovery", "plugin::Recovery::State", "plugin::Recovery::Unavailable", "plugin::Recovery::Partial", "plugin::EventGapRecord::state_read", "plugin::EventGapRecord::aggregated"], uncovered = { gap = "the Lua name of the gap record (EventGapRecord)" } }
+"gap_id" = ["plugin::EventGapRecord::gap_id"]
+"generation" = "n/a: a field that session-family frames do not carry (A2-28)"
+"handler_id" = ["plugin::Subscription::handler_id"]
+'handlers = {{ kind = "event", id, pattern, call }}' = { symbols = ["plugin::Ready::handlers", "plugin::HandlerDecl::kind", "plugin::HandlerKind::Event", "plugin::HandlerDecl::id", "plugin::Subscription::pattern"], uncovered = { call = "the Lua field that holds the handler function (LB-10)" } }
+"hub/session_family" = "n/a: the session family entity, the membership source (EV-6); no event symbol by design"
+"keyed" = ["plugin::DeclaredEvent::keyed"]
+"lost_bytes" = ["plugin::EventGapRecord::lost_bytes"]
+"lost_events" = { symbols = ["plugin::EventGapRecord::count"], uncovered = { lost_events = "the name of the lost event count, which EventGapRecord::count holds (EV-13)" } }
+"low" = { symbols = ["plugin::Priority::name"], uncovered = { low = "a v1 priority name (v1_priorities)" } }
+"min_priority" = ["plugin::Subscription::min_priority"]
+"operations.get" = ["plugin.call:operations.get"]
+"opts" = { symbols = ["plugin::Subscription"], uncovered = { opts = "a Lua argument: the subscription options (LN-1)" } }
+'opts = { subjects = "own"|"any", min_priority = "low"|"normal"|"high", handler_id? }' = { symbols = ["plugin::Subscription::subjects", "plugin::SubjectsScope::Own", "plugin::SubjectsScope::Any", "plugin::Subscription::min_priority", "plugin::Priority::name", "plugin::Subscription::handler_id"], uncovered = { opts = "a Lua argument: the subscription options (LN-1)", low = "a v1 priority name (v1_priorities)", normal = "a v1 priority name (v1_priorities)", high = "a v1 priority name (v1_priorities)" } }
+"opts.handler_id" = { symbols = ["plugin::Subscription::handler_id"], uncovered = { opts = "a Lua argument: the subscription options (LN-1)" } }
+"pattern = { owner, name }" = ["plugin::Subscription::pattern", "plugin::EventPattern::owner", "plugin::EventPattern::name"]
+"priority" = ["plugin::DeclaredEvent::priority"]
+'recovery = "state"' = ["plugin::EventGapRecord::recovery", "plugin::Recovery::State"]
+"register" = ["plugin.value:LUA_REGISTRATION_NAMES:register"]
+"resync" = "n/a: the old gap-record field that A4r8 removed"
+"session" = ["plugin::SessionFamilyFrame::Delta::session"]
+"sessions.list" = ["plugin.call:sessions.list"]
+"snapshot_begin{}" = ["plugin::SessionFamilyFrame::SnapshotBegin"]
+"snapshot_chunk{ sessions }" = ["plugin::SessionFamilyFrame::SnapshotChunk", "plugin::SessionFamilyFrame::SnapshotChunk::sessions"]
+"snapshot_end{}" = ["plugin::SessionFamilyFrame::SnapshotEnd"]
+"state_source" = ["plugin::DeclaredEvent::state_source"]
+"state_source = { read, grant }" = ["plugin::DeclaredEvent::state_source", "plugin::StateSource::read", "plugin::StateSource::grant"]
+"{ handler_id, pattern, subjects?, min_priority? }" = ["plugin::Subscription::min_priority", "plugin::Subscription::pattern", "plugin::Subscription::subjects", "plugin::Subscription::handler_id"]
+'{ ok = false, error.kind = "invalid_request", detail.code = "registration_after_ready" }' = { symbols = ["plugin::PluginResult::Err", "plugin::ErrorBody::kind", "plugin::ErrorKind::InvalidRequest", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:invalid_request:registration_after_ready"], uncovered = { ok = "the ok key of the result form (PluginResult)", false = "a JSON literal value", error = "the error key of the failed form (PluginResult::Err holds the ErrorBody)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-7 Operations (CA-16).** `botster.operations.on(fn)` (load-time) sets `Ready.operations.subscribed`; `fn(record, request)` receives the LB-13 record, with `request.origin = "operation"`. A plugin that does not register it gets no notifications and uses `operations.get` only for reconciliation.
+[rows."16"]
+"Ready.operations.subscribed" = ["plugin::Ready", "plugin::Ready::operations", "plugin::OperationsDecl::subscribed"]
+"botster.operations.on(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:operations.on"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"fn(record, request)" = { symbols = ["plugin::OperationFields"], uncovered = { fn = "a Lua argument: the handler function (LN-1)", record = "the Lua name of the operation record (LB-13)", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"operations.get" = ["plugin.call:operations.get"]
+'request.origin = "operation"' = { symbols = ["plugin::Invoke::origin", "plugin::HandlerKind::Operation"], uncovered = { request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-8 Bytes and ids (section 17, LN-1).** Appendix A takes **`bytes_b64`**: `sessions.write{ session, bytes_b64 }`; `http.request` takes `body_b64` and returns `body_b64`; `ws.send` takes `data_b64`. The plugin encodes and decodes with the host-local `botster.base64.encode{ bytes }` and `botster.base64.decode{ text }`. (A4 said the host converts a Lua byte string; A4r29 does not: the argument names are exactly those of Appendix A.) `botster.ids.new{}` returns a fresh 128-bit id (26 lowercase base32) from the OS CSPRNG. **Crypto (language-local, LN-1):** `botster.crypto.sha256{ bytes_b64 }` returns `{ digest_b64 }`, `botster.crypto.hmac_sha256{ key_b64, bytes_b64 }` returns `{ mac_b64 }`, `botster.crypto.random_bytes{ n }` returns `{ bytes_b64 }` (section 17). A plugin encodes a Lua string with `botster.base64.encode` first. Errors: `invalid_request` for bad base64, or an `n` or size whose base64 does not fit `max_result_bytes`; `unavailable` if the host has no CSPRNG. All return the LB-3 envelope. All host-local helpers return the LB-3 envelope and never send a frame (LH-1).
+[rows."17"]
+"body_b64" = ["plugin::HttpRequestArgs::body_b64", "plugin::OperationFields::body_b64"]
+"botster.base64.decode{ text }" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:base64.decode"], uncovered = { text = "the argument of a Lua conversion helper; no contract crate holds the Lua helper arguments" } }
+"botster.base64.encode" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:base64.encode"]
+"botster.base64.encode{ bytes }" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:base64.encode"], uncovered = { bytes = "the argument of a Lua conversion helper; no contract crate holds the Lua helper arguments" } }
+"botster.crypto.hmac_sha256{ key_b64, bytes_b64 }" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:crypto.hmac_sha256"], uncovered = { key_b64 = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)", bytes_b64 = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"botster.crypto.random_bytes{ n }" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:crypto.random_bytes"], uncovered = { n = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"botster.crypto.sha256{ bytes_b64 }" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:crypto.sha256"], uncovered = { bytes_b64 = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"botster.ids.new{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:ids.new"]
+"bytes_b64" = ["plugin::RawWriteArgs::bytes_b64"]
+"data_b64" = ["plugin::WsSendData::data_b64"]
+"http.request" = ["plugin.call:http.request"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"max_result_bytes" = ["plugin.limit:max_result_bytes"]
+"n" = "n/a: an argument or result key of a language-local function; it crosses no frame, so no crate type holds it (section 17)"
+"sessions.write{ session, bytes_b64 }" = ["plugin.call:sessions.write", "plugin::RawWriteArgs::session", "plugin::RawWriteArgs::bytes_b64"]
+"unavailable" = ["plugin::ErrorKind::Unavailable"]
+"ws.send" = ["plugin.call:ws.send"]
+"{ bytes_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+"{ digest_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+"{ mac_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-9 JSON.** Host-local: `json.encode{ value }`, `json.decode{ text }`, both returning the envelope; `json.array{ ... }` (or `json.empty_array`) constructs an array (today two plugins decode `"[]"` to get one). **The empty-table-as-array rule lives here and nowhere in the contract (EN-7 was removed in A4r29):** an empty Lua table encodes as a JSON object `{}` unless it came from `json.array` or `json.empty_array`; a plugin that needs `[]` uses one of those. **JSON `null` (A2-8):** `botster.json.null` is a unique sentinel. It encodes as JSON `null`; `json.decode` and every host-call result return it for `null`; a Lua `nil` is an absent key. `web.set_origin{ origin = botster.json.null }` clears the origin and `secrets.put{ name, value = botster.json.null }` deletes. **Host-local names** are those of LN-1 plus `json.array`, `json.empty_array` and `json.null` (A2-34), and none of them is in LN-2. *Test: `conf::lb_9_json_null_sentinel`.*
+[rows."18"]
+"botster.json.null" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"json.array" = ["plugin.value:LUA_LOCAL_NAMES:json.array"]
+"json.array{ ... }" = ["plugin.value:LUA_LOCAL_NAMES:json.array"]
+"json.decode" = ["plugin.value:LUA_LOCAL_NAMES:json.decode"]
+"json.decode{ text }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:json.decode"], uncovered = { text = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+"json.encode{ value }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:json.encode"], uncovered = { value = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"json.null" = ["plugin.value:LUA_LOCAL_NAMES:json.null"]
+"nil" = "n/a: a Lua value, not a wire value"
+"null" = "n/a: a JSON literal value"
+"secrets.put{ name, value = botster.json.null }" = ["plugin.call:secrets.put", "plugin::SecretsPutArgs::name", "plugin::SecretsPutArgs::value", "plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"web.set_origin{ origin = botster.json.null }" = ["plugin.call:web.set_origin", "plugin::SetOriginArgs::origin", "plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-10 Registration.** `botster.register{ tools, prompts?, resources?, handlers }` builds `Ready`; `call` functions stay in the host's table by handler id (IV-8). **Handler kinds are the 13 wire strings of Appendix A "Handler kinds" (A2-5), spelled exactly: `mcp_tool`, `mcp_prompt`, `mcp_resource`, `ui_action`, `event`, `event_gap`, `entity_provider`, `timer`, `store_watch`, `operation`, `webhook`, `relay`, `fs_watch`.** (`command`, `hook` and `session_action` are removed; the old Lua spellings `tool` and `prompt` are `mcp_tool` and `mcp_prompt`.) **Descriptors (A2-5):** `mcp_tool` `{ name, description, input_schema }`; `mcp_prompt` `{ name, description, arguments }`; `mcp_resource` `{ uri_template, name, mime_type? }`; `ui_action` `{ action_id }`; `entity_provider` `{ kind }`; `webhook` `{ path }`; `event`, `event_gap`, `timer`, `store_watch`, `operation`, `relay` and `fs_watch` `{}` (the subscription, timer, watch or registration names the handler by `handler_id`). Payload to the handler and the value it returns: `mcp_tool`: `arguments` -> the tool content; `mcp_prompt`: `arguments` -> `{ messages }`; `mcp_resource`: `{ uri }` -> `{ contents = {{ uri, mime_type, text? | blob_b64? }} }`; `ui_action`: `{ view_id?, action_id, target?, input, idempotency_key?, operation_id? }` -> `{}` or `{ operation_id }`; `event`: the EV-15 record -> `{}`; `event_gap`: the gap record -> `{}`; `entity_provider`: `{ kind, request = "snapshot"|"page", cursor? }` -> `{ records, cursor? }`; `timer`: `{ timer_id }` -> `{}`; `store_watch`: `{ watch_id, collection }` -> `{}`; `operation`: the LB-13 record -> `{}`; `webhook`: `{ path, headers, body_b64 }` -> `{ status, headers?, body_b64? }`; `relay`: `{ relay_id, envelope_b64 }` -> `{}` (a failure drops the envelope and counts it); `fs_watch`: `{ watch_id, root }` -> `{}`. `webhook` needs the `net` grant with scope `net_inbound` (CP-2). **Load-time helpers** (LN-1): `botster.register`, `botster.events.on`, `botster.events.on_gap`, `botster.operations.on`, `botster.webhooks.on(path, fn)`, `botster.relay.on(fn)` (WP-2) and `botster.fs.on_watch(handler_id, fn)` (FS-3). A call after `Ready` returns `invalid_request{detail.code: registration_after_ready}` (A4 used `failed` and `wrong_context`). `botster.webhooks.on(path, fn)` registers `handlers[{id, kind = "webhook", descriptor = {path}}]`; `fn(payload = {path, headers, body_b64}, request)` returns `{status = 100..599, ...}` as the HTTP answer (NT-7). **Which handler a timer or a watch fires (A2-53).** `botster.timers.arm{ timer_id, delay_ms, handler_id? }` and `botster.store.watch{ collection, index?, equals?, handler_id? }` take an optional `handler_id`. **With no handler of the kind registered, the call is refused `invalid_request{detail.code: unknown_handler}` before anything is created.** With exactly one handler of the kind, `handler_id` may be omitted and means that handler. With several, `handler_id` is required: omitted is `invalid_request{detail.code: handler_id_required}`; unknown or of the wrong kind is `invalid_request{detail.code: unknown_handler}`. The Hub stores the mapping with the timer or watch. **`botster.fs.watch{ root, path, handler_id }` keeps `handler_id` mandatory (FS-3).** `Ready.timers[{ timer_id, delay_ms, handler_id? }]` and `Ready.watches[{ collection, index?, equals?, handler_id? }]` carry the `handler_id` for re-arm; an entry that omits it with several handlers registered, or names a missing one, fails the registration before `Activated`. **How a plugin passes `handler_id` from Lua:** a timer or store-watch handler is registered like any handler, `botster.register{ handlers = {{ kind = "timer", id = "<handler id>", call = fn }} }` (kind `store_watch` likewise), and the same string goes in the `handler_id` argument of `timers.arm` or `store.watch`; there is no `botster.timers.on` helper (the only load-time helpers are those of LN-1). There is no cap on the number of handlers (A2-26 is withdrawn). *Tests: `conf::lb_10_register_builds_ready_and_refuses_after_ready`, `conf::lb_10_handler_kind_strings_and_payloads`, `conf::lb_10_descriptors_per_kind`, `conf::lb_10_timer_and_watch_handler_id_dispatch`, `conf::lb_10_fs_watch_handler_id_stays_mandatory`.*
+[rows."19"]
+"Activated" = ["plugin::Activated"]
+"Ready" = ["plugin::Ready"]
+"Ready.timers[{ timer_id, delay_ms, handler_id? }]" = ["plugin::Ready", "plugin::Ready::timers", "plugin::TimerDecl::timer_id", "plugin::TimerDecl::delay_ms", "plugin::TimerDecl::handler_id"]
+"Ready.watches[{ collection, index?, equals?, handler_id? }]" = ["plugin::Ready", "plugin::Ready::watches", "plugin::WatchDecl::collection", "plugin::WatchDecl::index", "plugin::WatchDecl::equals", "plugin::WatchDecl::handler_id"]
+"arguments" = { symbols = ["plugin::McpArguments"], uncovered = { arguments = "the mcp_tool and mcp_prompt payload, typed as McpArguments (an open object)" } }
+"botster.events.on" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on"]
+"botster.events.on_gap" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on_gap"]
+"botster.fs.on_watch(handler_id, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:fs.on_watch", "plugin::FsWatchDecl::handler_id"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.fs.watch{ root, path, handler_id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:fs.watch", "plugin::FsWatchArgs::root", "plugin::FsWatchArgs::path", "plugin::FsWatchArgs::handler_id"]
+"botster.operations.on" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:operations.on"]
+"botster.register" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register"]
+'botster.register{ handlers = {{ kind = "timer", id = "<handler id>", call = fn }} }' = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register", "plugin::Ready::handlers", "plugin::HandlerDecl::kind", "plugin::HandlerKind::Timer", "plugin::HandlerDecl::id"], uncovered = { handler = "a placeholder: the handler id that the plugin chooses", call = "the Lua field that holds the handler function (LB-10)", fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.register{ tools, prompts?, resources?, handlers }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register", "plugin::Ready::tools", "plugin::Ready::prompts", "plugin::Ready::resources", "plugin::Ready::handlers"]
+"botster.relay.on(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:relay.on"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.store.watch{ collection, index?, equals?, handler_id? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.watch", "plugin::StoreWatchArgs::collection", "plugin::StoreWatchArgs::index", "plugin::StoreWatchArgs::equals", "plugin::StoreWatchArgs::handler_id"]
+"botster.timers.arm{ timer_id, delay_ms, handler_id? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:timers.arm", "plugin::TimersArmArgs::timer_id", "plugin::TimersArmArgs::delay_ms", "plugin::TimersArmArgs::handler_id"]
+"botster.timers.on" = "n/a: a Lua helper that the binding says does not exist (LB-10)"
+"botster.webhooks.on(path, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:webhooks.on", "plugin::WebhookDescriptor::path"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"call" = { symbols = ["plugin::HandlerDecl"], uncovered = { call = "the Lua field that holds the handler function (LB-10); the host keeps it by handler id" } }
+"command" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"event" = ["plugin::HandlerKind::Event"]
+"event_gap" = ["plugin::HandlerKind::EventGap"]
+"failed" = ["plugin::ErrorKind::Failed"]
+"fn(payload = {path, headers, body_b64}, request)" = { symbols = ["plugin::Invoke::payload", "plugin::WebhookPayload::path", "plugin::WebhookPayload::headers", "plugin::WebhookPayload::body_b64"], uncovered = { fn = "a Lua argument: the handler function (LN-1)", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"fs_watch" = ["plugin::HandlerKind::FsWatch"]
+"handler_id" = ["plugin::TimersArmArgs::handler_id", "plugin::StoreWatchArgs::handler_id", "plugin::FsWatchArgs::handler_id"]
+'handlers[{id, kind = "webhook", descriptor = {path}}]' = ["plugin::Ready::handlers", "plugin::HandlerDecl::id", "plugin::HandlerDecl::kind", "plugin::HandlerKind::Webhook", "plugin::HandlerDecl::descriptor", "plugin::WebhookDescriptor::path"]
+"hook" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"invalid_request{detail.code: handler_id_required}" = ["plugin::ErrorKind::InvalidRequest", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:invalid_request:handler_id_required"]
+"invalid_request{detail.code: registration_after_ready}" = ["plugin::ErrorKind::InvalidRequest", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:invalid_request:registration_after_ready"]
+"invalid_request{detail.code: unknown_handler}" = ["plugin::ErrorKind::InvalidRequest", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:invalid_request:unknown_handler"]
+"mcp_prompt" = ["plugin::HandlerKind::McpPrompt"]
+"mcp_resource" = ["plugin::HandlerKind::McpResource"]
+"mcp_tool" = ["plugin::HandlerKind::McpTool"]
+"net" = { symbols = ["plugin::Grant::surface"], uncovered = { net = "the grant surface net (Grant::surface is a string)" } }
+"net_inbound" = { symbols = ["plugin::Grant::scope"], uncovered = { net_inbound = "a scope name (Grant::scope is a string)" } }
+"operation" = ["plugin::HandlerKind::Operation"]
+"prompt" = "n/a: an old Lua spelling of a handler kind; mcp_prompt replaces it"
+"relay" = ["plugin::HandlerKind::Relay"]
+"session_action" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"store.watch" = ["plugin.call:store.watch"]
+"store_watch" = ["plugin::HandlerKind::StoreWatch"]
+"timer" = ["plugin::HandlerKind::Timer"]
+"timers.arm" = ["plugin.call:timers.arm"]
+"tool" = "n/a: an old Lua spelling of a handler kind; mcp_tool replaces it"
+"ui_action" = ["plugin::HandlerKind::UiAction"]
+"webhook" = ["plugin::HandlerKind::Webhook"]
+"wrong_context" = ["plugin.code:failed:wrong_context"]
+"{ action_id }" = ["plugin::UiActionDescriptor::action_id"]
+"{ contents = {{ uri, mime_type, text? | blob_b64? }} }" = ["plugin::McpResourceResult::contents", "plugin::ResourceContent::uri", "plugin::ResourceContent::mime_type", "plugin::ResourceContent::text", "plugin::ResourceContent::blob_b64"]
+"{ kind }" = ["plugin::EntityProviderDescriptor::kind"]
+'{ kind, request = "snapshot"|"page", cursor? }' = ["plugin::EntityProviderPayload::kind", "plugin::EntityProviderPayload::request", "plugin::ProviderRequest::Snapshot", "plugin::ProviderRequest::Page", "plugin::EntityProviderPayload::cursor"]
+"{ messages }" = ["plugin::McpPromptResult::messages"]
+"{ name, description, arguments }" = ["plugin::McpPromptDescriptor::name", "plugin::McpPromptDescriptor::description", "plugin::McpPromptDescriptor::arguments"]
+"{ name, description, input_schema }" = ["plugin::McpToolDescriptor::name", "plugin::McpToolDescriptor::description", "plugin::McpToolDescriptor::input_schema"]
+"{ operation_id }" = ["plugin::UiActionResult::operation_id"]
+"{ path }" = ["plugin::WebhookDescriptor::path"]
+"{ path, headers, body_b64 }" = ["plugin::WebhookPayload::path", "plugin::WebhookPayload::headers", "plugin::WebhookPayload::body_b64"]
+"{ records, cursor? }" = ["plugin::EntityProviderResult::records", "plugin::EntityProviderResult::cursor"]
+"{ relay_id, envelope_b64 }" = ["plugin::RelayPayload::relay_id", "plugin::RelayPayload::envelope_b64"]
+"{ status, headers?, body_b64? }" = ["plugin::WebhookResult::status", "plugin::WebhookResult::headers", "plugin::WebhookResult::body_b64"]
+"{ timer_id }" = ["plugin::TimerPayload::timer_id"]
+"{ uri }" = ["plugin::McpResourcePayload::uri"]
+"{ uri_template, name, mime_type? }" = ["plugin::McpResourceDescriptor::uri_template", "plugin::McpResourceDescriptor::name", "plugin::McpResourceDescriptor::mime_type"]
+"{ view_id?, action_id, target?, input, idempotency_key?, operation_id? }" = ["plugin::UiActionPayload::input", "plugin::UiActionPayload::view_id", "plugin::UiActionPayload::action_id", "plugin::UiActionPayload::idempotency_key", "plugin::UiActionPayload::operation_id", "plugin::UiActionPayload::target"]
+"{ watch_id, collection }" = ["plugin::StoreWatchPayload::watch_id", "plugin::StoreWatchPayload::collection"]
+"{ watch_id, root }" = ["plugin::FsWatchPayload::watch_id", "plugin::FsWatchPayload::root"]
+"{status = 100..599, ...}" = ["plugin::WebhookResult::status"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-11 Network and secrets (new, NT-1 to NT-9, Appendix C).** `botster.http.request{ method, url, headers?, body_b64?, timeout_ms, max_response_bytes? }` (`method` is `GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS`; **`headers` is a list of `[name, value]` pairs, written in Lua as `{ { "Name", "value" }, ... }`, in both directions, in order, with repeats kept**, A2-17; admission failures are `invalid_request` with `net_userinfo`, `net_header_forbidden` or `net_scheme`) and `botster.ws.open{ url, headers?, subprotocols? }` are asynchronous: each returns `{ operation_id, kind, state = "queued", terminal = false }` at once. The completion arrives on `operations.on` (LB-7) and through `operations.get` as `{ kind = "http", state = "done", terminal = true, status, headers, body_b64 }` or `{ kind = "ws", state = "open", ws_id }`. `ws.send{ ws_id, text? | data_b64? }` returns `{ accepted }` or `backpressured`; `ws.close{ ws_id, code?, reason? }`. Received frames and the close arrive as **events** owned by `net` (`net/ws.message` and `net/ws.close`), so a plugin subscribes with `events.on({ owner = "net", name = "ws.*" }, fn)`. `botster.secrets.get{ name }` returns `{ value }` for a declared secret (grant surface `secrets`). Manifest: `capabilities` entry `{ surface = "net", scope = "net", allow = {...} }`; scopes `net_private` and `net_inbound` are separate grants; `secrets = {{ name, required? }}`. *Tests: `conf::lb_11_http_and_ws_are_async_operations`, `conf::lb_11_http_method_set_and_header_pairs`.*
+[rows."20"]
+"[name, value]" = { symbols = ["plugin::HttpRequestArgs::headers"], uncovered = { name = "a member of the [String; 2] header pair", value = "a member of the [String; 2] header pair" } }
+"backpressured" = ["plugin::ErrorKind::Backpressured"]
+"botster.http.request{ method, url, headers?, body_b64?, timeout_ms, max_response_bytes? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:http.request", "plugin::HttpRequestArgs::method", "plugin::HttpRequestArgs::url", "plugin::HttpRequestArgs::headers", "plugin::HttpRequestArgs::body_b64", "plugin::HttpRequestArgs::timeout_ms", "plugin::HttpRequestArgs::max_response_bytes"]
+"botster.secrets.get{ name }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:secrets.get", "plugin::SecretsGetArgs::name"]
+"botster.ws.open{ url, headers?, subprotocols? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:ws.open", "plugin::WsOpenArgs::url", "plugin::WsOpenArgs::headers", "plugin::WsOpenArgs::subprotocols"]
+"capabilities" = ["plugin::Manifest::capabilities"]
+'events.on({ owner = "net", name = "ws.*" }, fn)' = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:events.on", "plugin::Subscription::pattern", "plugin::EventPattern::owner", "plugin::EventPattern::name", "plugin.event:net/ws.message", "plugin.event:net/ws.close"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"headers" = ["plugin::HttpRequestArgs::headers", "plugin::OperationFields::headers"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"method" = ["plugin::HttpRequestArgs::method"]
+"net" = { symbols = ["plugin::EventRecord::owner"], uncovered = { net = "the owner of the Hub-owned connection events of NT-4 (EventRecord::owner is a string)" } }
+"net/ws.close" = ["plugin.event:net/ws.close"]
+"net/ws.message" = ["plugin.event:net/ws.message"]
+"net_header_forbidden" = ["plugin.code:invalid_request:net_header_forbidden"]
+"net_inbound" = { symbols = ["plugin::Grant::scope"], uncovered = { net_inbound = "a scope name (Grant::scope is a string)" } }
+"net_private" = { symbols = ["plugin::Grant::scope"], uncovered = { net_private = "a scope name (Grant::scope is a string)" } }
+"net_scheme" = ["plugin.code:invalid_request:net_scheme"]
+"net_userinfo" = ["plugin.code:invalid_request:net_userinfo"]
+"operations.get" = ["plugin.call:operations.get"]
+"operations.on" = ["plugin.value:LUA_REGISTRATION_NAMES:operations.on"]
+"secrets" = { symbols = ["plugin::Grant::surface"], uncovered = { secrets = "a surface name (Grant::surface is a string)" } }
+"secrets = {{ name, required? }}" = ["plugin::Manifest::secrets", "plugin::SecretDecl::name", "plugin::SecretDecl::required"]
+"ws.close{ ws_id, code?, reason? }" = ["plugin.call:ws.close", "plugin::WsCloseArgs::ws_id", "plugin::WsCloseArgs::code", "plugin::WsCloseArgs::reason"]
+"ws.send{ ws_id, text? | data_b64? }" = ["plugin.call:ws.send", "plugin::WsSendText::ws_id", "plugin::WsSendText::text", "plugin::WsSendData::ws_id", "plugin::WsSendData::data_b64"]
+"{ accepted }" = ["plugin::Accepted::accepted"]
+'{ kind = "http", state = "done", terminal = true, status, headers, body_b64 }' = { symbols = ["plugin::OperationFields::kind", "plugin.value:OPERATION_KINDS:http", "plugin::OperationFields::state", "plugin.state:http:done", "plugin::OperationFields::terminal", "plugin::OperationFields::status", "plugin::OperationFields::headers", "plugin::OperationFields::body_b64"], uncovered = { true = "a JSON literal value" } }
+'{ kind = "ws", state = "open", ws_id }' = ["plugin::OperationFields::kind", "plugin.value:OPERATION_KINDS:ws", "plugin::OperationFields::state", "plugin.state:ws:open", "plugin::OperationFields::ws_id"]
+'{ operation_id, kind, state = "queued", terminal = false }' = { symbols = ["plugin::HttpAdmission::operation_id", "plugin::HttpAdmission::kind", "plugin::HttpAdmission::state", "plugin::StateQueued::queued", "plugin::HttpAdmission::terminal", "plugin::WsAdmission::operation_id", "plugin::WsAdmission::kind", "plugin::WsAdmission::state", "plugin::WsAdmission::terminal"], uncovered = { false = "a JSON literal value" } }
+'{ surface = "net", scope = "net", allow = {...} }' = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope", "plugin::Capability::allow"], uncovered = { net = "the grant surface and scope net (Capability::surface and Capability::scope are strings)" } }
+"{ value }" = ["plugin::SecretValueResult::value"]
+'{ { "Name", "value" }, ... }' = { symbols = ["plugin::HttpRequestArgs::headers"], uncovered = { Name = "a placeholder: a header name", value = "a placeholder: a header value" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-12 Sessions beyond spawn.** `botster.sessions.create_command{ argv, cwd?, env?, size?, interaction? }` (scope `session_create_command`, bare only) returns `{ operation_id, session, state, terminal = false }`. `sessions.terminal_state` and `read_cursor` (scope `session_observe[:any]`) and `read_screen` (scope `session_screen[:any]`) read; `sessions.stop`, `delete`, `update`, `restart` need their own scope. **A state refusal has one shape (A2-2): `failed{ detail.code = "wrong_state", detail.reason = <reason> }`** (there is no `wrong_state` kind). The closed reasons per call: `sessions.stop`, `delete`, `read_screen`, `terminal_state`, `read_cursor`: `starting|running|stopping|ended|lost|no_screen_model`; `sessions.safe_write`, `sessions.write`: `session_ended|not_running`; `sessions.restart`: `not_ended|not_restartable|record_unavailable|environment_not_retained|not_ready`; `worktrees.delete`: `occupied`. A plugin that meets an unknown reason acts on `detail.code`. *Test: `conf::lb_12_wrong_state_has_code_and_reason`.* Observation events (SO-3, EV-14): `hub/session.activity`, `hub/session.modes`, `hub/session.size`, `hub/session.silent` and `terminal/title|cwd|bell|notification|prompt_mark|modes|exit` (`terminal/exit` is high; `terminal/modes` is normal and keyed by session); **grants (A2-23):** a subscription to `hub/session.activity`, `modes`, `size` or `silent` needs **`events_hub` AND `session_observe[:own|:any]`**; a subscription to `terminal/*` (except `terminal/output`) needs `events_terminal[:own|:any]`; nothing else admits them. *Tests: `conf::lb_12_session_calls_and_scopes`, `conf::lb_12_observation_event_grants`.*
+[rows."21"]
+"botster.sessions.create_command{ argv, cwd?, env?, size?, interaction? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.create_command", "plugin::CreateCommandArgs::argv", "plugin::CreateCommandArgs::cwd", "plugin::CreateCommandArgs::env", "plugin::CreateCommandArgs::size", "plugin::CreateCommandArgs::interaction"]
+"delete" = ["plugin.call:sessions.delete"]
+"detail.code" = ["plugin::Detail::code"]
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"events_terminal[:own|:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { events_terminal = "a scope name (Grant::scope is a string)", own = "the own scope suffix (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+'failed{ detail.code = "wrong_state", detail.reason = <reason> }' = ["plugin::ErrorKind::Failed", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:failed:wrong_state", "plugin::Detail::reason"]
+"hub/session.activity" = ["plugin.event:hub/session.activity"]
+"hub/session.modes" = ["plugin.event:hub/session.modes"]
+"hub/session.silent" = ["plugin.event:hub/session.silent"]
+"hub/session.size" = ["plugin.event:hub/session.size"]
+"modes" = ["plugin.event:hub/session.modes"]
+"not_ended|not_restartable|record_unavailable|environment_not_retained|not_ready" = ["plugin.wrong_state:sessions.restart:not_ended", "plugin.wrong_state:sessions.restart:not_restartable", "plugin.wrong_state:sessions.restart:record_unavailable", "plugin.wrong_state:sessions.restart:environment_not_retained", "plugin.wrong_state:sessions.restart:not_ready"]
+"occupied" = ["plugin.wrong_state:worktrees.delete:occupied"]
+"read_cursor" = ["plugin.call:sessions.read_cursor"]
+"read_screen" = ["plugin.call:sessions.read_screen"]
+"restart" = ["plugin.call:sessions.restart"]
+"session_create_command" = { symbols = ["plugin::Grant::scope"], uncovered = { session_create_command = "a scope name (Grant::scope is a string)" } }
+"session_ended|not_running" = ["plugin.wrong_state:sessions.safe_write:session_ended", "plugin.wrong_state:sessions.safe_write:not_running", "plugin.wrong_state:sessions.write:session_ended", "plugin.wrong_state:sessions.write:not_running"]
+"session_observe[:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_observe = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"session_observe[:own|:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_observe = "a scope name (Grant::scope is a string)", own = "the own scope suffix (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"session_screen[:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_screen = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"sessions.restart" = ["plugin.call:sessions.restart"]
+"sessions.safe_write" = ["plugin.call:sessions.safe_write"]
+"sessions.stop" = ["plugin.call:sessions.stop"]
+"sessions.terminal_state" = ["plugin.call:sessions.terminal_state"]
+"sessions.write" = ["plugin.call:sessions.write"]
+"silent" = ["plugin.event:hub/session.silent"]
+"size" = ["plugin.event:hub/session.size"]
+"starting|running|stopping|ended|lost|no_screen_model" = ["plugin.wrong_state:sessions.stop:starting", "plugin.wrong_state:sessions.stop:running", "plugin.wrong_state:sessions.stop:stopping", "plugin.wrong_state:sessions.stop:ended", "plugin.wrong_state:sessions.stop:lost", "plugin.wrong_state:sessions.stop:no_screen_model", "plugin.wrong_state:sessions.delete:starting", "plugin.wrong_state:sessions.delete:running", "plugin.wrong_state:sessions.delete:stopping", "plugin.wrong_state:sessions.delete:ended", "plugin.wrong_state:sessions.delete:lost", "plugin.wrong_state:sessions.delete:no_screen_model", "plugin.wrong_state:sessions.read_screen:starting", "plugin.wrong_state:sessions.read_screen:running", "plugin.wrong_state:sessions.read_screen:stopping", "plugin.wrong_state:sessions.read_screen:ended", "plugin.wrong_state:sessions.read_screen:lost", "plugin.wrong_state:sessions.read_screen:no_screen_model", "plugin.wrong_state:sessions.terminal_state:starting", "plugin.wrong_state:sessions.terminal_state:running", "plugin.wrong_state:sessions.terminal_state:stopping", "plugin.wrong_state:sessions.terminal_state:ended", "plugin.wrong_state:sessions.terminal_state:lost", "plugin.wrong_state:sessions.terminal_state:no_screen_model", "plugin.wrong_state:sessions.read_cursor:starting", "plugin.wrong_state:sessions.read_cursor:running", "plugin.wrong_state:sessions.read_cursor:stopping", "plugin.wrong_state:sessions.read_cursor:ended", "plugin.wrong_state:sessions.read_cursor:lost", "plugin.wrong_state:sessions.read_cursor:no_screen_model"]
+"terminal/*" = ["plugin.event:terminal/title", "plugin.event:terminal/cwd", "plugin.event:terminal/bell", "plugin.event:terminal/notification", "plugin.event:terminal/prompt_mark", "plugin.event:terminal/modes", "plugin.event:terminal/exit"]
+"terminal/exit" = ["plugin.event:terminal/exit"]
+"terminal/modes" = ["plugin.event:terminal/modes"]
+"terminal/output" = ["plugin.event:terminal/output"]
+"terminal/title|cwd|bell|notification|prompt_mark|modes|exit" = ["plugin.event:terminal/title", "plugin.event:terminal/cwd", "plugin.event:terminal/bell", "plugin.event:terminal/notification", "plugin.event:terminal/prompt_mark", "plugin.event:terminal/modes", "plugin.event:terminal/exit"]
+"terminal_state" = ["plugin.call:sessions.terminal_state"]
+"update" = ["plugin.call:sessions.update"]
+"worktrees.delete" = ["plugin.call:worktrees.delete"]
+"wrong_state" = ["plugin.code:failed:wrong_state"]
+"{ operation_id, session, state, terminal = false }" = { symbols = ["plugin::SpawnAdmission::operation_id", "plugin::SpawnAdmission::session", "plugin::SpawnAdmission::state", "plugin::SpawnAdmission::terminal"], uncovered = { false = "a JSON literal value" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-13 Operation records (CA-16, Appendix C).** `operations.get` and `operations.on` deliver one record: `{ operation_id, kind = "spawn"|"safe_write"|"http"|"ws"|"process"|"plugin_call", state, terminal, session?, worktree?, reason?, probe_written?, residue? = "none"|"possible", text_written_bytes?, status?, headers?, body_b64?, ws_id?, exit_code?, signal?, stdout_tail_b64?, stderr_tail_b64?, truncated?, duration_ms?, result?, error?, effect? }`. A plugin decides finality only from `terminal`, never from a state name. **The kind and state tables are non-exhaustive:** a plugin treats an unknown `kind` or `state` as opaque and waits for `terminal = true`. `reason` appears on `safe_write` and `spawn` records and on the `hub_restarted` answer of every kind. *Test: `conf::lb_13_unknown_kind_or_state_waits_for_terminal`.* *Test: `conf::lb_13_operation_record_shape`.*
+[rows."22"]
+"hub_restarted" = ["plugin.value:SAFE_WRITE_UNKNOWN_REASONS:hub_restarted"]
+"kind" = ["plugin::OperationFields::kind"]
+"operations.get" = ["plugin.call:operations.get"]
+"operations.on" = ["plugin.value:LUA_REGISTRATION_NAMES:operations.on"]
+"reason" = ["plugin::OperationFields::reason"]
+"safe_write" = ["plugin.value:OPERATION_KINDS:safe_write"]
+"spawn" = ["plugin.value:OPERATION_KINDS:spawn"]
+"state" = ["plugin::OperationFields::state"]
+"terminal" = ["plugin::OperationFields::terminal"]
+"terminal = true" = { symbols = ["plugin::OperationFields::terminal"], uncovered = { true = "a JSON literal value" } }
+'{ operation_id, kind = "spawn"|"safe_write"|"http"|"ws"|"process"|"plugin_call", state, terminal, session?, worktree?, reason?, probe_written?, residue? = "none"|"possible", text_written_bytes?, status?, headers?, body_b64?, ws_id?, exit_code?, signal?, stdout_tail_b64?, stderr_tail_b64?, truncated?, duration_ms?, result?, error?, effect? }' = ["plugin::OperationFields::operation_id", "plugin::OperationFields::kind", "plugin.value:OPERATION_KINDS:spawn", "plugin.value:OPERATION_KINDS:safe_write", "plugin.value:OPERATION_KINDS:http", "plugin.value:OPERATION_KINDS:ws", "plugin.value:OPERATION_KINDS:process", "plugin.value:OPERATION_KINDS:plugin_call", "plugin::OperationFields::state", "plugin::OperationFields::terminal", "plugin::OperationFields::session", "plugin::OperationFields::worktree", "plugin::OperationFields::reason", "plugin::OperationFields::probe_written", "plugin::OperationFields::residue", "plugin::Residue::None", "plugin::Residue::Possible", "plugin::OperationFields::text_written_bytes", "plugin::OperationFields::status", "plugin::OperationFields::headers", "plugin::OperationFields::body_b64", "plugin::OperationFields::ws_id", "plugin::OperationFields::exit_code", "plugin::OperationFields::signal", "plugin::OperationFields::stdout_tail_b64", "plugin::OperationFields::stderr_tail_b64", "plugin::OperationFields::truncated", "plugin::OperationFields::duration_ms", "plugin::OperationFields::result", "plugin::OperationFields::error", "plugin::OperationFields::effect"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-14 Commands and other plugins (PX-1, PC-1; new since A4r29).** `botster.process.run{ argv, cwd?, env?, timeout_ms, stdout_tail_bytes?, stderr_tail_bytes? }` (scope `process_run`) runs one command without a shell and is **asynchronous**: it returns `{ operation_id, kind = "process", state = "queued", terminal = false }`. `cwd` is `{ target_id | worktree_id, relative? }`, never an absolute path. The terminal record (LB-13) carries `exit_code?`, `signal?`, `stdout_tail_b64`, `stderr_tail_b64`, `truncated`, `duration_ms`. A plugin that used `os.execute`, `io.popen` or a blocking gate runner changes to this call and an `operations.on` handler (project-pipelines gate runner, workspaces shell steps). `botster.plugins.call{ interface, tool, args, idempotency_key?, timeout_ms? }` (A4r72 PD-5: **an interface, not a plugin**; scope `plugin_call:<owner>` derived from the resolved provider) is asynchronous too (`kind = "plugin_call"`); the terminal record has the callee's `result` or a typed `error`. `tool` must be a call of the resolved interface, else `capability_denied{detail.code: undeclared_dependency}`; the provider is the one approved at install (`Hello.bindings`). The callee must declare `callable_by = {"plugins"}` on the tool, else the call is `not_found`. While the provider is unloaded the call is `unavailable{provider_unloaded}`; after an accepted breaking update it is `unavailable{requirement_unmet}`. Use an `idempotency_key` for a durable post (for example into the messaging plugin). *Test: `conf::lb_14_process_and_plugin_call_async_and_typed`.*
+[rows."24"]
+"Hello.bindings" = ["plugin::Hello", "plugin::Hello::bindings"]
+"botster.plugins.call{ interface, tool, args, idempotency_key?, timeout_ms? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:plugins.call", "plugin::PluginsCallArgs::interface", "plugin::PluginsCallArgs::tool", "plugin::PluginsCallArgs::args", "plugin::PluginsCallArgs::idempotency_key", "plugin::PluginsCallArgs::timeout_ms"]
+"botster.process.run{ argv, cwd?, env?, timeout_ms, stdout_tail_bytes?, stderr_tail_bytes? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:process.run", "plugin::ProcessRunArgs::argv", "plugin::ProcessRunArgs::cwd", "plugin::ProcessRunArgs::env", "plugin::ProcessRunArgs::timeout_ms", "plugin::ProcessRunArgs::stdout_tail_bytes", "plugin::ProcessRunArgs::stderr_tail_bytes"]
+'callable_by = {"plugins"}' = { symbols = ["plugin::ToolDecl::callable_by"], uncovered = { plugins = "the one value of callable_by that PC-1 defines (ToolDecl::callable_by is a list of strings)" } }
+"capability_denied{detail.code: undeclared_dependency}" = ["plugin::ErrorKind::CapabilityDenied", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:capability_denied:undeclared_dependency"]
+"cwd" = ["plugin::ProcessRunArgs::cwd"]
+"duration_ms" = ["plugin::OperationFields::duration_ms"]
+"error" = ["plugin::OperationFields::error"]
+"exit_code?" = ["plugin::OperationFields::exit_code"]
+"idempotency_key" = ["plugin::PluginsCallArgs::idempotency_key"]
+"io.popen" = "n/a: a Lua standard library function that the plugins used before this binding"
+'kind = "plugin_call"' = ["plugin::PluginCallAdmission::kind", "plugin::KindPluginCall::plugin_call"]
+"not_found" = ["plugin::ErrorKind::NotFound"]
+"operations.on" = ["plugin.value:LUA_REGISTRATION_NAMES:operations.on"]
+"os.execute" = "n/a: a Lua standard library function that the plugins used before this binding"
+"plugin_call:<owner>" = { symbols = ["plugin::Grant::scope"], uncovered = { plugin_call = "a scope name (Grant::scope is a string)", owner = "the provider plugin key in the scope (Grant::scope is a string)" } }
+"process_run" = { symbols = ["plugin::Grant::scope"], uncovered = { process_run = "a scope name (Grant::scope is a string)" } }
+"result" = ["plugin::OperationFields::result"]
+"signal?" = ["plugin::OperationFields::signal"]
+"stderr_tail_b64" = ["plugin::OperationFields::stderr_tail_b64"]
+"stdout_tail_b64" = ["plugin::OperationFields::stdout_tail_b64"]
+"tool" = ["plugin::PluginsCallArgs::tool"]
+"truncated" = ["plugin::OperationFields::truncated"]
+"unavailable{provider_unloaded}" = ["plugin::ErrorKind::Unavailable", "plugin.code:unavailable:provider_unloaded"]
+"unavailable{requirement_unmet}" = ["plugin::ErrorKind::Unavailable", "plugin.code:unavailable:requirement_unmet"]
+'{ operation_id, kind = "process", state = "queued", terminal = false }' = { symbols = ["plugin::ProcessAdmission::operation_id", "plugin::ProcessAdmission::kind", "plugin::KindProcess::process", "plugin::ProcessAdmission::state", "plugin::StateQueued::queued", "plugin::ProcessAdmission::terminal"], uncovered = { false = "a JSON literal value" } }
+"{ target_id | worktree_id, relative? }" = ["plugin::CwdTarget::target_id", "plugin::CwdWorktree::worktree_id", "plugin::CwdTarget::relative", "plugin::CwdWorktree::relative"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-15 Files, assets and web pages (FS-1 to FS-3, AS-1 to AS-4, WP-1 to WP-5).** `botster.fs.list/stat/read` (scope `fs:<root id>`; the manifest declares `fs_roots = {{ id, read = true }}`) are synchronous reads; `fs.read` returns `{ bytes_b64, eof }`. `botster.fs.watch{ root, path, handler_id }` needs a handler registered with the load-time helper `botster.fs.on_watch(handler_id, fn)`; `fn({ watch_id, root }, request)` is level-triggered (re-read what you need); re-arm after a reload comes from `Ready.fs_watches`. `botster.assets.publish{ name, content_type, bytes_b64 }` returns `{ asset_id }` and `botster.assets.lookup{ name }` returns `{ asset_id, content_type }` (scope `assets`, named "publish web pages"; the manifest may also list `assets = {{ name, path, content_type }}`); a page is one self-contained asset. The ui-contract `embed` part names the asset. `botster.web.set_origin{ origin }` (scope `web_origin`) sets the origin that pairing URLs use: an `https` origin, a loopback `http` origin, or `{ served = true }` (the plugin's own served origin, WP-5). **`origin = botster.json.null` CLEARS the origin; `web.set_origin{}` or `origin = nil` leaves the required key absent and fails `invalid_request`:** the Hub has no default origin, and with none set it refuses `issue_pairing` with `wrong_state{no_web_origin}` (client PR-0)** (J4 WP-1; it was "restores the default" in A4r77). `botster.web.set_ice_servers{ servers }` (same scope) and `botster.relay.open{}` / `botster.relay.deliver{ relay_id, envelope_b64 }` with the load-time `botster.relay.on(fn)` (scope `relay_signaling`) serve the signalling relay. `fn({ relay_id, envelope_b64 }, request)` forwards an opaque envelope. The two Hub-owned exceptions on a served origin (WP-5) are `POST /hubs/<hub_id>/signal` and `GET /hubs/<hub_id>/ice`; everything else on it is the plugin's. Static routes: manifest `static_routes = {{ route, root, index? }}` (scope `net_serve`). *Test: `conf::lb_15_files_assets_web_relay_shapes`.*
+[rows."25"]
+"GET /hubs/<hub_id>/ice" = "n/a: a Hub-owned HTTP route on a served origin (WP-5); no contract crate holds the route path"
+"POST /hubs/<hub_id>/signal" = "n/a: a Hub-owned HTTP route on a served origin (WP-5); no contract crate holds the route path"
+"Ready.fs_watches" = ["plugin::Ready", "plugin::Ready::fs_watches"]
+"assets" = { symbols = ["plugin::Grant::scope"], uncovered = { assets = "a scope name (Grant::scope is a string)" } }
+"assets = {{ name, path, content_type }}" = ["plugin::Manifest::assets", "plugin::StagedAsset::name", "plugin::StagedAsset::path", "plugin::StagedAsset::content_type"]
+"botster.assets.lookup{ name }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:assets.lookup", "plugin::AssetsLookupArgs::name"]
+"botster.assets.publish{ name, content_type, bytes_b64 }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:assets.publish", "plugin::AssetsPublishArgs::name", "plugin::AssetsPublishArgs::content_type", "plugin::AssetsPublishArgs::bytes_b64"]
+"botster.fs.list/stat/read" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:fs.list", "plugin.call:fs.stat", "plugin.call:fs.read"]
+"botster.fs.on_watch(handler_id, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:fs.on_watch", "plugin::FsWatchDecl::handler_id"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.fs.watch{ root, path, handler_id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:fs.watch", "plugin::FsWatchArgs::root", "plugin::FsWatchArgs::path", "plugin::FsWatchArgs::handler_id"]
+"botster.relay.deliver{ relay_id, envelope_b64 }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:relay.deliver", "plugin::RelayDeliverArgs::relay_id", "plugin::RelayDeliverArgs::envelope_b64"]
+"botster.relay.on(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:relay.on"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.relay.open{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:relay.open"]
+"botster.web.set_ice_servers{ servers }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:web.set_ice_servers", "plugin::SetIceServersArgs::servers"]
+"botster.web.set_origin{ origin }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:web.set_origin", "plugin::SetOriginArgs::origin"]
+"embed" = ["ui::Part::Embed"]
+"fn({ relay_id, envelope_b64 }, request)" = { symbols = ["plugin::RelayPayload::relay_id", "plugin::RelayPayload::envelope_b64"], uncovered = { fn = "a Lua argument: the handler function (LN-1)", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"fn({ watch_id, root }, request)" = { symbols = ["plugin::FsWatchPayload::watch_id", "plugin::FsWatchPayload::root"], uncovered = { fn = "a Lua argument: the handler function (LN-1)", request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"fs.read" = ["plugin.call:fs.read"]
+"fs:<root id>" = { symbols = ["plugin::Grant::scope"], uncovered = { fs = "a scope name (Grant::scope is a string)", root = "a placeholder: the id of a declared fs root (FS-1)", id = "a placeholder: the id of a declared fs root (FS-1)" } }
+"fs_roots = {{ id, read = true }}" = { symbols = ["plugin::Manifest::fs_roots", "plugin::FsRootDecl::id", "plugin::FsRootDecl::read"], uncovered = { true = "a JSON literal value" } }
+"http" = "n/a: a URL scheme"
+"https" = "n/a: a URL scheme"
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"issue_pairing" = ["hub.action:hub.issue_pairing"]
+"net_serve" = { symbols = ["plugin::Grant::scope"], uncovered = { net_serve = "a scope name (Grant::scope is a string)" } }
+"origin = botster.json.null" = ["plugin::SetOriginArgs::origin", "plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"origin = nil" = { symbols = ["plugin::SetOriginArgs::origin"], uncovered = { nil = "a Lua value, not a wire value" } }
+"relay_signaling" = { symbols = ["plugin::Grant::scope"], uncovered = { relay_signaling = "a scope name (Grant::scope is a string)" } }
+"static_routes = {{ route, root, index? }}" = ["plugin::StaticRoute::route", "plugin::Manifest::static_routes", "plugin::StaticRoute::index", "plugin::StaticRoute::root"]
+"web.set_origin{}" = ["plugin.call:web.set_origin"]
+"web_origin" = { symbols = ["plugin::Grant::scope"], uncovered = { web_origin = "a scope name (Grant::scope is a string)" } }
+"wrong_state{no_web_origin}" = ["hub::ErrorCode::WrongState", "hub.reason:hub.issue_pairing:wrong_state:no_web_origin"]
+"{ asset_id }" = ["plugin::AssetId::asset_id"]
+"{ asset_id, content_type }" = ["plugin::AssetLookupResult::asset_id", "plugin::AssetLookupResult::content_type"]
+"{ bytes_b64, eof }" = ["plugin::FsReadResult::eof", "plugin::FsReadResult::bytes_b64"]
+"{ served = true }" = { symbols = ["plugin::ServedOrigin::served"], uncovered = { true = "a JSON literal value" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-16 Other calls (Appendix C).** `botster.secrets.put{ name, value | botster.json.null }` (`null` deletes the secret) needs the secret declared `plugin_writable`; `botster.worktrees.delete{ worktree_id, delete_branch? }` (scope `worktree_delete[:any]`); `botster.sessions.write` (A2-3) returns **`ok = true`** with `{ state = "written"|"partial"|"cancelled"|"unknown"|"failed", accepted_bytes, written_bytes?, max_written_bytes?, reason? }`, where for `failed` the `reason` is `os_write_failed` and any result `reason` is one of `os_write_failed`, `cancelled`, `link_lost`. **Errors:** a full lane is `backpressured`; a session that ended or is stopping is `failed{ wrong_state, reason = session_ended }`; every other refusal is `failed{ detail.code = "not_written", detail.reason = refused|unsupported|mode_precondition_failed|stale|not_reported }` with effect `none`. plugin-visible session rows carry `owner`. MCP proxy: the manifest `mcp_servers` (MP-1; scopes `mcp_proxy`, `mcp_proxy_stdio`) makes the Hub list the server's tools under namespaced names; a plugin needs no Lua for it. *Tests: `conf::lb_16_other_call_shapes`, `conf::lb_16_write_result_vs_error_mapping`.*
+[rows."26"]
+"backpressured" = ["plugin::ErrorKind::Backpressured"]
+"botster.secrets.put{ name, value | botster.json.null }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:secrets.put", "plugin::SecretsPutArgs::name", "plugin::SecretsPutArgs::value", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"botster.sessions.write" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.write"]
+"botster.worktrees.delete{ worktree_id, delete_branch? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:worktrees.delete", "plugin::WorktreesDeleteArgs::worktree_id", "plugin::WorktreesDeleteArgs::delete_branch"]
+"cancelled" = ["plugin.value:WRITE_RESULT_REASONS:cancelled"]
+"failed" = ["plugin::WriteState::Failed"]
+'failed{ detail.code = "not_written", detail.reason = refused|unsupported|mode_precondition_failed|stale|not_reported }' = ["plugin::ErrorKind::Failed", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:failed:not_written", "plugin::Detail::reason", "plugin.value:NOT_WRITTEN_REASONS:refused", "plugin.value:NOT_WRITTEN_REASONS:unsupported", "plugin.value:NOT_WRITTEN_REASONS:mode_precondition_failed", "plugin.value:NOT_WRITTEN_REASONS:stale", "plugin.value:NOT_WRITTEN_REASONS:not_reported"]
+"failed{ wrong_state, reason = session_ended }" = ["plugin::ErrorKind::Failed", "plugin.code:failed:wrong_state", "plugin::Detail::reason", "plugin.wrong_state:sessions.write:session_ended"]
+"link_lost" = ["plugin.value:WRITE_RESULT_REASONS:link_lost"]
+"mcp_proxy" = { symbols = ["plugin::Grant::scope"], uncovered = { mcp_proxy = "a scope name (Grant::scope is a string)" } }
+"mcp_proxy_stdio" = { symbols = ["plugin::Grant::scope"], uncovered = { mcp_proxy_stdio = "a scope name (Grant::scope is a string)" } }
+"mcp_servers" = ["plugin::Manifest::mcp_servers"]
+"none" = ["plugin::Effect::None"]
+"null" = "n/a: a JSON literal value"
+"ok = true" = { symbols = ["plugin::PluginResult::Ok"], uncovered = { true = "a JSON literal value" } }
+"os_write_failed" = ["plugin.value:WRITE_RESULT_REASONS:os_write_failed"]
+"owner" = ["hub::SessionRow::owner"]
+"plugin_writable" = ["plugin::SecretDecl::plugin_writable"]
+"reason" = ["plugin::WriteResult::reason"]
+"worktree_delete[:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { worktree_delete = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+'{ state = "written"|"partial"|"cancelled"|"unknown"|"failed", accepted_bytes, written_bytes?, max_written_bytes?, reason? }' = ["plugin::WriteResult::accepted_bytes", "plugin::WriteResult::max_written_bytes", "plugin::WriteState::Written", "plugin::WriteResult::written_bytes", "plugin::WriteState::Cancelled", "plugin::WriteState::Failed", "plugin::WriteState::Partial", "plugin::WriteResult::reason", "plugin::WriteResult::state", "plugin::WriteState::Unknown"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-18 Plugin definition (PD-1 to PD-8, new since A4r70).** The manifest now reads as a contract. `version` is semver (`manifest_bad_version` otherwise); optional `description`, `license`, `source`. `requirements = { botster_plugin_api, features = { required, optional }, ui_contract? }` is checked before any code runs (`api_unsupported`, `feature_missing`, `ui_contract_unsupported`); an absent optional feature is reported in `Hello.features`. `provides = {{ interface = "name@M.m.p", exports = {{ tool, args_schema, result_schema, effect }} }}` declares the tools that implement an interface; compatibility with the interface is exact and deterministic and **recursive** (PD-3b: equal `effect`; the same rules for nested `properties` and `items`; provider `required` a subset for args and a superset for results; **only `type`, `properties`, `required`, `items`, `enum`**, for the interface and for the provider's declared exports alike; any other keyword in an interface schema refuses the interface). **v1 interfaces are calls only** (events and kinds are refused). An interface document ships with the provider at `interfaces/<name>@<version>.json`; there is no catalog kind `interface`. **Three validation stages (PD-9):** (A) static admission at install or update, **no plugin code runs**: manifest schema, identity, API/features/ui_contract, exports against interface documents, resolution of `requires`, derived grants, approval; (B) enable bootstrap, the first time code runs: what the plugin registers in `Ready` (tools, handlers, events) **must match its declared exports**, else the registration is rejected before `Activated` and the package is `errored`; (C) runtime. A plugin author therefore keeps `provides.exports` and the `botster.register` tools identical (workspaces, project-pipelines and messaging test this in the kit with `botster.plugins.bindings`). `requires = {{ interface, range, optional? }}` with a semver range. **Bindings.** `botster.plugins.bindings{}` (new in A4r77; no grant, own bindings only, **allowed during bootstrap**) returns `{ bindings = {{ interface, interface_version, provider, provider_version, interface_hash, state = "available"|"unavailable"|"unmet" }} }`. `Hello.bindings` and the lock carry `interface_version` **separately from `provider_version`**, and a `requires` range applies to the **`interface_version`**. An unmet optional binding has `provider = botster.json.null` (explicit JSON `null`, A2-8; a key that is absent is not the same thing). A consumer addresses the approved provider only through `plugins.call{ interface, tool, ... }`. **`plugins.call` dedupe** key is `(caller, interface, tool, idempotency key)`; a retry joins the first receipt (PC-4), so a plugin reuses one key per logical post. The Hub event `hub/plugin.dependency { interface, provider, state = "available"|"unavailable"|"replaced" }` (priority high, subject the consumer, scope `events_hub`) tells a consumer when a required provider changes; subscribe with `events.on({ owner = "hub", name = "plugin.dependency" }, fn)`. Errors a plugin handles: `undeclared_dependency`, `provider_unloaded`, `requirement_unmet`, and, at install, `requirement_conflict`, `ambiguous_provider` and `dependency_cycle`, which are `conflict{detail.code: ...}`, `interface_unknown_required` (a consumer fails closed on an unknown required field of an answer). **Handover and recovery (PD-8):** at a provider handover the Hub revalidates; recovery happens only with the **same bound provider** (no silent provider switch or new authority). The gap recovery of `hub/plugin.dependency` reads `botster.plugins.bindings{}` (state `available|unavailable|unmet`). Load order is dependency order (PD-7); a required cycle is refused before any code runs. **`Hello` carries `bindings[{ interface, interface_version, provider?, provider_version?, interface_hash? }]` and `priorities[{ name, rank }]`; `Ready` carries `fs_watches[{ root, path, handler_id }]` and `session_actions[{ action_id, handler_id }]`** (A2-25). *Tests: `conf::lb_18_definition_and_bindings`, `conf::lb_18_hello_and_ready_fields`.*
+[rows."27"]
+"(caller, interface, tool, idempotency key)" = { symbols = ["plugin::Caller", "plugin::PluginsCallArgs::interface", "plugin::PluginsCallArgs::tool", "plugin::PluginsCallArgs::idempotency_key"], uncovered = { idempotency = "a word of the idempotency key (PluginsCallArgs::idempotency_key)", key = "a word of the idempotency key (PluginsCallArgs::idempotency_key)" } }
+"Activated" = ["plugin::Activated"]
+"Hello" = ["plugin::Hello"]
+"Hello.bindings" = ["plugin::Hello", "plugin::Hello::bindings"]
+"Hello.features" = ["plugin::Hello", "plugin::Hello::features"]
+"Ready" = ["plugin::Ready"]
+"ambiguous_provider" = ["plugin.code:conflict:ambiguous_provider"]
+"api_unsupported" = ["plugin.code:failed:api_unsupported"]
+"available|unavailable|unmet" = ["plugin::BindingState::Unmet", "plugin::BindingState::Available", "plugin::BindingState::Unavailable"]
+"bindings[{ interface, interface_version, provider?, provider_version?, interface_hash? }]" = ["plugin::Hello::bindings", "plugin::HelloBinding::interface", "plugin::HelloBinding::interface_version", "plugin::HelloBinding::provider", "plugin::HelloBinding::provider_version", "plugin::HelloBinding::interface_hash"]
+"botster.plugins.bindings" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:plugins.bindings"]
+"botster.plugins.bindings{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:plugins.bindings"]
+"botster.register" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register"]
+"conflict{detail.code: ...}" = ["plugin::ErrorKind::Conflict", "plugin::ErrorBody::detail", "plugin::Detail::code"]
+"dependency_cycle" = ["plugin.code:conflict:dependency_cycle"]
+"description" = ["plugin::Manifest::description"]
+"effect" = ["plugin::InterfaceExport::effect"]
+"enum" = "n/a: a JSON Schema keyword"
+"errored" = "n/a: a package status of the Hub's package manager (PM-10); the plugin crate has no package status type"
+'events.on({ owner = "hub", name = "plugin.dependency" }, fn)' = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:events.on", "plugin::Subscription::pattern", "plugin::EventPattern::owner", "plugin::EventPattern::name", "plugin.event:hub/plugin.dependency"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"feature_missing" = ["plugin.code:failed:feature_missing"]
+"fs_watches[{ root, path, handler_id }]" = ["plugin::Ready::fs_watches", "plugin::FsWatchDecl::root", "plugin::FsWatchDecl::path", "plugin::FsWatchDecl::handler_id"]
+"hub/plugin.dependency" = ["plugin.event:hub/plugin.dependency"]
+'hub/plugin.dependency { interface, provider, state = "available"|"unavailable"|"replaced" }' = ["plugin.event:hub/plugin.dependency", "plugin::PluginDependencyEvent::interface", "plugin::PluginDependencyEvent::provider", "plugin::PluginDependencyEvent::state", "plugin::DependencyState::Available", "plugin::DependencyState::Unavailable", "plugin::DependencyState::Replaced"]
+"interface" = "n/a: the catalog entry kind that PD-3 excludes; no symbol names an excluded kind"
+"interface_unknown_required" = ["plugin.code:invalid_request:interface_unknown_required"]
+"interface_version" = ["plugin::BindingStatus::interface_version", "plugin::HelloBinding::interface_version"]
+"interfaces/<name>@<version>.json" = { symbols = ["plugin::InterfaceDocument::name", "plugin::InterfaceDocument::version"], uncovered = { interfaces = "the directory of interface documents in a package", json = "the file extension" } }
+"items" = "n/a: a JSON Schema keyword"
+"license" = ["plugin::Manifest::license"]
+"manifest_bad_version" = ["plugin.code:invalid_request:manifest_bad_version"]
+"null" = "n/a: a JSON literal value"
+"plugins.call" = ["plugin.call:plugins.call"]
+"plugins.call{ interface, tool, ... }" = ["plugin.call:plugins.call", "plugin::PluginsCallArgs::interface", "plugin::PluginsCallArgs::tool"]
+"priorities[{ name, rank }]" = ["plugin::Hello::priorities", "plugin::Priority::rank", "plugin::Priority::name"]
+"properties" = "n/a: a JSON Schema keyword"
+"provider = botster.json.null" = ["plugin::BindingStatus::provider", "plugin::HelloBinding::provider", "plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"provider_unloaded" = ["plugin.code:unavailable:provider_unloaded"]
+"provider_version" = ["plugin::BindingStatus::provider_version", "plugin::HelloBinding::provider_version"]
+'provides = {{ interface = "name@M.m.p", exports = {{ tool, args_schema, result_schema, effect }} }}' = { symbols = ["plugin::Manifest::provides", "plugin::Provides::interface", "plugin::Provides::exports", "plugin::InterfaceExport::tool", "plugin::InterfaceExport::args_schema", "plugin::InterfaceExport::result_schema", "plugin::InterfaceExport::effect"], uncovered = { name = "a placeholder: the interface name", m = "a placeholder: the major and minor version numbers (M.m.p)", p = "a placeholder: the patch version number (M.m.p)" } }
+"provides.exports" = ["plugin::Manifest::provides", "plugin::Provides::exports"]
+"required" = "n/a: a JSON Schema keyword"
+"requirement_conflict" = ["plugin.code:conflict:requirement_conflict"]
+"requirement_unmet" = ["plugin.code:unavailable:requirement_unmet"]
+"requirements = { botster_plugin_api, features = { required, optional }, ui_contract? }" = ["plugin::Manifest::requirements", "plugin::Requirements::botster_plugin_api", "plugin::Requirements::features", "plugin::Features::required", "plugin::Features::optional", "plugin::Requirements::ui_contract"]
+"requires" = ["plugin::Manifest::requires"]
+"requires = {{ interface, range, optional? }}" = ["plugin::Manifest::requires", "plugin::Requires::interface", "plugin::Requires::range", "plugin::Requires::optional"]
+"session_actions[{ action_id, handler_id }]" = ["plugin::Ready::session_actions", "plugin::SessionActionMap::action_id", "plugin::SessionActionMap::handler_id"]
+"source" = ["plugin::Manifest::source"]
+"type" = "n/a: a JSON Schema keyword"
+"ui_contract_unsupported" = ["plugin.code:failed:ui_contract_unsupported"]
+"undeclared_dependency" = ["plugin.code:capability_denied:undeclared_dependency"]
+"version" = ["plugin::Manifest::version"]
+'{ bindings = {{ interface, interface_version, provider, provider_version, interface_hash, state = "available"|"unavailable"|"unmet" }} }' = ["plugin::BindingsResult::bindings", "plugin::BindingStatus::interface", "plugin::BindingStatus::interface_version", "plugin::BindingStatus::provider", "plugin::BindingStatus::provider_version", "plugin::BindingStatus::interface_hash", "plugin::BindingStatus::state", "plugin::BindingState::Available", "plugin::BindingState::Unavailable", "plugin::BindingState::Unmet"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-16b Session update and spawn arguments (J4b, Appendix A).** `botster.sessions.update{ session, label?, task?, metadata? }` (scope `session_update[:any]`); a plugin writes `metadata` only in its own namespace (`metadata[<plugin key>]`, else `capability_denied`), and never the terminal title. **`metadata` is a JSON object that REPLACES `metadata[<plugin key>]` whole; `botster.json.null` removes the namespace; the write is durable (ST-9) before the answer** (A2-21). `botster.session_types.spawn{ session_type_id, target_id?, worktree_id?, cwd?, environment?, prompt?, context? }` (Appendix A, CA-14): `environment` is `{ [name] = string }` with only names in the session type's `allowed_environment_overrides`, bounded by `max_env_bytes` (else `invalid_request`); `context` is `{ [key] = string }`. `ensure_worktree_and_spawn` is the same plus `worktree = { branch, base_ref?, reuse_worktree_id? }`. *Tests: `conf::lb_16b_update_and_spawn_arguments_match_the_hp_rows`, `conf::lb_16b_metadata_replaces_namespace_and_null_removes`.*
+[rows."28"]
+"allowed_environment_overrides" = ["plugin::SessionTypeRow::allowed_environment_overrides"]
+"botster.json.null" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+"botster.session_types.spawn{ session_type_id, target_id?, worktree_id?, cwd?, environment?, prompt?, context? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:session_types.spawn", "plugin::SpawnArgs::session_type_id", "plugin::SpawnArgs::target_id", "plugin::SpawnArgs::worktree_id", "plugin::SpawnArgs::cwd", "plugin::SpawnArgs::environment", "plugin::SpawnArgs::prompt", "plugin::SpawnArgs::context"]
+"botster.sessions.update{ session, label?, task?, metadata? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.update", "plugin::SessionsUpdateArgs::session", "plugin::SessionsUpdateArgs::label", "plugin::SessionsUpdateArgs::task", "plugin::SessionsUpdateArgs::metadata"]
+"capability_denied" = ["plugin::ErrorKind::CapabilityDenied"]
+"context" = ["plugin::SpawnArgs::context"]
+"ensure_worktree_and_spawn" = ["plugin.call:session_types.ensure_worktree_and_spawn"]
+"environment" = ["plugin::SpawnArgs::environment"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"max_env_bytes" = ["plugin.limit:max_env_bytes"]
+"metadata" = ["plugin::SessionsUpdateArgs::metadata"]
+"metadata[<plugin key>]" = { symbols = ["hub::SessionRow::metadata"], uncovered = { plugin = "the placeholder for a plugin key", key = "the placeholder for a plugin key" } }
+"session_update[:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_update = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"worktree = { branch, base_ref?, reuse_worktree_id? }" = ["plugin::EnsureWorktreeAndSpawnArgs::worktree", "plugin::WorktreeRequest::branch", "plugin::WorktreeRequest::base_ref", "plugin::WorktreeRequest::reuse_worktree_id"]
+"{ [key] = string }" = { symbols = ["plugin::SpawnArgs::context"], uncovered = { key = "a placeholder: a context key", string = "a Lua type name" } }
+"{ [name] = string }" = { symbols = ["plugin::SpawnArgs::environment"], uncovered = { name = "a placeholder: an environment variable name", string = "a Lua type name" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-17b Lua `require` and the entry (A2-47).** `entrypoints.service.lua` is a path **relative to the package root**. Every `*.lua` file under the package root is staged at load. `require("a.b")` loads `<package root>/a/b.lua`, else `<package root>/a/b/init.lua`; **any other name is an error** (no `package.path`, no filesystem after load, no symlinks). Sibling modules are the way past the 200-local chunk limit. *Tests: `conf::lb_17b_entry_relative_to_the_package_root`, `conf::lb_17b_require_name_to_file_rule`, `conf::lb_17b_all_lua_files_under_the_root_are_staged`.*
+[rows."29"]
+"*.lua" = "n/a: a file name pattern for the Lua source files of a package"
+"<package root>/a/b.lua" = "n/a: a repository path"
+"<package root>/a/b/init.lua" = "n/a: a repository path"
+"entrypoints.service.lua" = ["plugin::Manifest::entrypoints", "plugin::Entrypoints::service", "plugin::ServiceEntry::lua"]
+"package.path" = { symbols = ["plugin.value:LUA_UNAVAILABLE:package"], uncovered = { path = "a field of the Lua package library, which the sandbox does not provide" } }
+"require" = ["plugin.value:LUA_GLOBALS:require"]
+'require("a.b")' = { symbols = ["plugin.value:LUA_GLOBALS:require"], uncovered = { a = "a placeholder: a module name part", b = "a placeholder: a module name part" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-17 Manifest keys (MN-1).** A plugin writes one JSON object with only these keys: `botster_plugin_api`, `name`, `version`, `entrypoints`, `capabilities`, `session_types`, `config`, `secrets`, `fs_roots`, `static_routes`, `assets`, `mcp_servers`, `storage`, `events`, `entity_families`, `views`, `notice_reactions`, `scope` (`"device"` default or `"target"`), `session_actions_ui`, `limits`, and (section 25.3, PD-1 to PD-5) `description`, `license`, `source`, `requirements`, `provides`, `requires`. An unknown key fails the load `manifest_unknown_key`. **An optional top-level `$schema` string is accepted and ignored** (A2-43), so editor validation does not fail the load. `session_actions_ui` entries may carry `warning`, `effect` (`read|immediate|committed|accepted`), `durable_operation`, `applies_to`, `label_pointer`, `status_pointer`, `url_pointer`. `views` hold ui-contract documents (v1.0, v1.1 and v1.2 frozen). *Tests: `conf::lb_17_manifest_keys_closed`, `conf::lb_17_dollar_schema_accepted_and_ignored`.*
+[rows."30"]
+'"device"' = ["plugin::PackageScope::Device"]
+'"target"' = ["plugin::PackageScope::Target"]
+"$schema" = ["plugin::Manifest::$schema"]
+"applies_to" = ["plugin::SessionActionUi::applies_to"]
+"assets" = ["plugin::Manifest::assets"]
+"botster_plugin_api" = ["plugin::Manifest::botster_plugin_api"]
+"capabilities" = ["plugin::Manifest::capabilities"]
+"config" = ["plugin::Manifest::config"]
+"description" = ["plugin::Manifest::description"]
+"durable_operation" = ["plugin::SessionActionUi::durable_operation"]
+"effect" = ["plugin::SessionActionUi::effect"]
+"entity_families" = ["plugin::Manifest::entity_families"]
+"entrypoints" = ["plugin::Manifest::entrypoints"]
+"events" = ["plugin::Manifest::events"]
+"fs_roots" = ["plugin::Manifest::fs_roots"]
+"label_pointer" = ["plugin::SessionActionUi::label_pointer"]
+"license" = ["plugin::Manifest::license"]
+"limits" = ["plugin::Manifest::limits"]
+"manifest_unknown_key" = ["plugin.code:invalid_request:manifest_unknown_key"]
+"mcp_servers" = ["plugin::Manifest::mcp_servers"]
+"name" = ["plugin::Manifest::name"]
+"notice_reactions" = ["plugin::Manifest::notice_reactions"]
+"provides" = ["plugin::Manifest::provides"]
+"read|immediate|committed|accepted" = ["plugin::ActionEffect::Immediate", "plugin::ActionEffect::Accepted", "plugin::ActionEffect::Committed", "plugin::ActionEffect::Read"]
+"requirements" = ["plugin::Manifest::requirements"]
+"requires" = ["plugin::Manifest::requires"]
+"scope" = ["plugin::Manifest::scope"]
+"secrets" = ["plugin::Manifest::secrets"]
+"session_actions_ui" = ["plugin::Manifest::session_actions_ui"]
+"session_types" = ["plugin::Manifest::session_types"]
+"source" = ["plugin::Manifest::source"]
+"static_routes" = ["plugin::Manifest::static_routes"]
+"status_pointer" = ["plugin::SessionActionUi::status_pointer"]
+"storage" = ["plugin::Manifest::storage"]
+"url_pointer" = ["plugin::SessionActionUi::url_pointer"]
+"version" = ["plugin::Manifest::version"]
+"views" = ["plugin::Manifest::views"]
+"warning" = ["plugin::SessionActionUi::warning"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-21 Hub events a plugin may subscribe to (new).** `hub/route.ended` (subject `{ route_id }`, payload `{ reason }`, the frozen client shape) is **client-only on the owning route stream (EV-9, client TS-9): a plugin cannot subscribe to it and no grant admits it.** `hub/config.changed { keys, restart_required }` and `hub/package.configuration_changed { plugin_key, names }` tell a plugin that Hub or package configuration changed; a plugin re-reads `botster.config.get{}` when `names` includes a name it uses. The two config events need `events_hub`. `operations.get` is limited by CA-16's existing rate (A2-35, `operations_get_rate`); `rescan_packages` is a client verb with no Lua call (A2-51). `max_timer_delay_ms` does not exist: `timers.arm{ timer_id, delay_ms }` has no contract-wide maximum. *Tests: `conf::lb_21_route_ended_is_client_only`, `conf::lb_21_config_events_shapes`.*
+[rows."32"]
+"botster.config.get{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:config.get"]
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"hub/config.changed { keys, restart_required }" = ["plugin.event:hub/config.changed", "plugin::ConfigChangedEvent::keys", "plugin::ConfigChangedEvent::restart_required"]
+"hub/package.configuration_changed { plugin_key, names }" = ["plugin.event:hub/package.configuration_changed", "plugin::PackageConfigurationChangedEvent::plugin_key", "plugin::PackageConfigurationChangedEvent::names"]
+"hub/route.ended" = ["plugin.event:hub/route.ended"]
+"max_timer_delay_ms" = "n/a: a parameter that A2-35 withdraws; the crate has no symbol for it"
+"names" = ["plugin::PackageConfigurationChangedEvent::names"]
+"operations.get" = ["plugin.call:operations.get"]
+"operations_get_rate" = ["plugin.limit:operations_get_rate"]
+"rescan_packages" = ["hub.action:spawn_target.rescan_packages"]
+"timers.arm{ timer_id, delay_ms }" = ["plugin.call:timers.arm", "plugin::TimersArmArgs::timer_id", "plugin::TimersArmArgs::delay_ms"]
+"{ reason }" = ["plugin::RouteEndedEvent::reason"]
+"{ route_id }" = ["hub::RouteEndedSubject::route_id"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-19 Packaged agent definitions (A2-40, PK-6b).** A package may ship `botster-agent.json` (exactly the fields of the client `session_type` create except `source`, plus `script_file?`, a path relative to the package root whose content is the `script`) and `botster-accessory.json` (the same with `role` fixed to `accessory`: a session type for a non-agent helper session such as a dev server or a shell; a legacy accessory's `port_forward` is `allocate_port`, CA-20). The package root is the session type's `session_type_dir`. No Lua call is involved. *Tests: `conf::lb_19_agent_definition_fields`, `conf::lb_19_accessory_is_role_accessory`, `conf::lb_19_script_file_relative_to_the_package_root`.*
+[rows."33"]
+"accessory" = ["plugin::AccessoryRole::Accessory"]
+"allocate_port" = ["plugin::Accessory::allocate_port"]
+"botster-accessory.json" = { symbols = ["plugin::ACCESSORY_FILE"], uncovered = { botster = "a part of the file name that ACCESSORY_FILE holds", accessory = "a part of the file name that ACCESSORY_FILE holds", json = "a part of the file name that ACCESSORY_FILE holds" } }
+"botster-agent.json" = { symbols = ["plugin::AGENT_FILE"], uncovered = { botster = "a part of the file name that AGENT_FILE holds", agent = "a part of the file name that AGENT_FILE holds", json = "a part of the file name that AGENT_FILE holds" } }
+"port_forward" = ["plugin::Accessory::port_forward"]
+"role" = ["plugin::Accessory::role"]
+"script" = ["plugin::AgentDefinition::script"]
+"script_file?" = ["plugin::AgentDefinition::script_file"]
+"session_type" = ["hub.kind:session_type"]
+"session_type_dir" = ["hub::SessionContextFile::session_type_dir"]
+"source" = ["hub::SessionTypeDefinition::source"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > A. Binding rules (the Lua host's language mapping; normative for host 1)
+# - **LB-20 `store.batch` (A2-9).** `botster.store.batch{ ops = {{ op = "put"|"delete", collection, id, doc?, expected_revision? }} }`. A `put` **without** `expected_revision` creates and fails `conflict{ detail.code = "revision_conflict", op_index }` if the id exists; a `delete` **needs** `expected_revision`, else the whole batch is `invalid_request{ detail.code = "expected_revision_required", op_index }`. *Tests: `conf::lb_20_batch_can_create`, `conf::lb_20_delete_needs_expected_revision`.*
+[rows."34"]
+'botster.store.batch{ ops = {{ op = "put"|"delete", collection, id, doc?, expected_revision? }} }' = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.batch", "plugin::StoreBatchArgs::ops", "plugin::StoreBatchOp::op", "plugin::BatchOpKind::Put", "plugin::BatchOpKind::Delete", "plugin::StoreBatchOp::collection", "plugin::StoreBatchOp::id", "plugin::StoreBatchOp::doc", "plugin::StoreBatchOp::expected_revision"]
+'conflict{ detail.code = "revision_conflict", op_index }' = { symbols = ["plugin::ErrorKind::Conflict", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:conflict:revision_conflict", "plugin::Detail::extra"], uncovered = { op_index = "a descriptive detail key (Detail::extra is an open object, result.rs)" } }
+"delete" = ["plugin::BatchOpKind::Delete"]
+"expected_revision" = ["plugin::StoreBatchOp::expected_revision"]
+'invalid_request{ detail.code = "expected_revision_required", op_index }' = { symbols = ["plugin::ErrorKind::InvalidRequest", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:invalid_request:expected_revision_required", "plugin::Detail::extra"], uncovered = { op_index = "a descriptive detail key (Detail::extra is an open object, result.rs)" } }
+"put" = ["plugin::BatchOpKind::Put"]
+"store.batch" = ["plugin.call:store.batch"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 1 | `botster.register{...}` | `botster.register` | builds `Ready`; entity provider `descriptor{entity_type,id_field}` becomes the EN-1 declaration; `id_field` is always `id` (the only value used) | HS-2, MT-1, EN-1 | W O M P |
+[rows."42"]
+"Ready" = ["plugin::Ready"]
+"botster.register" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register"]
+"botster.register{...}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:register"]
+"descriptor{entity_type,id_field}" = "n/a: the old entity provider descriptor, which the EN-1 declaration replaces (the Old column of table B)"
+"id" = ["plugin::EntityPublishArgs::id"]
+"id_field" = "n/a: an old descriptor field that v1.1 drops; EN-1 fixes the id field to `id`"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 2 | `botster.events.on({owner,name}, fn)` | `botster.events.on(pattern, opts?, fn)` and `botster.events.on_gap(fn)` (LB-6) | handler gets the EV-15 record; W subscribes to `hub/session_family` (membership uses this family, EV-6) and `botster-orchestrator/session_spawned` (needs `events_hub`, `events_plugin:botster-orchestrator`) and registers a gap handler that resyncs from the baseline | EV-2, EV-6, EV-15 | W |
+[rows."43"]
+"botster-orchestrator/session_spawned" = "n/a: an event that the orchestrator plugin declares, not a Hub event (the crate has no symbol for a plugin's own events)"
+"botster.events.on(pattern, opts?, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on", "plugin::Subscription::pattern"], uncovered = { opts = "a Lua argument: the subscription options (LN-1)", fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.events.on({owner,name}, fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on", "plugin::EventPattern::owner", "plugin::EventPattern::name"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"botster.events.on_gap(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:events.on_gap"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"events_plugin:botster-orchestrator" = { symbols = ["plugin::Grant::scope"], uncovered = { events_plugin = "a scope name (Grant::scope is a string)", botster = "a part of the plugin key botster-orchestrator, the scope argument", orchestrator = "a part of the plugin key botster-orchestrator, the scope argument" } }
+"hub/session_family" = { symbols = ["plugin::SessionFamilyFrame"], uncovered = { hub = "the Hub owner of the session family", session_family = "the session family entity, whose frames are SessionFamilyFrame (EV-6)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 3 | `botster.events.emit{name,payload}` | same, plus optional `subject`, `key` | `{ ok, value = { status = "accepted" } }` or typed refusal; the event must be declared in the manifest with its `priority` (default normal; never per call) and `public` if another plugin subscribes; `owner`, `source`, `instance`, `at` are Hub-stamped and supplying one is `invalid_request` | EV-1, EV-3 | O P |
+[rows."44"]
+"at" = ["plugin::EventRecord::at"]
+"botster.events.emit{name,payload}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:events.emit", "plugin::EventsEmitArgs::name", "plugin::EventsEmitArgs::payload"]
+"instance" = ["plugin::EventSourceRef::instance"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"key" = ["plugin::EventsEmitArgs::key"]
+"owner" = ["plugin::EventRecord::owner"]
+"priority" = ["plugin::DeclaredEvent::priority"]
+"public" = ["plugin::DeclaredEvent::public"]
+"source" = ["plugin::EventRecord::source"]
+"subject" = ["plugin::EventsEmitArgs::subject"]
+'{ ok, value = { status = "accepted" } }' = { symbols = ["plugin::PluginResult::Ok", "plugin::EmitResult::status"], uncovered = { value = "the value key of the success form (PluginResult::Ok holds the value)", accepted = "the status value of EmitResult (EmitResult::status is a string)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 4 | `botster.entity_publish(frame)` | `botster.entity.publish{ entity_type, type = "upsert"\|"patch"\|"remove", id, entity?, patch?, revision? }` | drop `snapshot_seq`; `entity_upsert`/`entity_remove` become `upsert`/`remove`; result `{ status }` (no sequence) | EN-4 | W P |
+[rows."45"]
+'botster.entity.publish{ entity_type, type = "upsert"\|"patch"\|"remove", id, entity?, patch?, revision? }' = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:entity.publish", "plugin::EntityPublishArgs::entity_type", "plugin::EntityPublishArgs::type", "plugin::PublishType::Upsert", "plugin::PublishType::Patch", "plugin::PublishType::Remove", "plugin::EntityPublishArgs::id", "plugin::EntityPublishArgs::entity", "plugin::EntityPublishArgs::patch", "plugin::EntityPublishArgs::revision"]
+"botster.entity_publish(frame)" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"entity_remove" = "n/a: an old frame type name that v1.1 replaces with `remove`"
+"entity_upsert" = "n/a: an old frame type name that v1.1 replaces with `upsert`"
+"remove" = ["plugin::PublishType::Remove"]
+"snapshot_seq" = "n/a: an old frame field that v1.1 drops"
+"upsert" = ["plugin::PublishType::Upsert"]
+"{ status }" = ["plugin::PublishResult::status"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 5 | `plugin_db.get{key}` | `botster.store.get{ collection, id }` | `{ record }` -> `{ doc, revision }`; revision is opaque, equality only (no arithmetic on it) | ST-2 | W P |
+[rows."46"]
+"botster.store.get{ collection, id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.get", "plugin::StoreGetArgs::collection", "plugin::StoreGetArgs::id"]
+"plugin_db.get{key}" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"{ doc, revision }" = ["plugin::StoreDoc::doc", "plugin::StoreDoc::revision"]
+"{ record }" = "n/a: the old result shape that v1.1 replaces"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 6 | `plugin_db.list{prefix}` | `botster.store.query{ collection, index, equals?, range?, order?, limit, max_bytes?, cursor? }` | every collection has the implicit `id` index for enumeration; `{ entries }` -> `{ docs = {{id,doc,revision}}, cursor? }` | ST-1, ST-4 | W P |
+[rows."47"]
+"botster.store.query{ collection, index, equals?, range?, order?, limit, max_bytes?, cursor? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.query", "plugin::StoreQueryArgs::collection", "plugin::StoreQueryArgs::index", "plugin::StoreQueryArgs::equals", "plugin::StoreQueryArgs::range", "plugin::StoreQueryArgs::order", "plugin::StoreQueryArgs::limit", "plugin::StoreQueryArgs::max_bytes", "plugin::StoreQueryArgs::cursor"]
+"id" = { symbols = ["plugin::StoreQueryArgs::index"], uncovered = { id = "the name of the implicit index of every collection (ST-1; see IndexDecl in manifest.rs)" } }
+"plugin_db.list{prefix}" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"{ docs = {{id,doc,revision}}, cursor? }" = ["plugin::StoreQueryResult::docs", "plugin::StoreRow::id", "plugin::StoreRow::doc", "plugin::StoreRow::revision", "plugin::StoreQueryResult::cursor"]
+"{ entries }" = "n/a: the old result shape that v1.1 replaces"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 7 | `plugin_db.set{key,schema_version,payload}` | `botster.store.put{ collection, id, doc, expected_revision? }` | create = `expected_revision` absent; replace = current revision; `schema_version` moves to the collection declaration | ST-2, ST-11 | W |
+[rows."48"]
+"botster.store.put{ collection, id, doc, expected_revision? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.put", "plugin::StorePutArgs::collection", "plugin::StorePutArgs::id", "plugin::StorePutArgs::doc", "plugin::StorePutArgs::expected_revision"]
+"expected_revision" = ["plugin::StorePutArgs::expected_revision"]
+"plugin_db.set{key,schema_version,payload}" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"schema_version" = ["plugin::CollectionDecl::schema_version"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 8 | `plugin_db.batch{ mutations = {{operation="set",key,schema_version,expected_revision,payload}} }` | `botster.store.batch{ ops = {{op="put"\|"delete",collection,id,doc?,expected_revision}} }` | `error_kind="revision_conflict"` (flat) -> `error = { kind="conflict", detail = { code="revision_conflict", op_index } }` | ST-3 | W P |
+[rows."49"]
+'botster.store.batch{ ops = {{op="put"\|"delete",collection,id,doc?,expected_revision}} }' = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:store.batch", "plugin::StoreBatchArgs::ops", "plugin::StoreBatchOp::op", "plugin::BatchOpKind::Put", "plugin::BatchOpKind::Delete", "plugin::StoreBatchOp::collection", "plugin::StoreBatchOp::id", "plugin::StoreBatchOp::doc", "plugin::StoreBatchOp::expected_revision"]
+'error = { kind="conflict", detail = { code="revision_conflict", op_index } }' = { symbols = ["plugin::ErrorBody", "plugin::ErrorBody::kind", "plugin::ErrorKind::Conflict", "plugin::ErrorBody::detail", "plugin::Detail::code", "plugin.code:conflict:revision_conflict", "plugin::Detail::extra"], uncovered = { error = "the error key of the failed form (PluginResult::Err holds the ErrorBody)", op_index = "a descriptive detail key (Detail::extra is an open object, result.rs)" } }
+'error_kind="revision_conflict"' = "n/a: the old flat error shape that v1.1 replaces"
+'plugin_db.batch{ mutations = {{operation="set",key,schema_version,expected_revision,payload}} }' = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 9 | `plugin_db.patch`, `plugin_db.delete` | `store.delete` only | no plugin calls either | ST-2 | none |
+[rows."50"]
+"plugin_db.delete" = "n/a: a call name that Appendix A drops from v1; no call exists"
+"plugin_db.patch" = "n/a: a call name that Appendix A drops from v1; no call exists"
+"store.delete" = ["plugin.call:store.delete"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 10 | `capabilities.config.get()` | `botster.config.get{}` | result `{ values, missing_required, diagnostics }`; `values.<name>` is the plain value (P accepted both `x` and `{value=x}`; keep the plain form) | CF-1 | P |
+[rows."51"]
+"botster.config.get{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:config.get"]
+"capabilities.config.get()" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"values.<name>" = { symbols = ["plugin::ConfigValues::values"], uncovered = { name = "a placeholder: a config name" } }
+"x" = "n/a: a placeholder for a config value"
+"{ values, missing_required, diagnostics }" = ["plugin::ConfigValues::diagnostics", "plugin::ConfigValues::missing_required", "plugin::ConfigValues::values"]
+"{value=x}" = "n/a: an old value form that v1.1 does not keep"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 11 | `capabilities.spawn_targets.list()` | `botster.spawn_targets.list{}` | `{ targets }`; row `target_id` becomes `id` (fields `id,label,enabled,kind,root,metadata`); W and O read `target.target_id` today | CA-13 | W O |
+[rows."52"]
+"botster.spawn_targets.list{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:spawn_targets.list"]
+"capabilities.spawn_targets.list()" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"id" = ["plugin::SpawnTargetRow::id"]
+"id,label,enabled,kind,root,metadata" = ["plugin::SpawnTargetRow::enabled", "plugin::SpawnTargetRow::id", "plugin::SpawnTargetRow::kind", "plugin::SpawnTargetRow::label", "plugin::SpawnTargetRow::metadata", "plugin::SpawnTargetRow::root"]
+"target.target_id" = "n/a: an old row field read that v1.1 replaces with `id`"
+"target_id" = "n/a: an old row field that v1.1 renames to `id`"
+"{ targets }" = ["plugin::SpawnTargetsResult::targets"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 12 | `capabilities.session_types.list{target_id}` | `botster.session_types.list{ target_id }` | `{ session_types }`; rows are the client `session_type` resource | CA-13 | W O |
+[rows."53"]
+"botster.session_types.list{ target_id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:session_types.list", "plugin::SessionTypesListArgs::target_id"]
+"capabilities.session_types.list{target_id}" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"session_type" = ["hub.kind:session_type"]
+"{ session_types }" = ["plugin::SessionTypesListResult::session_types"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 13 | `capabilities.session_types.spawn{...}`, `.ensure_worktree_and_spawn{...}` | same names | drop `session_id` (Hub-minted, SS-5); the arguments are exactly those of LB-16b (`session_type_id, target_id?, worktree_id?, cwd?, environment?, prompt?, context?`); result `{ operation_id, session = SessionRef, worktree?, state = "starting" }`, NOT an installed session. Tools return identity + accepted status and persist `operation_id` (CA-14). Completion arrives through LB-7 | CA-14, CA-15, CA-16 | W O P |
+[rows."54"]
+".ensure_worktree_and_spawn{...}" = ["plugin.call:session_types.ensure_worktree_and_spawn"]
+"capabilities.session_types.spawn{...}" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"operation_id" = ["plugin::SpawnAdmission::operation_id"]
+"session_id" = "n/a: the removed spawn argument; the Hub mints the session id (SS-5)"
+"session_type_id, target_id?, worktree_id?, cwd?, environment?, prompt?, context?" = ["plugin::SpawnArgs::session_type_id", "plugin::SpawnArgs::target_id", "plugin::SpawnArgs::worktree_id", "plugin::SpawnArgs::cwd", "plugin::SpawnArgs::environment", "plugin::SpawnArgs::prompt", "plugin::SpawnArgs::context"]
+'{ operation_id, session = SessionRef, worktree?, state = "starting" }' = ["plugin::SpawnAdmission::operation_id", "plugin::SpawnAdmission::session", "plugin::SessionRef", "plugin::SpawnAdmission::worktree", "plugin::SpawnAdmission::state", "plugin::StateStarting::starting"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 14 | (none) | `botster.operations.get{ operation_id }`, `botster.operations.cancel{ operation_id }` | discriminated record (CA-16); get is one-shot, never looped | CA-16, CA-17 | W O P (get); none (cancel) |
+[rows."55"]
+"botster.operations.cancel{ operation_id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:operations.cancel", "plugin::OperationArgs::operation_id"]
+"botster.operations.get{ operation_id }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:operations.get", "plugin::OperationArgs::operation_id"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 15 | `capabilities.sessions.list{ owner="any", hub_id }` | `botster.sessions.list{ hub_id?, owner?, label?, after? }` | `owner="any"` disappears (scope `session_read:any`); `label` is an exact indexed lookup; rows are the client `session` resource | SS-1 | M |
+[rows."56"]
+"botster.sessions.list{ hub_id?, owner?, label?, after? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.list", "plugin::SessionsListArgs::hub_id", "plugin::SessionsListArgs::owner", "plugin::SessionsListArgs::label", "plugin::SessionsListArgs::after"]
+'capabilities.sessions.list{ owner="any", hub_id }' = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"label" = ["plugin::SessionsListArgs::label"]
+'owner="any"' = "n/a: an old argument that v1.1 drops (the scope session_read:any replaces it)"
+"session" = ["hub.kind:session"]
+"session_read:any" = { symbols = ["plugin::Grant::scope"], uncovered = { session_read = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 16 | `capabilities.sessions.get{ session = address }` | `botster.sessions.get{ session }` | `session = { hub_id, session_id }` | SS-2 | M |
+[rows."57"]
+"botster.sessions.get{ session }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.get", "plugin::SessionArgs::session"]
+"capabilities.sessions.get{ session = address }" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"session = { hub_id, session_id }" = ["plugin::SessionArgs::session", "plugin::SessionRef::hub_id", "plugin::SessionRef::session_id"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 17 | `capabilities.messages.post/receive/ack` | **removed** (section 9.6: the Hub owns no inbox) | see section C: messaging owns its inbox in its own collections | 9.6, MT, ST, SW | M |
+[rows."58"]
+"capabilities.messages.post/receive/ack" = "n/a: old Lua names that v1.1 removes (section 9.6: the Hub owns no inbox)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 18 | (doorbell inside `messages.post`) | `botster.sessions.safe_write{ session, text, submit? }` | async: `{ operation_id, state = "queued" }`; completion on LB-7 with `delivered\|abandoned\|replaced\|cancelled\|failed\|unknown`; text sanitized (`\n`,`\r`,`\t` become spaces) | SW-1..SW-9 | M |
+[rows."59"]
+'\n' = "n/a: an escape sequence"
+'\r' = "n/a: an escape sequence"
+'\t' = "n/a: an escape sequence"
+"botster.sessions.safe_write{ session, text, submit? }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.safe_write", "plugin::SafeWriteArgs::session", "plugin::SafeWriteArgs::text", "plugin::SafeWriteArgs::submit"]
+'delivered\|abandoned\|replaced\|cancelled\|failed\|unknown' = ["plugin.state:safe_write:delivered", "plugin.state:safe_write:abandoned", "plugin.state:safe_write:replaced", "plugin.state:safe_write:cancelled", "plugin.state:safe_write:failed", "plugin.state:safe_write:unknown"]
+"messages.post" = "n/a: an old Lua name that v1.1 removes (section 9.6: the Hub owns no inbox)"
+'{ operation_id, state = "queued" }' = ["plugin::SafeWriteAdmission::operation_id", "plugin::SafeWriteAdmission::state", "plugin::StateQueued::queued"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 19 | (none) | `botster.sessions.write{ session, bytes_b64 }` (raw, scope `session_write[:any]`), `sessions.terminal_state`, `sessions.read_cursor`, `sessions.read_screen`, `sessions.stop`, `sessions.delete`, `sessions.update`, `sessions.restart`, `sessions.create_command` | no shipped plugin calls them (LB-12) | RW, SO, SA | none |
+[rows."60"]
+"botster.sessions.write{ session, bytes_b64 }" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:sessions.write", "plugin::RawWriteArgs::session", "plugin::RawWriteArgs::bytes_b64"]
+"session_write[:any]" = { symbols = ["plugin::Grant::scope"], uncovered = { session_write = "a scope name (Grant::scope is a string)", any = "the any scope suffix (Grant::scope is a string)" } }
+"sessions.create_command" = ["plugin.call:sessions.create_command"]
+"sessions.delete" = ["plugin.call:sessions.delete"]
+"sessions.read_cursor" = ["plugin.call:sessions.read_cursor"]
+"sessions.read_screen" = ["plugin.call:sessions.read_screen"]
+"sessions.restart" = ["plugin.call:sessions.restart"]
+"sessions.stop" = ["plugin.call:sessions.stop"]
+"sessions.terminal_state" = ["plugin.call:sessions.terminal_state"]
+"sessions.update" = ["plugin.call:sessions.update"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 20 | `botster.hub.identity()` | `botster.hub.identity{}` | `{ hub_id, display_name }` | | W O M |
+[rows."61"]
+"botster.hub.identity()" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:hub.identity"]
+"botster.hub.identity{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:hub.identity"]
+"{ hub_id, display_name }" = ["plugin::HubIdentity::display_name", "plugin::HubIdentity::hub_id"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 21 | `botster.log.<level>{message,fields}` | `botster.log.<level>` sugar over `log.write{ level, message, fields? }` | | CA-9 | W |
+[rows."62"]
+"botster.log.<level>" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:log.write", "plugin::LogWriteArgs::level"]
+"botster.log.<level>{message,fields}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:log.write", "plugin::LogWriteArgs::level", "plugin::LogWriteArgs::message", "plugin::LogWriteArgs::fields"]
+"log.write{ level, message, fields? }" = ["plugin.call:log.write", "plugin::LogWriteArgs::level", "plugin::LogWriteArgs::message", "plugin::LogWriteArgs::fields"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 22 | `botster.json.*` | host-local (LB-9) | | 17 | W O M |
+[rows."63"]
+"botster.json.*" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.encode", "plugin.value:LUA_LOCAL_NAMES:json.decode", "plugin.value:LUA_LOCAL_NAMES:json.array", "plugin.value:LUA_LOCAL_NAMES:json.empty_array", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 23 | `timers.arm/cancel` (grant surface `timers`), `store.watch/unwatch`, `worktrees.list/show`, `spawn_targets.validate`, `session_types.show`; `events.describe` is gone | per Appendix C | no shipped plugin calls them | | none |
+[rows."64"]
+"events.describe" = "n/a: the call that A2-24 deletes; no call exists"
+"session_types.show" = ["plugin.call:session_types.show"]
+"spawn_targets.validate" = ["plugin.call:spawn_targets.validate"]
+"store.watch/unwatch" = ["plugin.call:store.watch", "plugin.call:store.unwatch"]
+"timers" = { symbols = ["plugin::Grant::surface"], uncovered = { timers = "a surface name (Grant::surface is a string)" } }
+"timers.arm/cancel" = ["plugin.call:timers.arm", "plugin.call:timers.cancel"]
+"worktrees.list/show" = ["plugin.call:worktrees.list", "plugin.call:worktrees.show"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 24 | (none) | `botster.http.request`, `botster.ws.open/send/close`, `botster.secrets.get`, `botster.webhooks.on` | LB-11 | NT-1 to NT-9 | none today |
+[rows."65"]
+"botster.http.request" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:http.request"]
+"botster.secrets.get" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:secrets.get"]
+"botster.webhooks.on" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:webhooks.on"]
+"botster.ws.open/send/close" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:ws.open", "plugin.call:ws.send", "plugin.call:ws.close"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 26 | `os.execute`, `io.popen`, blocking command/gate runner | `botster.process.run` + `operations.on` | LB-14 | PX-1 | P, W |
+[rows."66"]
+"botster.process.run" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:process.run"]
+"io.popen" = { symbols = ["plugin.value:LUA_UNAVAILABLE:io"], uncovered = { popen = "a function of the Lua io library, which the sandbox does not provide" } }
+"operations.on" = ["plugin.value:LUA_REGISTRATION_NAMES:operations.on"]
+"os.execute" = { symbols = ["plugin.value:LUA_UNAVAILABLE:os"], uncovered = { execute = "a function of the Lua os library, which the sandbox does not provide" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 27 | direct calls between plugins (no API today) | `botster.plugins.call` | LB-14 | PC-1 | none today |
+[rows."67"]
+"botster.plugins.call" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:plugins.call"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 28 | `plugin_assets.expose_file`, `ui.iframe` | `botster.assets.publish` + ui-contract `embed` | LB-15 | AS-1..AS-4 | knowledge-inbox |
+[rows."68"]
+"botster.assets.publish" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:assets.publish"]
+"embed" = ["ui::Part::Embed"]
+"plugin_assets.expose_file" = "n/a: an old Lua name that v1.1 replaces (the Old column of table B)"
+"ui.iframe" = "n/a: an old UI node that v1.1 replaces with the ui-contract `embed`"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > B. The mapping table (v1.1 A4)
+# | 25 | `botster.json.*`, base64, ids | host-local: `botster.json.*`, `botster.base64.*`, `botster.ids.new`, `botster.clock.now/monotonic` | LB-8, LB-9 | 17 | W O M |
+[rows."69"]
+"botster.base64.*" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:base64.encode", "plugin.value:LUA_LOCAL_NAMES:base64.decode"]
+"botster.clock.now/monotonic" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:clock.now", "plugin.value:LUA_LOCAL_NAMES:clock.monotonic"]
+"botster.ids.new" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:ids.new"]
+"botster.json.*" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:json.encode", "plugin.value:LUA_LOCAL_NAMES:json.decode", "plugin.value:LUA_LOCAL_NAMES:json.array", "plugin.value:LUA_LOCAL_NAMES:json.empty_array", "plugin.value:LUA_LOCAL_NAMES:json.null"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > C. What each plugin must change (mechanical unless stated)
+# - **Every plugin: manifest.** MN-1 allows only the listed top-level keys (`botster_plugin_api`, `name`, `version`, `entrypoints`, `capabilities`, `session_types`, `config`, `secrets`, `storage`, `events`, `entity_families`, `views`, `session_actions_ui`, `limits`; the complete list is LB-17, which adds `fs_roots`, `static_routes`, `assets`, `mcp_servers`, `notice_reactions`, `scope`, `description`, `license`, `source`, `requirements`, `provides`, `requires`); `storage.collections` (with `schema_version`, `accepts`, `indexes`) implies the own-storage grant, which is never written in `capabilities`. Capabilities are `{surface, scope?}` (MN-2); a bare session scope means `:own`.
+[rows."73"]
+":own" = { symbols = ["plugin::Grant::scope"], uncovered = { own = "the own scope suffix (Grant::scope is a string)" } }
+"accepts" = ["plugin::CollectionDecl::accepts"]
+"assets" = ["plugin::Manifest::assets"]
+"botster_plugin_api" = ["plugin::Manifest::botster_plugin_api"]
+"capabilities" = ["plugin::Manifest::capabilities"]
+"config" = ["plugin::Manifest::config"]
+"description" = ["plugin::Manifest::description"]
+"entity_families" = ["plugin::Manifest::entity_families"]
+"entrypoints" = ["plugin::Manifest::entrypoints"]
+"events" = ["plugin::Manifest::events"]
+"fs_roots" = ["plugin::Manifest::fs_roots"]
+"indexes" = ["plugin::CollectionDecl::indexes"]
+"license" = ["plugin::Manifest::license"]
+"limits" = ["plugin::Manifest::limits"]
+"mcp_servers" = ["plugin::Manifest::mcp_servers"]
+"name" = ["plugin::Manifest::name"]
+"notice_reactions" = ["plugin::Manifest::notice_reactions"]
+"provides" = ["plugin::Manifest::provides"]
+"requirements" = ["plugin::Manifest::requirements"]
+"requires" = ["plugin::Manifest::requires"]
+"schema_version" = ["plugin::CollectionDecl::schema_version"]
+"scope" = ["plugin::Manifest::scope"]
+"secrets" = ["plugin::Manifest::secrets"]
+"session_actions_ui" = ["plugin::Manifest::session_actions_ui"]
+"session_types" = ["plugin::Manifest::session_types"]
+"source" = ["plugin::Manifest::source"]
+"static_routes" = ["plugin::Manifest::static_routes"]
+"storage" = ["plugin::Manifest::storage"]
+"storage.collections" = ["plugin::StorageDecl::collections", "plugin::Manifest::storage"]
+"version" = ["plugin::Manifest::version"]
+"views" = ["plugin::Manifest::views"]
+"{surface, scope?}" = ["plugin::Capability::surface", "plugin::Capability::scope"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > C. What each plugin must change (mechanical unless stated)
+# - **workspaces.** Rename store calls (rows 5-8) and declare collections (`workspaces`, `membership` keyed `<hub_id>/<session_id>`, with an index on `workspace_id`); drop `entity_publish` sequence use (entity families become store projections, ST-7); subscribe with `events_hub` and `events_plugin:botster-orchestrator` through LB-6, reading `event.payload`; spawn returns accepted identity and records the ref (row 13). Pruning policy stays the plugin's (it prunes on explicit ended evidence; a failed accepted start stays as an ended/lost row until `sessions.delete`, CA-15).
+[rows."74"]
+"<hub_id>/<session_id>" = ["plugin::SessionRef::hub_id", "plugin::SessionRef::session_id"]
+"entity_publish" = "n/a: a pre-contract Lua call name, cited in the non-normative Today column"
+"event.payload" = { symbols = ["plugin::EventRecord::payload"], uncovered = { event = "the Lua handler argument: the event record (LB-6)" } }
+"events_hub" = { symbols = ["plugin::Grant::scope"], uncovered = { events_hub = "a scope name (Grant::scope is a string)" } }
+"events_plugin:botster-orchestrator" = { symbols = ["plugin::Grant::scope"], uncovered = { events_plugin = "a scope name (Grant::scope is a string)", botster = "a part of the plugin key botster-orchestrator, the scope argument", orchestrator = "a part of the plugin key botster-orchestrator, the scope argument" } }
+"membership" = "n/a: a collection name that the workspaces plugin declares (plugin data, not a contract name)"
+"sessions.delete" = ["plugin.call:sessions.delete"]
+"workspace_id" = "n/a: an index field that the workspaces plugin declares (plugin data, not a contract name)"
+"workspaces" = "n/a: a collection name that the workspaces plugin declares (plugin data, not a contract name)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > C. What each plugin must change (mechanical unless stated)
+# - **orchestrator.** `ensure_worktree_and_spawn`/`spawn` results change (row 13); the tool returns `{ accepted, session, worktree?, operation_id }`; `session_spawned` emit keeps its declaration and adds `public = true`; `pcall` wrappers removed.
+[rows."75"]
+"ensure_worktree_and_spawn" = ["plugin.call:session_types.ensure_worktree_and_spawn"]
+"pcall" = ["plugin.value:LUA_GLOBALS:pcall"]
+"public = true" = { symbols = ["plugin::DeclaredEvent::public"], uncovered = { true = "a Lua boolean literal" } }
+"session_spawned" = "n/a: an event that the orchestrator plugin declares, not a Hub event (the crate has no symbol for a plugin's own events)"
+"spawn" = ["plugin.call:session_types.spawn"]
+"{ accepted, session, worktree?, operation_id }" = { symbols = ["plugin::SpawnAdmission::session", "plugin::SpawnAdmission::worktree", "plugin::SpawnAdmission::operation_id"], uncovered = { accepted = "a field of the orchestrator tool result (plugin data, not a contract name)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > C. What each plugin must change (mechanical unless stated)
+# - **project-pipelines.** Store rows 5-8 with collections per family and indexes for the hot reads (by `ticket_id`, `run_id`, `status`); drop `meta/entity_seq/*` and the v3 migration; `ensure_worktree_and_spawn` accepted shape; `config.get` plain values; `load_state()` (60 call sites) must become indexed queries; `search_tickets` stays plugin code over bounded pages (ST-10).
+[rows."76"]
+"config.get" = ["plugin.call:config.get"]
+"ensure_worktree_and_spawn" = ["plugin.call:session_types.ensure_worktree_and_spawn"]
+"load_state()" = "n/a: a function of the project-pipelines plugin code"
+"meta/entity_seq/*" = "n/a: a key prefix of the project-pipelines plugin data that v1.1 drops"
+"run_id" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"search_tickets" = "n/a: a tool of the project-pipelines plugin code"
+"status" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"ticket_id" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > C. What each plugin must change (mechanical unless stated)
+# - **messaging (rewrite, not rename).** The Hub has no inbox. It must own: an `envelopes` collection (document per envelope with `to_session`, `state`, `seq`, `lease_until`, `body`, `content_type`), indexes on `(to_session, state, seq)`, post = `store.put` (idempotent on an envelope id the plugin mints: see F-2), receive = query + lease via `store.batch` with revisions, ack = batch delete, access policy over `request.caller` (a session reads only its own inbox; `operator` has none), retention per SS-5 (keep across a restart of the same session id, refuse posts to an ended session, delete on deletion, reconcile against `sessions.list` after a crash, only from a ready baseline), and the doorbell through `sessions.safe_write`. The store write and the doorbell are no longer one atomic step (they were one Hub step with `messages.post`): persist the envelope, then `safe_write`; on load re-issue the doorbell for envelopes whose ring was never confirmed. Manifest: `{surface = "session_actions", scope = "session_safe_write:any"}`, `session_read:any`, `{surface = "events", scope = "events_hub"}`; drop `session_notify:any` (no caller) and `session_message`.
+[rows."77"]
+"(to_session, state, seq)" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"body" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"content_type" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"envelopes" = "n/a: a collection name that the messaging plugin declares (plugin data, not a contract name)"
+"lease_until" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"messages.post" = "n/a: an old Lua name that v1.1 removes (section 9.6: the Hub owns no inbox)"
+"operator" = ["plugin::Caller::Operator"]
+"request.caller" = { symbols = ["plugin::Invoke::caller"], uncovered = { request = "the Lua request table, which carries the Invoke fields (the Lua binding)" } }
+"safe_write" = ["plugin.call:sessions.safe_write"]
+"seq" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"session_message" = "n/a: an old manifest scope that v1.1 drops; the crate has no symbol for it"
+"session_notify:any" = "n/a: an old manifest scope that v1.1 drops (no caller); the crate has no symbol for it"
+"session_read:any" = { symbols = ["plugin::Capability::scope"], uncovered = { session_read = "a scope name (Capability::scope is a string)", any = "the any scope suffix (Capability::scope is a string)" } }
+"sessions.list" = ["plugin.call:sessions.list"]
+"sessions.safe_write" = ["plugin.call:sessions.safe_write"]
+"state" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+"store.batch" = ["plugin.call:store.batch"]
+"store.put" = ["plugin.call:store.put"]
+"to_session" = "n/a: a field or index of a plugin's own collection (plugin data, not a contract name)"
+'{surface = "events", scope = "events_hub"}' = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { events = "a surface name (Capability::surface is a string)", events_hub = "a scope name (Capability::scope is a string)" } }
+'{surface = "session_actions", scope = "session_safe_write:any"}' = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_safe_write = "a scope name (Capability::scope is a string)", any = "the any scope suffix (Capability::scope is a string)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > D. What the Lua host keeps local (section 17, LH-1, LH-4)
+# Total and bounded, no frame: JSON encode/decode/`array`; base64; `ids.new`; `clock.now`/`monotonic`; `require` (sibling modules staged at load; the way past the 200-local chunk limit); handler scheduling, coroutine suspension across a host call, the instruction guard, cancellation. The sandbox has no `os`, `io`, `package`, `debug` and no `__gc` finalizers.
+[rows."81"]
+"__gc" = "n/a: a Lua metamethod name (the Lua language); the sandbox refuses it and no contract symbol names it"
+"array" = ["plugin.value:LUA_LOCAL_NAMES:json.array"]
+"clock.now" = ["plugin.value:LUA_LOCAL_NAMES:clock.now"]
+"debug" = ["plugin.value:LUA_UNAVAILABLE:debug"]
+"ids.new" = ["plugin.value:LUA_LOCAL_NAMES:ids.new"]
+"io" = ["plugin.value:LUA_UNAVAILABLE:io"]
+"monotonic" = ["plugin.value:LUA_LOCAL_NAMES:clock.monotonic"]
+"os" = ["plugin.value:LUA_UNAVAILABLE:os"]
+"package" = ["plugin.value:LUA_UNAVAILABLE:package"]
+"require" = ["plugin.value:LUA_GLOBALS:require"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > D. What the Lua host keeps local (section 17, LH-1, LH-4)
+# **The global set.** `Ready.host.globals` is the published source (LH-4); a strict-globals check runs against it, never a hand-kept copy. Per 0016 the Lua host's own file lists: base functions `assert`, `error`, `getmetatable`, `ipairs`, `next`, `pairs`, `pcall`, `rawequal`, `rawget`, `rawlen`, `rawset`, `select`, `setmetatable` (with the `__gc` refusal), `tonumber`, `tostring`, `type`, `xpcall`; libraries `string`, `table`, `math`, `utf8`; `require` of staged modules; the `botster` table. Not available: `os`, `io`, `package`, `debug`, `coroutine`, `load`, `loadfile`, `dofile`, `collectgarbage`, `print`. If this paragraph and `Ready.host.globals` differ, the host wins.
+[rows."83"]
+"Ready.host.globals" = ["plugin::Ready", "plugin::Ready::host", "plugin::HostInfo::globals"]
+"__gc" = "n/a: a Lua metamethod name (the Lua language); the sandbox refuses it and no contract symbol names it"
+"assert" = ["plugin.value:LUA_GLOBALS:assert"]
+"botster" = ["plugin.value:LUA_GLOBALS:botster"]
+"collectgarbage" = ["plugin.value:LUA_UNAVAILABLE:collectgarbage"]
+"coroutine" = ["plugin.value:LUA_UNAVAILABLE:coroutine"]
+"debug" = ["plugin.value:LUA_UNAVAILABLE:debug"]
+"dofile" = ["plugin.value:LUA_UNAVAILABLE:dofile"]
+"error" = ["plugin.value:LUA_GLOBALS:error"]
+"getmetatable" = ["plugin.value:LUA_GLOBALS:getmetatable"]
+"io" = ["plugin.value:LUA_UNAVAILABLE:io"]
+"ipairs" = ["plugin.value:LUA_GLOBALS:ipairs"]
+"load" = ["plugin.value:LUA_UNAVAILABLE:load"]
+"loadfile" = ["plugin.value:LUA_UNAVAILABLE:loadfile"]
+"math" = ["plugin.value:LUA_GLOBALS:math"]
+"next" = ["plugin.value:LUA_GLOBALS:next"]
+"os" = ["plugin.value:LUA_UNAVAILABLE:os"]
+"package" = ["plugin.value:LUA_UNAVAILABLE:package"]
+"pairs" = ["plugin.value:LUA_GLOBALS:pairs"]
+"pcall" = ["plugin.value:LUA_GLOBALS:pcall"]
+"print" = ["plugin.value:LUA_UNAVAILABLE:print"]
+"rawequal" = ["plugin.value:LUA_GLOBALS:rawequal"]
+"rawget" = ["plugin.value:LUA_GLOBALS:rawget"]
+"rawlen" = ["plugin.value:LUA_GLOBALS:rawlen"]
+"rawset" = ["plugin.value:LUA_GLOBALS:rawset"]
+"require" = ["plugin.value:LUA_GLOBALS:require"]
+"select" = ["plugin.value:LUA_GLOBALS:select"]
+"setmetatable" = ["plugin.value:LUA_GLOBALS:setmetatable"]
+"string" = ["plugin.value:LUA_GLOBALS:string"]
+"table" = ["plugin.value:LUA_GLOBALS:table"]
+"tonumber" = ["plugin.value:LUA_GLOBALS:tonumber"]
+"tostring" = ["plugin.value:LUA_GLOBALS:tostring"]
+"type" = ["plugin.value:LUA_GLOBALS:type"]
+"utf8" = ["plugin.value:LUA_GLOBALS:utf8"]
+"xpcall" = ["plugin.value:LUA_GLOBALS:xpcall"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > E. Review of the A4 contract against the plugins
+# - **Resolved in A4r7 (was F-1..F-5):** F-1 row vs ref spelling is WF-6 (LB-5 applies it); F-2 the id source is `botster.ids.new{}` (LB-8); F-3 the non-atomic post-and-ring is SW-10 (persist, then `safe_write`, reissue on load; `replaced` is not a failure); F-4 a membership plugin uses `hub/session_family`, and `hub/session.*` are notifications (EV-6); F-5 the stray `sessions.ring` text is removed.
+[rows."89"]
+"botster.ids.new{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_LOCAL_NAMES:ids.new"]
+"hub/session.*" = { symbols = ["plugin::EventPattern"], uncovered = { hub = "the owner of the Hub session events (hub/session.created and the rest)", session = "the name prefix of the Hub session events" } }
+"hub/session_family" = { symbols = ["plugin::SessionFamilyFrame"], uncovered = { hub = "the Hub owner of the session family", session_family = "the session family entity, whose frames are SessionFamilyFrame (EV-6)" } }
+"replaced" = ["plugin.state:safe_write:replaced"]
+"safe_write" = ["plugin.call:sessions.safe_write"]
+"sessions.ring" = "n/a: a call that A2 replaced by sessions.safe_write; no crate symbol by design"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > E. Review of the A4 contract against the plugins
+# - **F-6 (resolved; changed in A4r29 MT-5).** A tool result over `max_result_bytes` is `response_too_large` (the plugin protocol's own kind and the only spelling a plugin sees; a client maps it to its own code); the Hub never truncates or streams, so the plugin pages its own large reads with a `cursor` argument over its own `store.query` pages. project-pipelines' `current_context`-style reads need that cursor argument (plugin change, Part C).
+[rows."90"]
+"current_context" = "n/a: a tool of the project-pipelines plugin code"
+"cursor" = "n/a: an argument of a plugin's own tool (plugin-defined paging over store.query pages)"
+"max_result_bytes" = ["plugin.limit:max_result_bytes"]
+"response_too_large" = ["plugin::ErrorKind::ResponseTooLarge"]
+"store.query" = ["plugin.call:store.query"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > E. Review of the A4 contract against the plugins
+# - **F-7 Manifest permissions (MN-2 spelling).** W: `session_actions/session_read`, `events/events_hub`, `events/events_plugin:botster-orchestrator`. O: `session_actions/session_type_spawn`, `session_actions/session_type_managed_git_spawn`, and `public: true` on the declared `session_spawned` event. M: `session_actions/session_read:any`, `session_actions/session_safe_write:any`, `events/events_hub`. P: `session_actions/session_type_managed_git_spawn`. An `:any` scope needs operator approval at enable; a wrong-surface or unknown scope fails the load `manifest_bad_scope`.
+[rows."91"]
+":any" = { symbols = ["plugin::Capability::scope"], uncovered = { any = "the any scope suffix (Capability::scope is a string)" } }
+"events/events_hub" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { events = "a surface name (Capability::surface is a string)", events_hub = "a scope name (Capability::scope is a string)" } }
+"events/events_plugin:botster-orchestrator" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { events = "a surface name (Capability::surface is a string)", events_plugin = "a scope name (Capability::scope is a string)", botster = "a part of the plugin key botster-orchestrator, the scope argument", orchestrator = "a part of the plugin key botster-orchestrator, the scope argument" } }
+"manifest_bad_scope" = ["plugin.code:invalid_request:manifest_bad_scope"]
+"public: true" = { symbols = ["plugin::DeclaredEvent::public"], uncovered = { true = "a JSON literal value" } }
+"session_actions/session_read" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_read = "a scope name (Capability::scope is a string)" } }
+"session_actions/session_read:any" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_read = "a scope name (Capability::scope is a string)", any = "the any scope suffix (Capability::scope is a string)" } }
+"session_actions/session_safe_write:any" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_safe_write = "a scope name (Capability::scope is a string)", any = "the any scope suffix (Capability::scope is a string)" } }
+"session_actions/session_type_managed_git_spawn" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_type_managed_git_spawn = "a scope name (Capability::scope is a string)" } }
+"session_actions/session_type_spawn" = { symbols = ["plugin::Capability::surface", "plugin::Capability::scope"], uncovered = { session_actions = "a surface name (Capability::surface is a string)", session_type_spawn = "a scope name (Capability::scope is a string)" } }
+"session_spawned" = "n/a: an event that the orchestrator plugin declares, not a Hub event (the crate has no symbol for a plugin's own events)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > E. Review of the A4 contract against the plugins
+# - Resolved since draft 1: message paging and Hub-side messages are gone (9.6), `config.get` plain values (CF-1), `sessions.list` takes `hub_id`/`label` (SS-1), implicit `id` index (ST-1), worktree optional at accept (CA-15), reserved `SessionRef` (CA-14), failed start keeps its row (CA-15).
+[rows."92"]
+"SessionRef" = ["plugin::SessionRef"]
+"config.get" = ["plugin.call:config.get"]
+"hub_id" = ["plugin::SessionsListArgs::hub_id"]
+"id" = { symbols = ["plugin::StoreQueryArgs::index"], uncovered = { id = "the name of the implicit index of every collection (ST-1; see IndexDecl in manifest.rs)" } }
+"label" = ["plugin::SessionsListArgs::label"]
+"sessions.list" = ["plugin.call:sessions.list"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > F. Plugin-side tests this binding owns
+# Every clause has one test. `conf::lb_1_binding_covers_every_call` (the extractor `shared/tools/botster-api-calls.py` against Part B); `conf::lb_3_helpers_return_envelopes_never_raise`; `conf::lb_4_handler_arguments`; `conf::lb_6_events_on_is_load_time_only`; `conf::lb_7_operation_notification_shape`; `conf::lb_8_bytes_round_trip_base64`; `conf::lb_9_empty_array_encodes_as_array`; and every id named in LB-2, LB-5, LB-6, LB-9, LB-10 to LB-21 (including LB-16b and LB-17b). Per plugin: its kit specs pass against the new binding with only the Part C changes applied.
+[rows."96"]
+"shared/tools/botster-api-calls.py" = "n/a: a repository path"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-8 (answered, no contract change).** LN-1's error shape is shorthand; section 14 governs, and the Lua error table carries `message` and `retryable` (LB-3).
+[rows."100"]
+"message" = ["plugin::ErrorBody::message"]
+"retryable" = ["plugin::ErrorBody::retryable"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-9 (answered).** `Ready.host.globals` is the source; `tonumber` and `select` are in the set (section D).
+[rows."101"]
+"Ready.host.globals" = ["plugin::Ready", "plugin::Ready::host", "plugin::HostInfo::globals"]
+"select" = ["plugin.value:LUA_GLOBALS:select"]
+"tonumber" = ["plugin.value:LUA_GLOBALS:tonumber"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-10 (answered).** The events are `net/ws.message` and `net/ws.close`, owner `net` (NT-4). LN-2 lists calls only, so LB-11 names the events.
+[rows."102"]
+"net" = { symbols = ["plugin::EventRecord::owner"], uncovered = { net = "the Hub-owned event owner of NT-4 (EventRecord::owner is a string)" } }
+"net/ws.close" = ["plugin.event:net/ws.close"]
+"net/ws.message" = ["plugin.event:net/ws.message"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-11.** `events.on` after `Ready` returns `invalid_request{registration_after_ready}`; test `lb_6` follows it.
+[rows."103"]
+"Ready" = ["plugin::Ready"]
+"events.on" = ["plugin.value:LUA_REGISTRATION_NAMES:events.on"]
+"invalid_request{registration_after_ready}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:registration_after_ready"]
+"lb_6" = "n/a: a short form of a conformance test id (conf::lb_6_*)"
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-12 (answered, A4r72 section 17).** Crypto shapes: `crypto.sha256{bytes_b64}`, `hmac_sha256{key_b64, bytes_b64}`, `random_bytes{n}`; errors as in LB-8.
+[rows."104"]
+"crypto.sha256{bytes_b64}" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:crypto.sha256"], uncovered = { bytes_b64 = "an argument of a language-local helper; it crosses no frame, so no crate type holds it (section 17)" } }
+"hmac_sha256{key_b64, bytes_b64}" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:crypto.hmac_sha256"], uncovered = { key_b64 = "a Lua argument of a host-local helper (no wire type)", bytes_b64 = "a Lua argument of a host-local helper (no wire type)" } }
+"random_bytes{n}" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:crypto.random_bytes"], uncovered = { n = "a Lua argument of a host-local helper (no wire type)" } }
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-13 (answered).** `botster.relay.on(fn)` registers the single relay handler (no `handler_id`, one per plugin); `fs.on_watch(handler_id, fn)` names its handler.
+[rows."105"]
+"botster.relay.on(fn)" = { symbols = ["plugin.value:LUA_GLOBALS:botster", "plugin.value:LUA_REGISTRATION_NAMES:relay.on"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"fs.on_watch(handler_id, fn)" = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:fs.on_watch", "plugin::FsWatchDecl::handler_id"], uncovered = { fn = "a Lua argument: the handler function (LN-1)" } }
+"handler_id" = ["plugin::FsWatchDecl::handler_id"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-14.** A4r72 makes `plugins.call` take `interface` instead of `plugin`: binding rows 27 and LB-14 follow it. A plugin that called another plugin by key (none ships one today) must declare `requires`.
+[rows."106"]
+"interface" = ["plugin::PluginsCallArgs::interface"]
+"plugin" = "n/a: the old argument of plugins.call that A4r72 replaces with `interface`"
+"plugins.call" = ["plugin.call:plugins.call"]
+"requires" = ["plugin::Manifest::requires"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-15.** `botster.plugins.bindings{}` is allowed in bootstrap (HS-7) but `plugins.call` is not (no application frame before `Activated`). A plugin must not resolve a binding and call in its entrypoint.
+[rows."107"]
+"Activated" = ["plugin::Activated"]
+"botster.plugins.bindings{}" = ["plugin.value:LUA_GLOBALS:botster", "plugin.call:plugins.bindings"]
+"plugins.call" = ["plugin.call:plugins.call"]
+
+# Hub→plugin contract v1.1: Lua binding appendix (for the Hub→plugin contract, revision 9) > G. Findings against A4r29 to A4r77
+# - **F-16 (J3/J4 check).** The binding matches J3 (`92958d02…2c06`) and J4 (`469c01f3…4e`); I compared the Appendix C name table and MN-1 text of A4r77, J3 and J4 by script: both are identical: the only differences from A4r77 are the section 21/0 citation cleanup, PD-6 bulk `bindings` and `accept_breaking` on `upgrade_packages` (client verbs, no Lua call) and the WP-1 change above.
+[rows."108"]
+"accept_breaking" = ["hub::PackageUpgradeArgs::accept_breaking", "hub::UpgradePackagesArgs::accept_breaking"]
+"bindings" = ["hub::UpgradePackagesArgs::bindings"]
+"upgrade_packages" = ["hub.action:hub.upgrade_packages"]

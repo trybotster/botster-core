@@ -1,0 +1,74 @@
+{
+ "id": "conf::vr_1_previous_version_loads",
+ "contract": "hp",
+ "clause": "VR-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "status"
+  ]
+ },
+ "setup": {
+  "protocol": {
+   "min": 1,
+   "current": 2
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "protocol_version": 2,
+     "min_protocol_version": 1
+    }
+   },
+   "because": [
+    "HP VR-1",
+    "HP HS-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "protocol_version": 1,
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": [
+    "HP VR-1",
+    "HP HS-3"
+   ]
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "loaded"
+   },
+   "because": "HP VR-1"
+  }
+ ]
+}

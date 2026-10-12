@@ -1,0 +1,248 @@
+{
+ "id": "conf::ca_13_sanitized_reads",
+ "contract": "hp",
+ "clause": "CA-13",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "three targets exist: t1 is the git repository at the absolute host path /srv/repo with branch main, t2 and t3 are directories; page_items is 2; the worktree of t1 is at /srv/repo-wt/w1",
+  "limits": {
+   "page_items": 2
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "spawn_targets.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "targets": {
+        "$array": {
+         "each": {
+          "id": {
+           "$type": "string"
+          },
+          "enabled": {
+           "$type": "boolean"
+          },
+          "root": {
+           "$not": {
+            "$starts_with": "/"
+           }
+          }
+         },
+         "min": 1,
+         "max": 2
+        }
+       },
+       "next_after": "$na"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-13"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "spawn_targets.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "after": "$na"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "targets": {
+        "$array": {
+         "each": {
+          "id": {
+           "$type": "string"
+          },
+          "enabled": {
+           "$type": "boolean"
+          },
+          "root": {
+           "$not": {
+            "$starts_with": "/"
+           }
+          }
+         },
+         "min": 1,
+         "max": 2
+        }
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-13"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "worktrees.list",
+     "context": {
+      "request": "$r"
+     },
+     "args": {}
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "worktrees": {
+        "$array": {
+         "each": {
+          "worktree_id": {
+           "$type": "string"
+          },
+          "path": {
+           "$not": {
+            "$starts_with": "/"
+           }
+          }
+         },
+         "max": 2
+        }
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP CA-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

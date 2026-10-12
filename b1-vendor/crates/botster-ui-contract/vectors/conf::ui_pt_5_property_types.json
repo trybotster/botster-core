@@ -1,0 +1,575 @@
+{
+  "id": "conf::ui_pt_5_property_types",
+  "contract": "ui",
+  "clause": "UI-PT-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "form.submit and form.cancel with a literal label",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                }
+              },
+              "submit": {
+                "label": "Save"
+              },
+              "cancel": {
+                "label": "Back"
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "form.submit and form.cancel with no label",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "a": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "a": {
+                    "type": "string"
+                  }
+                }
+              },
+              "submit": {},
+              "cancel": {}
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "actions.overflow auto",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "auto"
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "actions.overflow never",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "never"
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "list.item with fields and actions",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ],
+            "actions": [
+              {
+                "id": "go",
+                "label": "Go",
+                "handler": "h"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "list.item with fields only",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "detail.source with kind and a literal id",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "detail",
+          "id": "d",
+          "source": {
+            "kind": "k",
+            "id": {
+              "lit": "r1"
+            }
+          },
+          "fields": [
+            {
+              "id": "f",
+              "path": "/v"
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "detail.source with kind and an operand id",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "detail",
+          "id": "d",
+          "source": {
+            "kind": "k",
+            "id": {
+              "sel": "s/id"
+            }
+          },
+          "fields": [
+            {
+              "id": "f",
+              "path": "/v"
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "detail.source with sel",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "detail",
+          "id": "d",
+          "source": {
+            "sel": "s"
+          },
+          "fields": [
+            {
+              "id": "f",
+              "path": "/v"
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "alternatives true on a structural parent",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [],
+          "alternatives": true
+        }
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "alternatives false on a structural parent",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [],
+          "alternatives": false
+        }
+      },
+      "expect_admitted": true
+    }
+  ]
+}

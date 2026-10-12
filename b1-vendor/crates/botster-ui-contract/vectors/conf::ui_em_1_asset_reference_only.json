@@ -1,0 +1,249 @@
+{
+  "id": "conf::ui_em_1_asset_reference_only",
+  "contract": "ui",
+  "clause": "UI-EM-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an asset reference by asset_id",
+      "because": "UI UI-EM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "asset_id": "a1"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed",
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "asset_id": "a1",
+            "title": "Graph"
+          }
+        }
+      }
+    },
+    {
+      "name": "an asset reference by name",
+      "because": "UI UI-EM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed",
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "name": "graph",
+            "title": "Graph"
+          }
+        }
+      }
+    },
+    {
+      "name": "a reference with neither asset_id nor name shows empty",
+      "because": "UI UI-EM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {}
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed",
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "state": "empty",
+            "asset_id": {
+              "$absent": true
+            },
+            "name": {
+              "$absent": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "an absent reference shows empty",
+      "because": "UI UI-EM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": null
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed",
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "props": {
+            "state": "empty"
+          }
+        }
+      }
+    },
+    {
+      "name": "a URL is not an asset reference",
+      "because": "UI UI-EM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": "https://example.com/page"
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed",
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "props": {
+            "state": "empty",
+            "asset_id": {
+              "$absent": true
+            },
+            "name": {
+              "$absent": true
+            }
+          }
+        }
+      }
+    }
+  ]
+}

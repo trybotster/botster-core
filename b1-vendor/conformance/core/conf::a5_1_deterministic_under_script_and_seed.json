@@ -1,0 +1,99 @@
+{
+  "id": "conf::a5_1_deterministic_under_script_and_seed",
+  "contract": "core",
+  "clause": "A5-1",
+  "subject": "core",
+  "setup": {
+    "open": false
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "run_deterministic": {
+        "runs": 2,
+        "steps": [
+          {
+            "data_dir": "d"
+          },
+          {
+            "open": {
+              "as": "h",
+              "data_dir": "d",
+              "worker": "current"
+            }
+          },
+          {
+            "begin": {
+              "op": {
+                "Create": {
+                  "session": "s1",
+                  "request": {
+                    "program": [
+                      {
+                        "print_after_input": {
+                          "match_hex": "31",
+                          "bytes_hex": "1b5d323b7407"
+                        }
+                      },
+                      {
+                        "hold": {}
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "bind": "$c1"
+          },
+          {
+            "begin": {
+              "op": {
+                "Create": {
+                  "session": "s2",
+                  "request": {
+                    "program": [
+                      {
+                        "hold": {}
+                      }
+                    ]
+                  }
+                }
+              }
+            },
+            "bind": "$c2"
+          },
+          {
+            "pump_idle": {}
+          },
+          {
+            "begin": {
+              "op": {
+                "Start": {
+                  "id": "s1"
+                }
+              }
+            },
+            "bind": "$st1"
+          },
+          {
+            "begin": {
+              "op": {
+                "Start": {
+                  "id": "s2"
+                }
+              }
+            },
+            "bind": "$st2"
+          },
+          {
+            "pump_idle": {}
+          }
+        ]
+      },
+      "because": [
+        "Core A5-1"
+      ]
+    }
+  ]
+}

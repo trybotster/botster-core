@@ -1,0 +1,111 @@
+{
+  "id": "conf::ui_ac_6_unknown_target_diagnostic",
+  "contract": "ui",
+  "clause": "UI-AC-6",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "handlers": {
+        "create_ticket": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        },
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "tickets",
+        "ticket"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "tickets",
+          "title": "Tickets",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "create",
+                    "label": "Create",
+                    "handler": "create_ticket"
+                  },
+                  {
+                    "id": "ren",
+                    "label": "Rename",
+                    "handler": "rename",
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "create"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "navigate": {
+                "view": "pkg/nowhere"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "diagnostic": {}
+        },
+        "because": "UI UI-AC-6"
+      }
+    }
+  ]
+}

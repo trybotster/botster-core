@@ -1,0 +1,476 @@
+{
+ "id": "conf::lb_11_http_method_set_and_header_pairs",
+ "contract": "lb",
+ "clause": "LB-11",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local out = {}\n      for _, m in ipairs({ \"GET\", \"HEAD\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\", \"OPTIONS\" }) do\n        local r = botster.http.request{ method = m, url = \"https://example.test/\", timeout_ms = 1000 }\n        out[#out + 1] = r.ok\n      end\n      local pairs_call = botster.http.request{ method = \"POST\", url = \"https://example.test/p\", timeout_ms = 1000,\n        headers = { { \"A\", \"1\" }, { \"B\", \"2\" }, { \"A\", \"3\" } }, body_b64 = \"aGk=\" }\n      return { all_methods_ok = #out == 7, pairs_ok = pairs_call.ok }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local bad = botster.http.request{ method = \"TRACE\", url = \"https://example.test/\", timeout_ms = 1000 }\n      return { ok = bad.ok, kind = bad.error and bad.error.kind, effect = bad.error and bad.error.effect }\n    end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m0",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "GET",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m0",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-0",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m1",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "HEAD",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-1",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m2",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "POST",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m2",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-2",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m3",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "PUT",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m3",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-3",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m4",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "PATCH",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m4",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-4",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m5",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "DELETE",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m5",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-5",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m6",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "OPTIONS",
+      "url": "https://example.test/",
+      "timeout_ms": 1000
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$m6",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-6",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$cp",
+     "context": {
+      "request": 1
+     },
+     "call": "http.request",
+     "args": {
+      "method": "POST",
+      "url": "https://example.test/p",
+      "timeout_ms": 1000,
+      "headers": [
+       [
+        "A",
+        "1"
+       ],
+       [
+        "B",
+        "2"
+       ],
+       [
+        "A",
+        "3"
+       ]
+      ],
+      "body_b64": "aGk="
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$cp",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-p",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "all_methods_ok": true,
+       "pairs_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-11"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "kind": "invalid_request",
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "http.request"
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "because": "LB LB-11"
+  }
+ ]
+}

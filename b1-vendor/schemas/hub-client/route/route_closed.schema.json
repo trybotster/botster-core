@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RouteClosed",
+  "description": "Body of `0x0B route_closed`. `exit` is present only when the reason is `session_ended`.\n\nClause: Codec A.4, TS-8.",
+  "type": "object",
+  "properties": {
+    "reason": {
+      "$ref": "#/$defs/CloseReason"
+    },
+    "exit": {
+      "$ref": "#/$defs/Exit"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "$defs": {
+    "CloseReason": {
+      "anyOf": [
+        {
+          "description": "`route_closed.reason` (A.2, TS-8).\n\nClause: Codec A.2, TS-8, A.1.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "detached",
+                "replaced",
+                "session_ended",
+                "revoked",
+                "other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "attach_failed": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "$ref": "#/$defs/AttachFailedReason"
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ]
+                }
+              },
+              "required": [
+                "attach_failed"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "protocol_error": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "$ref": "#/$defs/ProtocolErrorCode"
+                    }
+                  },
+                  "required": [
+                    "code"
+                  ]
+                }
+              },
+              "required": [
+                "protocol_error"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "AttachFailedReason": {
+      "anyOf": [
+        {
+          "description": "`attach_failed` reasons (A.2b).\n\nClause: Codec A.2b, TS-4.",
+          "type": "string",
+          "enum": [
+            "session_not_running",
+            "screen_unavailable",
+            "not_attachable",
+            "snapshot_too_large",
+            "bad_peer",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "ProtocolErrorCode": {
+      "anyOf": [
+        {
+          "description": "The `protocol_error` codes of A.1. The set is non-exhaustive on the wire (A.2).\n\nClause: Codec A.1, A.2.",
+          "type": "string",
+          "enum": [
+            "frame_too_large",
+            "malformed_frame",
+            "unknown_frame",
+            "handshake_order",
+            "duplicate_request_id",
+            "invalid_input",
+            "other"
+          ]
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1
+        }
+      ]
+    },
+    "Exit": {
+      "description": "The `exit` beside `session_ended` in `route_closed`.\n\nClause: Codec A.4, TS-8.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "signal": {
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    }
+  }
+}

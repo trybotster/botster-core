@@ -1,0 +1,29 @@
+# cargo-mutants settings (docs/tooling.md; README "Building"). The landing job and the weekly job read this file.
+#
+# A mutant that the tests do not catch is a review finding. A mutant that cannot change behavior (an equivalent mutant)
+# is recorded here, by a pair, in `exclude_re`, with the reason on the lines above the entry. The reviewer judges
+# the reason. Never add an entry to make a job pass.
+
+# A mutant runs the tests of its own package. The transcripts that prove a fake live in the conformance crates, so the fakes
+# are run with `--test-workspace=true` (the landing job and the weekly workflow do), at the cost of a workspace build per mutant.
+
+# Test-only code is not mutated: the property tests are the checks.
+exclude_globs = ["**/props.rs", "**/tests/**", "xtask/**", "crates/botster-test-support/**"]
+
+# Accepted equivalent mutants. Format of an entry:
+#   # <crate>: <function> — <why no test can tell the mutant from the original> (<pair, date>)
+#   "<regex over the mutant name, as `cargo mutants --list` prints it>",
+exclude_re = [
+    # botster-fake-route: FakeWorker::send_output, `self.choose(Choice::DeflatePerFrame, 2) == 1` to `!= 1`. The choice is a seeded coin between
+    # a plain `output` frame and an `output_deflate` frame that carry the same bytes (Codec A.4 0x0E: the receiver gets the same output either way),
+    # so swapping which index deflates only swaps which seeds deflate; across the seeds both branches are still taken
+    # (`every_choice_point_is_reachable`; a single seed need not take both). No clause fixes which seed deflates.
+    # The negotiation check `f == "output_deflate"` is NOT covered: it is in its own function, `deflate_negotiated`, and its mutants must be killed.
+    # CI checks that split (job `mutants`, step "the equivalent-mutant entries are exact"). (prior-art-tooling pair, 2026-10-01)
+    "replace == with != in FakeWorker::send_output",
+    # botster-hub-conformance: RouteAdapter::has_feature, ::has_control and ::max_chunk_bytes. The HC driver gives the route driver a stream binding
+    # (`Framing::Stream`), which never reads the chunk bound. The route driver's `has_feature` is reached only through the codec runner, and its
+    # `has_control` only on its generic `control` step, which the HC driver answers itself before any route sees it. So no test can tell a changed
+    # body from the original. (hc-runner pair, 2026-10-02)
+    "RouteAdapter<S>>::(has_feature|has_control|max_chunk_bytes)",
+]

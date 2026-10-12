@@ -1,0 +1,127 @@
+{
+ "id": "conf::ld_1_load_then_register",
+ "contract": "hp",
+ "clause": "LD-1",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "status",
+   "invoke",
+   "published",
+   "settle"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "loading"
+   },
+   "because": "HP LD-1"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LD-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "loaded"
+   },
+   "because": "HP LD-1"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "handlers": [
+     "h1"
+    ]
+   },
+   "because": "HP LD-1"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP LD-1"
+  }
+ ]
+}

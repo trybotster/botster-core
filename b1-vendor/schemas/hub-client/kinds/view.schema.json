@@ -1,0 +1,1634 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "`<package>/<view>`."
+    },
+    "component": {
+      "$ref": "#/$defs/ViewComponent"
+    },
+    "binds": {
+      "$ref": "#/$defs/ViewBinds"
+    },
+    "actions": {
+      "type": "array",
+      "items": true,
+      "description": "The actions that the view offers, each with a stable `action_id` (SF-1)."
+    },
+    "placement": {
+      "$ref": "#/$defs/Placement"
+    },
+    "document": {
+      "description": "The ui-contract view document.",
+      "$ref": "#/$defs/ViewDocument"
+    }
+  },
+  "required": [
+    "id",
+    "component",
+    "binds",
+    "actions"
+  ],
+  "description": "The `view` row. The declarative document is owned by ui-contract (section 7b).\n\nClause: HC section 6 (`view`), section 7b, SF-1.",
+  "x-kind": "view",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "get": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-2"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {},
+  "$defs": {
+    "ViewComponent": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "list",
+            "table",
+            "detail",
+            "form",
+            "actions",
+            "status_badge",
+            "embed"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ViewBinds": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "filter": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "fields": {
+          "type": "array",
+          "items": true
+        }
+      },
+      "required": [
+        "kind",
+        "fields"
+      ],
+      "description": "What a view binds: a kind, an optional filter and the fields it shows. A field has a stable `field_id` (SF-1).\n\nClause: HC section 6 (`view`), SF-1."
+    },
+    "Placement": {
+      "type": "object",
+      "properties": {
+        "area": {
+          "type": "string"
+        },
+        "size": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "format": "int64",
+          "maximum": 9007199254740991,
+          "minimum": -9007199254740991
+        }
+      },
+      "required": [
+        "area",
+        "size",
+        "order"
+      ],
+      "description": "Home placement (UI-PL-1, ui-contract 1.1)."
+    },
+    "ViewDocument": {
+      "type": "object",
+      "properties": {
+        "ui_contract_view": {
+          "type": "string",
+          "description": "`\"M.m\"` (UI-VR-1)."
+        },
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "requires": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "selections": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SelectionDecl"
+          }
+        },
+        "placement": {
+          "$ref": "#/$defs/Placement"
+        },
+        "root": {
+          "$ref": "#/$defs/Part"
+        }
+      },
+      "required": [
+        "ui_contract_view",
+        "id",
+        "title",
+        "root"
+      ],
+      "description": "The view document (section 2 of ui-contract 1.0; `placement` is UI-PL-1)."
+    },
+    "SelectionDecl": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "A client-local selection slot (UI-SL-1)."
+    },
+    "Part": {
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ListPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "list"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/TablePart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "table"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/DetailPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "detail"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/FormPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "form"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ActionsPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "actions"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/StatusBadgePart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "status_badge"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/StackPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "stack"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/InlinePart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "inline"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/PanelPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "panel"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/SectionPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "section"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/ToolbarPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "toolbar"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/TextPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "text"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/EmptyStatePart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "empty_state"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/EmbedPart"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "const": "embed"
+                }
+              },
+              "required": [
+                "type"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "The data and structural parts (UI-PT-1; `embed` is UI-EM-1, behind the feature `ui_embed`)."
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "where": {
+          "$ref": "#/$defs/Pred"
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrderKey"
+          }
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "description": "A source of rows of one kind (UI-BD-2)."
+    },
+    "Pred": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "eq": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/Operand"
+                },
+                {
+                  "$ref": "#/$defs/Operand"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "eq"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ne": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "$ref": "#/$defs/Operand"
+                },
+                {
+                  "$ref": "#/$defs/Operand"
+                }
+              ],
+              "minItems": 2,
+              "maxItems": 2
+            }
+          },
+          "required": [
+            "ne"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "truthy": {
+              "$ref": "#/$defs/Operand"
+            }
+          },
+          "required": [
+            "truthy"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/Pred"
+            }
+          },
+          "required": [
+            "not"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "all": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Pred"
+              }
+            }
+          },
+          "required": [
+            "all"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Pred"
+              }
+            }
+          },
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "A predicate (UI-BD-1, UI-BD-4)."
+    },
+    "Operand": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "description": "A field of the bound row."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "row": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "row"
+          ],
+          "additionalProperties": false,
+          "description": "The row that an action or item sits on."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "form": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "form"
+          ],
+          "additionalProperties": false,
+          "description": "The current value of a form field (`/<property name>`)."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sel"
+          ],
+          "additionalProperties": false,
+          "description": "`\"<selection id><Path>\"`, the selected row of a slot."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ref": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "additionalProperties": false,
+          "description": "`\"<ref id><Path>\"`, a field of a resolved ref."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "viewport": {
+              "$ref": "#/$defs/ViewportAxis"
+            }
+          },
+          "required": [
+            "viewport"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "lit": true
+          },
+          "required": [
+            "lit"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "An operand (UI-BD-1, UI-BD-3). Each variant is written as an object with one key."
+    },
+    "ViewportAxis": {
+      "type": "string",
+      "enum": [
+        "width",
+        "height",
+        "pointer"
+      ],
+      "description": "Clause: UI-PT-3 (the `viewport` operand axes)."
+    },
+    "OrderKey": {
+      "type": "object",
+      "properties": {
+        "field": {
+          "type": "string"
+        },
+        "dir": {
+          "$ref": "#/$defs/Dir"
+        }
+      },
+      "required": [
+        "field",
+        "dir"
+      ],
+      "description": "One ordering key (UI-RZ-4)."
+    },
+    "Dir": {
+      "type": "string",
+      "enum": [
+        "asc",
+        "desc"
+      ]
+    },
+    "Ref": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/RefKey"
+        },
+        "absent": {
+          "$ref": "#/$defs/AbsentCopy"
+        },
+        "activate": {
+          "$ref": "#/$defs/Activate"
+        }
+      },
+      "required": [
+        "kind",
+        "key",
+        "absent"
+      ],
+      "description": "A typed reference to a row of another kind (UI-RF-1 to UI-RF-4)."
+    },
+    "RefKey": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "hub_id": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "hub_id",
+            "id"
+          ]
+        }
+      ],
+      "description": "The key of a ref (UI-RF-1)."
+    },
+    "AbsentCopy": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "description": "What a ref shows when it has no target (UI-RF-2)."
+    },
+    "OrUnknown": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Tone"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A value that is one of the known variants, or a name that this release does not know.\nUI-VR-2 says a client ignores an unknown optional `tone`, `display` or `widget` and counts it."
+    },
+    "Tone": {
+      "type": "string",
+      "enum": [
+        "neutral",
+        "info",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "description": "Clause: UI-CF-4. A tone maps to a style, never to a fixed color."
+    },
+    "Activate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "select": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "select"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "invoke": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "invoke"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "open": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "open"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "navigate": {
+              "$ref": "#/$defs/Navigate"
+            }
+          },
+          "required": [
+            "navigate"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "url": {
+              "$ref": "#/$defs/Operand"
+            }
+          },
+          "required": [
+            "url"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "An activation (UI-SL-3; `navigate` and `url` are UI-SL-5 and UI-SL-7 of ui-contract 1.1)."
+    },
+    "Navigate": {
+      "type": "object",
+      "properties": {
+        "view": {
+          "type": "string"
+        },
+        "select": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Operand"
+          }
+        }
+      },
+      "required": [
+        "view"
+      ],
+      "description": "The target of a navigation (UI-SL-5, UI-AC-6, UI-SL-6): a view of the same package and preset slots."
+    },
+    "Item": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Field"
+          },
+          "default": []
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        }
+      },
+      "description": "The `item` of a `list` (UI-PT-5)."
+    },
+    "Field": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/Operand"
+        },
+        "display": {
+          "$ref": "#/$defs/OrUnknown2"
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/MapEntry"
+          }
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        },
+        "absent": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "description": "A field (the one definition of section 5 of ui-contract 1.0)."
+    },
+    "OrUnknown2": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Display"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A value that is one of the known variants, or a name that this release does not know.\nUI-VR-2 says a client ignores an unknown optional `tone`, `display` or `widget` and counts it."
+    },
+    "Display": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "text",
+            "badge",
+            "metric",
+            "number"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "link",
+          "description": "UI-FD-1 (ui-contract 1.1)."
+        }
+      ]
+    },
+    "MapEntry": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "description": "One entry of a `Field.map` (section 5 of ui-contract 1.0, UI-FD-2)."
+    },
+    "Action": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "handler": {
+          "type": "string",
+          "description": "The registered `ui_action` handler (UI-AC-1, UI-AD-1)."
+        },
+        "args_schema": true,
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Operand"
+          }
+        },
+        "confirm": {
+          "$ref": "#/$defs/Confirm"
+        },
+        "priority": {
+          "$ref": "#/$defs/Priority"
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        },
+        "disabled_reason": {
+          "type": "string"
+        },
+        "warning": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "handler"
+      ],
+      "description": "An action (section 9 of ui-contract 1.0; `disabled_reason` is UI-AC-8, `warning` is UI-SA-5)."
+    },
+    "Confirm": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/Tone"
+        }
+      },
+      "required": [
+        "message",
+        "tone"
+      ],
+      "description": "Clause: UI-AC-3."
+    },
+    "Priority": {
+      "type": "string",
+      "enum": [
+        "primary",
+        "secondary"
+      ]
+    },
+    "CopyText": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "description": "Copy for a state (UI-CP-1 to UI-CP-4)."
+    },
+    "ListPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrderKey"
+          }
+        },
+        "activate": {
+          "$ref": "#/$defs/Activate"
+        },
+        "selects": {
+          "type": "string"
+        },
+        "empty": {
+          "$ref": "#/$defs/CopyText"
+        },
+        "error": {
+          "$ref": "#/$defs/CopyText"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "item"
+      ]
+    },
+    "Column": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string",
+          "description": "`\"<ref id><Path>\"` (UI-RF-3)."
+        },
+        "display": {
+          "$ref": "#/$defs/OrUnknown2"
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/MapEntry"
+          }
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        },
+        "absent": {
+          "type": "string"
+        },
+        "align": {
+          "$ref": "#/$defs/Align"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "description": "A table column (section 3 of ui-contract 1.0): a field with `label`, and `path` or `ref`."
+    },
+    "Align": {
+      "type": "string",
+      "enum": [
+        "start",
+        "center",
+        "end"
+      ]
+    },
+    "TablePart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Column"
+          }
+        },
+        "order": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OrderKey"
+          }
+        },
+        "activate": {
+          "$ref": "#/$defs/Activate"
+        },
+        "selects": {
+          "type": "string"
+        },
+        "empty": {
+          "$ref": "#/$defs/CopyText"
+        },
+        "error": {
+          "$ref": "#/$defs/CopyText"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "columns"
+      ]
+    },
+    "DetailSource": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string"
+            },
+            "id": {
+              "$ref": "#/$defs/OperandOrLit"
+            }
+          },
+          "required": [
+            "kind",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sel": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "sel"
+          ]
+        }
+      ],
+      "description": "The source of a `detail`: one row by id, or the selected row of a slot (UI-PT-5, UI-SL-2)."
+    },
+    "OperandOrLit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Operand"
+        },
+        true
+      ],
+      "description": "A literal JSON value or an operand (`text.value`, `detail.source.id`, UI-PT-5)."
+    },
+    "DetailPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/DetailSource"
+        },
+        "refs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Ref"
+          }
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Field"
+          }
+        },
+        "empty": {
+          "$ref": "#/$defs/CopyText"
+        },
+        "error": {
+          "$ref": "#/$defs/CopyText"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "fields"
+      ]
+    },
+    "ButtonSpec": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        }
+      },
+      "description": "`{ label? }` of `form.submit` and `form.cancel` (UI-PT-5)."
+    },
+    "FormPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "description": "The id of the action that this form submits."
+        },
+        "schema": true,
+        "submit": {
+          "$ref": "#/$defs/ButtonSpec"
+        },
+        "cancel": {
+          "$ref": "#/$defs/ButtonSpec"
+        }
+      },
+      "required": [
+        "id",
+        "action",
+        "schema"
+      ]
+    },
+    "Overflow": {
+      "type": "string",
+      "enum": [
+        "auto",
+        "never"
+      ]
+    },
+    "ActionsPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        },
+        "overflow": {
+          "$ref": "#/$defs/Overflow",
+          "default": "never"
+        }
+      },
+      "required": [
+        "id",
+        "items"
+      ]
+    },
+    "StatusBadgePart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/Operand"
+        },
+        "map": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/MapEntry"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ]
+    },
+    "Direction": {
+      "type": "string",
+      "enum": [
+        "column",
+        "row"
+      ]
+    },
+    "StackPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "direction": {
+          "$ref": "#/$defs/Direction",
+          "default": "column"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Part"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        },
+        "alternatives": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "children"
+      ]
+    },
+    "InlinePart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Part"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        },
+        "alternatives": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "children"
+      ]
+    },
+    "PanelPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Part"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        },
+        "alternatives": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "children"
+      ]
+    },
+    "SectionPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "heading": {
+          "type": "string"
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Part"
+          }
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        },
+        "alternatives": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "heading",
+        "children"
+      ]
+    },
+    "ToolbarPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Action"
+          }
+        },
+        "overflow": {
+          "$ref": "#/$defs/Overflow",
+          "default": "never"
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        }
+      },
+      "required": [
+        "id",
+        "items"
+      ]
+    },
+    "TextPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/OperandOrLit"
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ]
+    },
+    "EmptyStatePart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "when": {
+          "$ref": "#/$defs/Pred"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ]
+    },
+    "EmbedPage": {
+      "type": "object",
+      "properties": {
+        "asset": {
+          "$ref": "#/$defs/OperandOrLit"
+        }
+      },
+      "required": [
+        "asset"
+      ],
+      "description": "The page of an `embed` (UI-EM-1)."
+    },
+    "Channel": {
+      "type": "object",
+      "properties": {
+        "from_page": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FromPage"
+          },
+          "default": []
+        },
+        "to_page": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ToPage"
+          },
+          "default": []
+        }
+      },
+      "description": "The message channel of an `embed` (UI-EM-5)."
+    },
+    "FromPage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "invoke": {
+          "type": "string"
+        },
+        "select": {
+          "type": "string"
+        },
+        "args": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Operand"
+          }
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "One message that a page may send (UI-EM-5, UI-EM-14): `invoke` or `select`."
+    },
+    "ToPage": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "on": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "source",
+        "fields",
+        "on"
+      ],
+      "description": "One push of rows to a page (UI-EM-5, UI-EM-14)."
+    },
+    "EmbedPart": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "page": {
+          "$ref": "#/$defs/EmbedPage"
+        },
+        "channel": {
+          "$ref": "#/$defs/Channel"
+        },
+        "empty": {
+          "$ref": "#/$defs/CopyText"
+        },
+        "error": {
+          "$ref": "#/$defs/CopyText"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "page",
+        "empty",
+        "error"
+      ],
+      "description": "UI-EM-1 (ui-contract 1.2). A document that uses it sets `requires: [\"ui_embed\"]`."
+    }
+  }
+}

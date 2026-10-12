@@ -1,0 +1,91 @@
+{
+ "id": "conf::lb_17b_entry_relative_to_the_package_root",
+ "contract": "lb",
+ "clause": "LB-17b",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest",
+    "entrypoints": {
+     "service": {
+      "lua": "src/main.lua"
+     }
+    }
+   },
+   "files": {
+    "src/main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      return { util = require(\"util\").name, entry_ran = true }\n    end }},\n}\n",
+    "util.lua": "return { name = \"root-util\" }\n",
+    "src/util.lua": "return { name = \"src-util\" }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": [
+    "LB LB-17b"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "util": "root-util",
+       "entry_ran": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-17b"
+  }
+ ]
+}

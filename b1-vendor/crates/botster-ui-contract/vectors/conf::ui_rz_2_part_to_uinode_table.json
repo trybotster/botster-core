@@ -1,0 +1,547 @@
+{
+  "id": "conf::ui_rz_2_part_to_uinode_table",
+  "contract": "ui",
+  "clause": "UI-RZ-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "every part realizes as its mapped node kind, with the container rule",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  },
+                  {
+                    "id": "m",
+                    "label": "Count",
+                    "path": "/n",
+                    "display": "metric"
+                  },
+                  {
+                    "id": "bd",
+                    "path": "/n",
+                    "display": "badge"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c1",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            },
+            {
+              "type": "detail",
+              "id": "d",
+              "source": {
+                "kind": "k",
+                "id": {
+                  "lit": "a"
+                }
+              },
+              "fields": [
+                {
+                  "id": "df",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "ok"
+              },
+              "map": {
+                "ok": {
+                  "label": "OK",
+                  "tone": "success"
+                }
+              }
+            },
+            {
+              "type": "inline",
+              "id": "il",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "t1",
+                  "value": "x"
+                }
+              ]
+            },
+            {
+              "type": "panel",
+              "id": "pn",
+              "title": "P",
+              "children": []
+            },
+            {
+              "type": "section",
+              "id": "sc",
+              "heading": "S",
+              "children": []
+            },
+            {
+              "type": "toolbar",
+              "id": "tbr",
+              "items": [
+                {
+                  "id": "go2",
+                  "label": "Go2",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x"
+            },
+            {
+              "type": "empty_state",
+              "id": "es",
+              "title": "E"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "page": {
+          "type": "stack"
+        },
+        "botster-ui-descendant-v1:1:l9:container": {
+          "type": "list"
+        },
+        "botster-ui-descendant-v1:1:l1:a": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a1:m": {
+          "type": "metric"
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a2:bd": {
+          "type": "badge"
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a1:f": {
+          "type": "text"
+        },
+        "tb": {
+          "type": "table"
+        },
+        "botster-ui-descendant-v1:1:d9:container": {
+          "type": "panel",
+          "children": [
+            {
+              "type": "inline"
+            }
+          ]
+        },
+        "botster-ui-descendant-v1:4:acts9:container": {
+          "type": "toolbar",
+          "children": [
+            {
+              "type": "button"
+            }
+          ]
+        },
+        "botster-ui-descendant-v1:2:fm9:container": {
+          "type": "form",
+          "children": [
+            {
+              "type": "form_field",
+              "children": [
+                {
+                  "type": "text_input"
+                }
+              ]
+            },
+            {
+              "$any": true
+            }
+          ]
+        },
+        "sb": {
+          "type": "status_badge"
+        },
+        "il": {
+          "type": "inline"
+        },
+        "pn": {
+          "type": "panel"
+        },
+        "sc": {
+          "type": "section"
+        },
+        "botster-ui-descendant-v1:3:tbr9:container": {
+          "type": "toolbar"
+        },
+        "t": {
+          "type": "text"
+        },
+        "es": {
+          "type": "empty_state"
+        }
+      },
+      "because": "UI UI-RZ-2",
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_metric",
+          "display_badge"
+        ]
+      }
+    },
+    {
+      "name": "a table is one node whose rows are entries with their row node ids",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "page",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  },
+                  {
+                    "id": "m",
+                    "label": "Count",
+                    "path": "/n",
+                    "display": "metric"
+                  },
+                  {
+                    "id": "bd",
+                    "path": "/n",
+                    "display": "badge"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c1",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            },
+            {
+              "type": "detail",
+              "id": "d",
+              "source": {
+                "kind": "k",
+                "id": {
+                  "lit": "a"
+                }
+              },
+              "fields": [
+                {
+                  "id": "df",
+                  "label": "N",
+                  "path": "/n"
+                }
+              ]
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "ok"
+              },
+              "map": {
+                "ok": {
+                  "label": "OK",
+                  "tone": "success"
+                }
+              }
+            },
+            {
+              "type": "inline",
+              "id": "il",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "t1",
+                  "value": "x"
+                }
+              ]
+            },
+            {
+              "type": "panel",
+              "id": "pn",
+              "title": "P",
+              "children": []
+            },
+            {
+              "type": "section",
+              "id": "sc",
+              "heading": "S",
+              "children": []
+            },
+            {
+              "type": "toolbar",
+              "id": "tbr",
+              "items": [
+                {
+                  "id": "go2",
+                  "label": "Go2",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "id": "t",
+              "value": "x"
+            },
+            {
+              "type": "empty_state",
+              "id": "es",
+              "title": "E"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "n": 1
+            },
+            {
+              "id": "b",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "type": "table",
+          "props": {
+            "rows": [
+              {
+                "id": "botster-ui-descendant-v1:2:tb1:a"
+              },
+              {
+                "id": "botster-ui-descendant-v1:2:tb1:b"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-RZ-2"
+    },
+    {
+      "name": "a checkbox, a textarea and a select by JSON type and hint",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "b": {
+                        "type": "boolean"
+                      },
+                      "t": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      },
+                      "e": {
+                        "type": "string",
+                        "enum": [
+                          "x"
+                        ],
+                        "ui": {
+                          "widget": "select"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "b": {
+                    "type": "boolean"
+                  },
+                  "t": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  },
+                  "e": {
+                    "type": "string",
+                    "enum": [
+                      "x"
+                    ],
+                    "ui": {
+                      "widget": "select"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:b6:widget": {
+          "type": "checkbox"
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:t6:widget": {
+          "type": "textarea"
+        },
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:e6:widget": {
+          "type": "select"
+        }
+      },
+      "because": "UI UI-RZ-2"
+    }
+  ]
+}

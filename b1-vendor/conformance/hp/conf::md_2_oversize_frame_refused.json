@@ -1,0 +1,76 @@
+{
+ "id": "conf::md_2_oversize_frame_refused",
+ "contract": "hp",
+ "clause": "MD-2",
+ "subject": "plugin_host",
+ "setup": {
+  "fixture": "host_big_result"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7,
+     "limits": {
+      "frame_bytes": 4096,
+      "max_result_bytes": 100000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "response_too_large"
+      }
+     }
+    }
+   },
+   "because": [
+    "HP MD-2",
+    "HP IV-2"
+   ]
+  }
+ ]
+}

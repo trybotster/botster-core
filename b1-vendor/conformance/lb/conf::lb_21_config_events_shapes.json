@@ -1,0 +1,285 @@
+{
+ "id": "conf::lb_21_config_events_shapes",
+ "contract": "lb",
+ "clause": "LB-21",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.events.on({ owner = \"hub\", name = \"config.changed\" }, function(record, request)\n  return { keys = #record.payload.keys, restart_required = record.payload.restart_required }\nend)\nbotster.events.on({ owner = \"hub\", name = \"package.configuration_changed\" }, function(record, request)\n  local uses = false\n  for _, n in ipairs(record.payload.names) do if n == \"token\" then uses = true end end\n  local re\n  if uses then re = botster.config.get{} end\n  return { plugin_key = record.payload.plugin_key, reread = re ~= nil, token = re and re.value.values.token }\nend)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "events": {
+      "subscribed": {
+       "$set": [
+        {
+         "handler_id": "$h1",
+         "pattern": {
+          "owner": "hub",
+          "name": "config.changed"
+         }
+        },
+        {
+         "handler_id": "$h2",
+         "pattern": {
+          "owner": "hub",
+          "name": "package.configuration_changed"
+         }
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": [
+    "LB LB-21",
+    "LB LB-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "$h1",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "config.changed",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "keys": [
+        "a",
+        "b"
+       ],
+       "restart_required": true
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "keys": 2,
+       "restart_required": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-21"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$h2",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "package.configuration_changed",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "plugin_key": "demo",
+       "names": [
+        "token",
+        "other"
+       ]
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 2
+     },
+     "call": "config.get",
+     "args": {}
+    }
+   },
+   "because": "LB LB-21"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "values": {
+        "token": "t"
+       },
+       "missing_required": [],
+       "diagnostics": []
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "plugin_key": "demo",
+       "reread": true,
+       "token": "t"
+      }
+     }
+    }
+   },
+   "because": "LB LB-21"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 3,
+     "handler": "$h2",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "package.configuration_changed",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "plugin_key": "demo",
+       "names": [
+        "unrelated"
+       ]
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "plugin_key": "demo",
+       "reread": false
+      }
+     }
+    }
+   },
+   "because": "LB LB-21"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "call": "config.get"
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "LB LB-21"
+  }
+ ]
+}

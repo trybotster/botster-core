@@ -1,0 +1,173 @@
+{
+  "id": "conf::ev_8_attach_requires_a_positive_query_deadline",
+  "contract": "core",
+  "clause": "EV-8",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "answers_queries": true
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidInput": {
+            "field": "query_deadline"
+          }
+        }
+      },
+      "because": [
+        "Core EV-8",
+        "Core A7-1"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2",
+        "options": {
+          "answers_queries": true,
+          "query_deadline": 0
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidInput": {
+            "field": "query_deadline"
+          }
+        }
+      },
+      "because": [
+        "Core EV-8",
+        "Core A7-1"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r3",
+        "session": "s1",
+        "client": "c3",
+        "options": {
+          "answers_queries": true,
+          "query_deadline": 60001
+        }
+      },
+      "expect_error": {
+        "code": {
+          "InvalidInput": {
+            "field": "query_deadline"
+          }
+        }
+      },
+      "because": [
+        "Core EV-8",
+        "Core A7-1"
+      ]
+    },
+    {
+      "attach_route": {
+        "route": "r4",
+        "session": "s1",
+        "client": "c4",
+        "options": {
+          "answers_queries": false
+        }
+      },
+      "because": "Core EV-8"
+    },
+    {
+      "attach_route": {
+        "route": "r5",
+        "session": "s1",
+        "client": "c5",
+        "options": {
+          "answers_queries": true,
+          "query_deadline": 1
+        }
+      },
+      "because": "Core EV-8"
+    },
+    {
+      "attach_route": {
+        "route": "r6",
+        "session": "s1",
+        "client": "c6",
+        "options": {
+          "answers_queries": true,
+          "query_deadline": 60000
+        }
+      },
+      "because": "Core EV-8"
+    }
+  ]
+}

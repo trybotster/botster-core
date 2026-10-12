@@ -1,0 +1,251 @@
+{
+ "id": "conf::pm_1_git_ref_branch_tag_or_commit",
+ "contract": "hp",
+ "clause": "PM-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "three repositories each hold one package; the operator names a branch, a tag and a commit",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "main": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pb",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/b.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pt",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/c.git",
+    "refs": {
+     "3333333333333333333333333333333333333333": {
+      "commit": "3333333333333333333333333333333333333333",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pc",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "main"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/b.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/c.git",
+      "ref": "3333333333333333333333333333333333333333"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pb",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pb"
+   },
+   "expect": {
+    "source": {
+     "kind": "git",
+     "ref": "main"
+    },
+    "lock": {
+     "resolved_commit": "1111111111111111111111111111111111111111"
+    }
+   },
+   "because": "HP PM-1"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pt",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pt"
+   },
+   "expect": {
+    "source": {
+     "kind": "git",
+     "ref": "v1"
+    },
+    "lock": {
+     "resolved_commit": "2222222222222222222222222222222222222222"
+    }
+   },
+   "because": "HP PM-1"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pc",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pc"
+   },
+   "expect": {
+    "source": {
+     "kind": "git",
+     "ref": "3333333333333333333333333333333333333333"
+    },
+    "lock": {
+     "resolved_commit": "3333333333333333333333333333333333333333"
+    }
+   },
+   "because": "HP PM-1"
+  }
+ ]
+}

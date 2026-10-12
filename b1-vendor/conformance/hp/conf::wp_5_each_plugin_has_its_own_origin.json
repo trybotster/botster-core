@@ -1,0 +1,205 @@
+{
+ "id": "conf::wp_5_each_plugin_has_its_own_origin",
+ "contract": "hp",
+ "clause": "WP-5",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "load_plugin",
+   "web_origins",
+   "web_request"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds net_serve and fs:web and declares the static route {route: /, root: web}; the root web holds index.html (<h1>hi</h1>), other.html, data.json, app.js, and a link escape that points to the file /outside/secret.txt (content OUTSIDE-SECRET); b holds the same grants and declares the static route {route: /, root: web} too; the served origin of each is http://127.0.0.1:<port>",
+  "grants": [
+   {
+    "surface": "net_serve"
+   },
+   {
+    "surface": "fs",
+    "scope": "fs:web"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "b",
+    "as": "b"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_b",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "web_origins"
+   },
+   "expect": {
+    "origins": {
+     "demo": "$oa",
+     "b": {
+      "$ne": "$oa"
+     }
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_origins"
+   },
+   "expect": {
+    "origins": {
+     "b": "$ob"
+    }
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/app.js",
+    "origin": "$oa"
+   },
+   "expect": {
+    "status": 200
+   },
+   "because": "HP WP-5"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/only-demo.js",
+    "origin": "$ob"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    }
+   },
+   "because": "HP WP-5"
+  }
+ ]
+}

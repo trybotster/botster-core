@@ -1,0 +1,18 @@
+[package]
+name = "botster-probe-script"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-route-codec.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+jsonschema.workspace = true

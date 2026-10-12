@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SessionRecord",
+  "description": "The record of `get(id)`.\n\nClause: Core LC-9, Core AD-4, Core A2-1, Core A2-6.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/SessionId"
+    },
+    "state": {
+      "$ref": "#/$defs/SessionState"
+    },
+    "size": {
+      "$ref": "#/$defs/Size"
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "exit": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Exit"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "worker_protocol": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint8",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "worker_features": {
+      "description": "The features of the session's worker. Absent for a session with no worker.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/Feature"
+      }
+    }
+  },
+  "required": [
+    "id",
+    "state",
+    "size"
+  ],
+  "$defs": {
+    "SessionId": {
+      "description": "The id of a session, chosen by the host (at most `max_session_id_bytes` bytes).\n\nClause: Core 3, Core ID-1.",
+      "type": "string"
+    },
+    "SessionState": {
+      "description": "The state of a session as `get` and `SessionState` report it.\n\nClause: Core 3, Core A2-1, Core LC-9.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Created",
+            "Starting",
+            "Running",
+            "Stopping",
+            "Released"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Exited": {
+              "$ref": "#/$defs/Exit"
+            }
+          },
+          "required": [
+            "Exited"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Lost": {
+              "$ref": "#/$defs/LostReason"
+            }
+          },
+          "required": [
+            "Lost"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Exit": {
+      "description": "How a payload ended: death by a signal has `code: None` and `signal: Some(n)`.\n\nClause: Core 3, Core EV-4, Core A2-1.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "signal": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int32"
+        },
+        "cause": {
+          "$ref": "#/$defs/ExitCause"
+        }
+      },
+      "required": [
+        "cause"
+      ]
+    },
+    "ExitCause": {
+      "anyOf": [
+        {
+          "description": "Why a session payload ended. A host maps an unknown value to `Other`.\n\nClause: Core A2-1, Core EV-4.",
+          "type": "string",
+          "enum": [
+            "Normal",
+            "Signal",
+            "HostStop",
+            "Killed",
+            "Other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "Normal",
+              "Signal",
+              "HostStop",
+              "Killed",
+              "Other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "Normal",
+                "Signal",
+                "HostStop",
+                "Killed",
+                "Other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "LostReason": {
+      "anyOf": [
+        {
+          "description": "Why a session or a service is `Lost`.\n\nClause: Core AD-2, Core SV-8, Core A2-5.",
+          "type": "string",
+          "enum": [
+            "WorkerGone",
+            "WorkerUnreachable",
+            "WorkerVersion",
+            "RegistryCorrupt",
+            "StartInterrupted",
+            "GuardianLost",
+            "EpochExhausted",
+            "Other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "WorkerGone",
+              "WorkerUnreachable",
+              "WorkerVersion",
+              "RegistryCorrupt",
+              "StartInterrupted",
+              "GuardianLost",
+              "EpochExhausted",
+              "Other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "WorkerGone",
+                "WorkerUnreachable",
+                "WorkerVersion",
+                "RegistryCorrupt",
+                "StartInterrupted",
+                "GuardianLost",
+                "EpochExhausted",
+                "Other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "Size": {
+      "description": "A terminal size.\n\nClause: Core 3, Core A2-1, Core SZ-1.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cell_px": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CellPx"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ]
+    },
+    "CellPx": {
+      "description": "The pixel size of one cell, from 1.\n\nClause: Core 3, Core EV-8a.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "Feature": {
+      "description": "One feature name, spelled as in the A2-6 table.\n\nClause: Core A2-6, Core A3-3, Core SV-4, Core SV-8, Core DP-12, Core ST-6b.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "route_transport:stream",
+            "service_preamble_versions",
+            "bound:cpu_seconds",
+            "bound:open_files",
+            "bound:processes",
+            "bound:address_space_bytes"
+          ]
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "silence"
+        },
+        {
+          "description": "Optional (A2-6).",
+          "type": "string",
+          "const": "size_policy_other"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "snapshot_graphics"
+        },
+        {
+          "description": "Per worker (A2-6).",
+          "type": "string",
+          "const": "focus_report"
+        },
+        {
+          "description": "Per platform (A2-6).",
+          "type": "string",
+          "const": "payload_dies_with_guardian"
+        },
+        {
+          "description": "A route feature (A3-3).",
+          "type": "string",
+          "const": "output_dropped"
+        },
+        {
+          "description": "Per worker (A3-3).",
+          "type": "string",
+          "const": "notification_policy"
+        }
+      ]
+    }
+  }
+}

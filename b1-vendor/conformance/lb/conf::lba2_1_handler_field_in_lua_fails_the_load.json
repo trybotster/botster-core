@@ -1,0 +1,92 @@
+{
+ "id": "conf::lba2_1_handler_field_in_lua_fails_the_load",
+ "contract": "lb",
+ "clause": "LBA2-1",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "load_entrypoint"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {},
+ "steps": [
+  {
+   "control": {
+    "op": "load_entrypoint",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{\n  tools = {{ name = \"t\", description = \"d\", input_schema = { type = \"object\" }, handler = \"h_x\", call = function() return {} end }},\n}\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request"
+    }
+   },
+   "because": "LB LBA2-1"
+  },
+  {
+   "control": {
+    "op": "load_entrypoint",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{\n  tools = {{ name = \"t\", description = \"d\", input_schema = { type = \"object\" }, bogus_field = 1, call = function() return {} end }},\n}\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request"
+    }
+   },
+   "because": "LB LBA2-1"
+  },
+  {
+   "control": {
+    "op": "load_entrypoint",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{\n  tools = {{ name = \"t\", description = \"d\", call = function() return {} end }},\n}\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request"
+    }
+   },
+   "because": "LB LBA2-1"
+  },
+  {
+   "control": {
+    "op": "load_entrypoint",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{\n  tools = {\n    { name = \"t1\", description = \"first\", input_schema = { type = \"object\" }, id = \"my_id\",\n      call = function(payload, request) return { who = \"t1\", got = payload.x } end },\n    { name = \"t2\", description = \"second\", input_schema = { type = \"object\" }, callable_by = { \"plugins\" },\n      call = function(payload, request) return { who = \"t2\" } end },\n  },\n}\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LBA2-1"
+  }
+ ]
+}

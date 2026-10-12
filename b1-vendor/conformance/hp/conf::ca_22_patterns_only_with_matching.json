@@ -1,0 +1,178 @@
+{
+ "id": "conf::ca_22_patterns_only_with_matching",
+ "contract": "hp",
+ "clause": "CA-22",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "admit_manifest",
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "complete plugin manifests differ only in session_types[0].notifications"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "session_types": [
+      {
+       "id": "dev",
+       "label": "Dev",
+       "notifications": {
+        "mode": "none",
+        "patterns": [
+         "x"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_notifications"
+     }
+    }
+   },
+   "because": "HP CA-22"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "session_types": [
+      {
+       "id": "dev",
+       "label": "Dev",
+       "notifications": {
+        "mode": "all",
+        "patterns": [
+         "x"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_notifications"
+     }
+    }
+   },
+   "because": "HP CA-22"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "session_types": [
+      {
+       "id": "dev",
+       "label": "Dev",
+       "notifications": {
+        "mode": "matching",
+        "patterns": [
+         "x"
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP CA-22"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

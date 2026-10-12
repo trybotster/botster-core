@@ -1,0 +1,243 @@
+# The current contract set (docs/foundation-design.md section 2). Input to `cargo xtask ledger`.
+#
+# Contracts are listed in owner order. An id that several files name is owned by the first file in this order,
+# and the other files go to `also_in`. The codec file comes before HC, so the codec owns a codec id.
+
+dir = "frozen/current"
+
+[[contract]]
+prefix = "core"
+files = [
+    "core-contract-v1.17.md",
+    "core-contract-v1.17-amendment-2-candidate4.md",
+    "core-contract-v1.17-amendment-3-candidate10.md",
+    "core-contract-v1.17-amendment-4-candidate1.md",
+    "core-contract-v1.17-erratum-1-candidate1.md",
+    "core-contract-v1.17-amendment-5-candidate4.md",
+    "core-contract-v1.17-amendment-6-candidate3.md",
+    "core-contract-v1.17-erratum-2-candidate2.md",
+    "core-contract-v1.17-amendment-7-candidate4.md",
+    "core-contract-v1.17-amendment-8-candidate5.md",
+    "core-contract-v1.17-amendment-9-candidate1.md",
+    "core-contract-v1.17-amendment-10-candidate1.md",
+    "core-contract-v1.17-erratum-3-candidate3.md",
+    "core-contract-v1.17-amendment-11-candidate1.md",
+    "core-contract-v1.17-amendment-12-candidate2.md",
+    "core-contract-v1.17-erratum-4-candidate1.md",
+    "core-contract-v1.17-amendment-13-candidate5.md",
+    "core-contract-v1.17-amendment-14-candidate3.md",
+    "core-contract-v1.17-amendment-16-candidate3.md",
+    "core-contract-v1.17-amendment-15-candidate2.md",
+    "core-contract-v1.17-amendment-18-candidate2.md",
+    "core-contract-v1.17-amendment-17-candidate2.md",
+    "core-contract-v1.17-amendment-19-candidate2.md",
+    "core-contract-v1.17-amendment-20-candidate1.md",
+    "core-contract-v1.17-erratum-6-candidate1.md",
+]
+
+[[contract]]
+prefix = "codec"
+files = ["route-codec-v1-extract-rev37.md"]
+
+[[contract]]
+prefix = "hc"
+files = [
+    "hub-client-contract-v1-candidate-parity45.md",
+    "hub-client-contract-v1-amendment-1-candidate5.md",
+    "hub-client-contract-v1-amendment-2-candidate6.md",
+    "hub-client-contract-v1-amendment-3-candidate9.md",
+    "hub-client-contract-v1-amendment-4-candidate1.md",
+    "hub-client-contract-v1-amendment-5-candidate2.md",
+    "hub-client-contract-v1-amendment-6-candidate1.md",
+    "hub-client-contract-v1-amendment-7-candidate2.md",
+    "hub-client-contract-v1-amendment-8-candidate3.md",
+]
+
+[[contract]]
+prefix = "hp"
+files = [
+    "hub-plugin-contract-v1.1.joint-J4e.md",
+    "hub-plugin-contract-v1.1.amendment-1-candidate5.md",
+    "hub-plugin-contract-v1.1.amendment-2-candidate7.md",
+    "hub-plugin-contract-v1.1.amendment-3-candidate1.md",
+    "hub-plugin-contract-v1.1.amendment-4-candidate2.md",
+    "hub-plugin-contract-v1.1.amendment-5-candidate3.md",
+    "hub-plugin-contract-v1.1.amendment-6-candidate2.md",
+    "hub-plugin-contract-v1.1.amendment-7-candidate3.md",
+    "hub-plugin-contract-v1.1.amendment-8-candidate2.md",
+    "hub-plugin-contract-v1.1.amendment-9-candidate1.md",
+]
+
+[[contract]]
+prefix = "lb"
+files = ["hub-plugin-lua-binding-v1.1-r9.md", "hub-plugin-lua-binding-v1.1-r9-amendment-1-candidate1.md", "hub-plugin-lua-binding-v1.1-r9-amendment-2-candidate1.md"]
+
+[[contract]]
+prefix = "ui"
+files = [
+    "ui-contract-v1-frozen-20260930.md",
+    "ui-contract-v1.1-amendment-frozen-20260930.md",
+    "ui-contract-v1.2-embed-successor-candidate2.md",
+    "ui-contract-v1.3-completeness-candidate9.md",
+    "ui-contract-v1.4-realize-completeness-candidate3.md",
+    "ui-contract-v1.4-erratum-1-candidate1.md",
+    "ui-contract-v1.4-erratum-2-candidate3.md",
+]
+
+[[contract]]
+prefix = "cli"
+files = ["cli-spec-v1-candidate34.md"]
+
+# Superseded files that stay in frozen/current (and frozen/final6) for the hash record. The ledger ignores them.
+[superseded]
+files = [
+    "route-codec-v1-extract-rev26.md",
+    "route-codec-v1-extract-rev30.md",
+    "route-codec-v1-extract-rev36.md",
+    "hub-plugin-lua-binding-v1.1-r6.md",
+    "cli-spec-v1-candidate26.md",
+]
+
+# Clause attribution for ids that sit in prose under a heading that names no clause.
+# An override applies to an id that the extractor cannot attribute, and only to such an id.
+# An override that matches no such id fails the ledger command, so this table cannot rot.
+# `id_prefix` is matched against the id including the `conf::` prefix.
+[[clause_override]]
+id_prefix = "conf::a8_3_chunk_payload_is_at_most_max_chunk_bytes"
+clause = "A8-3"
+note = "HC A8 candidate 3: the Supersedes paragraph names the id before its A8-3 table row"
+
+[[clause_override]]
+id_prefix = "conf::a19_1_floor_above_the_ceiling_opens_and_refuses_every_attach_with_those_options"
+clause = "A19-1"
+note = "Core A19 candidate 2: the Supersedes paragraph names the id before its A19-1 table row"
+
+[[clause_override]]
+id_prefix = "conf::er_0_"
+clause = "ER-0"
+note = "9.3 Errors: the sync-or-async paragraph names ER-0 in bold text that is not a clause row"
+
+[[clause_override]]
+id_prefix = "conf::lm_1_"
+clause = "9B"
+note = "9B CoreLimits: the section heading is the clause"
+
+[[clause_override]]
+id_prefix = "conf::qr_"
+clause = "QR"
+note = "HC section 14: the query-path conformance list; the ids name the query path (qr)"
+
+[[clause_override]]
+id_prefix = "conf::h_3_"
+clause = "H-3"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_7_"
+clause = "H-7"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_8_"
+clause = "H-8"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_9_"
+clause = "H-9"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_11_"
+clause = "H-11"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_14_"
+clause = "H-14"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_15_"
+clause = "H-15"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_28_"
+clause = "H-28"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::h_32_"
+clause = "H-32"
+note = "HC A2 'New conformance tests (part 2)': the id names the H item"
+
+[[clause_override]]
+id_prefix = "conf::ap_b_"
+clause = "Appendix B"
+note = "HP section 25, Appendix B: the section is the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_1_"
+clause = "LB-1"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_3_"
+clause = "LB-3"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_4_"
+clause = "LB-4"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_6_"
+clause = "LB-6"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_7_"
+clause = "LB-7"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_8_"
+clause = "LB-8"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::lb_9_"
+clause = "LB-9"
+note = "Lua binding section F lists the plugin-side tests; the id names the clause"
+
+[[clause_override]]
+id_prefix = "conf::er_"
+clause = "ER-0"
+note = "Core 9.3 Errors: the table under the sync-or-async paragraph (ER-0) has rows keyed by error code, not by clause"
+
+[[clause_override]]
+id_prefix = "conf::in_9_"
+clause = "IN-9"
+note = "Core 5.1A and 9.3: a test list and error rows keyed by something other than a clause; the id names IN-9"
+
+[[clause_override]]
+id_prefix = "conf::in_5_"
+clause = "IN-5"
+note = "Core 9.3 Errors: an error row keyed by error code; the id names IN-5"
+
+[[clause_override]]
+id_prefix = "conf::id_1_"
+clause = "ID-1"
+note = "Core 9.3 Errors: an error row keyed by error code; the id names ID-1"
+
+[[clause_override]]
+id_prefix = "conf::sv_4_"
+clause = "SV-4"
+note = "Core 9.3 Errors: an error row keyed by error code; the row cites SV-4"
+
+[[clause_override]]
+id_prefix = "conf::tb_m_"
+clause = "TB-M"
+note = "HC 9.4 Binding mcp: a closing paragraph after the MCP rows; the id names TB-M"

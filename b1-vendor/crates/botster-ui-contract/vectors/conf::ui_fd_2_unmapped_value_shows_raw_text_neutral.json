@@ -1,0 +1,207 @@
+{
+  "id": "conf::ui_fd_2_unmapped_value_shows_raw_text_neutral",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a string with no key shows as itself in the neutral tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "open": {
+                    "label": "Open",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": "zzz"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "zzz",
+            "tone": "neutral"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a number with no key shows its RFC 8785 text in the neutral tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "open": {
+                    "label": "Open",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": 5
+            },
+            {
+              "id": "r1",
+              "v": 2.5
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "5",
+            "tone": "neutral"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "2.5",
+            "tone": "neutral"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a boolean with no key shows its text in the neutral tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "open": {
+                    "label": "Open",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": true
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "true",
+            "tone": "neutral"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a status_badge with no key shows the raw value as its label in the neutral tone",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "zzz"
+              },
+              "map": {
+                "open": {
+                  "label": "Open",
+                  "tone": "info"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "sb": {
+          "type": "status_badge",
+          "props": {
+            "label": "zzz",
+            "tone": "neutral"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    }
+  ]
+}

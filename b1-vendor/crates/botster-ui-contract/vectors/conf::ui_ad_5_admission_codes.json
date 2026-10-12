@@ -1,0 +1,1401 @@
+{
+  "id": "conf::ui_ad_5_admission_codes",
+  "contract": "ui",
+  "clause": "UI-AD-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "unsupported_part",
+      "because": "UI UI-PT-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "marquee",
+              "id": "m"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_part",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unbound_context",
+      "because": "UI UI-BD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "t",
+              "value": {
+                "row": "/v"
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "unbound_context",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_property",
+      "because": "UI UI-EM-11",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "sandbox": "allow-scripts"
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admission": {
+        "code": "unknown_property",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "bad_property_type",
+      "because": "UI UI-PT-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "sometimes"
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "bad_property_type",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "embed_source_not_own",
+      "because": "UI UI-EM-12",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "embed",
+          "id": "e",
+          "title": "Graph",
+          "page": {
+            "asset": {
+              "lit": {
+                "name": "graph"
+              }
+            }
+          },
+          "empty": {
+            "title": "No page"
+          },
+          "error": {
+            "title": "Failed"
+          },
+          "channel": {
+            "from_page": [],
+            "to_page": [
+              {
+                "type": "rows",
+                "source": {
+                  "kind": "session"
+                },
+                "fields": [
+                  "/id"
+                ],
+                "on": "change"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "q.item": {
+            "owner": "q",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "embed_source_not_own",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "number_out_of_range",
+      "because": "UI UI-FD-2",
+      "document_text": "{\"ui_contract_view\":\"1.4\",\"id\":\"v\",\"title\":\"T\",\"root\":{\"type\":\"text\",\"id\":\"t\",\"value\":{\"lit\":1e999}}}",
+      "expect_admission": {
+        "code": "number_out_of_range"
+      }
+    },
+    {
+      "name": "non_canonical_map_key",
+      "because": "UI UI-FD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "badge",
+                "map": {
+                  "1.0": {
+                    "label": "x",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/n",
+              "/i",
+              "/b",
+              "/s"
+            ],
+            "field_types": {
+              "/n": "number",
+              "/i": "integer",
+              "/b": "boolean",
+              "/s": "string"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "non_canonical_map_key",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "duplicate_id",
+      "because": "UI UI-ID-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "x"
+            },
+            {
+              "type": "text",
+              "id": "a",
+              "value": "y"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "duplicate_id",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "reserved_id",
+      "because": "UI UI-ID-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "label",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "reserved_id",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "invalid_id",
+      "because": "UI UI-ID-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "Bad Id",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "invalid_id",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "kind_not_admitted",
+      "because": "UI UI-BD-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "nope"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "kind_not_admitted",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "path_not_allowed",
+      "because": "UI UI-AD-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/hidden"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "path_not_allowed",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_slot",
+      "because": "UI UI-AD-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "selects": "nope"
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "unknown_slot",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_ref",
+      "because": "UI UI-AD-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "g",
+                "value": {
+                  "ref": "nope/v"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "unknown_ref",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_action",
+      "because": "UI UI-AD-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            },
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "go",
+                    "invoke": "nope"
+                  }
+                ],
+                "to_page": []
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "context": {
+        "package": "p",
+        "kinds": {
+          "p.item": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id",
+              "/name"
+            ]
+          },
+          "p.other": {
+            "owner": "p",
+            "projection_allowlist": [
+              "/id"
+            ]
+          },
+          "session": {
+            "projection_allowlist": [
+              "/id"
+            ]
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unknown_action",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_handler",
+      "because": "UI UI-AD-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "nope"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "unknown_handler",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "schema_mismatch",
+      "because": "UI UI-FM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "p": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "q": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "p": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "schema_mismatch",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "schema_unsupported",
+      "because": "UI UI-FM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "p": {
+                        "type": "string",
+                        "pattern": "^a"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "type": "string",
+                    "pattern": "^a"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "p": {
+                  "type": "string",
+                  "pattern": "^a"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "schema_unsupported",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unknown_bound_property",
+      "because": "UI UI-FM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ],
+            "actions": [
+              {
+                "id": "go",
+                "label": "Go",
+                "handler": "h",
+                "args": {
+                  "ghost": {
+                    "row": "/name"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "unknown_bound_property",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "arg_type_mismatch",
+      "because": "UI UI-FM-1",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ],
+            "actions": [
+              {
+                "id": "go",
+                "label": "Go",
+                "handler": "h",
+                "args": {
+                  "a": {
+                    "row": "/n"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "arg_type_mismatch",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "visible_when_required",
+      "because": "UI UI-FM-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "a"
+                    ],
+                    "properties": {
+                      "a": {
+                        "type": "string",
+                        "ui": {
+                          "visible_when": {
+                            "truthy": {
+                              "form": "/b"
+                            }
+                          }
+                        }
+                      },
+                      "b": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "a"
+                ],
+                "properties": {
+                  "a": {
+                    "type": "string",
+                    "ui": {
+                      "visible_when": {
+                        "truthy": {
+                          "form": "/b"
+                        }
+                      }
+                    }
+                  },
+                  "b": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "a"
+              ],
+              "properties": {
+                "a": {
+                  "type": "string"
+                },
+                "b": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "visible_when_required",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "bad_default",
+      "because": "UI UI-CF-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "p": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "default": [
+                          "a\nb"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "fm",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "default": [
+                      "a\nb"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "p": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [
+                    "a\nb"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "bad_default",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "when_not_exclusive",
+      "because": "UI UI-PT-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "alternatives": true,
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "x",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "width"
+                  },
+                  {
+                    "lit": "compact"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "text",
+              "id": "b",
+              "value": "y",
+              "when": {
+                "eq": [
+                  {
+                    "viewport": "height"
+                  },
+                  {
+                    "lit": "short"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "when_not_exclusive",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "bad_placement",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        },
+        "requires": [
+          "ui_1_1"
+        ],
+        "placement": {
+          "area": "home",
+          "size": "huge",
+          "order": 1
+        }
+      },
+      "expect_admission": {
+        "code": "bad_placement",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "link_not_text",
+      "because": "UI UI-AD-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n",
+                "display": "link"
+              }
+            ]
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/id": "string",
+              "/v": "string",
+              "/name": "string",
+              "/n": "integer"
+            }
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "link_not_text",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "unsupported_version",
+      "because": "UI UI-VR-3",
+      "document": {
+        "ui_contract_view": "2.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": []
+        }
+      },
+      "expect_admission": {
+        "code": "unsupported_version",
+        "path": {
+          "$any": true
+        }
+      }
+    },
+    {
+      "name": "missing_requires",
+      "because": "UI UI-VR-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "G",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "g"
+                  }
+                }
+              },
+              "empty": {
+                "title": "x"
+              },
+              "error": {
+                "title": "y"
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "missing_requires",
+        "path": {
+          "$any": true
+        }
+      }
+    }
+  ]
+}

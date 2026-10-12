@@ -1,0 +1,115 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-1-candidate5.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# **Base:** the frozen Hub→plugin contract joint package J4e (`hub-plugin-contract-v1.1.joint-J4e.md`, sha256 `e16f3f6b60963fae0cf971e6f7e610a9b91be7ecf28c95f02e8530d2bde27f19`), which stays immutable. **This file is the amendment, in the ...
+[rows."4"]
+"e16f3f6b60963fae0cf971e6f7e610a9b91be7ecf28c95f02e8530d2bde27f19" = "n/a: the sha256 of a frozen base file"
+"hub-plugin-contract-v1.1.joint-J4e.md" = "n/a: a repository path"
+
+# | PK-1 | **The manifest file.** The manifest of a plugin is the file **`botster-plugin.json`** at the **package root**: the exact name, case-sensitive, UTF-8 JSON, one JSON object (MN-1), at most **`package_bytes_max`** (the existing pac...
+[rows."12"]
+"botster-plugin.json" = { symbols = ["plugin::MANIFEST_FILE"], uncovered = { botster = "a part of the file name that MANIFEST_FILE holds", plugin = "a part of the file name that MANIFEST_FILE holds", json = "a part of the file name that MANIFEST_FILE holds" } }
+"package_bytes_max" = ["plugin.limit:package_bytes_max"]
+
+# | PK-2 | **The package root, and the checks on `path` in two stages.** The package root is: for a **`local`** source, the directory that the source names; for a **`git`** source, the **repository root**, or **`path`** inside it when the ...
+[rows."13"]
+"detail.code" = ["plugin::Detail::code"]
+"failed{detail.code: path_not_contained}" = ["plugin::ErrorKind::Failed", "plugin.code:failed:path_not_contained", "plugin::Detail::code"]
+"failed{detail.code: path_not_found}" = ["plugin::ErrorKind::Failed", "plugin.code:failed:path_not_found", "plugin::Detail::code"]
+"failed{reason: path_not_contained}" = ["plugin::Detail::reason", "plugin::ErrorKind::Failed", "plugin.code:failed:path_not_contained"]
+"failed{reason: path_not_found}" = ["plugin::Detail::reason", "plugin::ErrorKind::Failed", "plugin.code:failed:path_not_found"]
+"git" = "n/a: an external tool name"
+"invalid_request{detail.code: path_invalid}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:path_invalid", "plugin::Detail::code"]
+"local" = ["plugin::PackageSource::Local"]
+"max_frame_bytes" = { symbols = ["plugin::PluginLimits::frame_bytes"], uncovered = { max_frame_bytes = "the name of the request bound that HP A2-37 corrects to frame_bytes" } }
+"path" = ["plugin::PackageSource::Git::path", "plugin::CatalogSource::path"]
+
+# | PK-3 | **Exactly one manifest per package root.** A package root holds **exactly one** package manifest file (PK-1, PK-6). A **missing** manifest fails validation `invalid_request{detail.code: manifest_missing}` and a **malformed** one...
+[rows."14"]
+"invalid_request{detail.code: manifest_malformed}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:manifest_malformed", "plugin::Detail::code"]
+"invalid_request{detail.code: manifest_missing}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:manifest_missing", "plugin::Detail::code"]
+"manifest_bad_allow" = ["plugin.code:invalid_request:manifest_bad_allow"]
+"manifest_bad_scope" = ["plugin.code:invalid_request:manifest_bad_scope"]
+"manifest_bad_version" = ["plugin.code:invalid_request:manifest_bad_version"]
+"manifest_malformed{path}" = { symbols = ["plugin.code:invalid_request:manifest_malformed"], uncovered = { path = "a detail key of the load failure: the JSON pointer of the schema failure (Detail::extra is an open object)" } }
+"manifest_missing" = ["plugin.code:invalid_request:manifest_missing"]
+"manifest_unknown_key" = ["plugin.code:invalid_request:manifest_unknown_key"]
+"package_bytes_max" = ["plugin.limit:package_bytes_max"]
+"path" = { symbols = ["plugin::Detail::extra"], uncovered = { path = "a detail key of the load failure: the JSON pointer of the schema failure (Detail::extra is an open object)" } }
+
+# | PK-4 | **The schema artifact.** The JSON Schema **`plugin-manifest.schema.json`** (Appendix B; JSON Schema 2020-12 restricted to the keywords that MN-1, PD-2 and PD-3b use) **validates the manifest**: its top-level keys are the closed ...
+[rows."15"]
+"botster_plugin_api" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"manifest_unknown_key" = ["plugin.code:invalid_request:manifest_unknown_key"]
+"plugin-manifest.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { plugin = "a part of an artifact file name that artifacts::all writes", manifest = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+
+# | PK-5 | **Sources and catalog entries gain `path`.** A source is `{kind: \"git\", url, ref?, path?}` and a catalog entry's `source` is `{git url, ref?, path?}` (PM-1, PM-2); a `local` source names the package root directly and has no `p...
+[rows."16"]
+"local" = ["plugin::PackageSource::Local"]
+"path" = ["plugin::PackageSource::Git::path", "plugin::CatalogSource::path"]
+"source" = ["plugin::CatalogEntry::source"]
+"source_path" = ["plugin::LockRecord::source_path"]
+"{git url, ref?, path?}" = { symbols = ["plugin::CatalogEntry::source", "plugin::CatalogSource::url", "plugin::CatalogSource::ref", "plugin::CatalogSource::path"], uncovered = { git = "the source kind that the catalog source implies" } }
+"{kind: \\\"git\\\", url, ref?, path?}" = { symbols = ["plugin::PackageSource::Git", "plugin::PackageSource::Git::url", "plugin::PackageSource::Git::ref", "plugin::PackageSource::Git::path"], uncovered = { kind = "the serde tag of PackageSource" } }
+
+# | PK-6 | **Agent definitions and accessories (PM-11) use the same rule with their own file names.** Each is a package root with **exactly one** of `botster-plugin.json` (a plugin), **`botster-agent.json`** (an agent definition) or **`bot...
+[rows."17"]
+"accessory.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { accessory = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"agent-definition.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { agent = "a part of an artifact file name that artifacts::all writes", definition = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"botster-accessory.json" = { symbols = ["plugin::ACCESSORY_FILE"], uncovered = { botster = "a part of the file name that ACCESSORY_FILE holds", accessory = "a part of the file name that ACCESSORY_FILE holds", json = "a part of the file name that ACCESSORY_FILE holds" } }
+"botster-agent.json" = { symbols = ["plugin::AGENT_FILE"], uncovered = { botster = "a part of the file name that AGENT_FILE holds", agent = "a part of the file name that AGENT_FILE holds", json = "a part of the file name that AGENT_FILE holds" } }
+"botster-plugin.json" = { symbols = ["plugin::MANIFEST_FILE"], uncovered = { botster = "a part of the file name that MANIFEST_FILE holds", plugin = "a part of the file name that MANIFEST_FILE holds", json = "a part of the file name that MANIFEST_FILE holds" } }
+"invalid_request{detail.code: manifest_ambiguous}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:manifest_ambiguous", "plugin::Detail::code"]
+"path" = ["plugin::PackageSource::Git::path", "plugin::CatalogSource::path"]
+
+# | PK-7 | **Catalog entries for multi-plugin repositories.** Two catalog entries may name the **same** `git url` and `ref` with different `path`s; each resolves, installs, locks and updates **independently**: **each package's lock records...
+[rows."18"]
+"git url" = ["plugin::PackageSource::Git::url"]
+"outdated" = ["hub::PackageStatus::Outdated"]
+"path" = ["plugin::PackageSource::Git::path", "plugin::CatalogSource::path"]
+"ref" = ["plugin::PackageSource::Git::ref", "plugin::CatalogSource::ref"]
+"status" = ["hub::PackageRow::status"]
+"upgrade_packages" = ["hub.action:hub.upgrade_packages"]
+
+# | PK-8 | **Discovery in a target (CP-8).** In a target's plugin directory (`target_plugin_dir`), **every immediate subdirectory that holds a package manifest file is a package root**; a subdirectory with none is ignored (not an error), a...
+[rows."19"]
+"manifest_ambiguous" = ["plugin.code:invalid_request:manifest_ambiguous"]
+"target_plugin_dir" = ["plugin.limit:target_plugin_dir"]
+
+# **Parameters:** none added. The manifest file is bounded by the existing `package_bytes_max` (PM-4) and a `path` by the existing request bound `max_frame_bytes`.
+[rows."22"]
+"max_frame_bytes" = { symbols = ["plugin::PluginLimits::frame_bytes"], uncovered = { max_frame_bytes = "the name of the request bound that HP A2-37 corrects to frame_bytes" } }
+"package_bytes_max" = ["plugin.limit:package_bytes_max"]
+"path" = ["plugin::PackageSource::Git::path", "plugin::CatalogSource::path"]
+
+# | MN-1 | Adds: "The manifest is the file `botster-plugin.json` at the package root (PK-1 to PK-4)." The key set is unchanged. |
+[rows."28"]
+"botster-plugin.json" = { symbols = ["plugin::MANIFEST_FILE"], uncovered = { botster = "a part of the file name that MANIFEST_FILE holds", plugin = "a part of the file name that MANIFEST_FILE holds", json = "a part of the file name that MANIFEST_FILE holds" } }
+
+# | PM-1 | The `git` source is `{kind: "git", url, ref?, path?}` (PK-5); the `local` source names the package root. |
+[rows."29"]
+"git" = "n/a: an external tool name"
+"local" = ["plugin::PackageSource::Local"]
+"{kind: \"git\", url, ref?, path?}" = { symbols = ["plugin::PackageSource::Git", "plugin::PackageSource::Git::url", "plugin::PackageSource::Git::ref", "plugin::PackageSource::Git::path"], uncovered = { kind = "the serde tag of PackageSource" } }
+
+# | PM-2 | The catalog entry `source` is `{git url, ref?, path?}` and `kind` also names the package kind of PK-6. |
+[rows."30"]
+"kind" = ["plugin::CatalogEntry::kind"]
+"source" = ["plugin::CatalogEntry::source"]
+"{git url, ref?, path?}" = { symbols = ["plugin::CatalogEntry::source", "plugin::CatalogSource::url", "plugin::CatalogSource::ref", "plugin::CatalogSource::path"], uncovered = { git = "the source kind that the catalog source implies" } }
+
+# | PM-3 | The lock record gains `source_path`; the content hash covers the files under the package root only (PK-2, PK-5). |
+[rows."31"]
+"source_path" = ["plugin::LockRecord::source_path"]
+
+# | PM-11 | Agent definitions and accessories are identified by `botster-agent.json` and `botster-accessory.json` (PK-6). |
+[rows."33"]
+"botster-accessory.json" = { symbols = ["plugin::ACCESSORY_FILE"], uncovered = { botster = "a part of the file name that ACCESSORY_FILE holds", accessory = "a part of the file name that ACCESSORY_FILE holds", json = "a part of the file name that ACCESSORY_FILE holds" } }
+"botster-agent.json" = { symbols = ["plugin::AGENT_FILE"], uncovered = { botster = "a part of the file name that AGENT_FILE holds", agent = "a part of the file name that AGENT_FILE holds", json = "a part of the file name that AGENT_FILE holds" } }
+
+# | Appendix B | Adds the schema artifacts `agent-definition.schema.json` and `accessory.schema.json`; `plugin-manifest.schema.json` validates `botster-plugin.json` (PK-4). |
+[rows."35"]
+"accessory.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { accessory = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"agent-definition.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { agent = "a part of an artifact file name that artifacts::all writes", definition = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"botster-plugin.json" = { symbols = ["plugin::MANIFEST_FILE"], uncovered = { botster = "a part of the file name that MANIFEST_FILE holds", plugin = "a part of the file name that MANIFEST_FILE holds", json = "a part of the file name that MANIFEST_FILE holds" } }
+"plugin-manifest.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { plugin = "a part of an artifact file name that artifacts::all writes", manifest = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }

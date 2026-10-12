@@ -1,0 +1,358 @@
+{
+  "id": "conf::ui_bd_6_owner_needs_allowlist",
+  "contract": "ui",
+  "clause": "UI-BD-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "owner in a where when the allowlist lacks it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session",
+            "where": {
+              "eq": [
+                {
+                  "path": "/owner"
+                },
+                {
+                  "lit": "knowledge-inbox-pipeline"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "owner in an order when the allowlist lacks it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session",
+            "order": [
+              {
+                "field": "/owner",
+                "dir": "asc"
+              }
+            ]
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "owner in a field when the allowlist lacks it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/owner"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "owner in a ref when the allowlist lacks it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session"
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": "/owner",
+              "absent": {
+                "text": "none"
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admission": {
+        "code": "path_not_allowed"
+      }
+    },
+    {
+      "name": "owner in a where when the allowlist lists it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session",
+            "where": {
+              "eq": [
+                {
+                  "path": "/owner"
+                },
+                {
+                  "lit": "knowledge-inbox-pipeline"
+                }
+              ]
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "owner in an order when the allowlist lists it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session",
+            "order": [
+              {
+                "field": "/owner",
+                "dir": "asc"
+              }
+            ]
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "owner in a field when the allowlist lists it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/owner"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    },
+    {
+      "name": "owner in a ref when the allowlist lists it",
+      "because": "UI UI-BD-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "session"
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": "/owner",
+              "absent": {
+                "text": "none"
+              }
+            }
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/title"
+              }
+            ]
+          }
+        }
+      },
+      "context": {
+        "kinds": {
+          "session": {
+            "projection_allowlist": [
+              "/id",
+              "/title",
+              "/owner"
+            ]
+          }
+        },
+        "handlers": {}
+      },
+      "expect_admitted": true
+    }
+  ]
+}

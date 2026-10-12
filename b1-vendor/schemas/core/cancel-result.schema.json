@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CancelResult",
+  "description": "The result of `cancel(op)`.\n\nClause: Core IN-6, Core A2-1.",
+  "oneOf": [
+    {
+      "type": "string",
+      "enum": [
+        "Admitted",
+        "AlreadyAdmitted",
+        "TooLate",
+        "UnknownOp"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "Refused": {
+          "$ref": "#/$defs/CancelRefusal"
+        }
+      },
+      "required": [
+        "Refused"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "CancelRefusal": {
+      "description": "Why a cancel was refused.\n\nClause: Core IN-6, Core A2-1.",
+      "oneOf": [
+        {
+          "description": "Clause: Core IN-6.",
+          "type": "string",
+          "const": "Full"
+        },
+        {
+          "description": "Clause: Core A2-1.",
+          "type": "string",
+          "const": "NotCancellable"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,346 @@
+{
+ "id": "conf::ld_10_index_rebuild_aside_then_switch",
+ "contract": "hp",
+ "clause": "LD-10",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "reload"
+  ]
+ },
+ "setup": {
+  "given": "a collection with an index; the candidate's declaration changes the index",
+  "calls": {
+   "store.query": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "old-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "old-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    },
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "new-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 81,
+     "call": "store.query",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "index": "id",
+      "limit": 10
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 81,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "old-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": "HP LD-10"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": false,
+     "instance": "$i2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 82,
+     "call": "store.query",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "collection": "c",
+      "index": "id",
+      "limit": 10
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 82,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "old-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": "HP LD-10"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-10",
+   "on": "cand"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e2",
+     "request_id": "$r2"
+    }
+   },
+   "because": "HP LD-10",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 83,
+     "call": "store.query",
+     "context": {
+      "request": "$r2"
+     },
+     "args": {
+      "collection": "c",
+      "index": "id",
+      "limit": 10
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 83,
+     "result": {
+      "ok": true,
+      "value": {
+       "docs": [
+        {
+         "id": "a",
+         "doc": {
+          "served_by": "new-index"
+         },
+         "revision": "r1"
+        }
+       ]
+      }
+     }
+    }
+   },
+   "because": "HP LD-10",
+   "on": "cand"
+  }
+ ]
+}

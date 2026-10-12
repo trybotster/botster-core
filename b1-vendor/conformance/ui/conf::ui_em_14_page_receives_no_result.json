@@ -1,0 +1,269 @@
+{
+  "id": "conf::ui_em_14_page_receives_no_result",
+  "contract": "ui",
+  "clause": "UI-EM-14",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {
+        "annotate": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "node_id"
+            ],
+            "properties": {
+              "node_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "botster-graph",
+      "views": []
+    },
+    "app_origin": "https://app.example.test"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "graph",
+          "title": "Graph",
+          "requires": [
+            "ui_embed"
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "tools",
+                "items": [
+                  {
+                    "id": "act_note",
+                    "label": "Do",
+                    "handler": "annotate",
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "node_id"
+                      ],
+                      "properties": {
+                        "node_id": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "embed",
+                "id": "page",
+                "title": "Knowledge graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "No page"
+                },
+                "error": {
+                  "title": "Page unavailable"
+                },
+                "channel": {
+                  "from_page": [
+                    {
+                      "type": "annotate",
+                      "invoke": "act_note",
+                      "args": {
+                        "node_id": {
+                          "lit": "n1"
+                        }
+                      }
+                    }
+                  ],
+                  "to_page": [
+                    {
+                      "type": "rows",
+                      "source": {
+                        "kind": "botster-graph.node"
+                      },
+                      "fields": [
+                        "/label"
+                      ],
+                      "on": "change"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed",
+            "embed"
+          ]
+        },
+        "kind_snapshots": {
+          "botster-graph.node": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "n1",
+                "label": "A"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "count": 1,
+            "target": "botster-graph",
+            "args": {
+              "name": "graph"
+            }
+          }
+        },
+        "because": "UI UI-EM-7"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "url": "https://assets.example.test:7443/botster-graph/ast_1?t=TOKEN_SENTINEL_1",
+              "expires_at": 1790840000001
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "frame_load": {}
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "channel": "open"
+        },
+        "because": "UI UI-EM-5",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "page_message": {
+            "via": "port",
+            "type": "annotate",
+            "payload": {}
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "annotate",
+            "count": 1,
+            "args": {
+              "node_id": "n1"
+            }
+          }
+        },
+        "because": "UI UI-EM-14"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 2,
+            "ok": {}
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "page_received_only": {
+            "types": [
+              "rows"
+            ]
+          }
+        },
+        "because": "UI UI-EM-14",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "page_message": {
+            "via": "port",
+            "type": "annotate",
+            "payload": {}
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 3,
+            "err": {
+              "code": "permission_denied"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "page_received_only": {
+            "types": [
+              "rows"
+            ]
+          }
+        },
+        "because": "UI UI-EM-14",
+        "node_id": "page"
+      }
+    }
+  ]
+}

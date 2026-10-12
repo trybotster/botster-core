@@ -1,0 +1,72 @@
+{
+ "id": "conf::nt_1_plugin_has_no_sockets",
+ "contract": "hp",
+ "clause": "NT-1",
+ "subject": "plugin_host",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "setup": {
+  "given": "the host runs the fixture host_sockets",
+  "fixture": "host_sockets"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "opened": false
+      }
+     }
+    }
+   },
+   "because": "HP NT-1"
+  }
+ ]
+}

@@ -1,0 +1,837 @@
+{
+ "id": "conf::pm_10_status_values",
+ "contract": "hp",
+ "clause": "PM-10",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "await_package",
+   "client_read",
+   "client_verb",
+   "local_dir",
+   "script_catalog",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "eight packages are brought into eight states: installed, available, outdated, errored, live, pinned, staged and degraded",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pi",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pi",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pi"
+   },
+   "expect": {
+    "status": "installed"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/b.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pa",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "pa",
+       "kind": "plugin",
+       "name": "pa",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/b.git",
+        "ref": "v1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pa"
+   },
+   "expect": {
+    "status": "available"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/c.git",
+    "refs": {
+     "v1": {
+      "commit": "3333333333333333333333333333333333333333",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "po",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/c.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "po",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/c.git",
+    "refs": {
+     "v1": {
+      "commit": "4444444444444444444444444444444444444444",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "po",
+         "version": "2.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v2.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "po",
+    "args": {
+     "action": "status"
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "po",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "po"
+   },
+   "expect": {
+    "status": "outdated"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/e.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pe"
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/e.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pe",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pe"
+   },
+   "expect": {
+    "status": "errored"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "local_dir",
+    "name": "d1",
+    "files": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "pl",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    }
+   },
+   "bind": {
+    "p": "/path"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "local",
+      "path": "$p"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pl",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pl"
+   },
+   "expect": {
+    "status": "live"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/p.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "pp",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/p.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "pp",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "pp",
+    "args": {
+     "action": "pin",
+     "ref": "v1"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "pp"
+   },
+   "expect": {
+    "status": "pinned"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/s.git",
+    "refs": {
+     "v1": {
+      "commit": "3333333333333333333333333333333333333333",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "ps",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "capabilities": [
+          {
+           "surface": "assets"
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/s.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "ps",
+    "status": "staged"
+   }
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "ps"
+   },
+   "expect": {
+    "status": "staged"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/prov.git",
+    "refs": {
+     "v1": {
+      "commit": "4444444444444444444444444444444444444444",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "prov",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "provides": [
+          {
+           "interface": "x.echo",
+           "version": 1,
+           "tools": [
+            "echo"
+           ]
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/dep.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "dep",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         },
+         "requires": [
+          {
+           "interface": "x.echo",
+           "version": 1
+          }
+         ]
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/prov.git",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_prov"
+    }
+   },
+   "on": "prov",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_prov",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "prov"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_prov"
+    }
+   },
+   "on": "prov",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "prov",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/dep.git",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_dep"
+    }
+   },
+   "on": "dep",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_dep",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "dep"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_dep"
+    }
+   },
+   "on": "dep",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "dep",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "prov",
+    "args": {
+     "action": "disable"
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "prov",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "dep"
+   },
+   "expect": {
+    "status": "degraded"
+   },
+   "because": "HP PM-10"
+  }
+ ]
+}

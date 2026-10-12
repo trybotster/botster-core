@@ -1,0 +1,210 @@
+{
+ "id": "conf::ld_5_survival_table",
+ "contract": "hp",
+ "clause": "LD-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "published",
+   "reload"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      }
+     ],
+     "entity_providers": [
+      {
+       "kind": "ticket",
+       "schema": {},
+       "schema_version": "1.0",
+       "verbs": [
+        "list"
+       ]
+      }
+     ],
+     "tools": [
+      {
+       "name": "t1",
+       "description": "d",
+       "input_schema": {},
+       "handler": "h1"
+      }
+     ],
+     "prompts": [
+      {
+       "name": "p1",
+       "description": "d",
+       "arguments": {},
+       "handler": "h1"
+      }
+     ],
+     "timers": [
+      {
+       "timer_id": "tm1",
+       "delay_ms": 100,
+       "handler_id": "he"
+      }
+     ],
+     "events": {
+      "declared": [
+       {
+        "name": "ev1",
+        "payload_schema": {},
+        "audience": [
+         "plugins"
+        ],
+        "public": false
+       }
+      ],
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "x"
+        }
+       }
+      ],
+      "gap_handler": "he"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "timers": [
+     "tm1"
+    ],
+    "subscriptions": [
+     "he"
+    ]
+   },
+   "because": "HP LD-5"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "resumed": false,
+     "instance": "$i2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      }
+     ],
+     "timers": [
+      {
+       "timer_id": "tm2",
+       "delay_ms": 50,
+       "handler_id": "he"
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "hub",
+         "name": "y"
+        }
+       }
+      ],
+      "gap_handler": "he"
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-5",
+   "on": "cand"
+  },
+  {
+   "control": {
+    "op": "published"
+   },
+   "expect": {
+    "timers": [
+     "tm2"
+    ],
+    "subscriptions": [
+     "he"
+    ]
+   },
+   "because": "HP LD-5"
+  }
+ ]
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RouteLimits",
+  "description": "The limits of one route (TS-1), as the worker applies them (A.4 `attached`).\n\nClause: Codec TS-1, TS-3, A.4.",
+  "type": "object",
+  "properties": {
+    "max_frame_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "max_screen_frame_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "max_history_page_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "max_paste_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "max_file_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "max_query_reply_bytes": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "query_client_deadline_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "stall_deadline_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "stall_close_after_ms": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    }
+  },
+  "required": [
+    "max_frame_bytes",
+    "max_screen_frame_bytes",
+    "max_history_page_bytes",
+    "max_paste_bytes",
+    "max_file_bytes",
+    "max_query_reply_bytes",
+    "query_client_deadline_ms",
+    "stall_deadline_ms",
+    "stall_close_after_ms"
+  ]
+}

@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:botster:schema:plugin:v1:agent-definition.schema.json",
+  "title": "AgentDefinition",
+  "description": "`botster-agent.json` (HP PK-6, A2-40): exactly the fields of the client `session_type` create except `source` (Hub-client A.9, with `agent_scopes?` from its amendment 2), plus `script_file?`.\n`script_file` is a path relative to the package root whose content is the `script`. `session_type_dir` is the package root (A2-45).",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "description": "An editor hint that is accepted and ignored (HP A2-43).",
+      "type": "string"
+    },
+    "id": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "interaction": {
+      "$ref": "#/$defs/Interaction"
+    },
+    "lifecycle": {
+      "$ref": "#/$defs/Lifecycle"
+    },
+    "command": {
+      "type": "string"
+    },
+    "args": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "traits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "allowed_environment_overrides": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "context_keys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "port_env": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "notifications": {
+      "$ref": "#/$defs/Notifications"
+    },
+    "script": {
+      "type": "string"
+    },
+    "agent_scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "script_file": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "label",
+    "command"
+  ],
+  "$defs": {
+    "Interaction": {
+      "description": "`interaction` of a session or a session type (HC section 6, HP CA-18).",
+      "type": "string",
+      "enum": [
+        "interactive",
+        "noninteractive"
+      ]
+    },
+    "Lifecycle": {
+      "description": "`lifecycle` of a session type (Hub-client A.9 and its amendment).",
+      "type": "string",
+      "enum": [
+        "restartable",
+        "one_shot"
+      ]
+    },
+    "Notifications": {
+      "description": "`notifications: {mode, patterns}` (HP CA-22). `patterns` only with `matching`.",
+      "type": "object",
+      "properties": {
+        "mode": {
+          "$ref": "#/$defs/NotificationMode"
+        },
+        "patterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "mode"
+      ]
+    },
+    "NotificationMode": {
+      "description": "The mode of a terminal-notification policy (HP CA-22).",
+      "type": "string",
+      "enum": [
+        "all",
+        "none",
+        "matching"
+      ]
+    }
+  }
+}

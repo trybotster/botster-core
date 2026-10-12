@@ -1,0 +1,236 @@
+{
+  "id": "conf::ui_nv_4_form_before_confirm_in_either_order",
+  "contract": "ui",
+  "clause": "UI-NV-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "form entry listed first",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          },
+          {
+            "confirm": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm"
+      ]
+    },
+    {
+      "name": "confirm entry listed first",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "ren"
+            }
+          },
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container7:confirm"
+      ]
+    },
+    {
+      "name": "dialogs keep the order in which each button first appears",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "neutral"
+                  }
+                },
+                {
+                  "id": "ren2",
+                  "label": "Ren2",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "ren2"
+            }
+          },
+          {
+            "form": {
+              "button": "ren"
+            }
+          },
+          {
+            "form": {
+              "button": "ren2"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:4:ren29:container",
+            "slots": {
+              "body": [
+                {
+                  "id": "botster-ui-descendant-v1:42:botster-ui-descendant-v1:4:ren29:container4:item"
+                }
+              ]
+            }
+          },
+          {
+            "id": "botster-ui-descendant-v1:3:ren9:container"
+          }
+        ]
+      }
+    }
+  ]
+}

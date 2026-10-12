@@ -1,0 +1,167 @@
+{
+  "id": "conf::ui_nb_1_absent_row_hides_badge",
+  "contract": "ui",
+  "clause": "UI-NB-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a missing row hides the badge",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "other",
+              "n": 5
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "a kind with no rows hides the badge",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "an absent field hides a count badge",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "other": 5
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "an absent field hides a dot badge",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/f"
+        },
+        "display": "dot"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "other": true
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    },
+    {
+      "name": "a field of another row does not show: the source names one row",
+      "badge": {
+        "source": {
+          "kind": "k",
+          "id": "s1",
+          "field": "/n"
+        },
+        "display": "count"
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "n": 0
+            },
+            {
+              "id": "s2",
+              "n": 9
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "display_badge"
+        ]
+      },
+      "expect": null,
+      "because": "UI UI-NB-1"
+    }
+  ]
+}

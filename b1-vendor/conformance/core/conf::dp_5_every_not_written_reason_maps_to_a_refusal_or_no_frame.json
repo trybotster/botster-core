@@ -1,0 +1,833 @@
+{
+  "id": "conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked",
+      "pty_fail_after",
+      "pty_accept",
+      "pty_input",
+      "pty_output",
+      "edges_quiet"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "max_paste_bytes": 1024,
+      "max_history_page_bytes": 4096,
+      "max_query_reply_bytes": 4096
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_output",
+        "session": "s1",
+        "bytes_hex": "1b5b3f313030306c1b5b3f313030326c1b5b3f313030336c1b5b3f313030366c1b5b3f313030346c1b5b3f323030346c",
+        "scripted": {
+          "modes": {
+            "mouse_tracking": "none",
+            "focus_reporting": false,
+            "bracketed_paste": false
+          }
+        }
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2",
+        "options": {
+          "input": false
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "attach_route": {
+        "route": "r4",
+        "session": "s2",
+        "client": "c4"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r4",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r4",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r4",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r4",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r4",
+      "because": "Core OU-9"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "mouse",
+        "op": "1",
+        "action": "press",
+        "button": "left",
+        "row": 1,
+        "col": 1,
+        "mods": []
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "focus",
+        "op": "2",
+        "focused": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "3"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "3"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "4",
+        "require_bracketed": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "6162"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_commit",
+        "op": "4"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "mode_precondition_failed",
+        "op": "4"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "840000000000000005ff"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "unsupported": {
+            "what": "utf8"
+          }
+        },
+        "op": "5"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5",
+        "Codec TS-5b"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "6",
+        "require_bracketed": false
+      }
+    },
+    {
+      "route_send": {
+        "frame": "paste_chunk",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "6161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "6"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "62"
+        }
+      },
+      "route": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "not_writable",
+        "op": "7"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Core DP-5",
+        "Core IN-3"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "62"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_begin",
+        "op": "9",
+        "require_bracketed": false
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "paste_abort",
+        "op": "9"
+      }
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "op": {
+              "$not": "99"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r1"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r1",
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 1
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "62"
+        }
+      ],
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_fail_after",
+        "session": "s1",
+        "bytes": 3
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "616263646566"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "failed",
+        "op": "10",
+        "written_bytes": 3
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "pty_input",
+        "session": "s1"
+      },
+      "expect": {
+        "bytes": "$log10"
+      },
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$log10",
+          4
+        ]
+      },
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s2",
+        "on": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "63"
+        }
+      },
+      "route": "r4"
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "op": {
+              "$not": "99"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r4"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r4",
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$stop2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "session_ended",
+        "op": "1",
+        "written_bytes": {
+          "$absent": true
+        }
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r4",
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_accept",
+        "session": "s1",
+        "bytes": 2
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "11",
+        "bytes": {
+          "$bytes_hex": "6162636465"
+        }
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 6
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$stop1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "session_ended",
+        "op": "11",
+        "written_bytes": 2
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Core DP-5",
+        "Core IN-2"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AttachOptions",
+  "description": "The options of `attach`. Durations travel as milliseconds.\n\nClause: Core OU-1, Core EV-8, Core DP-5b.",
+  "type": "object",
+  "properties": {
+    "file_directory": {
+      "description": "An absolute directory that file input writes into.",
+      "type": "string"
+    },
+    "file_permissions": {
+      "description": "Unix mode bits. The default is readable and writable by the session's user only.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "route_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "terminal_formats": {
+      "description": "In preference order.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "owner": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "query_deadline": {
+      "description": "Required and positive when `answers_queries` is true.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "route_tag": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "route_limits": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RouteLimitChoices"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "history": {
+      "description": "OU-1 names no default.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HistoryMode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stall_deadline": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "answers_queries": {
+      "type": "boolean",
+      "default": true
+    },
+    "input": {
+      "type": "boolean",
+      "default": true
+    }
+  },
+  "required": [
+    "file_directory"
+  ],
+  "$defs": {
+    "RouteLimitChoices": {
+      "description": "The route limits that a host may choose at attach.\n\nClause: Core OU-1.",
+      "type": "object",
+      "properties": {
+        "max_frame_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_screen_frame_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "max_history_page_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      }
+    },
+    "HistoryMode": {
+      "description": "What the baseline of a route carries.\n\nClause: Core OU-1.",
+      "type": "string",
+      "enum": [
+        "none",
+        "screen",
+        "full"
+      ]
+    }
+  }
+}

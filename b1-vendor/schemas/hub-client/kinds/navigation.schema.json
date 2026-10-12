@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "package": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "icon": {
+      "type": "string"
+    },
+    "order": {
+      "type": "integer",
+      "format": "int64",
+      "maximum": 9007199254740991,
+      "minimum": -9007199254740991
+    },
+    "target": {
+      "$ref": "#/$defs/NavTarget"
+    },
+    "badge": {
+      "$ref": "#/$defs/Badge"
+    }
+  },
+  "required": [
+    "id",
+    "package",
+    "label",
+    "order",
+    "target"
+  ],
+  "description": "The `navigation` row. `badge` is the ui-contract badge (UI-NB-1).\n\nClause: HC section 6 (`navigation`).",
+  "x-kind": "navigation",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {
+    "resolve_route": {
+      "effect": "read",
+      "durable_operation": false,
+      "reasons": [
+        "not_found"
+      ],
+      "args": "ResolveRouteArgs",
+      "result": "ResolveRouteResult",
+      "clause": "A.7, A.9, A.9b"
+    }
+  },
+  "$defs": {
+    "ResolveRouteArgs": {
+      "type": "object",
+      "properties": {
+        "route_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "route_path"
+      ],
+      "description": "Arguments of `navigation.resolve_route`: the part after `/hubs/<hub_id>`.\n\nClause: HC A.9, A2 G-17."
+    },
+    "ResolveRouteResult": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "$ref": "#/$defs/NavTarget"
+        }
+      },
+      "required": [
+        "target"
+      ],
+      "description": "The result of `resolve_route`.\n\nClause: HC A.9, A2 G-17."
+    },
+    "NavTarget": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/NavTargetKind"
+        },
+        "id": {
+          "type": "string"
+        },
+        "select": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "kind",
+        "id"
+      ],
+      "description": "A navigation target: a view or an entrypoint, with an optional preset selection (slot to row key).\n\nClause: HC section 6 (`navigation`), A2 G-17, A.9 (`resolve_route`)."
+    },
+    "NavTargetKind": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "view",
+            "entrypoint"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "Badge": {
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/BadgeSource"
+        },
+        "display": {
+          "type": "string"
+        },
+        "tone": {
+          "$ref": "#/$defs/OrUnknown"
+        }
+      },
+      "required": [
+        "source",
+        "display"
+      ],
+      "description": "A navigation badge (UI-NB-1, ui-contract 1.1): one row and one field."
+    },
+    "BadgeSource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "field": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "field"
+      ]
+    },
+    "OrUnknown": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Tone"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "description": "A value that is one of the known variants, or a name that this release does not know.\nUI-VR-2 says a client ignores an unknown optional `tone`, `display` or `widget` and counts it."
+    },
+    "Tone": {
+      "type": "string",
+      "enum": [
+        "neutral",
+        "info",
+        "success",
+        "warning",
+        "danger"
+      ],
+      "description": "Clause: UI-CF-4. A tone maps to a style, never to a fixed color."
+    }
+  }
+}

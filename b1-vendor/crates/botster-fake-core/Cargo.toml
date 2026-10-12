@@ -1,0 +1,23 @@
+[package]
+name = "botster-fake-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-core-contract = { path = "../botster-core-contract" }
+botster-fake-route.workspace = true
+botster-probe-script.workspace = true
+botster-route-codec.workspace = true
+rand_chacha.workspace = true
+rand_core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+proptest = "1.11"
+test-strategy = "0.4.5"

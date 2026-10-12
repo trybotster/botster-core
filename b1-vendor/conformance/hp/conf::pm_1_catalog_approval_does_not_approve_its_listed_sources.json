@@ -1,0 +1,192 @@
+{
+ "id": "conf::pm_1_catalog_approval_does_not_approve_its_listed_sources",
+ "contract": "hp",
+ "clause": "PM-1",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "await_package",
+   "client_read",
+   "client_verb",
+   "edge_requests",
+   "script_catalog",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "the operator adds a catalog whose entry lists the git url U1; the operator never names U1",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "e1",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "e1",
+       "kind": "plugin",
+       "name": "e1",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/a.git",
+        "ref": "v1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "invoke",
+    "id": "https://catalog.example/k1.json",
+    "args": {
+     "action": "refresh"
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "expect": {
+    "requests": []
+   },
+   "because": "HP PM-1"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "e1"
+   },
+   "expect": {
+    "status": "available"
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "catalog",
+      "catalog_id": "https://catalog.example/k1.json",
+      "entry_id": "e1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "e1",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "e1"
+   },
+   "expect": {
+    "lock": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git"
+     }
+    }
+   },
+   "because": "HP PM-1"
+  }
+ ]
+}

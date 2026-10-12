@@ -1,0 +1,759 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-2-candidate7.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Author: plugin-platform writer (Claude, 00a2), 2026-09-30. Reviewer: Sol Hub B. Source: the plan auditor's completeness sweep (`audits/completeness-sweep-20260930.md`, `completeness-sweep-B2-20260930.md` items B2-1 to B2-40, and `complet...
+[rows."3"]
+"audits/completeness-sweep-20260930.md" = "n/a: a repository path"
+"completeness-sweep-A-20260930.md" = "n/a: a repository path"
+"completeness-sweep-B2-20260930.md" = "n/a: a repository path"
+
+# **Base:** the Hub→plugin contract joint package J4e (`hub-plugin-contract-v1.1.joint-J4e.md`, sha256 `e16f3f6b60963fae0cf971e6f7e610a9b91be7ecf28c95f02e8530d2bde27f19`) and Amendment 1 (candidate 5, sha256 `5fe279bbc6694a431d47f5f222e2be...
+[rows."4"]
+"conf::a2_..." = "n/a: a wildcard for the conformance ids of this amendment, not one id"
+"e16f3f6b60963fae0cf971e6f7e610a9b91be7ecf28c95f02e8530d2bde27f19" = "n/a: the sha256 of a frozen base file"
+"hub-plugin-contract-v1.1.joint-J4e.md" = "n/a: a repository path"
+
+# | A2-1 (B2-1) | `session_types.spawn` and `ensure_worktree_and_spawn` failures: `not_found` (target, session type or worktree); `invalid_request{unknown_context_key, environment_not_allowed, env_too_long, prompt_too_long}`; `failed{detai...
+[rows."10"]
+"backpressured{no_receipt_capacity}" = ["plugin::ErrorKind::Backpressured", "plugin.code:backpressured:no_receipt_capacity"]
+"capability_denied" = ["plugin::ErrorKind::CapabilityDenied"]
+"ensure_worktree_and_spawn" = ["plugin.call:session_types.ensure_worktree_and_spawn"]
+"failed{detail.code: target_disabled}" = ["plugin::ErrorKind::Failed", "plugin.code:failed:target_disabled", "plugin::Detail::code"]
+"invalid_request{unknown_context_key, environment_not_allowed, env_too_long, prompt_too_long}" = ["plugin.code:invalid_request:env_too_long", "plugin.code:invalid_request:environment_not_allowed", "plugin.code:invalid_request:prompt_too_long", "plugin.code:invalid_request:unknown_context_key"]
+"none" = ["plugin::Effect::None"]
+"not_found" = ["plugin::ErrorKind::NotFound"]
+"quota_exceeded{no_session_port}" = ["plugin.code:quota_exceeded:no_session_port"]
+"session_types.spawn" = ["plugin.call:session_types.spawn"]
+
+# | A2-2 (B2-2) | **State refusals have one shape** (section 14): `failed{detail.code: wrong_state, detail.reason: <reason>}`; `reason` is a closed set per call: `sessions.stop`, `sessions.delete`, `sessions.read_screen`, `sessions.termina...
+[rows."11"]
+"detail.code" = ["plugin::Detail::code"]
+"failed(<x>)" = { symbols = ["plugin::ErrorKind::Failed"], uncovered = { x = "a placeholder" } }
+"failed{detail.code: wrong_state, detail.reason: <reason>}" = ["plugin::Detail::reason", "plugin::ErrorKind::Failed", "plugin.code:failed:wrong_state", "plugin::Detail::code"]
+"not_ended \\| not_restartable \\| record_unavailable \\| environment_not_retained \\| not_ready" = ["plugin.wrong_state:sessions.restart:not_ended", "plugin.wrong_state:sessions.restart:not_restartable", "plugin.wrong_state:sessions.restart:record_unavailable", "plugin.wrong_state:sessions.restart:environment_not_retained", "plugin.wrong_state:sessions.restart:not_ready"]
+"occupied" = ["plugin.wrong_state:worktrees.delete:occupied"]
+"reason" = ["plugin::Detail::reason"]
+"session_ended \\| not_running" = ["plugin.wrong_state:sessions.safe_write:session_ended", "plugin.wrong_state:sessions.safe_write:not_running", "plugin.wrong_state:sessions.write:session_ended", "plugin.wrong_state:sessions.write:not_running"]
+"sessions.delete" = ["plugin.call:sessions.delete"]
+"sessions.read_cursor" = ["plugin.call:sessions.read_cursor"]
+"sessions.read_screen" = ["plugin.call:sessions.read_screen"]
+"sessions.restart" = ["plugin.call:sessions.restart"]
+"sessions.safe_write" = ["plugin.call:sessions.safe_write"]
+"sessions.stop" = ["plugin.call:sessions.stop"]
+"sessions.terminal_state" = ["plugin.call:sessions.terminal_state"]
+"sessions.write" = ["plugin.call:sessions.write"]
+"starting \\| running \\| stopping \\| ended \\| lost \\| no_screen_model" = ["plugin.wrong_state:sessions.stop:starting", "plugin.wrong_state:sessions.stop:running", "plugin.wrong_state:sessions.stop:stopping", "plugin.wrong_state:sessions.stop:ended", "plugin.wrong_state:sessions.stop:lost", "plugin.wrong_state:sessions.stop:no_screen_model", "plugin.wrong_state:sessions.delete:starting", "plugin.wrong_state:sessions.delete:running", "plugin.wrong_state:sessions.delete:stopping", "plugin.wrong_state:sessions.delete:ended", "plugin.wrong_state:sessions.delete:lost", "plugin.wrong_state:sessions.delete:no_screen_model", "plugin.wrong_state:sessions.read_screen:starting", "plugin.wrong_state:sessions.read_screen:running", "plugin.wrong_state:sessions.read_screen:stopping", "plugin.wrong_state:sessions.read_screen:ended", "plugin.wrong_state:sessions.read_screen:lost", "plugin.wrong_state:sessions.read_screen:no_screen_model", "plugin.wrong_state:sessions.terminal_state:starting", "plugin.wrong_state:sessions.terminal_state:running", "plugin.wrong_state:sessions.terminal_state:stopping", "plugin.wrong_state:sessions.terminal_state:ended", "plugin.wrong_state:sessions.terminal_state:lost", "plugin.wrong_state:sessions.terminal_state:no_screen_model", "plugin.wrong_state:sessions.read_cursor:starting", "plugin.wrong_state:sessions.read_cursor:running", "plugin.wrong_state:sessions.read_cursor:stopping", "plugin.wrong_state:sessions.read_cursor:ended", "plugin.wrong_state:sessions.read_cursor:lost", "plugin.wrong_state:sessions.read_cursor:no_screen_model"]
+"worktrees.delete" = ["plugin.call:worktrees.delete"]
+"wrong_state: <x>" = { symbols = ["plugin.code:failed:wrong_state"], uncovered = { x = "a placeholder" } }
+
+# | A2-3 (B2-3) | **`sessions.write` (RW-2):** `Written`, `Partial`, `Cancelled`, `Unknown` and `Failed` return `ok: true` with `state` = `written \| partial \| cancelled \| unknown \| failed` and the counts; for `failed`, `reason: os_writ...
+[rows."12"]
+"Cancelled" = ["plugin::WriteState::Cancelled"]
+"Failed" = ["plugin::WriteState::Failed"]
+"NotWritten(LaneFull)" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::LaneFull", "plugin::ErrorKind::Backpressured"]
+"NotWritten(SessionEnded \\| Stopping)" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::SessionEnded", "core::NotWrittenReason::Stopping"]
+"NotWritten(r)" = { symbols = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason"], uncovered = { r = "a placeholder for any other reason" } }
+"Partial" = ["plugin::WriteState::Partial"]
+"Unknown" = ["plugin::WriteState::Unknown"]
+"Written" = ["plugin::WriteState::Written"]
+"backpressured" = ["plugin::ErrorKind::Backpressured"]
+"cancelled" = ["plugin.value:WRITE_RESULT_REASONS:cancelled"]
+"failed" = ["plugin::WriteState::Failed"]
+"failed{detail.code: not_written, detail.reason: refused \\| unsupported \\| mode_precondition_failed \\| stale \\| not_reported}" = ["plugin::Detail::reason", "plugin::ErrorKind::Failed", "plugin.value:NOT_WRITTEN_REASONS:mode_precondition_failed", "plugin.value:NOT_WRITTEN_REASONS:not_reported", "plugin.code:failed:not_written", "plugin.value:NOT_WRITTEN_REASONS:refused", "plugin.value:NOT_WRITTEN_REASONS:stale", "plugin.value:NOT_WRITTEN_REASONS:unsupported", "plugin::Detail::code"]
+"failed{detail.code: wrong_state, detail.reason: session_ended}" = ["plugin::ErrorKind::Failed", "plugin::Detail::code", "plugin.code:failed:wrong_state", "plugin::Detail::reason", "plugin.wrong_state:sessions.write:session_ended"]
+"link_lost" = ["plugin.value:WRITE_RESULT_REASONS:link_lost"]
+"none" = ["plugin::Effect::None"]
+"not_written" = ["plugin.code:failed:not_written"]
+"ok: true" = { symbols = ["plugin::PluginResult::Ok"], uncovered = { true = "a JSON literal value" } }
+"os_write_failed" = ["plugin.value:WRITE_RESULT_REASONS:os_write_failed"]
+"reason" = ["plugin::WriteResult::reason"]
+"reason: os_write_failed" = ["plugin::WriteResult::reason", "plugin.value:WRITE_RESULT_REASONS:os_write_failed"]
+"sessions.write" = ["plugin.call:sessions.write"]
+"state" = ["plugin::WriteResult::state"]
+"written \\| partial \\| cancelled \\| unknown \\| failed" = ["plugin::WriteState::Written", "plugin::WriteState::Partial", "plugin::WriteState::Cancelled", "plugin::WriteState::Unknown", "plugin::WriteState::Failed"]
+
+# | A2-4 (B2-4) | **Operation record states are closed per kind** (CA-16). `spawn`: `starting`, `installed`, `failed`, `cancelled`, `unknown`. `safe_write`: as SW-2. `http`: `queued`, `done`, `failed`, `cancelled`, `unknown`. `ws`: `queued...
+[rows."13"]
+"cancelled" = ["plugin.state:spawn:cancelled", "plugin.state:http:cancelled", "plugin.state:ws:cancelled", "plugin.state:process:cancelled", "plugin.state:plugin_call:cancelled"]
+"dispatched" = ["plugin.state:plugin_call:dispatched"]
+"done" = ["plugin.state:http:done", "plugin.state:process:done", "plugin.state:plugin_call:done"]
+"error" = ["plugin::OperationFields::error"]
+"failed" = ["plugin.state:spawn:failed", "plugin.state:http:failed", "plugin.state:ws:failed", "plugin.state:process:failed", "plugin.state:plugin_call:failed"]
+"failed(command_not_found)" = ["plugin::ErrorKind::Failed", "plugin.code:failed:command_not_found"]
+"failed(process_bridge_failed)" = ["plugin::ErrorKind::Failed", "plugin.code:failed:process_bridge_failed"]
+"failed.reason" = ["plugin.state:spawn:failed", "plugin::OperationFields::reason"]
+"http" = ["plugin.value:OPERATION_KINDS:http"]
+"hub_restarted" = ["plugin.value:SAFE_WRITE_UNKNOWN_REASONS:hub_restarted"]
+"installed" = ["plugin.state:spawn:installed"]
+"invalid_request(cwd_not_allowed)" = ["plugin.code:invalid_request:cwd_not_allowed"]
+"kind" = ["plugin::OperationFields::kind"]
+"open" = ["plugin.state:ws:open"]
+"plugin_call" = ["plugin.value:OPERATION_KINDS:plugin_call"]
+"process" = ["plugin.value:OPERATION_KINDS:process"]
+"queued" = ["plugin.state:http:queued", "plugin.state:ws:queued", "plugin.state:process:queued", "plugin.state:plugin_call:queued"]
+"reason" = ["plugin::OperationFields::reason"]
+"running" = ["plugin.state:process:running"]
+"safe_write" = ["plugin.value:OPERATION_KINDS:safe_write"]
+"session_type_invalid" = ["plugin.value:SPAWN_FAILED_REASONS:session_type_invalid"]
+"spawn" = ["plugin.value:OPERATION_KINDS:spawn"]
+"start_failed" = ["plugin.value:SPAWN_FAILED_REASONS:start_failed"]
+"starting" = ["plugin.state:spawn:starting"]
+"state" = ["plugin::OperationFields::state"]
+"target_disabled" = ["plugin.value:SPAWN_FAILED_REASONS:target_disabled"]
+"terminal: true" = { symbols = ["plugin::OperationFields::terminal"], uncovered = { true = "a JSON literal value" } }
+"timed_out" = ["plugin.state:plugin_call:timed_out", "plugin::ErrorKind::TimedOut"]
+"truncated" = ["plugin::OperationFields::truncated"]
+"unknown" = ["plugin.state:spawn:unknown", "plugin.state:http:unknown", "plugin.state:ws:unknown", "plugin.state:process:unknown", "plugin.state:plugin_call:unknown"]
+"worker_lost" = ["plugin.value:SPAWN_FAILED_REASONS:worker_lost"]
+"worktree_failed" = ["plugin.value:SPAWN_FAILED_REASONS:worktree_failed"]
+"ws" = ["plugin.value:OPERATION_KINDS:ws"]
+"{kind: <the kind encoded in the id>, state: \\\"unknown\\\", reason: \\\"hub_restarted\\\", terminal: true}" = { symbols = ["plugin::OperationFields::kind", "plugin::OperationFields::state", "plugin.state:spawn:unknown", "plugin.state:http:unknown", "plugin.state:ws:unknown", "plugin.state:process:unknown", "plugin.state:plugin_call:unknown", "plugin::OperationFields::reason", "plugin.value:SAFE_WRITE_UNKNOWN_REASONS:hub_restarted", "plugin::OperationFields::terminal"], uncovered = { the = "prose in a placeholder", encoded = "prose in a placeholder", in = "prose in a placeholder", id = "prose: the operation id (OperationFields::operation_id)", true = "a JSON literal" } }
+"{stdout: bool, stderr: bool}" = { symbols = ["plugin::Truncated::stderr", "plugin::Truncated::stdout"], uncovered = { bool = "a primitive type name" } }
+
+# | A2-5 (B2-5) | **Appendix A gains the table \"Handler kinds\"**, one row per wire `kind` string: `mcp_tool`, `mcp_prompt`, `mcp_resource`, `ui_action`, `event`, `event_gap`, `entity_provider`, `timer`, `store_watch`, `operation`, `webho...
+[rows."14"]
+"Invoke.payload" = ["plugin::Invoke::payload"]
+"Result.value" = { symbols = ["plugin::ResultFrame::result", "plugin::PluginResult::Ok"], uncovered = { value = "the wire name of the Ok value (PluginResult serializes it as value)" } }
+"arguments" = { symbols = ["plugin::McpArguments"], uncovered = { arguments = "the mcp_tool and mcp_prompt payload, typed as McpArguments (an open object)" } }
+"command" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"descriptor" = ["plugin::HandlerDecl::descriptor", "plugin::HandlerSpec::descriptor"]
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"event" = ["plugin::HandlerKind::Event"]
+"event_gap" = ["plugin::HandlerKind::EventGap"]
+"fs_watch" = ["plugin::HandlerKind::FsWatch"]
+"handler_id" = ["plugin::Subscription::handler_id", "plugin::TimerDecl::handler_id", "plugin::WatchDecl::handler_id", "plugin::FsWatchDecl::handler_id", "plugin::SessionActionMap::handler_id", "plugin::TimersArmArgs::handler_id", "plugin::StoreWatchArgs::handler_id", "plugin::FsWatchArgs::handler_id"]
+"hook" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"kind" = ["plugin::HandlerDecl::kind"]
+"mcp_prompt" = ["plugin::HandlerKind::McpPrompt"]
+"mcp_resource" = ["plugin::HandlerKind::McpResource"]
+"mcp_tool" = ["plugin::HandlerKind::McpTool"]
+"operation" = ["plugin::HandlerKind::Operation"]
+"relay" = ["plugin::HandlerKind::Relay"]
+"session_action" = "n/a: a handler kind that A2-5 removes from VC-5; no crate symbol holds a removed kind"
+"store_watch" = ["plugin::HandlerKind::StoreWatch"]
+"timer" = ["plugin::HandlerKind::Timer"]
+"ui_action" = ["plugin::HandlerKind::UiAction"]
+"webhook" = ["plugin::HandlerKind::Webhook"]
+"{action_id}" = ["plugin::UiActionDescriptor::action_id"]
+"{contents: [{uri, mime_type, text? \\| blob_b64?}]}" = ["plugin::McpResourceResult::contents", "plugin::ResourceContent::uri", "plugin::ResourceContent::mime_type", "plugin::ResourceContent::text", "plugin::ResourceContent::blob_b64"]
+"{kind, request: snapshot \\| page, cursor?}" = ["plugin::EntityProviderPayload::kind", "plugin::EntityProviderPayload::request", "plugin::ProviderRequest::Snapshot", "plugin::ProviderRequest::Page", "plugin::EntityProviderPayload::cursor"]
+"{kind}" = ["plugin::EntityProviderDescriptor::kind"]
+"{messages: [...]}" = ["plugin::McpPromptResult::messages"]
+"{name, description, arguments}" = ["plugin::McpPromptDescriptor::name", "plugin::McpPromptDescriptor::description", "plugin::McpPromptDescriptor::arguments"]
+"{name, description, input_schema}" = ["plugin::McpToolDescriptor::name", "plugin::McpToolDescriptor::description", "plugin::McpToolDescriptor::input_schema"]
+"{operation_id}" = ["plugin::UiActionResult::operation_id"]
+"{path, headers, body_b64}" = ["plugin::WebhookPayload::path", "plugin::WebhookPayload::headers", "plugin::WebhookPayload::body_b64"]
+"{path}" = ["plugin::WebhookDescriptor::path"]
+"{records: [...], cursor?}" = ["plugin::EntityProviderResult::records", "plugin::EntityProviderResult::cursor"]
+"{relay_id, envelope_b64}" = ["plugin::RelayPayload::relay_id", "plugin::RelayPayload::envelope_b64"]
+"{status, headers?, body_b64?}" = ["plugin::WebhookResult::status", "plugin::WebhookResult::headers", "plugin::WebhookResult::body_b64"]
+"{timer_id}" = ["plugin::TimerPayload::timer_id"]
+"{uri_template, name, mime_type?}" = ["plugin::McpResourceDescriptor::uri_template", "plugin::McpResourceDescriptor::name", "plugin::McpResourceDescriptor::mime_type"]
+"{uri}" = ["plugin::McpResourcePayload::uri"]
+"{view_id?, action_id, target?, input, idempotency_key?, operation_id?}" = ["plugin::UiActionPayload::view_id", "plugin::UiActionPayload::action_id", "plugin::UiActionPayload::target", "plugin::UiActionPayload::input", "plugin::UiActionPayload::idempotency_key", "plugin::UiActionPayload::operation_id"]
+"{watch_id, collection}" = ["plugin::StoreWatchPayload::watch_id", "plugin::StoreWatchPayload::collection"]
+"{watch_id, root}" = ["plugin::FsWatchPayload::watch_id", "plugin::FsWatchPayload::root"]
+
+# | A2-6 (B2-6) | **EV-9 gains a payload table** (one row per Hub and terminal event: payload, subject, priority, audience, grant). Minimum: `hub/session.<state>{session, state, exit?{code, signal, cause}, reason?}`; `hub/session.attached ...
+[rows."15"]
+"hub.toml" = "n/a: a repository path"
+"hub/" = { symbols = ["plugin::EventSpec::owner"], uncovered = { hub = "the owner of the Hub events (EventSpec::owner is a string)" } }
+"hub/config.changed{keys, restart_required}" = ["plugin.event:hub/config.changed", "plugin::ConfigChangedEvent::keys", "plugin::ConfigChangedEvent::restart_required"]
+"hub/package.configuration_changed{plugin_key, names}" = ["plugin.event:hub/package.configuration_changed", "plugin::PackageConfigurationChangedEvent::plugin_key", "plugin::PackageConfigurationChangedEvent::names"]
+"hub/plugin.loaded \\| unloaded \\| failed{plugin_key, version, reason?}" = ["plugin.event:hub/plugin.loaded", "plugin.event:hub/plugin.unloaded", "plugin.event:hub/plugin.failed", "plugin::PluginLifecycleEvent::plugin_key", "plugin::PluginLifecycleEvent::version", "plugin::PluginLifecycleEvent::reason"]
+"hub/route.ended" = ["plugin.event:hub/route.ended"]
+"hub/session.<state>{session, state, exit?{code, signal, cause}, reason?}" = ["plugin.event:hub/session.created", "plugin.event:hub/session.starting", "plugin.event:hub/session.running", "plugin.event:hub/session.stopping", "plugin.event:hub/session.ended", "plugin.event:hub/session.lost", "plugin.event:hub/session.removed", "plugin::SessionStateEvent::session", "plugin::SessionStateEvent::state", "plugin::SessionStateEvent::exit", "plugin::ExitInfo::code", "plugin::ExitInfo::signal", "plugin::ExitInfo::cause", "plugin::SessionStateEvent::reason"]
+"hub/session.activity{session, source: output \\| client, at}" = ["plugin.event:hub/session.activity", "plugin::SessionActivityEvent::session", "plugin::SessionActivityEvent::source", "plugin::ActivitySource::Output", "plugin::ActivitySource::Client", "plugin::SessionActivityEvent::at"]
+"hub/session.attached \\| detached{session, client_kind}" = ["plugin.event:hub/session.attached", "plugin.event:hub/session.detached", "plugin::SessionAttachEvent::session", "plugin::SessionAttachEvent::client_kind"]
+"hub/session.modes{session, modes}" = ["plugin.event:hub/session.modes", "plugin::SessionModesEvent::session", "plugin::SessionModesEvent::modes"]
+"hub/session.silent{session, since}" = ["plugin.event:hub/session.silent", "plugin::SessionSilentEvent::session", "plugin::SessionSilentEvent::since"]
+"hub/session.size{session, rows, cols}" = ["plugin.event:hub/session.size", "plugin::SessionSizeEvent::session", "plugin::SessionSizeEvent::rows", "plugin::SessionSizeEvent::cols"]
+"reload_config" = ["hub.action:hub.reload_config"]
+"session" = "n/a: a field that the hub/route.ended payload does not have (RouteEndedEvent has reason only)"
+"terminal/bell{}" = ["plugin.event:terminal/bell", "plugin::TerminalBell"]
+"terminal/cwd{cwd}" = ["plugin.event:terminal/cwd", "plugin::TerminalCwd::cwd"]
+"terminal/exit{code?, signal?, cause}" = ["plugin.event:terminal/exit", "plugin::TerminalExit::code", "plugin::TerminalExit::signal", "plugin::TerminalExit::cause"]
+"terminal/modes{modes}" = ["plugin.event:terminal/modes", "plugin::TerminalModes::modes"]
+"terminal/notification{source: osc9 \\| osc777, title?, body}" = ["plugin.event:terminal/notification", "plugin::TerminalNotification::source", "plugin::TerminalNotificationSource::Osc9", "plugin::TerminalNotificationSource::Osc777", "plugin::TerminalNotification::title", "plugin::TerminalNotification::body"]
+"terminal/prompt_mark{mark: a \\| b \\| c \\| d, exit_code?}" = ["plugin.event:terminal/prompt_mark", "plugin::TerminalPromptMark::mark", "plugin::PromptMark::A", "plugin::PromptMark::B", "plugin::PromptMark::C", "plugin::PromptMark::D", "plugin::TerminalPromptMark::exit_code"]
+"terminal/title{text}" = ["plugin.event:terminal/title", "plugin::TerminalTitle::text"]
+"{reason}" = ["plugin::RouteEndedEvent::reason"]
+"{route_id}" = ["hub::RouteEndedSubject::route_id"]
+
+# | A2-7 (B2-7) | **`entity.publish` (EN-4):** `patch` is a **JSON Merge Patch (RFC 7396)** on the current record; a patch on an absent id is `not_found`; a patched record that fails the family schema is `invalid_request{detail.code: entit...
+[rows."16"]
+"entity.publish" = ["plugin.call:entity.publish"]
+"invalid_request{detail.code: entity_schema}" = ["plugin.code:invalid_request:entity_schema", "plugin::Detail::code"]
+"not_found" = ["plugin::ErrorKind::NotFound"]
+"patch" = ["plugin::EntityPublishArgs::patch"]
+"pending_gap" = ["plugin::PublishStatus::PendingGap"]
+"quota_exceeded{detail.code: entity_bytes}" = ["plugin.code:quota_exceeded:entity_bytes", "plugin::Detail::code"]
+"resync_scheduled" = ["plugin::PublishStatus::ResyncScheduled"]
+
+# | A2-8 (B2-8) | **JSON `null` in Lua (LB-9):** `botster.json.null` is a unique sentinel; it encodes as JSON `null`, and `json.decode` and every host-call result return it for `null`; `web.set_origin{origin = botster.json.null}` clears th...
+[rows."17"]
+"botster.json.null" = "n/a: a JSON literal value; a format name; the product and binary name"
+"json.decode" = ["plugin.value:LUA_LOCAL_NAMES:json.decode"]
+"nil" = "n/a: a Lua value, not a wire value"
+"null" = "n/a: a JSON literal value"
+"secrets.put{name, value = botster.json.null}" = { symbols = ["plugin.call:secrets.put", "plugin::SecretsPutArgs::name", "plugin::SecretsPutArgs::value"], uncovered = { botster = "the Lua module name", json = "the Lua module name", null = "the JSON null sentinel of LB-9" } }
+"web.set_origin{origin = botster.json.null}" = { symbols = ["plugin.call:web.set_origin", "plugin::SetOriginArgs::origin", "plugin::WebOrigin::Clear"], uncovered = { botster = "the Lua module name", json = "the Lua module name", null = "the JSON null sentinel of LB-9" } }
+
+# | A2-9 (B2-9) | **`store.batch`** (Appendix A, LN-2): `ops: [{op: put \| delete, collection, id, doc?, expected_revision?}]`. A `put` with no `expected_revision` creates and fails `conflict{revision_conflict, op_index}` if the id exists;...
+[rows."18"]
+"conflict{revision_conflict, op_index}" = { symbols = ["plugin::Detail::extra", "plugin::ErrorKind::Conflict", "plugin.code:conflict:revision_conflict"], uncovered = { op_index = "a descriptive detail key (Detail::extra is an open object, result.rs)" } }
+"delete" = ["plugin::BatchOpKind::Delete"]
+"expected_revision" = ["plugin::StoreBatchOp::expected_revision"]
+"invalid_request{detail.code: expected_revision_required, op_index}" = { symbols = ["plugin::Detail::extra", "plugin.code:invalid_request:expected_revision_required", "plugin::Detail::code"], uncovered = { op_index = "a descriptive detail key (Detail::extra is an open object, result.rs)" } }
+"ops: [{op: put \\| delete, collection, id, doc?, expected_revision?}]" = ["plugin::StoreBatchOp::collection", "plugin::BatchOpKind::Delete", "plugin::StoreBatchOp::doc", "plugin::StoreBatchOp::expected_revision", "plugin::StoreBatchOp::id", "plugin::StoreBatchOp::op", "plugin::StoreBatchArgs::ops", "plugin::BatchOpKind::Put"]
+"put" = ["plugin::BatchOpKind::Put"]
+"store.batch" = ["plugin.call:store.batch"]
+
+# | A2-10 (B2-10) | **`plugins.call` failures:** admission adds `conflict(idempotency_key_reuse)` and `conflict(call_depth_exceeded)`; terminal record errors: `failed(plugin_crashed)`, `timed_out`, `cancelled`, `failed(handler_error)`, `re...
+[rows."19"]
+"cancelled" = ["plugin::ErrorKind::Cancelled"]
+"conflict(call_depth_exceeded)" = ["plugin.code:conflict:call_depth_exceeded"]
+"conflict(idempotency_key_reuse)" = ["plugin::ErrorKind::Conflict", "plugin.code:conflict:idempotency_key_reuse"]
+"failed(handler_error)" = ["plugin::ErrorKind::Failed", "plugin.code:failed:handler_error"]
+"failed(plugin_crashed)" = ["plugin::ErrorKind::Failed", "plugin.code:failed:plugin_crashed"]
+"plugins.call" = ["plugin.call:plugins.call"]
+"response_too_large" = ["plugin::ErrorKind::ResponseTooLarge"]
+"timed_out" = ["plugin::ErrorKind::TimedOut"]
+
+# | A2-11 (B2-11) | **Fenced write:** a write refused at the reload fence is `unavailable{detail.code: instance_fenced}`, effect `none`. The common failures of Appendix A add `failed(wrong_context)` and `unavailable(instance_fenced)`. | `c...
+[rows."20"]
+"failed(wrong_context)" = ["plugin::ErrorKind::Failed", "plugin.code:failed:wrong_context"]
+"none" = ["plugin::Effect::None"]
+"unavailable(instance_fenced)" = ["plugin.code:unavailable:instance_fenced"]
+"unavailable{detail.code: instance_fenced}" = ["plugin.code:unavailable:instance_fenced", "plugin::Detail::code"]
+
+# | A2-12 (B2-12) | Every row whose result carries `operation_id` lists `backpressured(no_receipt_capacity)`; every row that starts a session run lists `quota_exceeded(no_session_port)`. | `conf::a2_12_operation_rows_list_backpressure_and_...
+[rows."21"]
+"backpressured(no_receipt_capacity)" = ["plugin::ErrorKind::Backpressured", "plugin.code:backpressured:no_receipt_capacity"]
+"operation_id" = ["plugin::OperationFields::operation_id"]
+"quota_exceeded(no_session_port)" = ["plugin.code:quota_exceeded:no_session_port"]
+
+# | A2-13 (B2-13) | **SA-5:** `failed{stop_timeout}` is deleted. A stop that does not end the session is observed on the session family; `sessions.stop` never reports it. | `conf::a2_13_no_stop_timeout` |
+[rows."22"]
+"failed{stop_timeout}" = { symbols = ["plugin::ErrorKind::Failed"], uncovered = { stop_timeout = "a code that A2-13 deletes; the crate has no symbol for it" } }
+"sessions.stop" = ["plugin.call:sessions.stop"]
+
+# | A2-14 (B2-14) | **ST-4:** `equals` is an array of values for the first N index fields, in declaration order; `range.from` and `range.to` are single values of field N+1; a value of the wrong declared type is `invalid_request{detail.code...
+[rows."23"]
+"accepts" = ["plugin::CollectionDecl::accepts"]
+"equals" = ["plugin::StoreQueryArgs::equals"]
+"failed{incompatible_document, id}" = { symbols = ["plugin::ErrorKind::Failed", "plugin.code:failed:incompatible_document", "plugin::Detail::extra"], uncovered = { id = "a descriptive detail key (Detail::extra is an open object)" } }
+"invalid_request{detail.code: index_value_type}" = ["plugin.code:invalid_request:index_value_type", "plugin::Detail::code"]
+"range.from" = ["plugin::StoreRange::from", "plugin::StoreQueryArgs::range"]
+"range.to" = ["plugin::StoreQueryArgs::range", "plugin::StoreRange::to"]
+"store.watch{equals?}" = ["plugin.call:store.watch", "plugin::StoreQueryArgs::equals"]
+
+# | A2-15 (B2-15) | `spawn_targets.list`, `worktrees.list` and `session_types.list` take `after?` and return `next_after?`, as `sessions.list` (SS-1). | `conf::a2_15_collection_reads_have_cursors` |
+[rows."24"]
+"after?" = ["plugin::AfterArgs::after", "plugin::SessionTypesListArgs::after"]
+"next_after?" = ["plugin::SpawnTargetsResult::next_after", "plugin::WorktreesResult::next_after", "plugin::SessionTypesListResult::next_after"]
+"session_types.list" = ["plugin.call:session_types.list"]
+"sessions.list" = ["plugin.call:sessions.list"]
+"spawn_targets.list" = ["plugin.call:spawn_targets.list"]
+"worktrees.list" = ["plugin.call:worktrees.list"]
+
+# | A2-16 (B2-16) | `session_types.show` returns `{definition}` = the Hub→client `session_type` resource with its `context_keys`, `allowed_environment_overrides`, `interaction` and `presentation`. `fs` `kind`: `file \| dir \| symlink \| ot...
+[rows."25"]
+"allowed_environment_overrides" = ["plugin::SessionTypeRow::allowed_environment_overrides"]
+"config.get" = ["plugin.call:config.get"]
+"context_keys" = ["plugin::SessionTypeRow::context_keys"]
+"creating \\| ready \\| occupied \\| deleting \\| failed" = ["plugin::WorktreeStatus::Creating", "plugin::WorktreeStatus::Ready", "plugin::WorktreeStatus::Occupied", "plugin::WorktreeStatus::Deleting", "plugin::WorktreeStatus::Failed"]
+"diagnostics[]" = ["plugin::ConfigValues::diagnostics"]
+"file \\| dir \\| symlink \\| other" = ["plugin::FsKind::Dir", "plugin::FsKind::File", "plugin::FsKind::Other", "plugin::FsKind::Symlink"]
+"fs" = { symbols = ["plugin::FsKind"], uncovered = { fs = "the call family name of fs.* (the kind enum is FsKind)" } }
+"git \\| directory" = ["plugin::TargetKind::Git", "plugin::TargetKind::Directory"]
+"interaction" = ["plugin::SessionTypeRow::interaction"]
+"kind" = ["plugin::FsEntry::kind", "plugin::FsStatResult::kind", "plugin::SpawnTargetRow::kind"]
+"presentation" = ["plugin::SessionTypeRow::presentation"]
+"session_type" = ["hub.kind:session_type"]
+"session_types.show" = ["plugin.call:session_types.show"]
+"status" = ["plugin::WorktreeRow::status"]
+"{definition}" = ["plugin::SessionTypeDefinition::definition"]
+"{name, code, message}" = ["plugin::ConfigDiagnostic::code", "plugin::ConfigDiagnostic::message", "plugin::ConfigDiagnostic::name"]
+
+# | A2-17 (B2-17) | **NT-3:** `method` is one of `GET \| HEAD \| POST \| PUT \| PATCH \| DELETE \| OPTIONS`; `headers` is a list of `[name, value]` pairs in both directions and keeps repeats and order; admission failures add `invalid_reque...
+[rows."26"]
+"[name, value]" = { symbols = ["plugin::HttpRequestArgs::headers"], uncovered = { name = "a member of the [String; 2] header pair", value = "a member of the [String; 2] header pair" } }
+"headers" = ["plugin::HttpRequestArgs::headers"]
+"invalid_request(net_userinfo, net_header_forbidden, net_scheme)" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:net_header_forbidden", "plugin.code:invalid_request:net_scheme", "plugin.code:invalid_request:net_userinfo"]
+"method" = ["plugin::HttpRequestArgs::method"]
+
+# | A2-18 (B2-19) | **`relay.deliver`:** `accepted` = the envelope was queued to the attempt, effect `committed`; `rejected` = the attempt has ended (completed or expired), effect `none`. The `relay` handler returns `{}`. | `conf::a2_18_re...
+[rows."27"]
+"accepted" = ["plugin::RelayStatus::Accepted"]
+"committed" = ["plugin::Effect::Committed"]
+"none" = ["plugin::Effect::None"]
+"rejected" = ["plugin::RelayStatus::Rejected"]
+"relay" = ["plugin::HandlerKind::Relay"]
+"relay.deliver" = ["plugin.call:relay.deliver"]
+
+# | A2-19 (B2-20) | **AS-1:** allowed `content_type`: `text/html`, `text/plain`, `text/css`, `application/javascript`, `application/json`, `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `image/svg+xml`; any other is `invalid_request...
+[rows."28"]
+"application/javascript" = { symbols = ["plugin::AssetContentType::ApplicationJavascript"], uncovered = { application = "a part of the MIME type that the variant serde-renames", javascript = "a part of the MIME type that the variant serde-renames" } }
+"application/json" = { symbols = ["plugin::AssetContentType::ApplicationJson"], uncovered = { application = "a part of the MIME type that the variant serde-renames", json = "a part of the MIME type that the variant serde-renames" } }
+"content_type" = ["plugin::AssetsPublishArgs::content_type", "plugin::AssetContentType"]
+"image/gif" = { symbols = ["plugin::AssetContentType::ImageGif"], uncovered = { image = "a part of the MIME type that the variant serde-renames", gif = "a part of the MIME type that the variant serde-renames" } }
+"image/jpeg" = { symbols = ["plugin::AssetContentType::ImageJpeg"], uncovered = { image = "a part of the MIME type that the variant serde-renames", jpeg = "a part of the MIME type that the variant serde-renames" } }
+"image/png" = { symbols = ["plugin::AssetContentType::ImagePng"], uncovered = { image = "a part of the MIME type that the variant serde-renames", png = "a part of the MIME type that the variant serde-renames" } }
+"image/svg+xml" = { symbols = ["plugin::AssetContentType::ImageSvgXml"], uncovered = { image = "a part of the MIME type that the variant serde-renames", svg = "a part of the MIME type that the variant serde-renames", xml = "a part of the MIME type that the variant serde-renames" } }
+"image/webp" = { symbols = ["plugin::AssetContentType::ImageWebp"], uncovered = { image = "a part of the MIME type that the variant serde-renames", webp = "a part of the MIME type that the variant serde-renames" } }
+"invalid_request{content_type_not_allowed}" = ["plugin.code:invalid_request:content_type_not_allowed"]
+"text/css" = { symbols = ["plugin::AssetContentType::TextCss"], uncovered = { text = "a part of the MIME type that the variant serde-renames", css = "a part of the MIME type that the variant serde-renames" } }
+"text/html" = { symbols = ["plugin::AssetContentType::TextHtml"], uncovered = { text = "a part of the MIME type that the variant serde-renames", html = "a part of the MIME type that the variant serde-renames" } }
+"text/plain" = { symbols = ["plugin::AssetContentType::TextPlain"], uncovered = { text = "a part of the MIME type that the variant serde-renames", plain = "a part of the MIME type that the variant serde-renames" } }
+
+# | A2-20 (B2-21) | `log.write` result: `{seq, dropped_before?}`. | `conf::a2_20_log_write_reports_dropped_before` |
+[rows."29"]
+"log.write" = ["plugin.call:log.write"]
+"{seq, dropped_before?}" = ["plugin::LogWriteResult::dropped_before", "plugin::LogWriteResult::seq"]
+
+# | A2-21 (B2-22) | **`sessions.update`:** `metadata` is a JSON object that **replaces** `metadata[<plugin_key>]` whole; `null` removes the namespace; the write is durable (ST-9) before the answer. | `conf::a2_21_metadata_replaces_and_is_d...
+[rows."30"]
+"metadata" = ["plugin::SessionsUpdateArgs::metadata"]
+"metadata[<plugin_key>]" = { symbols = ["plugin::SessionsUpdateArgs::metadata"], uncovered = { plugin_key = "the placeholder for the plugin key of the caller" } }
+"null" = "n/a: a JSON literal value"
+"sessions.update" = ["plugin.call:sessions.update"]
+
+# | A2-22 (B2-23) | **SW-2:** `failed.reason`: `core_refused`, `session_removed`; `unknown.reason`: `hub_restarted`, `link_lost`, `cancel_after_text`. | `conf::a2_22_safe_write_reasons` |
+[rows."31"]
+"cancel_after_text" = ["plugin.value:SAFE_WRITE_UNKNOWN_REASONS:cancel_after_text"]
+"core_refused" = ["plugin.value:SAFE_WRITE_FAILED_REASONS:core_refused"]
+"failed.reason" = ["plugin.state:safe_write:failed", "plugin::OperationFields::reason"]
+"hub_restarted" = ["plugin.value:SAFE_WRITE_UNKNOWN_REASONS:hub_restarted"]
+"link_lost" = ["plugin.value:WRITE_RESULT_REASONS:link_lost", "plugin.value:SAFE_WRITE_UNKNOWN_REASONS:link_lost"]
+"session_removed" = ["plugin.value:SAFE_WRITE_FAILED_REASONS:session_removed"]
+"unknown.reason" = ["plugin.state:safe_write:unknown", "plugin::OperationFields::reason"]
+
+# | A2-23 (B2-24) | **SO-3:** a subscription to `hub/session.activity \| modes \| size \| silent` needs `events_hub` **and** `session_observe[:own \| :any]`; a subscription to `terminal/*` (except `terminal/output`) needs `events_terminal[...
+[rows."32"]
+"events_hub" = { symbols = ["plugin::EventSpec::grant"], uncovered = { events_hub = "a grant name (EventSpec::grant is a string)" } }
+"events_terminal[:own \\| :any]" = { symbols = ["plugin::EventSpec::grant", "plugin::SubjectScope::Own", "plugin::SubjectScope::Any"], uncovered = { events_terminal = "a grant name (EventSpec::grant is a string)" } }
+"hub/session.activity \\| modes \\| size \\| silent" = ["plugin.event:hub/session.activity", "plugin.event:hub/session.modes", "plugin.event:hub/session.size", "plugin.event:hub/session.silent"]
+"session_observe[:own \\| :any]" = { symbols = ["plugin::CallSpec::grant", "plugin::SubjectScope::Own", "plugin::SubjectScope::Any"], uncovered = { session_observe = "a grant name (CallSpec::grant and EventSpec::grant are strings)" } }
+"terminal/*" = ["plugin.event:terminal/title", "plugin.event:terminal/cwd", "plugin.event:terminal/bell", "plugin.event:terminal/notification", "plugin.event:terminal/prompt_mark", "plugin.event:terminal/modes", "plugin.event:terminal/exit"]
+"terminal/output" = ["plugin.event:terminal/output"]
+
+# | A2-24 (B2-25) | **CP-6:** the `events.describe` sentence is deleted: a public event is discovered from the producer's manifest; no call exists. | `conf::a2_24_no_events_describe` |
+[rows."33"]
+"events.describe" = "n/a: the call that A2-24 deletes; no call exists"
+
+# | A2-25 (B2-26) | **Appendix B:** `Hello` adds `bindings[{interface, interface_version, provider?, provider_version?, interface_hash?}]` and `priorities[{name, rank}]`; `Ready` adds `fs_watches[{root, path, handler_id}]` and `session_act...
+[rows."34"]
+"Hello" = ["plugin::Hello"]
+"Ready" = ["plugin::Ready"]
+"bindings[{interface, interface_version, provider?, provider_version?, interface_hash?}]" = ["plugin::Hello::bindings", "plugin::HelloBinding::interface", "plugin::HelloBinding::interface_version", "plugin::HelloBinding::provider", "plugin::HelloBinding::provider_version", "plugin::HelloBinding::interface_hash"]
+"fs_watches[{root, path, handler_id}]" = ["plugin::Ready::fs_watches", "plugin::FsWatchDecl::root", "plugin::FsWatchDecl::path", "plugin::FsWatchDecl::handler_id"]
+"handler_id" = ["plugin::FsWatchDecl::handler_id", "plugin::SessionActionMap::handler_id", "plugin::TimerDecl::handler_id", "plugin::WatchDecl::handler_id"]
+"priorities[{name, rank}]" = ["plugin::Priority::name", "plugin::Hello::priorities", "plugin::Priority::rank"]
+"session_actions[{action_id, handler_id}]" = ["plugin::Ready::session_actions", "plugin::SessionActionMap::action_id", "plugin::SessionActionMap::handler_id"]
+"timers[{timer_id, delay_ms, handler_id?}]" = ["plugin::Ready::timers", "plugin::TimerDecl::timer_id", "plugin::TimerDecl::delay_ms", "plugin::TimerDecl::handler_id"]
+"watches[{collection, index?, equals?, handler_id?}]" = ["plugin::Ready::watches", "plugin::WatchDecl::collection", "plugin::WatchDecl::index", "plugin::WatchDecl::equals", "plugin::WatchDecl::handler_id"]
+
+# | A2-26 (B2-27) | **Withdrawn** (no observed failure: a plugin that registers several `timer` or `store_watch` handlers is a finding for a later amendment with evidence, not a cap here). | `conf::a2_26_withdrawn` |
+[rows."35"]
+"store_watch" = ["plugin::HandlerKind::StoreWatch"]
+"timer" = ["plugin::HandlerKind::Timer"]
+
+# | A2-27 (B2-28) | **Load failures for API and features:** `failed{detail.code: api_unsupported \| feature_missing{names} \| ui_contract_unsupported}`; HS-4, section 18 and PD-2 use these codes; **no kind `unsupported` exists**. | `conf::...
+[rows."36"]
+"failed{detail.code: api_unsupported \\| feature_missing{names} \\| ui_contract_unsupported}" = { symbols = ["plugin.code:failed:api_unsupported", "plugin.code:failed:feature_missing", "plugin.code:failed:ui_contract_unsupported", "plugin::Detail::code", "plugin::Features::missing"], uncovered = { names = "a detail member of feature_missing (Detail::extra is an open object); Features::missing computes the names" } }
+"unsupported" = "n/a: an error kind name that the clause says does not exist (A2-27)"
+
+# | A2-28 (B2-29) | **EV-6 frames:** `snapshot_begin{}`, `snapshot_chunk{sessions: [session]}`, `snapshot_end{}`, `delta{op: upsert \| remove, session?, session_id}`; a row is the client `session` resource; **the Hub's internal generation ...
+[rows."37"]
+"delta{op: upsert \\| remove, session?, session_id}" = ["plugin::SessionFamilyFrame::Delta::op", "plugin::SessionFamilyFrame::Delta::session", "plugin::SessionFamilyFrame::Delta::session_id", "plugin::DeltaOp::Remove", "plugin::DeltaOp::Upsert"]
+"session" = ["plugin::SessionFamilyFrame::Delta::session"]
+"snapshot_begin{}" = ["plugin::SessionFamilyFrame::SnapshotBegin"]
+"snapshot_chunk{sessions: [session]}" = ["plugin::SessionFamilyFrame::Delta::session", "plugin::SessionFamilyFrame::SnapshotChunk::sessions"]
+"snapshot_end{}" = ["plugin::SessionFamilyFrame::SnapshotEnd"]
+
+# | A2-29 (B2-30) | **PM-10 gains a table** mapping each operation to its client verb and failures: `install` = `create(package)`, `update` = `upgrade` (with `preview_upgrade` a read), `pin`/`unpin`, `rollback`, `enable`/`disable` (invoke)...
+[rows."38"]
+"approve_grants" = ["hub.action:package.approve_grants"]
+"conflict{grants_mismatch}" = ["plugin::ErrorKind::Conflict", "plugin.code:conflict:grants_mismatch"]
+"create(package)" = ["hub.action:package.create"]
+"delete" = ["hub.action:package.delete"]
+"disable" = ["hub.action:package.disable"]
+"enable" = ["hub.action:package.enable"]
+"failed{detail.code: wrong_state, detail.reason: no_history}" = ["plugin::ErrorKind::Failed", "plugin::Detail::code", "plugin.code:failed:wrong_state", "plugin::Detail::reason", "hub.reason:package.rollback:wrong_state:no_history"]
+"failed{net_dns \\| net_connect \\| net_tls \\| net_denied}" = ["plugin::ErrorKind::Failed", "plugin.code:failed:net_connect", "plugin.code:capability_denied:net_denied", "plugin.code:failed:net_dns", "plugin.code:failed:net_tls"]
+"failed{unpack_refused, pointer}" = { symbols = ["plugin::ErrorKind::Failed", "plugin.code:failed:unpack_refused", "plugin::Detail::extra"], uncovered = { pointer = "a descriptive detail key (Detail::extra is an open object)" } }
+"get" = ["hub.action:package.get"]
+"install" = ["hub.operation:package.install", "hub.action:package.create"]
+"invalid_request{catalog_version_unsupported}" = ["plugin.code:invalid_request:catalog_version_unsupported"]
+"list" = ["hub.action:package.list"]
+"not_found{ref}" = ["plugin::ErrorKind::NotFound", "hub::PinArgs::ref"]
+"pin" = ["hub.action:package.pin"]
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]
+"quota_exceeded{catalog_too_large}" = ["plugin.code:quota_exceeded:catalog_too_large"]
+"quota_exceeded{package_too_large}" = ["plugin.code:quota_exceeded:package_too_large"]
+"refresh" = ["hub.action:catalog.refresh"]
+"refresh_catalog" = { symbols = ["hub.action:catalog.refresh"], uncovered = { refresh_catalog = "the PM-10 operation name of the catalog refresh action" } }
+"remove" = ["hub.operation:package.remove"]
+"rollback" = ["hub.action:package.rollback"]
+"status" = { symbols = ["hub.action:package.get", "hub.action:package.list"], uncovered = { status = "the PM-10 operation name of a package read (get or list)" } }
+"unpin" = ["hub.action:package.unpin"]
+"update" = { symbols = ["hub.action:package.upgrade"], uncovered = { update = "the PM-10 operation name of the upgrade action" } }
+"upgrade" = ["hub.action:package.upgrade"]
+
+# | A2-30 (B2-31) | **Observe reads:** `terminal_state`, `read_cursor` and `read_screen` succeed for a session that has a model (running, or ended until removed); with no model they are `failed{wrong_state, reason: no_screen_model}`; `unav...
+[rows."39"]
+"failed{wrong_state, reason: no_screen_model}" = ["plugin::ErrorKind::Failed", "plugin.code:failed:wrong_state", "plugin::Detail::reason", "plugin.wrong_state:sessions.read_screen:no_screen_model"]
+"read_cursor" = ["plugin.call:sessions.read_cursor"]
+"read_screen" = ["plugin.call:sessions.read_screen"]
+"terminal_state" = ["plugin.call:sessions.terminal_state"]
+"unavailable" = ["plugin::ErrorKind::Unavailable"]
+
+# | A2-32 (B2-33) | Every admission answer carries `kind` (spawn: `\"spawn\"`; `safe_write`: `\"safe_write\"` with `terminal: false`). | `conf::a2_32_admission_answers_carry_kind` |
+[rows."41"]
+"\\\"safe_write\\\"" = ["plugin.value:OPERATION_KINDS:safe_write"]
+"\\\"spawn\\\"" = ["plugin.value:OPERATION_KINDS:spawn"]
+"kind" = ["plugin::SpawnAdmission::kind", "plugin::SafeWriteAdmission::kind", "plugin::HttpAdmission::kind", "plugin::WsAdmission::kind", "plugin::ProcessAdmission::kind"]
+"safe_write" = ["plugin.value:OPERATION_KINDS:safe_write"]
+"terminal: false" = { symbols = ["plugin::SafeWriteAdmission::terminal"], uncovered = { false = "a JSON literal value" } }
+
+# | A2-33 (B2-34) | `store.watch` and `fs.watch` effect text: \"commit: the watch is registered (not durable)\". | `conf::a2_33_watch_effect_text` |
+[rows."42"]
+"fs.watch" = ["plugin.call:fs.watch"]
+"store.watch" = ["plugin.call:store.watch"]
+
+# | A2-34 (B2-35) | LN-2 covers host calls; host-local names are LN-1 plus the binding's LB-8 and LB-9 names (`json.array`, `json.empty_array`, `json.null`). | `conf::a2_34_ln2_scope` |
+[rows."43"]
+"json.array" = "n/a: a format name; a primitive type name"
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+"json.null" = "n/a: a JSON literal value; a format name"
+
+# | A2-35 (B2-36) | **`operations_get_rate`** is the name of the **existing ordinary rate** of CA-16 (a refusal `backpressured` over it); it is added to section 15 as a Hub bound under that name only. (B2-37, `max_timer_delay_ms`, is **wit...
+[rows."44"]
+"backpressured" = ["plugin::ErrorKind::Backpressured"]
+"max_timer_delay_ms" = "n/a: a parameter that A2-35 withdraws; the crate has no symbol for it"
+"operations_get_rate" = ["plugin.limit:operations_get_rate"]
+
+# | A2-36 (B2-38) | **Amendment 1 PK-3:** the JSON-pointer field of `manifest_malformed` is named **`pointer`** (not `path`). | `conf::a2_36_manifest_malformed_pointer_field` |
+[rows."45"]
+"manifest_malformed" = ["plugin.code:invalid_request:manifest_malformed"]
+"path" = "n/a: the old field name that A2-36 replaces with pointer"
+"pointer" = { symbols = ["plugin::Detail::extra"], uncovered = { pointer = "a descriptive detail key of manifest_malformed (Detail::extra is an open object)" } }
+
+# | A2-37 (B2-39) | **Amendment 1:** the request bound is `frame_bytes` (the name of HP section 15), not `max_frame_bytes`. | `conf::a2_37_bound_name` |
+[rows."46"]
+"frame_bytes" = ["plugin.limit:frame_bytes"]
+"max_frame_bytes" = "n/a: the wrong name of the request bound that A2-37 replaces with frame_bytes (plugin::PluginLimits::frame_bytes)"
+
+# | A2-38 (B2-40) | `hub.identity`: `unavailable` only before the Hub has a `hub_id` (first start). | `conf::a2_38_hub_identity_unavailable_condition` |
+[rows."47"]
+"hub.identity" = ["plugin.call:hub.identity"]
+"hub_id" = ["plugin::HubIdentity::hub_id"]
+"unavailable" = ["plugin::ErrorKind::Unavailable"]
+
+# | A2-39 (G-3) | **CP-8:** `target_plugin_dir` is **`.botster/plugins`** by default. **The default is contract: a change of it is MAJOR.** An operator override applies to that Hub only, and a repository that ships packages uses the defaul...
+[rows."53"]
+".botster/plugins" = { symbols = ["plugin::DEFAULT_TARGET_PLUGIN_DIR"], uncovered = { botster = "a part of the directory name that the const holds", plugins = "a part of the directory name that the const holds" } }
+"target_plugin_dir" = ["plugin.limit:target_plugin_dir"]
+
+# | A2-40 (G-4) | **PK-6b: the content of the two data files.** **`botster-agent.json`** is one JSON object with **exactly the fields of the client `session_type` create (Hub→client contract, A.9) except `source`**, plus `script_file?` (a ...
+[rows."54"]
+"accessory" = ["plugin::AccessoryRole::Accessory"]
+"accessory.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { accessory = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"agent-definition.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { agent = "a part of an artifact file name that artifacts::all writes", definition = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"allocate_port" = ["plugin::Accessory::allocate_port"]
+"botster-accessory.json" = { symbols = ["plugin::ACCESSORY_FILE"], uncovered = { botster = "a part of the file name that ACCESSORY_FILE holds", accessory = "a part of the file name that ACCESSORY_FILE holds", json = "a part of the file name that ACCESSORY_FILE holds" } }
+"botster-agent.json" = { symbols = ["plugin::AGENT_FILE"], uncovered = { botster = "a part of the file name that AGENT_FILE holds", agent = "a part of the file name that AGENT_FILE holds", json = "a part of the file name that AGENT_FILE holds" } }
+"port_forward" = ["plugin::Accessory::port_forward"]
+"role" = ["plugin::Accessory::role"]
+"script" = ["plugin::AgentDefinition::script"]
+"script_file?" = ["plugin::AgentDefinition::script_file"]
+"session_type" = ["hub::SessionRow::session_type"]
+"session_type_dir" = ["hub::SessionContextFile::session_type_dir"]
+"source" = { symbols = ["plugin::Accessory"], uncovered = { source = "the session_type create field that the agent and accessory files omit (A2-40)" } }
+
+# | A2-41 (G-5) | **NT-7 wire format.** A webhook request is authenticated by `Authorization: Bearer <secret>` **or** by `X-Botster-Signature-256: sha256=<lowercase hex HMAC-SHA256 of the raw request body under the secret>`; the operator c...
+[rows."55"]
+"Authorization: Bearer <secret>" = "n/a: an HTTP header form of NT-7; the crate holds no webhook authentication type"
+"X-Botster-Signature-256: sha256=<lowercase hex HMAC-SHA256 of the raw request body under the secret>" = "n/a: an HTTP header form of NT-7; the crate holds no webhook authentication type"
+"errored{port_unavailable}" = "n/a: HP listener state; no client-visible field in v1 (HC A7-2 keeps it out of scope)"
+"http://<net_listen>/plugins/<plugin_key>/<path>" = { symbols = ["plugin.limit:net_listen", "plugin::WebhookDescriptor::path"], uncovered = { http = "the URL scheme", plugins = "a literal path segment of the webhook URL", plugin_key = "the placeholder for the plugin key" } }
+"net_listen" = ["plugin.limit:net_listen"]
+"webhook_auth: bearer \\| hmac" = { symbols = ["hub::PackagePatch::configuration"], uncovered = { webhook_auth = "a package configuration key (configuration is an open object)", bearer = "a value of webhook_auth", hmac = "a value of webhook_auth" } }
+"webhook_secret" = { symbols = ["hub::PackagePatch::configuration"], uncovered = { webhook_secret = "a package configuration key (configuration is an open object)" } }
+
+# | A2-42 (G-6) | **WP-5 stable origin.** The Hub allocates each plugin's static origin as `http://127.0.0.1:<port>`, **the port allocated by the OS at the first bind and recorded durably per package key (ST-9)**, and **keeps it across res...
+[rows."56"]
+"errored{port_unavailable}" = "n/a: HP listener state; no client-visible field in v1 (HC A7-2 keeps it out of scope)"
+"http://127.0.0.1:<port>" = "n/a: the static origin URL form; http is the URL scheme and port is the placeholder for the port that the OS allocates. PackageRow::static_origin holds the origin as a string (HC A7-2)"
+"package" = ["hub.kind:package"]
+"static_origin?" = ["hub::PackageRow::static_origin"]
+
+# | A2-43 (G-13) | **Appendix B:** each schema artifact is published at `botster-plugin-contract/schemas/v<botster_plugin_api>/<artifact>` and carries `$id: urn:botster:schema:plugin:v<botster_plugin_api>:<artifact>`. **MN-1 and PK-6 accep...
+[rows."57"]
+"$id: urn:botster:schema:plugin:v<botster_plugin_api>:<artifact>" = { symbols = ["plugin::BOTSTER_PLUGIN_API", "plugin::artifact_id"], uncovered = { id = "the JSON Schema keyword $id", urn = "the URN scheme", botster = "a literal URN segment", schema = "a literal URN segment", plugin = "a literal URN segment", v = "the version prefix", artifact = "a placeholder for the artifact name" } }
+"$schema" = ["plugin::Manifest::$schema"]
+"botster-plugin-contract/schemas/v<botster_plugin_api>/<artifact>" = { symbols = ["plugin::BOTSTER_PLUGIN_API", "plugin::artifacts::all"], uncovered = { botster = "a part of the crate name", plugin = "a part of the crate name", contract = "a part of the crate name", schemas = "a literal path segment", v = "the version prefix", artifact = "a placeholder for the artifact name" } }
+"manifest_unknown_key" = ["plugin.code:invalid_request:manifest_unknown_key"]
+
+# | A2-44 (G-14) | **PM-2 catalog document:** served over `https` as `application/json`; `catalog_version` is the integer `1`; `id` is unique in the document and matches `[a-z0-9-]+`; the artifact `catalog.schema.json` (Appendix B) validat...
+[rows."58"]
+"[a-z0-9-]+" = { symbols = ["plugin::CatalogEntry::id"], uncovered = { a = "a part of the regex pattern of CatalogEntry::id", z0 = "a part of the regex pattern of CatalogEntry::id" } }
+"application/json" = { symbols = ["plugin::Catalog"], uncovered = { application = "a part of the MIME type of the catalog document", json = "a part of the MIME type of the catalog document" } }
+"catalog.schema.json" = { symbols = ["plugin::artifacts::all"], uncovered = { catalog = "a part of an artifact file name that artifacts::all writes", schema = "a part of an artifact file name that artifacts::all writes", json = "a part of an artifact file name that artifacts::all writes" } }
+"catalog_bytes_max" = ["plugin.limit:catalog_bytes_max"]
+"catalog_version" = ["plugin::Catalog::catalog_version"]
+"failed{detail.code: catalog_invalid}" = ["plugin.code:failed:catalog_invalid", "plugin::Detail::code"]
+"https" = "n/a: a URL scheme"
+"id" = ["plugin::CatalogEntry::id"]
+
+# | A2-45 (G-15) | **PK-6:** for a session type that comes from a package, **`session_type_dir` is the package root** (client MC-1c). | `conf::a2_45_session_type_dir_is_the_package_root` |
+[rows."59"]
+"session_type_dir" = ["hub::SessionContextFile::session_type_dir"]
+
+# | A2-46 (G-18) | **WP-5:** a static route `root` may be **`package:<relative dir>`**, a directory inside the package root; it needs **no `fs` grant and no operator binding**, and the PK-2 and PM-4 containment rules apply (a link out of t...
+[rows."60"]
+"fs" = { symbols = ["plugin::FsKind"], uncovered = { fs = "the grant family name fs (the static route needs no fs grant)" } }
+"package:<relative dir>" = { symbols = ["plugin::StaticRoute::root"], uncovered = { package = "the root prefix of a package-relative static root (root is a string)", relative = "a placeholder", dir = "a placeholder" } }
+"root" = ["plugin::StaticRoute::root"]
+
+# | A2-47 (G-19) | **Lua `require`, `entrypoints`:** the entry (`entrypoints.service.lua`) is a path relative to the package root; every `*.lua` file under the package root is staged at load; `require(\"a.b\")` loads `<package root>/a/b.lu...
+[rows."61"]
+"*.lua" = "n/a: a file name pattern for the Lua source files of a package"
+"<package root>/a/b.lua" = "n/a: a repository path"
+"<package root>/a/b/init.lua" = "n/a: a repository path"
+"entrypoints" = ["plugin::Manifest::entrypoints"]
+"entrypoints.service.lua" = ["plugin::Manifest::entrypoints", "plugin::Entrypoints::service", "plugin::ServiceEntry::lua"]
+"require" = ["plugin.value:LUA_GLOBALS:require"]
+"require(\\\"a.b\\\")" = { symbols = ["plugin.value:LUA_GLOBALS:require"], uncovered = { a = "an example module path", b = "an example module path" } }
+
+# | A2-48 (G-22) | **PM-12:** the `local` source of a discovered target instance is **its package root of PK-8** (`<target>/<target_plugin_dir>/<subdir>`), not the target directory. | `conf::a2_48_discovered_instance_local_source_is_its_pa...
+[rows."62"]
+"<target>/<target_plugin_dir>/<subdir>" = { symbols = ["plugin.limit:target_plugin_dir"], uncovered = { target = "a placeholder for the target directory", subdir = "a placeholder for the package subdirectory" } }
+"local" = ["plugin::PackageSource::Local"]
+
+# | A2-49 (G-28) | **PD-3:** an interface document is at `<package root>/interfaces/<name>@<MAJOR.MINOR.PATCH>.json`, where `<name>` uses the characters of PD-1. | `conf::a2_49_interface_document_path` |
+[rows."63"]
+"<name>" = { symbols = ["plugin::ProvidedInterface"], uncovered = { name = "a placeholder for the interface name (ProvidedInterface is a string newtype)" } }
+"<package root>/interfaces/<name>@<MAJOR.MINOR.PATCH>.json" = "n/a: a file path template of PD-3; the crate holds no path type for interface documents"
+
+# | A2-51 (G-2, HP side) | **Operator inputs have a defined home.** (a) **FS-1:** the operator supplies the root bindings in the **`enable` request**, the client verb **`invoke(package, key, enable, {fs_roots?: {<root_id>: <absolute path>}...
+[rows."65"]
+"[network] trusted_hosts" = { symbols = ["plugin::TRUSTED_HOSTS_KEY"], uncovered = { network = "the table that TRUSTED_HOSTS_KEY names (a string)", trusted_hosts = "the key that TRUSTED_HOSTS_KEY names (a string)" } }
+"accepted" = ["hub::EffectClass::Accepted"]
+"configuration" = ["hub::PackageRow::configuration"]
+"enable" = ["hub::PackageInstallArgs::enable"]
+"failed{reason}" = ["hub.operation_state:spawn_target.rescan_packages:failed", "hub::OperationState::reason"]
+"hub.toml" = "n/a: a repository path"
+"id" = ["hub::SpawnTargetRow::id", "plugin::FsRootDecl::id"]
+"invoke(package, key, enable, {fs_roots?: {<root_id>: <absolute path>}})" = { symbols = ["hub::Verb::Invoke", "hub.kind:package", "hub.action:package.enable", "hub::EnableArgs::fs_roots"], uncovered = { key = "the package key placeholder (the row id)", root_id = "a placeholder for a root id", absolute = "a placeholder", path = "a placeholder" } }
+"invoke(spawn_target, id, rescan_packages)" = { symbols = ["hub::Verb::Invoke", "hub.kind:spawn_target", "hub.action:spawn_target.rescan_packages"], uncovered = { id = "the spawn target id placeholder" } }
+"staged" = ["hub::PackageStatus::Staged"]
+"succeeded" = ["hub.operation_state:spawn_target.rescan_packages:succeeded"]
+"webhook_auth" = { symbols = ["hub::PackagePatch::configuration"], uncovered = { webhook_auth = "a package configuration key (configuration is an open object)" } }
+"webhook_secret" = { symbols = ["hub::PackagePatch::configuration"], uncovered = { webhook_secret = "a package configuration key (configuration is an open object)" } }
+"{found: [package key], removed: [package key]}" = { symbols = ["hub::RescanResult::found", "hub::RescanResult::removed"], uncovered = { package = "prose: the element is a package key", key = "prose: the element is a package key" } }
+"{operation}" = ["hub::Receipt::operation"]
+"{path, sha256}" = ["hub::TrustedHost::path", "hub::TrustedHost::sha256"]
+
+# | A2-53 (dispatch) | **Which handler a timer or a watch fires.** `timers.arm{timer_id, delay_ms, handler_id?}` and `store.watch{collection, index?, equals?, handler_id?}` take a `handler_id` as follows (**`fs.watch` keeps its `handler_id...
+[rows."66"]
+"Activated" = ["plugin::Activated"]
+"Ready.timers" = ["plugin::Ready::timers"]
+"Ready.watches" = ["plugin::Ready::watches"]
+"fs.watch" = ["plugin.call:fs.watch"]
+"handler_id" = ["plugin::TimersArmArgs::handler_id", "plugin::StoreWatchArgs::handler_id"]
+"invalid_request{detail.code: handler_id_required \\| unknown_handler}" = ["plugin.code:invalid_request:handler_id_required", "plugin.code:invalid_request:unknown_handler", "plugin::Detail::code"]
+"invalid_request{detail.code: handler_id_required}" = ["plugin.code:invalid_request:handler_id_required", "plugin::Detail::code"]
+"invalid_request{detail.code: unknown_handler}" = ["plugin::ErrorKind::InvalidRequest", "plugin.code:invalid_request:unknown_handler", "plugin::Detail::code"]
+"store.watch" = ["plugin.call:store.watch"]
+"store.watch{collection, index?, equals?, handler_id?}" = ["plugin.call:store.watch", "plugin::StoreWatchArgs::collection", "plugin::StoreWatchArgs::index", "plugin::StoreWatchArgs::equals", "plugin::StoreWatchArgs::handler_id"]
+"store_watch" = ["plugin::HandlerKind::StoreWatch"]
+"timer" = ["plugin::HandlerKind::Timer"]
+"timers.arm" = ["plugin.call:timers.arm"]
+"timers.arm{timer_id, delay_ms, handler_id?}" = ["plugin.call:timers.arm", "plugin::TimersArmArgs::timer_id", "plugin::TimersArmArgs::delay_ms", "plugin::TimersArmArgs::handler_id"]
+
+# **Every Hub parameter of this contract is a key of `hub.toml`** (the Hub→client contract defines the file: `<config root>/hub.toml`, TOML 1.0, UTF-8, mode `0600`; an unknown key refuses the Hub start). **The table below gives each parame...
+[rows."71"]
+"<config root>/hub.toml" = "n/a: a repository path"
+"Hello.limits" = ["plugin::Hello::limits"]
+"hub.toml" = "n/a: a repository path"
+"hub/config.changed{keys}" = ["plugin.event:hub/config.changed", "plugin::ConfigChangedEvent::keys"]
+"invoke(hub, id, reload_config)" = { symbols = ["hub::Verb::Invoke", "hub.kind:hub", "hub.action:hub.reload_config"], uncovered = { id = "the hub id placeholder" } }
+"target_plugin_dir" = ["plugin.limit:target_plugin_dir"]
+
+# | `[plugins]` | `target_plugin_dir`, `process_path` | restart |
+[rows."75"]
+"[plugins]" = ["plugin.limit:target_plugin_dir:plugins:restart"]
+"process_path" = ["plugin.limit:process_path"]
+"target_plugin_dir" = ["plugin.limit:target_plugin_dir"]
+
+# | `[network]` | `trusted_hosts` (entries `{path, sha256}`, TR-1) | restart |
+[rows."76"]
+"[network]" = { symbols = ["plugin::TRUSTED_HOSTS_KEY"], uncovered = { network = "the table that TRUSTED_HOSTS_KEY names (a string)" } }
+"trusted_hosts" = { symbols = ["plugin::TRUSTED_HOSTS_KEY"], uncovered = { trusted_hosts = "the key that TRUSTED_HOSTS_KEY names (a string)" } }
+"{path, sha256}" = ["hub::TrustedHost::path", "hub::TrustedHost::sha256"]
+
+# | `[plugin_limits]` | `frame_bytes`, `lanes`, `startup`, `shutdown`, `orphan_grace`, `restart_window`, `cpu_seconds`, `open_files`, `processes`, `address_space_bytes`, `stderr_bytes`, `instruction_budget` | restart |
+[rows."77"]
+"[plugin_limits]" = ["plugin.limit:frame_bytes:plugin_limits:restart"]
+"address_space_bytes" = ["plugin.limit:address_space_bytes"]
+"cpu_seconds" = ["plugin.limit:cpu_seconds"]
+"frame_bytes" = ["plugin.limit:frame_bytes"]
+"instruction_budget" = ["plugin.limit:instruction_budget"]
+"lanes" = ["plugin.limit:lanes"]
+"open_files" = ["plugin.limit:open_files"]
+"orphan_grace" = ["plugin.limit:orphan_grace"]
+"processes" = ["plugin.limit:processes"]
+"restart_window" = ["plugin.limit:restart_window"]
+"shutdown" = ["plugin.limit:shutdown"]
+"startup" = ["plugin.limit:startup"]
+"stderr_bytes" = ["plugin.limit:stderr_bytes"]
+
+# | `[plugin_limits]` | `invoke_queue`, `dispatch_deadline`, `long_deadline`, `page_items`, `max_result_bytes`, `max_watches`, `max_timers`, `operations_get_rate`, `operation_receipt_window`, `operation_receipts` | live |
+[rows."78"]
+"[plugin_limits]" = ["plugin.limit:invoke_queue:plugin_limits:live"]
+"dispatch_deadline" = ["plugin.limit:dispatch_deadline"]
+"invoke_queue" = ["plugin.limit:invoke_queue"]
+"long_deadline" = ["plugin.limit:long_deadline"]
+"max_result_bytes" = ["plugin.limit:max_result_bytes"]
+"max_timers" = ["plugin.limit:max_timers"]
+"max_watches" = ["plugin.limit:max_watches"]
+"operation_receipt_window" = ["plugin.limit:operation_receipt_window"]
+"operation_receipts" = ["plugin.limit:operation_receipts"]
+"operations_get_rate" = ["plugin.limit:operations_get_rate"]
+"page_items" = ["plugin.limit:page_items"]
+
+# | `[logging]` | `log_record_bytes`, `log_ring_records`, `log_ring_bytes`, `log_rate`, `log_burst` | live |
+[rows."79"]
+"[logging]" = ["plugin.limit:log_record_bytes:logging:live"]
+"log_burst" = ["plugin.limit:log_burst"]
+"log_rate" = ["plugin.limit:log_rate"]
+"log_record_bytes" = ["plugin.limit:log_record_bytes"]
+"log_ring_bytes" = ["plugin.limit:log_ring_bytes"]
+"log_ring_records" = ["plugin.limit:log_ring_records"]
+
+# | `[events]` | `event_key_bytes`, `event_queue`, `event_queue_high`, `event_queue_normal`, `event_queue_low`, `event_starvation_bound`, `ingress_queue`, `max_event_bytes`, `loss_ledger_entries`, `terminal_event_bytes`, `output_tap_chunk_...
+[rows."80"]
+"[events]" = ["plugin.limit:event_key_bytes:events:live"]
+"event_key_bytes" = ["plugin.limit:event_key_bytes"]
+"event_queue" = ["plugin.limit:event_queue"]
+"event_queue_high" = ["plugin.limit:event_queue_high"]
+"event_queue_low" = ["plugin.limit:event_queue_low"]
+"event_queue_normal" = ["plugin.limit:event_queue_normal"]
+"event_starvation_bound" = ["plugin.limit:event_starvation_bound"]
+"ingress_queue" = ["plugin.limit:ingress_queue"]
+"loss_ledger_entries" = ["plugin.limit:loss_ledger_entries"]
+"max_event_bytes" = ["plugin.limit:max_event_bytes"]
+"output_tap_chunk_bytes" = ["plugin.limit:output_tap_chunk_bytes"]
+"session_family_inflight" = ["plugin.limit:session_family_inflight"]
+"terminal_event_bytes" = ["plugin.limit:terminal_event_bytes"]
+
+# | `[sessions]` | `session_port_range` (restart), `max_write_bytes`, `max_raw_write_bytes`, `write_pending_bytes`, `echo_deadline_ms`, `cleanup_window_ms`, `write_client_quiet_ms`, `write_max_wait_ms` (live), `probe_text` (restart), `max_...
+[rows."81"]
+"[sessions]" = ["plugin.limit:max_write_bytes:sessions:live"]
+"cleanup_window_ms" = ["plugin.limit:cleanup_window_ms"]
+"echo_deadline_ms" = ["plugin.limit:echo_deadline_ms"]
+"max_argv_bytes" = ["plugin.limit:max_argv_bytes"]
+"max_env_bytes" = ["plugin.limit:max_env_bytes"]
+"max_notification_patterns" = ["plugin.limit:max_notification_patterns"]
+"max_raw_write_bytes" = ["plugin.limit:max_raw_write_bytes"]
+"max_write_bytes" = ["plugin.limit:max_write_bytes"]
+"probe_text" = ["plugin.limit:probe_text"]
+"session_port_range" = ["plugin::PluginLimits::session_port_range"]
+"write_client_quiet_ms" = ["plugin.limit:write_client_quiet_ms"]
+"write_max_wait_ms" = ["plugin.limit:write_max_wait_ms"]
+"write_pending_bytes" = ["plugin.limit:write_pending_bytes"]
+
+# | `[store]` | `max_document_bytes`, `max_plugin_bytes`, `max_plugin_documents`, `batch_ops` | live |
+[rows."82"]
+"[store]" = ["plugin.limit:max_document_bytes:store:live"]
+"batch_ops" = ["plugin.limit:batch_ops"]
+"max_document_bytes" = ["plugin.limit:max_document_bytes"]
+"max_plugin_bytes" = ["plugin.limit:max_plugin_bytes"]
+"max_plugin_documents" = ["plugin.limit:max_plugin_documents"]
+
+# | `[net]` | `net_listen`, `assets_listen` (restart); `net_timeout_max_ms`, `webhook_timeout_ms`, `net_body_bytes`, `ws_send_queue_bytes`, `net_concurrent_requests`, `net_open_sockets`, `net_bytes_in_flight`, `net_rate` (live) | as marked |
+[rows."83"]
+"[net]" = ["plugin.limit:net_listen:net:restart"]
+"assets_listen" = ["plugin.limit:assets_listen"]
+"net_body_bytes" = ["plugin.limit:net_body_bytes"]
+"net_bytes_in_flight" = ["plugin.limit:net_bytes_in_flight"]
+"net_concurrent_requests" = ["plugin.limit:net_concurrent_requests"]
+"net_listen" = ["plugin.limit:net_listen"]
+"net_open_sockets" = ["plugin.limit:net_open_sockets"]
+"net_rate" = ["plugin.limit:net_rate"]
+"net_timeout_max_ms" = ["plugin.limit:net_timeout_max_ms"]
+"webhook_timeout_ms" = ["plugin.limit:webhook_timeout_ms"]
+"ws_send_queue_bytes" = ["plugin.limit:ws_send_queue_bytes"]
+
+# | `[web]` | `max_relay_envelope_bytes`, `relay_queue`, `relay_attempts_max`, `relay_attempt_ttl_ms`, `ice_servers_max` | live |
+[rows."84"]
+"[web]" = ["plugin.limit:max_relay_envelope_bytes:web:live"]
+"ice_servers_max" = ["plugin.limit:ice_servers_max"]
+"max_relay_envelope_bytes" = ["plugin.limit:max_relay_envelope_bytes"]
+"relay_attempt_ttl_ms" = ["plugin.limit:relay_attempt_ttl_ms"]
+"relay_attempts_max" = ["plugin.limit:relay_attempts_max"]
+"relay_queue" = ["plugin.limit:relay_queue"]
+
+# | `[assets]` | `asset_bytes_max`, `asset_store_bytes`, `asset_count_max`, `asset_token_ttl_ms` | live |
+[rows."85"]
+"[assets]" = ["plugin.limit:asset_bytes_max:assets:live"]
+"asset_bytes_max" = ["plugin.limit:asset_bytes_max"]
+"asset_count_max" = ["plugin.limit:asset_count_max"]
+"asset_store_bytes" = ["plugin.limit:asset_store_bytes"]
+"asset_token_ttl_ms" = ["plugin.limit:asset_token_ttl_ms"]
+
+# | `[notices]` | `notice_ttl_max_ms`, `notice_queue` | live |
+[rows."86"]
+"[notices]" = ["plugin.limit:notice_ttl_max_ms:notices:live"]
+"notice_queue" = ["plugin.limit:notice_queue"]
+"notice_ttl_max_ms" = ["plugin.limit:notice_ttl_max_ms"]
+
+# | `[process]` | `process_timeout_max_ms`, `process_tail_bytes`, `process_concurrent` | live |
+[rows."87"]
+"[process]" = ["plugin.limit:process_timeout_max_ms:process:live"]
+"process_concurrent" = ["plugin.limit:process_concurrent"]
+"process_tail_bytes" = ["plugin.limit:process_tail_bytes"]
+"process_timeout_max_ms" = ["plugin.limit:process_timeout_max_ms"]
+
+# | `[fs]` | `fs_read_bytes`, `max_fs_watches` | live |
+[rows."88"]
+"[fs]" = ["plugin.limit:fs_read_bytes:fs:live"]
+"fs_read_bytes" = ["plugin.limit:fs_read_bytes"]
+"max_fs_watches" = ["plugin.limit:max_fs_watches"]
+
+# | `[plugin_calls]` | `plugin_call_depth`, `plugin_call_idempotency_window`, `plugin_call_timeout_max_ms` | live |
+[rows."89"]
+"[plugin_calls]" = ["plugin.limit:plugin_call_depth:plugin_calls:live"]
+"plugin_call_depth" = ["plugin.limit:plugin_call_depth"]
+"plugin_call_idempotency_window" = ["plugin.limit:plugin_call_idempotency_window"]
+"plugin_call_timeout_max_ms" = ["plugin.limit:plugin_call_timeout_max_ms"]
+
+# | `[packages]` | `package_bytes_max`, `lock_history_max`, `catalog_bytes_max` | live |
+[rows."90"]
+"[packages]" = ["plugin.limit:package_bytes_max:packages:live"]
+"catalog_bytes_max" = ["plugin.limit:catalog_bytes_max"]
+"lock_history_max" = ["plugin.limit:lock_history_max"]
+"package_bytes_max" = ["plugin.limit:package_bytes_max"]
+
+# | `[mcp_proxy]` | `mcp_proxy_call_deadline_ms`, `mcp_proxy_concurrent`, `mcp_servers_max`, `mcp_proxy_init_deadline_ms`, `mcp_proxy_list_pages`, `mcp_proxy_tools_max`, `mcp_proxy_message_bytes` | live |
+[rows."91"]
+"[mcp_proxy]" = ["plugin.limit:mcp_proxy_call_deadline_ms:mcp_proxy:live"]
+"mcp_proxy_call_deadline_ms" = ["plugin.limit:mcp_proxy_call_deadline_ms"]
+"mcp_proxy_concurrent" = ["plugin.limit:mcp_proxy_concurrent"]
+"mcp_proxy_init_deadline_ms" = ["plugin.limit:mcp_proxy_init_deadline_ms"]
+"mcp_proxy_list_pages" = ["plugin.limit:mcp_proxy_list_pages"]
+"mcp_proxy_message_bytes" = ["plugin.limit:mcp_proxy_message_bytes"]
+"mcp_proxy_tools_max" = ["plugin.limit:mcp_proxy_tools_max"]
+"mcp_servers_max" = ["plugin.limit:mcp_servers_max"]
+
+# | A2-52 | **Parameter keys.** Each parameter named in the table above is read from the key path of that table, an unknown key under one of these tables refuses the Hub start (client contract), a **live** key takes effect at `reload_confi...
+[rows."95"]
+"Hello.limits" = ["plugin::Hello::limits"]
+"hub/config.changed{keys, restart_required}" = ["plugin.event:hub/config.changed", "plugin::ConfigChangedEvent::keys", "plugin::ConfigChangedEvent::restart_required"]
+"lock_history_max" = ["plugin.limit:lock_history_max"]
+"operation_receipt_window" = ["plugin.limit:operation_receipt_window"]
+"operation_receipts" = ["plugin.limit:operation_receipts"]
+"plugin_call_idempotency_window" = ["plugin.limit:plugin_call_idempotency_window"]
+"reload_config" = ["hub.action:hub.reload_config"]

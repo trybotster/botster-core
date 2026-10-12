@@ -1,0 +1,1026 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ClientStep",
+  "description": "One step of a `client` transcript.",
+  "oneOf": [
+    {
+      "description": "The runner hands the client a valid admitted document and Hub data (UI-AD-1, UI-RZ-3).",
+      "type": "object",
+      "properties": {
+        "client_load": {
+          "$ref": "#/$defs/ClientLoad"
+        }
+      },
+      "required": [
+        "client_load"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "description": "One input to the client.",
+      "type": "object",
+      "properties": {
+        "client_act": {
+          "$ref": "#/$defs/ClientAct"
+        }
+      },
+      "required": [
+        "client_act"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "description": "One typed observation of the client.",
+      "type": "object",
+      "properties": {
+        "client_expect": {
+          "$ref": "#/$defs/ClientExpect"
+        }
+      },
+      "required": [
+        "client_expect"
+      ],
+      "additionalProperties": false
+    }
+  ],
+  "$defs": {
+    "ClientLoad": {
+      "description": "`client_load`: the inputs of `realize` (ui-contract section 12, UI-NV-5), except that the document is admitted first.",
+      "type": "object",
+      "properties": {
+        "document": {
+          "description": "A view document. It must pass admission (`setup.admission` gives the context)."
+        },
+        "kind_snapshots": true,
+        "local_state": true,
+        "viewport": true,
+        "capabilities": {
+          "description": "The `ui_capabilities` of the client under test (UI-CF-6)."
+        },
+        "embed_properties": {
+          "description": "Properties that a realized `embed` node carries although admission refuses them in a document (UI-EM-10,\nUI-EM-11): `{ \"<embed node id>\": { sandbox?, src?, srcdoc?, allow? } }`. The renderer must refuse them. The\nstructural check does not admit these."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "document"
+      ]
+    },
+    "ClientAct": {
+      "description": "`client_act`: an input to the client. `node_id` is the node that the input is aimed at, when it has one.",
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "action": {
+          "$ref": "#/$defs/Action"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "action"
+      ]
+    },
+    "Action": {
+      "description": "An input to the client.",
+      "oneOf": [
+        {
+          "description": "Click, tap or Enter on the node (UI-SL-4, UI-AC-3).",
+          "type": "object",
+          "properties": {
+            "activate": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "activate"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Press a key while the node has focus: `Tab`, `Shift+Tab` or `Enter` (UI-CF-4).",
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "key"
+              ]
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Edit one field of the form node (UI-RZ-2d, UI-FM-1).",
+          "type": "object",
+          "properties": {
+            "edit": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "value": true
+              },
+              "additionalProperties": false,
+              "required": [
+                "field",
+                "value"
+              ]
+            }
+          },
+          "required": [
+            "edit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Submit the form node (UI-AC-4).",
+          "type": "object",
+          "properties": {
+            "submit": {
+              "type": "object",
+              "properties": {
+                "values": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "submit"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Answer the open confirmation with its confirm button (UI-AC-3).",
+          "type": "object",
+          "properties": {
+            "confirm": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "confirm"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Answer the open confirmation or form with its cancel button (UI-AC-3).",
+          "type": "object",
+          "properties": {
+            "cancel": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "cancel"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The Hub answers a request of the client. `request` is the 1-based number of the request, in the order in which\nthe client sent them. `ok` is the `ok` value, `err` the Error (UI-AC-1b).",
+          "type": "object",
+          "properties": {
+            "hub_result": {
+              "type": "object",
+              "properties": {
+                "request": {
+                  "type": "integer",
+                  "format": "uint32",
+                  "minimum": 0
+                },
+                "ok": true,
+                "err": true
+              },
+              "additionalProperties": false,
+              "required": [
+                "request"
+              ]
+            }
+          },
+          "required": [
+            "hub_result"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The rows of a watched kind change (UI-NV-5 `kind_snapshots`).",
+          "type": "object",
+          "properties": {
+            "hub_rows": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "baseline": {
+                  "type": "boolean",
+                  "default": true
+                },
+                "rows": {
+                  "type": "array",
+                  "items": true
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "rows"
+              ]
+            }
+          },
+          "required": [
+            "hub_rows"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client re-reads `describe` and the descriptor differs (UI-AC-7(b)).",
+          "type": "object",
+          "properties": {
+            "descriptor_changed": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "descriptor_changed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The frame of an `embed` sends a message (UI-EM-5). `via` is `port` (the transferred port) or `window`.",
+          "type": "object",
+          "properties": {
+            "page_message": {
+              "type": "object",
+              "properties": {
+                "via": {
+                  "$ref": "#/$defs/MessageVia"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "payload": true
+              },
+              "additionalProperties": false,
+              "required": [
+                "via",
+                "type",
+                "payload"
+              ]
+            }
+          },
+          "required": [
+            "page_message"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The frame loads a document. The first load is the asset document. A later load is a navigation (UI-EM-5).",
+          "type": "object",
+          "properties": {
+            "frame_load": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "frame_load"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The capability token of the frame passes `expires_at` (UI-EM-7).",
+          "type": "object",
+          "properties": {
+            "token_expiry": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "token_expiry"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Something happens to the view of the frame (UI-EM-13).",
+          "type": "object",
+          "properties": {
+            "view_event": {
+              "type": "object",
+              "properties": {
+                "event": {
+                  "$ref": "#/$defs/ViewEvent"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "event"
+              ]
+            }
+          },
+          "required": [
+            "view_event"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The transport to the Hub drops and returns (UI-AC-2b: a new incarnation).",
+          "type": "object",
+          "properties": {
+            "reconnect": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "reconnect"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The user asks for a reload of an errored frame (UI-EM-13, UI-EM-15).",
+          "type": "object",
+          "properties": {
+            "reload": {
+              "type": "object",
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "reload"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "MessageVia": {
+      "description": "Where a frame message comes from (UI-EM-5).",
+      "type": "string",
+      "enum": [
+        "port",
+        "window"
+      ]
+    },
+    "ViewEvent": {
+      "description": "What happens to the view of a frame (UI-EM-13).",
+      "type": "string",
+      "enum": [
+        "removed",
+        "hidden_and_unmounted",
+        "revoked",
+        "package_reload",
+        "asset_changed"
+      ]
+    },
+    "ClientExpect": {
+      "description": "`client_expect`: one typed observation. `node_id` names the node it is about, when it is about one.",
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "observation": {
+          "$ref": "#/$defs/Observation"
+        },
+        "because": {
+          "description": "`\"<contract> <clause id>\"`, for example `\"UI UI-AC-3\"`. A sentence of that clause fixes the observed value\n(design 5.6 rule 6).",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "observation",
+        "because"
+      ]
+    },
+    "Observation": {
+      "description": "What a client shows or does. Each variant cites the clause that it observes.",
+      "oneOf": [
+        {
+          "description": "The node shows this `Text` (a string or a copy key, UI-NV-6) in this tone (UI-AC-2b, UI-AC-7, UI-EM-15).",
+          "type": "object",
+          "properties": {
+            "shows": {
+              "type": "object",
+              "properties": {
+                "text": true,
+                "tone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "shows"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The node has keyboard focus (UI-CF-4).",
+          "type": "object",
+          "properties": {
+            "focused": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "focused"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The renderer drew the realized tree with no unsupported-node and no unsupported-prop diagnostic (UI-RZ-2c).",
+          "type": "object",
+          "properties": {
+            "drawn": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "drawn"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The node is disabled or enabled (UI-AC-5, UI-AC-8).",
+          "type": "object",
+          "properties": {
+            "disabled": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "disabled"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The action of the node is in its pending state (UI-AC-2b).",
+          "type": "object",
+          "properties": {
+            "pending": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "pending"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The reason that the disabled node shows (UI-AC-8).",
+          "type": "object",
+          "properties": {
+            "disabled_reason": true
+          },
+          "required": [
+            "disabled_reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The node shows the pending text of an accepted action, not a predicate or `disabled_reason` text (UI-AC-8).",
+          "type": "object",
+          "properties": {
+            "shows_pending_text": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "shows_pending_text"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The node shows the label of a terminal state that the client does not list, as non-exhaustive \"other\" text\n(UI-AC-2b).",
+          "type": "object",
+          "properties": {
+            "shows_other": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "shows_other"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The node shows that the outcome is unknown (UI-AC-2b, UI-AC-7(c)).",
+          "type": "object",
+          "properties": {
+            "outcome_unknown": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "outcome_unknown"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client has sent a request that matches. `args` and `target` are matchers of the engine (design 5.2: a literal,\n`{\"$absent\": true}`, `{\"$any\": true}`). The client has sent this many requests in all, or at least one that matches (UI-AC-3, UI-AC-7(c), UI-EM-5).",
+          "type": "object",
+          "properties": {
+            "request_sent": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "args": true,
+                "count": {
+                  "description": "The number of requests with this action. Absent means one or more.",
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "uint32",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "request_sent"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client has sent a `describe` request that no `descriptor_changed` has answered yet (UI-AC-7(b)).",
+          "type": "object",
+          "properties": {
+            "describe_requested": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "describe_requested"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A dialog is open for the node: its form or its confirmation (UI-AC-4, UI-EM-5).",
+          "type": "object",
+          "properties": {
+            "dialog": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "$ref": "#/$defs/DialogKind"
+                },
+                "values": {
+                  "description": "The values that the form shows (UI-EM-5: prefilled from a page payload).",
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true
+                },
+                "inside_frame": {
+                  "description": "True when the dialog is drawn inside a frame. The client draws dialogs itself, so false (UI-EM-9).",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ]
+            }
+          },
+          "required": [
+            "dialog"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "No dialog is open (UI-AC-3, UI-EM-5).",
+          "type": "object",
+          "properties": {
+            "no_dialog": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "no_dialog"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client shows a local diagnostic (UI-CF-1, UI-AC-6, UI-EM-10). An absent `code` means any code, for a clause\nthat fixes no code.",
+          "type": "object",
+          "properties": {
+            "diagnostic": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "diagnostic"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The frame of an `embed` node (UI-EM-3, UI-EM-9, UI-EM-11).",
+          "type": "object",
+          "properties": {
+            "frame": {
+              "$ref": "#/$defs/FrameObservation"
+            }
+          },
+          "required": [
+            "frame"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The state of the message channel of an `embed` node (UI-EM-5, UI-EM-13).",
+          "type": "object",
+          "properties": {
+            "channel": {
+              "$ref": "#/$defs/ChannelState"
+            }
+          },
+          "required": [
+            "channel"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client dropped the last message that it received from the frame (UI-EM-5, UI-EM-14).",
+          "type": "object",
+          "properties": {
+            "message_dropped": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "message_dropped"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Every message that the client sent to the page, except the init message, has one of these types: the page\nreceives no result or failure of its own message (UI-EM-14).",
+          "type": "object",
+          "properties": {
+            "page_received_only": {
+              "type": "object",
+              "properties": {
+                "types": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "types"
+              ]
+            }
+          },
+          "required": [
+            "page_received_only"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client pushed exactly this message to the page: the payload matches exactly, so an extra member fails\n(UI-EM-5, UI-EM-14).",
+          "type": "object",
+          "properties": {
+            "pushed": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "payload": true
+              },
+              "additionalProperties": false,
+              "required": [
+                "type",
+                "payload"
+              ]
+            }
+          },
+          "required": [
+            "pushed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The `embed` node shows its `error` state, with or without a reload action (UI-EM-13, UI-EM-15).",
+          "type": "object",
+          "properties": {
+            "error_state": {
+              "type": "object",
+              "properties": {
+                "reload": {
+                  "description": "Whether a reload action is offered. Absent means the clause fixes only the error state.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "error_state"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The renderer shows the link fallback of an `embed` (UI-EM-6, UI-EM-8).",
+          "type": "object",
+          "properties": {
+            "link": {
+              "type": "object",
+              "properties": {
+                "open_in_browser": {
+                  "description": "The line that opens the page in a browser is shown. Absent means the clause does not fix it.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "reveals_url": {
+                  "description": "The text shows the full URL, with its token (UI-EM-8: only after an explicit activation).",
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "reveals_url"
+              ]
+            }
+          },
+          "required": [
+            "link"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A follow-up link to a view, with preset slots (UI-AC-6).",
+          "type": "object",
+          "properties": {
+            "follow_up": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string"
+                },
+                "select": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "view"
+              ]
+            }
+          },
+          "required": [
+            "follow_up"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client moved to this view (UI-AC-6, UI-SL-5).",
+          "type": "object",
+          "properties": {
+            "moved_to": {
+              "type": "object",
+              "properties": {
+                "view": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "view"
+              ]
+            }
+          },
+          "required": [
+            "moved_to"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "The client did not move away from the current view (UI-AC-6: not while a draft or a confirmation is open).",
+          "type": "object",
+          "properties": {
+            "stayed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "stayed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "A slot holds this row key, or nothing (UI-SL-5).",
+          "type": "object",
+          "properties": {
+            "slot": {
+              "type": "object",
+              "properties": {
+                "slot": {
+                  "type": "string"
+                },
+                "row_key": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "slot"
+              ]
+            }
+          },
+          "required": [
+            "slot"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "No log, diagnostic, notice or error text of the client holds a capability token (UI-EM-8).",
+          "type": "object",
+          "properties": {
+            "logs_hold_no_token": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "logs_hold_no_token"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DialogKind": {
+      "description": "The kind of a dialog (UI-AC-4).",
+      "type": "string",
+      "enum": [
+        "form",
+        "confirm"
+      ]
+    },
+    "FrameObservation": {
+      "description": "What the frame of an `embed` node is, if a frame is loaded (UI-EM-3, UI-EM-9, UI-EM-11). An absent field is not checked.",
+      "type": "object",
+      "properties": {
+        "loaded": {
+          "description": "False means that no frame is loaded (UI-EM-10, UI-EM-11).",
+          "type": "boolean"
+        },
+        "sandbox": {
+          "description": "The complete set of sandbox tokens (UI-EM-3).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "referrerpolicy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "allow": {
+          "description": "The complete set of `allow` features (UI-EM-3).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "src_origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SrcOrigin"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "confined_to_box": {
+          "description": "The client draws the frame inside its own box and never over anything outside it (UI-EM-9).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "bordered": {
+          "description": "The box has a visible border (UI-EM-9).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "label_outside": {
+          "description": "The client draws its label, with the plugin and the title, outside the frame (UI-EM-9).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "carries_app_credentials": {
+          "description": "The app bearer, cookie or session token is in the `src`, a message or a request of the frame (UI-EM-4).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "loaded"
+      ]
+    },
+    "SrcOrigin": {
+      "description": "The origin of a frame `src` compared with the app origin, after URL parsing (UI-EM-11).",
+      "type": "string",
+      "enum": [
+        "distinct_from_app",
+        "same_as_app"
+      ]
+    },
+    "ChannelState": {
+      "description": "The state of a message channel (UI-EM-13).",
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ]
+    }
+  }
+}

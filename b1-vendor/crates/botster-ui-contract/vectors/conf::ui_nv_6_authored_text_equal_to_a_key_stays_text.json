@@ -1,0 +1,181 @@
+{
+  "id": "conf::ui_nv_6_authored_text_equal_to_a_key_stays_text",
+  "contract": "ui",
+  "clause": "UI-NV-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an authored button label equal to a key name stays a string",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "cancel",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "confirm",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "a": {
+          "props": {
+            "label": "cancel"
+          }
+        },
+        "b": {
+          "props": {
+            "label": "confirm"
+          }
+        }
+      }
+    },
+    {
+      "name": "an authored disabled reason equal to a key name stays a string",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "selects": "sel",
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args": {
+                    "workspace_id": {
+                      "sel": "sel/id"
+                    }
+                  },
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "disabled_reason": "nothing_selected"
+                }
+              ]
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1"
+            },
+            {
+              "id": "r2"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "ren": {
+          "props": {
+            "disabled_reason": "nothing_selected"
+          }
+        }
+      }
+    },
+    {
+      "name": "an authored empty title equal to a key name stays a string",
+      "because": "UI UI-NV-6",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/id"
+                  }
+                ]
+              },
+              "empty": {
+                "title": "generic_empty"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:l9:container5:empty": {
+          "props": {
+            "title": "generic_empty"
+          }
+        }
+      }
+    }
+  ]
+}

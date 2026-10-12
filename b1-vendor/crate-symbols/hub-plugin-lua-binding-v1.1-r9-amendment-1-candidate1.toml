@@ -1,0 +1,77 @@
+# The crate symbols of each code span of hub-plugin-lua-binding-v1.1-r9-amendment-1-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Lua binding r9 of `frozen/current` (manifest final25), which is unchanged except where LBA1-4 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# - what `json.array` and `json.empty_array` are;
+[rows."8"]
+"json.array" = "n/a: a format name; a primitive type name"
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+
+# - what `value` the base64 and JSON conversions return;
+[rows."9"]
+"value" = "n/a: the value member of the LB-3 envelope; no contract crate holds the Lua envelope"
+
+# | LBA1-1 | **`json.array`, `json.empty_array` and `json.null` are constructors and values, not calls with an envelope.**<br>- `botster.json.array{ ... }` returns the **array itself**: a Lua table that encodes as a JSON array, even when i...
+[rows."14"]
+"base64.*" = "n/a: an encoding name"
+"botster.json.array{ ... }" = "n/a: a format name; a primitive type name; the product and binary name"
+"botster.json.empty_array" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"], uncovered = { botster = "the product and binary name" } }
+"botster.json.null" = "n/a: a JSON literal value; a format name; the product and binary name"
+"crypto.*" = ["plugin.value:LUA_LOCAL_NAMES:crypto.sha256", "plugin.value:LUA_LOCAL_NAMES:crypto.hmac_sha256", "plugin.value:LUA_LOCAL_NAMES:crypto.random_bytes"]
+"ids.new" = ["plugin.value:LUA_LOCAL_NAMES:ids.new"]
+"json.array" = "n/a: a format name; a primitive type name"
+"json.array{}" = "n/a: a format name; a primitive type name"
+"json.decode" = ["plugin.value:LUA_LOCAL_NAMES:json.decode"]
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+"json.encode" = ["plugin.value:LUA_LOCAL_NAMES:json.encode"]
+"json.null" = "n/a: a JSON literal value; a format name"
+
+# | LBA1-2 | **The `value` of the base64 and JSON conversions is the bare result.**<br>- `botster.base64.encode{ bytes }`: `value` is the base64 **string**.<br>- `botster.base64.decode{ text }`: `value` is the byte **string**.<br>- `botste...
+[rows."15"]
+"botster.base64.decode{ text }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:base64.decode"], uncovered = { botster = "the product and binary name", text = "the argument of a Lua conversion helper; no contract crate holds the Lua helper arguments" } }
+"botster.base64.encode{ bytes }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:base64.encode"], uncovered = { botster = "the product and binary name", bytes = "the argument of a Lua conversion helper; no contract crate holds the Lua helper arguments" } }
+"botster.json.decode{ text }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:json.decode"], uncovered = { botster = "the product and binary name", text = "the argument of a Lua conversion helper; no contract crate holds the Lua helper arguments" } }
+"botster.json.encode{ value }" = { symbols = ["plugin.value:LUA_LOCAL_NAMES:json.encode"], uncovered = { botster = "the product and binary name", value = "the value member of the LB-3 envelope; no contract crate holds the Lua envelope" } }
+"crypto.*" = ["plugin.value:LUA_LOCAL_NAMES:crypto.sha256", "plugin.value:LUA_LOCAL_NAMES:crypto.hmac_sha256", "plugin.value:LUA_LOCAL_NAMES:crypto.random_bytes"]
+"json.null" = "n/a: a JSON literal value; a format name"
+"null" = "n/a: a JSON literal value"
+"value" = "n/a: the value member of the LB-3 envelope; no contract crate holds the Lua envelope"
+"{ bytes_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+"{ digest_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+"{ mac_b64 }" = "n/a: a named result table of a Lua crypto helper (LB-8); no contract crate holds it"
+
+# | LBA1-3 | **A handler entry's descriptor fields are flat.** Each entry of `botster.register{ handlers }` is one table: `kind`, the optional `id` (`handler_id`), `call`, and **that kind's descriptor fields at the same level**. For exampl...
+[rows."16"]
+"botster.register{ handlers }" = { symbols = ["plugin.value:LUA_REGISTRATION_NAMES:register", "plugin::Ready::handlers"], uncovered = { botster = "the product and binary name" } }
+"call" = { symbols = ["plugin::HandlerDecl::id"], uncovered = { call = "the Lua handler function of a handler entry; the host keeps it by HandlerDecl::id (LB-10) and sends no wire field for it" } }
+"entity_kind" = { symbols = ["plugin::EntityProviderDescriptor::kind"], uncovered = { entity_kind = "the Lua name of the entity_provider descriptor field kind (LBA1-3)" } }
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"handler_id" = { symbols = ["plugin::HandlerDecl::id"], uncovered = { handler_id = "the wire name of the handler id" } }
+"id" = ["plugin::HandlerDecl::id"]
+"invalid_request" = ["plugin::ErrorKind::InvalidRequest"]
+"kind" = ["plugin::HandlerDecl::kind"]
+"{ kind = \"entity_provider\", entity_kind = \"workspace\", call = fn }" = { symbols = ["plugin::HandlerDecl::kind", "plugin::HandlerKind::EntityProvider", "plugin::EntityProviderDescriptor::kind", "plugin::HandlerDecl::id"], uncovered = { entity_kind = "the Lua name of the descriptor field kind (LBA1-3)", workspace = "an example entity kind", call = "the Lua field that stands for the wire handler", fn = "a Lua function value" } }
+"{ kind = \"event\", id, pattern, call }" = { symbols = ["plugin::HandlerDecl::kind", "plugin::HandlerKind::Event", "plugin::HandlerDecl::id", "plugin::Subscription::pattern"], uncovered = { call = "the Lua field that stands for the wire handler" } }
+"{ kind = \"mcp_resource\", uri_template = \"…\", name = \"…\", mime_type = \"…\", call = fn }" = { symbols = ["plugin::HandlerDecl::kind", "plugin::HandlerKind::McpResource", "plugin::McpResourceDescriptor::uri_template", "plugin::McpResourceDescriptor::name", "plugin::McpResourceDescriptor::mime_type"], uncovered = { call = "the Lua field that stands for the wire handler", fn = "a Lua function value" } }
+"{ kind = \"timer\", id, call }" = { symbols = ["plugin::HandlerDecl::kind", "plugin::HandlerKind::Timer", "plugin::HandlerDecl::id"], uncovered = { call = "the Lua field that stands for the wire handler" } }
+"{ kind = \"ui_action\", action_id = \"rename\", call = fn }" = { symbols = ["plugin::HandlerDecl::kind", "plugin::HandlerKind::UiAction", "plugin::UiActionDescriptor::action_id"], uncovered = { rename = "an example action id", call = "the Lua field that stands for the wire handler", fn = "a Lua function value" } }
+
+# 1. **LB-8, "All host-local helpers return the LB-3 envelope"** reads with LBA1-1: the constructors and values `json.array`, `json.empty_array` and `json.null` are excepted.
+[rows."20"]
+"json.array" = "n/a: a format name; a primitive type name"
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+"json.null" = "n/a: a JSON literal value; a format name"
+
+# 2. **LB-9, `json.array{ ... }` (or `json.empty_array`)** reads with LBA1-1.
+[rows."21"]
+"json.array{ ... }" = "n/a: a format name; a primitive type name"
+"json.empty_array" = ["plugin.value:LUA_LOCAL_NAMES:json.empty_array"]
+
+# 3. **LB-10, the descriptors** are written flat in the handler table (LBA1-3). The `entity_provider` descriptor's `kind` is `entity_kind` in Lua.
+[rows."22"]
+"entity_kind" = { symbols = ["plugin::EntityProviderDescriptor::kind"], uncovered = { entity_kind = "the Lua name of the entity_provider descriptor field kind (LBA1-3)" } }
+"entity_provider" = ["plugin::HandlerKind::EntityProvider"]
+"kind" = ["plugin::HandlerDecl::kind"]

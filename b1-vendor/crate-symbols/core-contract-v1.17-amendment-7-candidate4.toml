@@ -1,0 +1,122 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-7-candidate4.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Core contract of `frozen/current` (manifest final14), which is unchanged except where A7-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 3** (`0c6af959…fa30`, commit `e789bdb`), which the Amendment reviewer rejected (verdict `d1f4cbd`) on one finding: a positive `query_deadline` below 1 ms also breaks EV-8(b). It is now named, with its own test. (Th...
+[rows."5"]
+"0c6af959…fa30" = "n/a: a commit or file hash"
+"d1f4cbd" = "n/a: a commit or file hash"
+"e789bdb" = "n/a: a commit or file hash"
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# 1. The `query_deadline` rule is EV-8(b)'s full range, 1 ms to `CoreLimits.max_query_deadline`. EV-8(b) already makes a missing or zero value `InvalidInput` at `attach`, and A7-1 cites it, with tests on both invalid sides and both valid b...
+[rows."8"]
+"CoreLimits.max_query_deadline" = ["core::CoreLimits::max_query_deadline"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"attach" = ["core::CoreApi::attach"]
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# 2. A7-1 no longer says that `attach` reports an effective chunk size (OU-1's `attach` returns a `RouteId`). The chunk rule is now a rule on what the worker sends, with no new reporting point.
+[rows."9"]
+"RouteId" = ["core::RouteId"]
+"attach" = ["core::CoreApi::attach"]
+
+# Candidate 2 superseded candidate 1 (`73339786…db60`, commit `78e5aae`; never reviewed). The only change: the `query_deadline` rule cites OU-1 and EV-8, because no clause EV-8b exists (OU-1's own "(EV-8b)" reference has no target).
+[rows."11"]
+"73339786…db60" = "n/a: a commit or file hash"
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# **Why.** OU-1 states rules for `attach` options, such as:
+[rows."15"]
+"attach" = ["core::CoreApi::attach"]
+
+# - "`max_screen_frame_bytes` … **must be at least `max_snapshot_bytes + 1`**";
+[rows."16"]
+"max_screen_frame_bytes" = ["core::RouteLimitChoices::max_screen_frame_bytes"]
+"max_snapshot_bytes + 1" = ["core::CoreLimits::max_snapshot_bytes"]
+
+# - `max_frame_bytes` "is at most `CoreLimits.max_route_frame_bytes`";
+[rows."17"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# - `connect_deadline` "positive and at most `CoreLimits.max_connect_deadline`";
+[rows."18"]
+"CoreLimits.max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# - `query_deadline` "**required and positive** when `answers_queries` is true";
+[rows."19"]
+"answers_queries" = ["core::AttachOptions::answers_queries"]
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+
+# - `route_tag` and `owner` are "each at most `CoreLimits.max_route_tag_bytes`".
+[rows."20"]
+"CoreLimits.max_route_tag_bytes" = ["core::CoreLimits::max_route_tag_bytes"]
+"owner" = ["core::AttachOptions::owner"]
+"route_tag" = ["core::AttachOptions::route_tag"]
+
+# - OU-1's sync list for `attach` names `InvalidInput` only "for a transport that is not a connected stream";
+[rows."23"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"attach" = ["core::CoreApi::attach"]
+
+# - A2-1 names "`InvalidInput` for an `options` field" only in the `AttachWebRtc` row;
+[rows."24"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"options" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# - section 9.3 defines `InvalidInput` for malformed semantic input only.
+[rows."25"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+
+# | A7-1 | **An attach option out of its stated range is refused synchronously with `InvalidInput{field}`**, before any route is reserved. No route, no event and no route id result (AM-4).<br>- It applies to `attach` and to `AttachWebRtc` ...
+[rows."29"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"CoreLimits.max_connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"CoreLimits.max_query_deadline" = ["core::CoreLimits::max_query_deadline"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"CoreLimits.max_route_tag_bytes" = ["core::CoreLimits::max_route_tag_bytes"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"InvalidInput{field}" = ["core::ErrorCode::InvalidInput::field"]
+"answers_queries" = ["core::AttachOptions::answers_queries"]
+"attach" = ["core::CoreApi::attach"]
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"field" = ["core::ErrorCode::InvalidInput::field"]
+"max-message-size" = "n/a: the WebRTC SDP attribute name"
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+"max_screen_frame_bytes = max_snapshot_bytes + 1" = ["core::RouteLimitChoices::max_screen_frame_bytes", "core::CoreLimits::max_snapshot_bytes"]
+"max_snapshot_bytes" = ["core::CoreLimits::max_snapshot_bytes"]
+"max_snapshot_bytes + 1" = ["core::CoreLimits::max_snapshot_bytes"]
+"owner" = ["core::AttachOptions::owner"]
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+"route_limits.max_chunk_bytes" = { symbols = ["core::AttachOptions::route_limits"], uncovered = { max_chunk_bytes = "the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)" } }
+"route_limits.max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits"]
+"route_limits.max_screen_frame_bytes" = ["core::RouteLimitChoices::max_screen_frame_bytes", "core::AttachOptions::route_limits"]
+"route_tag" = ["core::AttachOptions::route_tag"]
+
+# 1. **OU-1, the sync list:** "(`UnknownSession`, `RouteLimit`, `InvalidInput` for a transport that is not a connected stream)" becomes "(`UnknownSession`, `RouteLimit`, `InvalidInput` for a transport that is not a connected stream or for ...
+[rows."33"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"RouteLimit" = ["core::ErrorCode::RouteLimit"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+
+# 2. **A2-1, the `AttachWebRtc` row:** "plus `InvalidInput` for an `options` field" reads with A7-1.
+[rows."34"]
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"options" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# 3. **Section 9.3, `InvalidInput`:** its meaning also covers an `attach` option out of its stated range (A7-1). It is still sync, with no `OpId`.
+[rows."35"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"OpId" = ["core::OpId"]
+"attach" = ["core::CoreApi::attach"]
+
+# 4. **`conf::dp_3_route_limits_reject_a_screen_cap_below_snapshot_plus_one`** asserts the A7-1 outcome: sync `InvalidInput{field: route_limits.max_screen_frame_bytes}`.
+[rows."36"]
+"InvalidInput{field: route_limits.max_screen_frame_bytes}" = ["core::ErrorCode::InvalidInput::field", "core::AttachOptions::route_limits", "core::RouteLimitChoices::max_screen_frame_bytes"]

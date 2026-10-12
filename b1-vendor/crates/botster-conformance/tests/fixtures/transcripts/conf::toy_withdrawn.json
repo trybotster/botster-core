@@ -1,0 +1,8 @@
+{
+  "id": "conf::toy_withdrawn",
+  "contract": "core",
+  "clause": "TOY-1",
+  "subject": "core",
+  "steps": [],
+  "kind": "withdrawn"
+}

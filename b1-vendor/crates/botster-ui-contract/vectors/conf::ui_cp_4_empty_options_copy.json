@@ -1,0 +1,155 @@
+{
+  "id": "conf::ui_cp_4_empty_options_copy",
+  "contract": "ui",
+  "clause": "UI-CP-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "no options: the field has no options and the action stays visible",
+      "because": "UI UI-CP-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id",
+                            "empty": {
+                              "title": "No other workspace"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "go"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "go": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:105:botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item1:o6:widget": {
+          "type": "select",
+          "props": {
+            "options": []
+          }
+        }
+      }
+    },
+    {
+      "name": "with options the select lists them",
+      "because": "UI UI-NV-2",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "o": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/id",
+                            "empty": {
+                              "title": "No other workspace"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "go"
+            }
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:105:botster-ui-descendant-v1:74:botster-ui-descendant-v1:40:botster-ui-descendant-v1:2:go9:container4:item1:o6:widget": {
+          "props": {
+            "options": [
+              {
+                "value": "a",
+                "label": "a"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

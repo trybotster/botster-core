@@ -1,0 +1,173 @@
+{
+  "id": "conf::ui_fd_2_raw_display_text_is_rfc8785",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "an object shows as RFC 8785 text with members in UTF-16 code unit order",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": {
+                "😀": 3,
+                "": 4,
+                "b": 2,
+                "a": 1
+              }
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "{\"a\":1,\"b\":2,\"😀\":3,\"\":4}"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a number with a fraction shows as its RFC 8785 text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": 1888570120608320.2
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "props": {
+            "text": "1888570120608320.2"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a string shows as itself and any other value as its RFC 8785 text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s",
+              "v": "plain"
+            },
+            {
+              "id": "t",
+              "v": true
+            },
+            {
+              "id": "n",
+              "v": 1.0
+            },
+            {
+              "id": "a",
+              "v": [
+                1.0,
+                {
+                  "y": null,
+                  "x": 1e+21
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:s1:f": {
+          "props": {
+            "text": "plain"
+          }
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:t1:f": {
+          "props": {
+            "text": "true"
+          }
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:n1:f": {
+          "props": {
+            "text": "1"
+          }
+        },
+        "botster-ui-descendant-v1:31:botster-ui-descendant-v1:1:l1:a1:f": {
+          "props": {
+            "text": "[1,{\"x\":1e+21,\"y\":null}]"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    }
+  ]
+}

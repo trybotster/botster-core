@@ -1,0 +1,1797 @@
+{
+ "id": "conf::ev_11_no_producer_rate_gate",
+ "contract": "hp",
+ "clause": "EV-11",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "the plugin b declares the public plugins-audience event e; no plugin consumes it"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [],
+      "gap_handler": "hg",
+      "declared": [
+       {
+        "name": "e",
+        "payload_schema": {
+         "type": "object"
+        },
+        "audience": [
+         "plugins"
+        ],
+        "public": true,
+        "priority": "normal"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 1
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 2
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 3
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 4
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 5
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 6,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 6
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 6,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 7,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 7
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 7,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 8,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 8
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 8,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 9,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 9
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 9,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 10,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 10
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 10,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 11,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 11
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 11,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 12,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 12
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 12,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 13,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 13
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 13,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 14,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 14
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 14,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 15,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 15
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 15,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 16,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 16
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 16,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 17,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 17
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 17,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 18,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 18
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 18,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 19,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 19
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 19,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 20,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 20
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 20,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 21,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 21
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 21,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 22,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 22
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 22,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 23,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 23
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 23,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 24,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 24
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 24,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 25,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 25
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 25,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 26,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 26
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 26,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 27,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 27
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 27,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 28,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 28
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 28,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 29,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 29
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 29,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 30,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 30
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 30,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 31,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 31
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 31,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 32,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 32
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 32,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 33,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 33
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 33,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 34,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 34
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 34,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 35,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 35
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 35,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 36,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 36
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 36,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 37,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 37
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 37,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 38,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 38
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 38,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 39,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 39
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 39,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 40,
+     "call": "events.emit",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "name": "e",
+      "payload": {
+       "n": 40
+      }
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 40,
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": [
+    "HP EV-11",
+    "HP EV-3"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

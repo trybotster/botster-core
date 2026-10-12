@@ -1,0 +1,91 @@
+{
+ "id": "conf::wp_4_relay_plugin_requires_gap_handler",
+ "contract": "hp",
+ "clause": "WP-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "diagnostics",
+   "status"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds relay_signaling, registers the relay handler rl and registers no event_gap handler",
+  "grants": [
+   {
+    "surface": "web_origin"
+   },
+   {
+    "surface": "relay",
+    "scope": "relay_signaling"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "load_failed"
+   },
+   "because": "HP WP-4"
+  },
+  {
+   "control": {
+    "op": "diagnostics"
+   },
+   "expect": {
+    "load_error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "gap_handler_required"
+     }
+    }
+   },
+   "because": "HP WP-4"
+  }
+ ]
+}

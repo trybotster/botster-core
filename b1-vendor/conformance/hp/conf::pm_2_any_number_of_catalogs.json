@@ -1,0 +1,149 @@
+{
+ "id": "conf::pm_2_any_number_of_catalogs",
+ "contract": "hp",
+ "clause": "PM-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "client_read",
+   "client_verb",
+   "script_catalog"
+  ]
+ },
+ "setup": {
+  "given": "the operator adds three catalogs and removes one",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": []
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k2.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": []
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k2.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k3.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": []
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k3.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "catalog"
+   },
+   "expect": {
+    "rows": {
+     "$array": {
+      "each": {
+       "url": {
+        "$type": "string"
+       }
+      },
+      "min": 3,
+      "max": 3
+     }
+    }
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "delete",
+    "id": "https://catalog.example/k1.json"
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "catalog"
+   },
+   "expect": {
+    "rows": {
+     "$array": {
+      "each": {
+       "url": {
+        "$type": "string"
+       }
+      },
+      "min": 2,
+      "max": 2
+     }
+    }
+   },
+   "because": "HP PM-2"
+  }
+ ]
+}

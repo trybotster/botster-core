@@ -1,0 +1,145 @@
+{
+ "id": "conf::pm_4_install_runs_no_plugin_code_or_script",
+ "contract": "hp",
+ "clause": "PM-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "edge_requests",
+   "execution_count",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "the package is admitted (a valid manifest) and also holds an inert build script and a .gitmodules file; the source offers a post-checkout hook and a submodule; the operator installs and does not enable",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       },
+       "build.sh": {
+        "text": "exit 1\n",
+        "mode": "755"
+       },
+       ".gitmodules": {
+        "text": "[submodule \"s\"]\n path = s\n url = https://git.example/b.git\n"
+       }
+      },
+      "hooks": [
+       "post-checkout"
+      ],
+      "submodules": [
+       {
+        "path": "s",
+        "url": "https://git.example/b.git"
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "status": {
+     "$not": "errored"
+    },
+    "lock": {
+     "resolved_commit": "1111111111111111111111111111111111111111",
+     "content_hash": "5b52587a729160b74f02bb81532dcd3110701eaa4f92a5c9966dfb9fa77a0d7f"
+    }
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "execution_count"
+   },
+   "expect": {
+    "started": 0
+   },
+   "because": "HP PM-4"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "url": "https://git.example/a.git"
+      },
+      "min": 1
+     }
+    }
+   },
+   "because": "HP PM-4"
+  }
+ ]
+}

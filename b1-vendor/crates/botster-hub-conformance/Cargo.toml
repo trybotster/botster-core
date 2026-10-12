@@ -1,0 +1,31 @@
+[package]
+name = "botster-hub-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[features]
+# The adapter that wraps `botster-fake-route` as a `RouteSubject` (design section 4).
+fake = ["dep:botster-fake-route"]
+
+[dependencies]
+botster-conformance.workspace = true
+botster-fake-route = { workspace = true, optional = true }
+botster-hub-contract = { workspace = true, features = ["unstable"] }
+jsonschema.workspace = true
+botster-route-codec = { workspace = true, features = ["unstable"] }
+bytes.workspace = true
+include_dir.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The self-test runs the codec transcripts against the fake.
+botster-hub-conformance = { path = ".", features = ["fake"] }
+
+[build-dependencies]
+serde_json.workspace = true

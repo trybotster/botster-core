@@ -1,0 +1,126 @@
+{
+  "id": "conf::ui_ac_1b_unknown_ok_members_ignored",
+  "contract": "ui",
+  "clause": "UI-AC-1b",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {
+        "save": {
+          "schema": {
+            "type": "object"
+          }
+        }
+      },
+      "package": "botster-graph",
+      "views": [
+        "detail"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "tickets",
+          "title": "Tickets",
+          "selections": [
+            {
+              "id": "sel_node"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "tools",
+                "items": [
+                  {
+                    "id": "act_save",
+                    "label": "Save",
+                    "handler": "save"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "act_save"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "save",
+            "count": 1
+          }
+        },
+        "because": "UI UI-AC-1"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "message": "Saved",
+              "tree": {
+                "type": "stack"
+              },
+              "view": "detail",
+              "select": {
+                "sel_node": "n1"
+              },
+              "extra": 1
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows": {
+            "text": "Saved"
+          }
+        },
+        "because": "UI UI-AC-1b"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "stayed": true
+        },
+        "because": "UI UI-AC-1b"
+      }
+    }
+  ]
+}

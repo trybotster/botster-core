@@ -1,0 +1,28 @@
+{
+ "registration": {
+  "handlers": [
+   {
+    "id": "h1",
+    "kind": "mcp_tool",
+    "descriptor": {}
+   }
+  ]
+ },
+ "handlers": {
+  "h1": [
+   {
+    "call": {
+     "name": "store.put",
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {}
+     }
+    }
+   },
+   {
+    "return": "last"
+   }
+  ]
+ }
+}

@@ -1,0 +1,295 @@
+{
+ "id": "conf::wp_5_path_cannot_leave_the_root",
+ "contract": "hp",
+ "clause": "WP-5",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "fs_race",
+   "web_request"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds net_serve and fs:web and declares the static route {route: /, root: web}; the root web holds index.html (<h1>hi</h1>), other.html, data.json, app.js, and a link escape that points to the file /outside/secret.txt (content OUTSIDE-SECRET)",
+  "grants": [
+   {
+    "surface": "net_serve"
+   },
+   {
+    "surface": "fs",
+    "scope": "fs:web"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/../secret.txt"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/%2e%2e/secret.txt"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/a/..%2f..%2fsecret.txt"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/escape"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "//outside/secret.txt"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  },
+  {
+   "control": {
+    "op": "fs_race",
+    "root": "web",
+    "path": "index.html",
+    "outside_path": "/outside/secret.txt"
+   }
+  },
+  {
+   "control": {
+    "op": "web_request",
+    "plugin": "demo",
+    "method": "GET",
+    "path": "/index.html"
+   },
+   "expect": {
+    "status": {
+     "$between": [
+      400,
+      499
+     ]
+    },
+    "body_b64": {
+     "$one_of": [
+      {
+       "$absent": true
+      },
+      {
+       "$not": {
+        "$b64": {
+         "$contains": "OUTSIDE-SECRET"
+        }
+       }
+      }
+     ]
+    }
+   },
+   "because": [
+    "HP WP-5",
+    "HP FS-2"
+   ]
+  }
+ ]
+}

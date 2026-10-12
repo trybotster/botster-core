@@ -1,0 +1,207 @@
+{
+  "id": "conf::e2_3_one_step_net_changed_posts_final_flags",
+  "contract": "core",
+  "clause": "E2-3",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "program_write_once"
+    ]
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "bind_fields": {
+        "flags": "$m0"
+      }
+    },
+    {
+      "control": {
+        "op": "program_write_once",
+        "session": "s1",
+        "bytes_hex": "1b5b3f3230303468"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          },
+          {
+            "ModesChanged": {
+              "id": "s1",
+              "flags": "$f1"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "expect": {
+        "flags": "$f1"
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$m0",
+          "$f1"
+        ]
+      },
+      "because": [
+        "Core E2-3",
+        "Core EV-7"
+      ]
+    },
+    {
+      "control": {
+        "op": "program_write_once",
+        "session": "s1",
+        "bytes_hex": "1b5b3f323030346c1b5b3f32303034681b5b3f323030346c"
+      }
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Activity": {
+              "id": "s1",
+              "source": "Output"
+            }
+          },
+          {
+            "ModesChanged": {
+              "id": "s1",
+              "flags": "$f2"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core E2-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "oracle_modes",
+        "session": "s1"
+      },
+      "expect": {
+        "flags": "$f2"
+      },
+      "because": [
+        "Core E2-3",
+        "Core R-7"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$f1",
+          "$f2"
+        ]
+      },
+      "because": [
+        "Core E2-3"
+      ]
+    },
+    {
+      "forbid_events": {
+        "events": [
+          {
+            "ModesChanged": {
+              "id": "s1"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "drain": {}
+    }
+  ]
+}

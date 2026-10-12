@@ -1,0 +1,491 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AuthFrame",
+  "description": "The frames of the authentication phase and of the route handshake.\n\nClause: HC TB-L2, PR-5, PR-6, PR-7.",
+  "oneOf": [
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/RouteConnect"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "string",
+              "const": "route_connect"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/AuthChallenge"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "string",
+              "const": "auth_challenge"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/PairRequest"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "string",
+              "const": "pair_request"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/AuthResponse"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "string",
+              "const": "auth_response"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        }
+      ]
+    },
+    {
+      "allOf": [
+        {
+          "$ref": "#/$defs/AuthAccepted"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "frame": {
+              "type": "string",
+              "const": "auth_accepted"
+            }
+          },
+          "required": [
+            "frame"
+          ]
+        }
+      ]
+    }
+  ],
+  "$defs": {
+    "AuthFrame": {
+      "description": "The frames of the authentication phase and of the route handshake.\n\nClause: HC TB-L2, PR-5, PR-6, PR-7.",
+      "oneOf": [
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/RouteConnect"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "const": "route_connect"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthChallenge"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "const": "auth_challenge"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/PairRequest"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "const": "pair_request"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthResponse"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "const": "auth_response"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            }
+          ]
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/$defs/AuthAccepted"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "frame": {
+                  "type": "string",
+                  "const": "auth_accepted"
+                }
+              },
+              "required": [
+                "frame"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "RouteConnect": {
+      "description": "The first and only handshake frame of a route connection on `local-stream`. It uses the control framing (TR-1).\n\nClause: HC TB-L2.",
+      "type": "object",
+      "properties": {
+        "route_id": {
+          "type": "string"
+        },
+        "route_token": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "route_id",
+        "route_token"
+      ]
+    },
+    "AuthChallenge": {
+      "description": "The Hub's challenge, sent on the control channel before any envelope frame. Both fingerprints are as the Hub sees them.\n\nClause: HC PR-5.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "protocols": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint16",
+            "minimum": 0,
+            "maximum": 65535
+          }
+        },
+        "route": {
+          "type": "string"
+        },
+        "hub_public_key": {
+          "type": "string"
+        },
+        "challenge": {
+          "type": "string"
+        },
+        "client_fingerprint": {
+          "type": "string"
+        },
+        "hub_fingerprint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "protocols",
+        "route",
+        "hub_public_key",
+        "challenge",
+        "client_fingerprint",
+        "hub_fingerprint"
+      ]
+    },
+    "PairRequest": {
+      "description": "The first pairing: the proof is an HMAC of the pairing transcript (PR-7b).\n\nClause: HC PR-6.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "challenge": {
+          "type": "string"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "expires_at": {
+          "description": "Unix seconds; it equals the bundle's `expires_at`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "proof": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "challenge",
+        "client_public_key",
+        "expires_at",
+        "proof"
+      ]
+    },
+    "AuthResponse": {
+      "description": "A later connection: the signature is Ed25519 over the auth transcript (PR-7b).\n\nClause: HC PR-6.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "challenge": {
+          "type": "string"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "challenge",
+        "client_public_key",
+        "signature"
+      ]
+    },
+    "AuthAccepted": {
+      "description": "The Hub's acceptance, signed over the accepted transcript (PR-7b).\n\nClause: HC PR-7.",
+      "type": "object",
+      "properties": {
+        "protocol": {
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "challenge": {
+          "type": "string"
+        },
+        "hub_public_key": {
+          "type": "string"
+        },
+        "client_public_key": {
+          "type": "string"
+        },
+        "credential_id": {
+          "type": "string"
+        },
+        "paired": {
+          "type": "boolean"
+        },
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "challenge",
+        "hub_public_key",
+        "client_public_key",
+        "credential_id",
+        "paired",
+        "signature"
+      ]
+    },
+    "Signal": {
+      "description": "The signalling messages. Signalling is untrusted and carries no secret (PR-4).\n\nClause: HC PR-4.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "hub_id": {
+              "type": "string"
+            },
+            "connection_id": {
+              "type": "string"
+            },
+            "sdp": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "signal_offer"
+            }
+          },
+          "required": [
+            "frame",
+            "hub_id",
+            "connection_id",
+            "sdp"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "connection_id": {
+              "type": "string"
+            },
+            "sdp": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "signal_answer"
+            }
+          },
+          "required": [
+            "frame",
+            "connection_id",
+            "sdp"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "connection_id": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "signal_refused"
+            }
+          },
+          "required": [
+            "frame",
+            "connection_id",
+            "reason"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "connection_id": {
+              "type": "string"
+            },
+            "candidate": {
+              "type": "string"
+            },
+            "frame": {
+              "type": "string",
+              "const": "signal_candidate"
+            }
+          },
+          "required": [
+            "frame",
+            "connection_id",
+            "candidate"
+          ]
+        }
+      ]
+    },
+    "IceServers": {
+      "description": "`GET <web origin>/hubs/<hub_id>/ice`: the ICE servers.\n\nClause: HC PR-4, A2 G-30.",
+      "type": "object",
+      "properties": {
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IceServer"
+          }
+        }
+      },
+      "required": [
+        "servers"
+      ]
+    },
+    "IceServer": {
+      "description": "One ICE server.\n\nClause: HC A2 G-30.",
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "username": {
+          "type": "string"
+        },
+        "credential": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "urls"
+      ]
+    }
+  }
+}

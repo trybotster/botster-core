@@ -1,0 +1,132 @@
+{
+  "id": "conf::ui_id_3_row_key_with_separators",
+  "contract": "ui",
+  "clause": "UI-ID-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "row keys with slash, colon, pipe and backslash",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "h1/s1",
+              "v": "x"
+            },
+            {
+              "id": "a:b",
+              "v": "x"
+            },
+            {
+              "id": "p|q",
+              "v": "x"
+            },
+            {
+              "id": "c\\d",
+              "v": "x"
+            },
+            {
+              "id": "x/y:z|w\\v",
+              "v": "x"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l5:h1/s1": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:1:l3:a:b": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:1:l3:p|q": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:1:l3:c\\d": {
+          "type": "list_item"
+        },
+        "botster-ui-descendant-v1:1:l9:x/y:z|w\\v": {
+          "type": "list_item"
+        }
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "a child of a row with separators",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "h1/s:1",
+              "v": "x"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:36:botster-ui-descendant-v1:1:l6:h1/s:11:f": {
+          "props": {
+            "text": "x"
+          }
+        }
+      },
+      "because": "UI UI-ID-3"
+    }
+  ]
+}

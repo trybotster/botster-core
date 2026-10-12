@@ -1,0 +1,764 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:botster:schema:plugin:v1:plugin-errors.json",
+  "description": "HP Appendix B: the registry of kind and every published detail.code",
+  "effects": [
+    "none",
+    "committed",
+    "unknown"
+  ],
+  "kinds": [
+    {
+      "kind": "invalid_request",
+      "meaning": "argument shape or value refused"
+    },
+    {
+      "kind": "capability_denied",
+      "meaning": "the package lacks the grant, or the object is not the plugin's"
+    },
+    {
+      "kind": "not_found",
+      "meaning": "the named object does not exist"
+    },
+    {
+      "kind": "conflict",
+      "meaning": "revision conflict or already exists"
+    },
+    {
+      "kind": "quota_exceeded",
+      "meaning": "a plugin-owned quota is full"
+    },
+    {
+      "kind": "response_too_large",
+      "meaning": "one result or item is larger than the bound; nothing is truncated"
+    },
+    {
+      "kind": "backpressured",
+      "meaning": "a bounded queue or reservation is full now"
+    },
+    {
+      "kind": "timed_out",
+      "meaning": "the deadline expired"
+    },
+    {
+      "kind": "cancelled",
+      "meaning": "the plugin or the Hub cancelled the operation"
+    },
+    {
+      "kind": "unavailable",
+      "meaning": "the target runtime is stopped, not ready or not configured"
+    },
+    {
+      "kind": "failed",
+      "meaning": "the operation ran and failed; detail explains"
+    }
+  ],
+  "codes": [
+    {
+      "code": "unknown_call",
+      "kind": "invalid_request",
+      "clauses": "CA-1"
+    },
+    {
+      "code": "cursor_invalid",
+      "kind": "invalid_request",
+      "clauses": "ST-5"
+    },
+    {
+      "code": "no_such_index",
+      "kind": "invalid_request",
+      "clauses": "A24 store.query"
+    },
+    {
+      "code": "limit_required",
+      "kind": "invalid_request",
+      "clauses": "ST-4"
+    },
+    {
+      "code": "index_value_type",
+      "kind": "invalid_request",
+      "clauses": "A2-14"
+    },
+    {
+      "code": "duplicate_key",
+      "kind": "invalid_request",
+      "clauses": "ST-3"
+    },
+    {
+      "code": "too_many_ops",
+      "kind": "invalid_request",
+      "clauses": "ST-3"
+    },
+    {
+      "code": "expected_revision_required",
+      "kind": "invalid_request",
+      "clauses": "A2-9"
+    },
+    {
+      "code": "remote_hub_unsupported",
+      "kind": "invalid_request",
+      "clauses": "VC-8, SS-1, SS-2"
+    },
+    {
+      "code": "text_too_long",
+      "kind": "invalid_request",
+      "clauses": "SW-1"
+    },
+    {
+      "code": "text_empty",
+      "kind": "invalid_request",
+      "clauses": "SW-1"
+    },
+    {
+      "code": "bytes_too_long",
+      "kind": "invalid_request",
+      "clauses": "RW-2, AS-1"
+    },
+    {
+      "code": "bytes_empty",
+      "kind": "invalid_request",
+      "clauses": "RW-2"
+    },
+    {
+      "code": "bytes_invalid",
+      "kind": "invalid_request",
+      "clauses": "RW-2"
+    },
+    {
+      "code": "argv_empty",
+      "kind": "invalid_request",
+      "clauses": "CA-19, PX-1"
+    },
+    {
+      "code": "argv_too_long",
+      "kind": "invalid_request",
+      "clauses": "CA-19"
+    },
+    {
+      "code": "env_too_long",
+      "kind": "invalid_request",
+      "clauses": "CA-19, A2-1"
+    },
+    {
+      "code": "cwd_not_allowed",
+      "kind": "invalid_request",
+      "clauses": "CA-19, PX-1"
+    },
+    {
+      "code": "unknown_context_key",
+      "kind": "invalid_request",
+      "clauses": "CA-14, A2-1"
+    },
+    {
+      "code": "environment_not_allowed",
+      "kind": "invalid_request",
+      "clauses": "A2-1"
+    },
+    {
+      "code": "prompt_too_long",
+      "kind": "invalid_request",
+      "clauses": "A2-1"
+    },
+    {
+      "code": "net_userinfo",
+      "kind": "invalid_request",
+      "clauses": "NT-2"
+    },
+    {
+      "code": "net_header_forbidden",
+      "kind": "invalid_request",
+      "clauses": "NT-2"
+    },
+    {
+      "code": "net_scheme",
+      "kind": "invalid_request",
+      "clauses": "A2-17"
+    },
+    {
+      "code": "content_type_not_allowed",
+      "kind": "invalid_request",
+      "clauses": "A2-19"
+    },
+    {
+      "code": "bad_ice_url",
+      "kind": "invalid_request",
+      "clauses": "WP-6"
+    },
+    {
+      "code": "bad_origin",
+      "kind": "invalid_request",
+      "clauses": "WP-1"
+    },
+    {
+      "code": "envelope_too_large",
+      "kind": "invalid_request",
+      "clauses": "WP-2"
+    },
+    {
+      "code": "catalog_version_unsupported",
+      "kind": "invalid_request",
+      "clauses": "A2-29"
+    },
+    {
+      "code": "registration_after_ready",
+      "kind": "invalid_request",
+      "clauses": "LN-1"
+    },
+    {
+      "code": "unknown_handler",
+      "kind": "invalid_request",
+      "clauses": "FS-3, A2-53"
+    },
+    {
+      "code": "handler_id_required",
+      "kind": "invalid_request",
+      "clauses": "A2-53"
+    },
+    {
+      "code": "gap_handler_required",
+      "kind": "invalid_request",
+      "clauses": "WP-4"
+    },
+    {
+      "code": "entity_schema",
+      "kind": "invalid_request",
+      "clauses": "A2-7"
+    },
+    {
+      "code": "interface_schema_unsupported",
+      "kind": "invalid_request",
+      "clauses": "PD-3, PD-3b"
+    },
+    {
+      "code": "interface_unknown_required",
+      "kind": "invalid_request",
+      "clauses": "PD-4"
+    },
+    {
+      "code": "interface_not_additive",
+      "kind": "invalid_request",
+      "clauses": "A8-2, PD-9"
+    },
+    {
+      "code": "manifest_unknown_key",
+      "kind": "invalid_request",
+      "clauses": "MN-1, PK-4"
+    },
+    {
+      "code": "manifest_bad_version",
+      "kind": "invalid_request",
+      "clauses": "PD-1"
+    },
+    {
+      "code": "manifest_bad_scope",
+      "kind": "invalid_request",
+      "clauses": "MN-2"
+    },
+    {
+      "code": "manifest_bad_allow",
+      "kind": "invalid_request",
+      "clauses": "NT-2"
+    },
+    {
+      "code": "manifest_bad_applies_to",
+      "kind": "invalid_request",
+      "clauses": "VW-8"
+    },
+    {
+      "code": "manifest_bad_mcp_server",
+      "kind": "invalid_request",
+      "clauses": "MP-1"
+    },
+    {
+      "code": "manifest_bad_notifications",
+      "kind": "invalid_request",
+      "clauses": "CA-22"
+    },
+    {
+      "code": "manifest_bad_pointer",
+      "kind": "invalid_request",
+      "clauses": "VW-8, VW-9"
+    },
+    {
+      "code": "manifest_bad_port_env",
+      "kind": "invalid_request",
+      "clauses": "CA-20"
+    },
+    {
+      "code": "manifest_bad_reaction",
+      "kind": "invalid_request",
+      "clauses": "VW-9"
+    },
+    {
+      "code": "manifest_missing",
+      "kind": "invalid_request",
+      "clauses": "PK-3"
+    },
+    {
+      "code": "manifest_malformed",
+      "kind": "invalid_request",
+      "clauses": "PK-3, A2-36"
+    },
+    {
+      "code": "manifest_ambiguous",
+      "kind": "invalid_request",
+      "clauses": "PK-6, PK-8"
+    },
+    {
+      "code": "path_invalid",
+      "kind": "invalid_request",
+      "clauses": "PK-2"
+    },
+    {
+      "code": "net_denied",
+      "kind": "capability_denied",
+      "clauses": "NT-2, NT-9, MP-3"
+    },
+    {
+      "code": "fs_outside_root",
+      "kind": "capability_denied",
+      "clauses": "FS-2"
+    },
+    {
+      "code": "undeclared_dependency",
+      "kind": "capability_denied",
+      "clauses": "PD-5"
+    },
+    {
+      "code": "not_plugin_writable",
+      "kind": "capability_denied",
+      "clauses": "NT-5, A24 secrets.put"
+    },
+    {
+      "code": "revision_conflict",
+      "kind": "conflict",
+      "clauses": "ST-2, ST-3"
+    },
+    {
+      "code": "stale_descriptor",
+      "kind": "conflict",
+      "clauses": "IV-8, VW-3"
+    },
+    {
+      "code": "idempotency_key_reuse",
+      "kind": "conflict",
+      "clauses": "PC-4"
+    },
+    {
+      "code": "call_cycle",
+      "kind": "conflict",
+      "clauses": "PC-3"
+    },
+    {
+      "code": "call_depth_exceeded",
+      "kind": "conflict",
+      "clauses": "A2-10, PC-3"
+    },
+    {
+      "code": "dependency_cycle",
+      "kind": "conflict",
+      "clauses": "PD-7"
+    },
+    {
+      "code": "requirement_conflict",
+      "kind": "conflict",
+      "clauses": "PD-6"
+    },
+    {
+      "code": "ambiguous_provider",
+      "kind": "conflict",
+      "clauses": "PD-6"
+    },
+    {
+      "code": "breaking_not_accepted",
+      "kind": "conflict",
+      "clauses": "A8-3, PD-6"
+    },
+    {
+      "code": "grants_mismatch",
+      "kind": "conflict",
+      "clauses": "A2-29"
+    },
+    {
+      "code": "record_too_large",
+      "kind": "quota_exceeded",
+      "clauses": "A24 log.write"
+    },
+    {
+      "code": "document_bytes",
+      "kind": "quota_exceeded",
+      "clauses": "ST-8"
+    },
+    {
+      "code": "plugin_bytes",
+      "kind": "quota_exceeded",
+      "clauses": "ST-8"
+    },
+    {
+      "code": "documents",
+      "kind": "quota_exceeded",
+      "clauses": "ST-8"
+    },
+    {
+      "code": "max_watches",
+      "kind": "quota_exceeded",
+      "clauses": "ST-6"
+    },
+    {
+      "code": "max_timers",
+      "kind": "quota_exceeded",
+      "clauses": "A24 timers.arm"
+    },
+    {
+      "code": "host_memory",
+      "kind": "quota_exceeded",
+      "clauses": "LM-7"
+    },
+    {
+      "code": "no_session_port",
+      "kind": "quota_exceeded",
+      "clauses": "CA-20, A2-1, A2-12"
+    },
+    {
+      "code": "relay_attempts_max",
+      "kind": "quota_exceeded",
+      "clauses": "WP-2"
+    },
+    {
+      "code": "ice_servers_max",
+      "kind": "quota_exceeded",
+      "clauses": "WP-6"
+    },
+    {
+      "code": "entity_bytes",
+      "kind": "quota_exceeded",
+      "clauses": "A2-7"
+    },
+    {
+      "code": "package_too_large",
+      "kind": "quota_exceeded",
+      "clauses": "A2-29"
+    },
+    {
+      "code": "catalog_too_large",
+      "kind": "quota_exceeded",
+      "clauses": "A2-29"
+    },
+    {
+      "code": "no_receipt_capacity",
+      "kind": "backpressured",
+      "clauses": "CA-16, A2-1, A2-12"
+    },
+    {
+      "code": "write_pending_full",
+      "kind": "backpressured",
+      "clauses": "A4-1, SW-5"
+    },
+    {
+      "code": "net_timeout",
+      "kind": "timed_out",
+      "clauses": "NT-9"
+    },
+    {
+      "code": "net_cancelled",
+      "kind": "cancelled",
+      "clauses": "NT-9"
+    },
+    {
+      "code": "net_too_large",
+      "kind": "response_too_large",
+      "clauses": "NT-9"
+    },
+    {
+      "code": "not_ready",
+      "kind": "unavailable",
+      "clauses": "SS-3, A24 sessions.list"
+    },
+    {
+      "code": "provider_unloaded",
+      "kind": "unavailable",
+      "clauses": "PD-8"
+    },
+    {
+      "code": "requirement_unmet",
+      "kind": "unavailable",
+      "clauses": "PD-6, PD-8"
+    },
+    {
+      "code": "mcp_protocol",
+      "kind": "unavailable",
+      "clauses": "MP-2"
+    },
+    {
+      "code": "mcp_server_unavailable",
+      "kind": "unavailable",
+      "clauses": "MP-6"
+    },
+    {
+      "code": "mcp_bound_exceeded",
+      "kind": "unavailable",
+      "clauses": "MP-12"
+    },
+    {
+      "code": "instance_fenced",
+      "kind": "unavailable",
+      "clauses": "A2-11"
+    },
+    {
+      "code": "wrong_state",
+      "kind": "failed",
+      "clauses": "SA-1, SA-2, A2-2"
+    },
+    {
+      "code": "wrong_context",
+      "kind": "failed",
+      "clauses": "CA-3, LD-3, A2-11"
+    },
+    {
+      "code": "incompatible_document",
+      "kind": "failed",
+      "clauses": "ST-11, LD-10"
+    },
+    {
+      "code": "document_exceeds_page",
+      "kind": "failed",
+      "clauses": "ST-4"
+    },
+    {
+      "code": "plugin_crashed",
+      "kind": "failed",
+      "clauses": "CR-2, PC-5"
+    },
+    {
+      "code": "handler_error",
+      "kind": "failed",
+      "clauses": "A2-10"
+    },
+    {
+      "code": "not_written",
+      "kind": "failed",
+      "clauses": "RW-2, A2-3"
+    },
+    {
+      "code": "os_write_failed",
+      "kind": "failed",
+      "clauses": "RW-2, A2-3"
+    },
+    {
+      "code": "net_dns",
+      "kind": "failed",
+      "clauses": "NT-9"
+    },
+    {
+      "code": "net_connect",
+      "kind": "failed",
+      "clauses": "NT-5, NT-9"
+    },
+    {
+      "code": "net_tls",
+      "kind": "failed",
+      "clauses": "NT-9"
+    },
+    {
+      "code": "net_closed",
+      "kind": "failed",
+      "clauses": "A24 ws.send"
+    },
+    {
+      "code": "command_not_found",
+      "kind": "failed",
+      "clauses": "PX-2"
+    },
+    {
+      "code": "process_bridge_failed",
+      "kind": "failed",
+      "clauses": "PX-2"
+    },
+    {
+      "code": "worktree_failed",
+      "kind": "failed",
+      "clauses": "A24 ensure_worktree_and_spawn"
+    },
+    {
+      "code": "target_disabled",
+      "kind": "failed",
+      "clauses": "A2-1, A2-4"
+    },
+    {
+      "code": "hash_mismatch",
+      "kind": "failed",
+      "clauses": "PM-6, PD-3"
+    },
+    {
+      "code": "requirement_missing",
+      "kind": "failed",
+      "clauses": "PD-6"
+    },
+    {
+      "code": "mcp_server_restarted",
+      "kind": "failed",
+      "clauses": "MP-15"
+    },
+    {
+      "code": "path_not_found",
+      "kind": "failed",
+      "clauses": "PK-2"
+    },
+    {
+      "code": "path_not_contained",
+      "kind": "failed",
+      "clauses": "PK-2"
+    },
+    {
+      "code": "api_unsupported",
+      "kind": "failed",
+      "clauses": "PD-2, A2-27"
+    },
+    {
+      "code": "feature_missing",
+      "kind": "failed",
+      "clauses": "HS-4, PD-2, A2-27"
+    },
+    {
+      "code": "ui_contract_unsupported",
+      "kind": "failed",
+      "clauses": "PD-2, A2-27"
+    },
+    {
+      "code": "catalog_invalid",
+      "kind": "failed",
+      "clauses": "A2-44"
+    },
+    {
+      "code": "unpack_refused",
+      "kind": "failed",
+      "clauses": "A2-29, PM-4"
+    }
+  ],
+  "load_failure_codes": [
+    {
+      "code": "capability_missing",
+      "clauses": "CP-2"
+    },
+    {
+      "code": "startup_timeout",
+      "clauses": "HS-5"
+    },
+    {
+      "code": "host_not_trusted",
+      "clauses": "TR-1"
+    },
+    {
+      "code": "unsupported_handler_kind",
+      "clauses": "VW-2"
+    }
+  ],
+  "fault_codes": [
+    {
+      "code": "unsupported_frame",
+      "clauses": "VR-2, section 2"
+    },
+    {
+      "code": "unsupported_protocol",
+      "clauses": "HS-3"
+    }
+  ],
+  "wrong_state_reasons": {
+    "sessions.stop": [
+      "starting",
+      "running",
+      "stopping",
+      "ended",
+      "lost",
+      "no_screen_model"
+    ],
+    "sessions.delete": [
+      "starting",
+      "running",
+      "stopping",
+      "ended",
+      "lost",
+      "no_screen_model"
+    ],
+    "sessions.read_screen": [
+      "starting",
+      "running",
+      "stopping",
+      "ended",
+      "lost",
+      "no_screen_model"
+    ],
+    "sessions.terminal_state": [
+      "starting",
+      "running",
+      "stopping",
+      "ended",
+      "lost",
+      "no_screen_model"
+    ],
+    "sessions.read_cursor": [
+      "starting",
+      "running",
+      "stopping",
+      "ended",
+      "lost",
+      "no_screen_model"
+    ],
+    "sessions.safe_write": [
+      "session_ended",
+      "not_running"
+    ],
+    "sessions.write": [
+      "session_ended",
+      "not_running"
+    ],
+    "sessions.restart": [
+      "not_ended",
+      "not_restartable",
+      "record_unavailable",
+      "environment_not_retained",
+      "not_ready"
+    ],
+    "worktrees.delete": [
+      "occupied"
+    ]
+  },
+  "not_written_reasons": [
+    "refused",
+    "unsupported",
+    "mode_precondition_failed",
+    "stale",
+    "not_reported"
+  ],
+  "write_result_reasons": [
+    "os_write_failed",
+    "cancelled",
+    "link_lost"
+  ],
+  "ingress_statuses": [
+    {
+      "status": "accepted",
+      "kind": ""
+    },
+    {
+      "status": "rejected_undeclared",
+      "kind": "capability_denied"
+    },
+    {
+      "status": "rejected_foreign",
+      "kind": "capability_denied"
+    },
+    {
+      "status": "rejected_audience",
+      "kind": "capability_denied"
+    },
+    {
+      "status": "rejected_invalid",
+      "kind": "invalid_request"
+    },
+    {
+      "status": "shed_ingress_full",
+      "kind": "backpressured"
+    }
+  ]
+}

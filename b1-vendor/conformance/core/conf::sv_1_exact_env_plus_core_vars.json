@@ -1,0 +1,150 @@
+{
+  "id": "conf::sv_1_exact_env_plus_core_vars",
+  "contract": "core",
+  "clause": "SV-1",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "service_spawn_record"
+    ]
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "SpawnService": {
+            "service_id": "1111111111111111111111111111111111111111111111111111111111111111",
+            "limits": {
+              "lanes": [
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                },
+                {
+                  "max_frame_bytes": 1024,
+                  "outbound_queue_bytes": 4096,
+                  "inbound_queue_bytes": 4096
+                }
+              ],
+              "rlimits": {},
+              "startup": 10000,
+              "stop_grace": 5000,
+              "orphan_grace": 5000
+            },
+            "env": {
+              "HOST_A": "one",
+              "HOST_B": "two words"
+            },
+            "argv": [
+              "/bin/service",
+              "--flag",
+              "x y"
+            ],
+            "cwd": "/srv"
+          }
+        }
+      },
+      "bind": "$o1"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "Completed": {
+              "op": "$o1",
+              "result": {
+                "ok": {
+                  "spawn": {
+                    "applied": {
+                      "$type": "array"
+                    },
+                    "unsupported": {
+                      "$type": "array"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "ServiceState": {
+              "id": "1111111111111111111111111111111111111111111111111111111111111111",
+              "state": "Started"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core SV-1",
+        "Core SV-5",
+        "Core A2-1"
+      ]
+    },
+    {
+      "control": {
+        "op": "service_spawn_record",
+        "service": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "bind_fields": {
+        "core_secret": "$sec"
+      },
+      "expect": {
+        "argv": [
+          "/bin/service",
+          "--flag",
+          "x y"
+        ],
+        "cwd": "/srv",
+        "env": {
+          "HOST_A": "one",
+          "HOST_B": "two words",
+          "CORE_SERVICE_LANES": "2",
+          "CORE_SERVICE_TRANSPORT": "unix-lanes-1",
+          "CORE_SERVICE_SECRET": {
+            "$type": "string"
+          },
+          "CORE_SERVICE_ENDPOINT": {
+            "$type": "string"
+          },
+          "CORE_SERVICE_PREAMBLE_VERSIONS": {
+            "$type": "string"
+          },
+          "CORE_SERVICE_CAUSE_FD": {
+            "$type": "string"
+          },
+          "CORE_SERVICE_ID": {
+            "$type": "string"
+          }
+        },
+        "env_keys": [
+          "CORE_SERVICE_CAUSE_FD",
+          "CORE_SERVICE_ENDPOINT",
+          "CORE_SERVICE_ID",
+          "CORE_SERVICE_LANES",
+          "CORE_SERVICE_PREAMBLE_VERSIONS",
+          "CORE_SERVICE_SECRET",
+          "CORE_SERVICE_TRANSPORT",
+          "HOST_A",
+          "HOST_B"
+        ]
+      },
+      "because": [
+        "Core SV-1"
+      ]
+    },
+    {
+      "check": {
+        "hex_len_eq": [
+          "$sec",
+          32
+        ]
+      },
+      "because": [
+        "Core SV-1"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

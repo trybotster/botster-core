@@ -1,0 +1,138 @@
+{
+  "id": "conf::ui_fd_2_map_key_is_json_text_of_value",
+  "contract": "ui",
+  "clause": "UI-FD-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "true, false and null match the keys of their JSON text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "true": {
+                    "label": "Yes",
+                    "tone": "success"
+                  },
+                  "false": {
+                    "label": "No",
+                    "tone": "danger"
+                  },
+                  "null": {
+                    "label": "Unset",
+                    "tone": "warning"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": true
+            },
+            {
+              "id": "r1",
+              "v": false
+            },
+            {
+              "id": "r2",
+              "v": null
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Yes",
+            "tone": "success"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:f": {
+          "type": "text",
+          "props": {
+            "text": "No",
+            "tone": "danger"
+          }
+        },
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r21:f": {
+          "type": "text",
+          "props": {
+            "text": "Unset",
+            "tone": "warning"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    },
+    {
+      "name": "a string value matches a key equal to its own text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v",
+                "map": {
+                  "open": {
+                    "label": "Open",
+                    "tone": "info"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "v": "open"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "Open",
+            "tone": "info"
+          }
+        }
+      },
+      "because": "UI UI-FD-2"
+    }
+  ]
+}

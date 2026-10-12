@@ -1,0 +1,104 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-8-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Hub→plugin contract of `frozen/current` (manifest final30): v1.1 joint J4e, with Amendments 1 to 7, which are unchanged except where A8-3 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 1** (`1e774a16…5bf9`, commit `ddab9e4`), which the Amendment reviewer rejected (verdict `b69777f`):
+[rows."5"]
+"b69777f" = "n/a: a commit or file hash"
+"ddab9e4" = "n/a: a commit or file hash"
+
+# - **PD-4** says "a consumer fails closed on an unknown required field or kind (it refuses the answer with `invalid_request{detail.code: interface_unknown_required}`)", and "a provider refuses a call with an unknown required argument". No...
+[rows."13"]
+"invalid_request{detail.code: interface_unknown_required}" = ["plugin.code:invalid_request:interface_unknown_required", "plugin::Detail::code"]
+"result" = ["plugin::OperationFields::result"]
+
+# - **PD-6** says that a breaking upgrade "is shown in `preview_upgrade`" and "is refused unless the caller accepts it". No clause names the preview field or the refusal. The `botster` CLI spec (CLI-PL4, and its error table) already prints...
+[rows."14"]
+"botster" = "n/a: the product and binary name"
+"conflict{breaking_not_accepted}" = ["plugin.code:conflict:breaking_not_accepted"]
+"detail.consumers" = { symbols = ["plugin::ErrorBody::detail", "plugin::Detail::extra"], uncovered = { consumers = "a descriptive detail key (Detail::extra is an open object)" } }
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]
+
+# - The **bound document** of a consumer requirement is the interface document whose hash the lock records for that binding (PD-6, PM-3 `interface_hash`).
+[rows."17"]
+"interface_hash" = ["plugin::ResolvedRequire::interface_hash"]
+
+# - The **export schema** is the provider's declared `args_schema` or `result_schema` for the tool (PD-3).
+[rows."18"]
+"args_schema" = ["plugin::InterfaceExport::args_schema"]
+"result_schema" = ["plugin::InterfaceExport::result_schema"]
+
+# - **At the same place** means at the same property path, through `properties` and `items` (the PD-3b schema subset). Every element of an array is at the place of its schema's `items`.
+[rows."19"]
+"items" = "n/a: a JSON Schema keyword"
+"properties" = "n/a: a JSON Schema keyword"
+
+# | A8-1 | **The Hub makes the PD-4 checks, for the consumer and for the provider, against the bound document.** A consumer plugin cannot declare which document version its code knows, so the bound document is the consumer's known schema.<...
+[rows."23"]
+"a" = "n/a: an example property name of A8-1"
+"args" = ["plugin::PluginsCallArgs::args"]
+"args_schema" = ["plugin::InterfaceExport::args_schema"]
+"b" = "n/a: an example property name of A8-1"
+"c" = "n/a: an example property name of A8-1"
+"d" = "n/a: an example property name of A8-1"
+"extra" = "n/a: an example property name of A8-1"
+"extra.token" = "n/a: an example property path of A8-1"
+"failed" = ["plugin::ErrorKind::Failed"]
+"invalid_request{detail.code: interface_unknown_required, interface, tool, path}" = { symbols = ["plugin::ErrorKind::InvalidRequest", "plugin::Detail::code", "plugin.code:invalid_request:interface_unknown_required", "plugin::Detail::extra"], uncovered = { interface = "a descriptive detail key (Detail::extra is an open object)", tool = "a descriptive detail key", path = "a descriptive detail key" } }
+"list" = "n/a: an example property name of A8-1"
+"path" = { symbols = ["plugin::Detail::extra"], uncovered = { path = "a detail key of interface_unknown_required (Detail::extra is an open object)" } }
+"path: [\"list\", 0, \"b\"]" = { symbols = ["plugin::Detail::extra"], uncovered = { path = "a detail key of interface_unknown_required (Detail::extra is an open object)", list = "an example property name of A8-1", b = "an example property name of A8-1" } }
+"plugins.call" = ["plugin.call:plugins.call"]
+"required" = "n/a: a JSON Schema keyword"
+"result" = ["plugin::OperationFields::result"]
+"result_schema" = ["plugin::InterfaceExport::result_schema"]
+"token" = "n/a: an example property name of A8-1"
+"unknown" = ["plugin::Effect::Unknown"]
+
+# | A8-2 | **A MINOR or PATCH document only adds, and the Hub checks this at static admission.** At PD-9 stage A, step 4, the Hub compares each new interface document with every **accepted** document (one whose hash a lock records) that ha...
+[rows."24"]
+"accepts(new, old)" = "n/a: a relation that PD-3b(b) defines in prose; the crate has no symbol for it"
+"against" = { symbols = ["plugin::Detail::extra"], uncovered = { against = "a descriptive detail key (Detail::extra is an open object)" } }
+"array" = "n/a: a primitive type name"
+"effect" = ["plugin::InterfaceExport::effect"]
+"enum" = "n/a: a JSON Schema keyword"
+"extends(new, old)" = "n/a: a relation that A8-2 defines in prose; the crate has no symbol for it"
+"extends(new.items, old.items)" = "n/a: a relation that A8-2 defines in prose; the crate has no symbol for it"
+"extends(new.prop, old.prop)" = "n/a: a relation that A8-2 defines in prose; the crate has no symbol for it"
+"invalid_request{detail.code: interface_not_additive, interface, version, against}" = { symbols = ["plugin::ErrorKind::InvalidRequest", "plugin::Detail::code", "plugin.code:invalid_request:interface_not_additive", "plugin::Detail::extra"], uncovered = { interface = "a descriptive detail key (Detail::extra is an open object)", version = "a descriptive detail key", against = "a descriptive detail key" } }
+"name" = { symbols = ["plugin::InterfaceDocument"], uncovered = { name = "the name of an interface document (PD-3)" } }
+"new" = "n/a: the name of the newer document in the relation extends(new, old)"
+"object" = "n/a: a JSON Schema type name"
+"old" = "n/a: the older document in the A8-2 relation (prose)"
+"required" = "n/a: a JSON Schema keyword"
+"result_schema" = ["plugin::InterfaceExport::result_schema"]
+"type" = "n/a: a JSON Schema keyword"
+
+# | A8-3 | **The preview names each breaking pair, and the refusal names the pairs not accepted.**<br>- **`preview_upgrade`** returns, in addition to the PM-7 fields, **`breaking: [{consumer, interface, range, interface_version}]`**. There...
+[rows."25"]
+"accept_breaking" = ["hub::PackageUpgradeArgs::accept_breaking", "hub::UpgradePackagesArgs::accept_breaking"]
+"ambiguous" = ["hub::PreviewPackageUpgradesResult::ambiguous"]
+"breaking" = ["hub::UpgradePreview::breaking"]
+"breaking: [{consumer, interface, range, interface_version}]" = ["hub::UpgradePreview::breaking", "hub::BreakingEntry::consumer", "hub::BreakingEntry::interface", "hub::BreakingEntry::range", "hub::BreakingEntry::interface_version"]
+"conflict{detail.code: breaking_not_accepted, consumers: [{consumer, interface}]}" = { symbols = ["plugin::ErrorKind::Conflict", "plugin::Detail::code", "plugin.code:conflict:breaking_not_accepted", "plugin::Detail::extra", "hub::ConsumerInterface::consumer", "hub::ConsumerInterface::interface"], uncovered = { consumers = "a descriptive detail key (Detail::extra is an open object)" } }
+"consumers" = { symbols = ["plugin::Detail::extra"], uncovered = { consumers = "a descriptive detail key (Detail::extra is an open object)" } }
+"interface_version" = ["plugin::ResolvedRequire::interface_version"]
+"none" = ["plugin::Effect::None"]
+"preview_package_upgrades" = ["hub.action:hub.preview_package_upgrades"]
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]
+"range" = ["plugin::Requires::range"]
+"upgrade" = ["hub.action:package.upgrade"]
+"upgrade_packages" = ["hub.action:hub.upgrade_packages"]
+"{consumer, interface}" = ["hub::ConsumerInterface::consumer", "hub::ConsumerInterface::interface"]
+
+# 2. **PD-6, "is shown in `preview_upgrade` and is refused unless the caller accepts it"** reads with A8-3.
+[rows."30"]
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]
+
+# 3. **PM-7, the fields that `preview_upgrade` returns,** include `breaking` (A8-3).
+[rows."31"]
+"breaking" = ["hub::UpgradePreview::breaking"]
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]

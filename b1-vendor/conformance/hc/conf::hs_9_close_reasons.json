@@ -1,0 +1,145 @@
+{
+  "id": "conf::hs_9_close_reasons",
+  "contract": "hc",
+  "clause": "HS-9",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "shutdown_now"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "send_wire": {
+        "bytes_hex": "000000037b7b7b"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "close",
+        "reason": {
+          "protocol_error": {
+            "code": "malformed_frame"
+          }
+        }
+      },
+      "on": "c2",
+      "because": [
+        "HC HS-9",
+        "HC A.1"
+      ]
+    },
+    {
+      "expect_closed": null,
+      "on": "c2",
+      "because": "HC HS-9"
+    },
+    {
+      "control": {
+        "op": "shutdown_now"
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "close",
+        "reason": {
+          "hub_shutdown": {
+            "lock_released": true
+          }
+        }
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-9"
+    },
+    {
+      "expect_closed": null,
+      "on": "c1",
+      "because": "HC HS-9"
+    }
+  ]
+}

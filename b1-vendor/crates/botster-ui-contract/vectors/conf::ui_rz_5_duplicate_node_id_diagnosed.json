@@ -1,0 +1,175 @@
+{
+  "id": "conf::ui_rz_5_duplicate_node_id_diagnosed",
+  "contract": "ui",
+  "clause": "UI-RZ-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a row key that equals the container role collides with the part's node: a diagnostic",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "container",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "duplicate_node_id"
+      ],
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "type": "list"
+        }
+      },
+      "because": "UI UI-RZ-5"
+    },
+    {
+      "name": "two table rows with one id collide",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "tb",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "N",
+              "path": "/n"
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "same",
+              "n": 1
+            },
+            {
+              "id": "same",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "duplicate_node_id"
+      ],
+      "because": "UI UI-RZ-5"
+    },
+    {
+      "name": "two list rows with one id collide",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "same",
+              "n": 1
+            },
+            {
+              "id": "same",
+              "n": 2
+            }
+          ]
+        }
+      },
+      "expect_diagnostics": [
+        "duplicate_node_id"
+      ],
+      "because": "UI UI-RZ-5"
+    },
+    {
+      "name": "no collision: no diagnostic",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "x",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l1:x": {
+          "type": "list_item"
+        }
+      },
+      "because": "UI UI-RZ-5",
+      "expect_no_diagnostics": true
+    }
+  ]
+}

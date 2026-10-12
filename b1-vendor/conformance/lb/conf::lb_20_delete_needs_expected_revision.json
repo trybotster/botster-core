@@ -1,0 +1,185 @@
+{
+ "id": "conf::lb_20_delete_needs_expected_revision",
+ "contract": "lb",
+ "clause": "LB-20",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local a = botster.store.batch{ ops = { { op = \"delete\", collection = \"c\", id = \"x\", expected_revision = \"r1\" } } }\n      local b = botster.store.batch{ ops = { { op = \"put\", collection = \"c\", id = \"y\", doc = {} }, { op = \"delete\", collection = \"c\", id = \"x\" } } }\n      return { with_revision = a.ok, without_kind = b.error.kind, without_code = b.error.detail.code, without_index = b.error.detail.op_index }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "store.batch",
+     "args": {
+      "ops": [
+       {
+        "op": "delete",
+        "collection": "c",
+        "id": "x",
+        "expected_revision": "r1"
+       }
+      ]
+     }
+    }
+   },
+   "because": "LB LB-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "results": [
+        {}
+       ]
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "store.batch",
+     "args": {
+      "ops": [
+       {
+        "op": "put",
+        "collection": "c",
+        "id": "y",
+        "doc": {}
+       },
+       {
+        "op": "delete",
+        "collection": "c",
+        "id": "x",
+        "expected_revision": {
+         "$absent": true
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": "LB LB-20"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none",
+       "detail": {
+        "code": "expected_revision_required",
+        "op_index": 1
+       }
+      }
+     },
+     "effect": "none"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "with_revision": true,
+       "without_kind": "invalid_request",
+       "without_code": "expected_revision_required",
+       "without_index": 1
+      }
+     }
+    }
+   },
+   "because": "LB LB-20"
+  }
+ ]
+}

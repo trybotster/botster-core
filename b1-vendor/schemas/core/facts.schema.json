@@ -1,0 +1,891 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Facts",
+  "description": "The result of `ReadFacts`: all facts taken at one point in the worker's ordering.\n\nClause: Core ST-7.",
+  "type": "object",
+  "properties": {
+    "model_rev": {
+      "$ref": "#/$defs/ModelRev"
+    },
+    "modes": {
+      "$ref": "#/$defs/ModeFlags"
+    },
+    "size": {
+      "$ref": "#/$defs/Size"
+    },
+    "cursor": {
+      "$ref": "#/$defs/FactsCursor"
+    },
+    "input": {
+      "$ref": "#/$defs/InputFacts"
+    }
+  },
+  "required": [
+    "model_rev",
+    "modes",
+    "size",
+    "cursor",
+    "input"
+  ],
+  "$defs": {
+    "ModelRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core ST-1, Core IN-10.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "ModeFlags": {
+      "description": "The session's modes on the route: `ModeFlags` of A.6, which is Core 5.1A verbatim.\n\nClause: Codec A.6, TS-4d.",
+      "type": "object",
+      "properties": {
+        "alt_screen": {
+          "type": "boolean"
+        },
+        "cursor_visible": {
+          "type": "boolean"
+        },
+        "bracketed_paste": {
+          "type": "boolean"
+        },
+        "application_cursor_keys": {
+          "type": "boolean"
+        },
+        "application_keypad": {
+          "type": "boolean"
+        },
+        "focus_reporting": {
+          "type": "boolean"
+        },
+        "kitty_flags": {
+          "description": "A bitset of the kitty flags 1, 2, 4, 8 and 16.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "mouse_tracking": {
+          "$ref": "#/$defs/MouseTracking"
+        },
+        "mouse_encoding": {
+          "$ref": "#/$defs/MouseEncoding"
+        },
+        "other_modes": {
+          "description": "Modes outside this list. A receiver ignores names it does not know.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "default": {}
+        }
+      },
+      "required": [
+        "alt_screen",
+        "cursor_visible",
+        "bracketed_paste",
+        "application_cursor_keys",
+        "application_keypad",
+        "focus_reporting",
+        "kitty_flags",
+        "mouse_tracking",
+        "mouse_encoding"
+      ]
+    },
+    "MouseTracking": {
+      "description": "`mouse_tracking` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "none",
+        "x10",
+        "normal",
+        "button_event",
+        "any_event",
+        "other"
+      ]
+    },
+    "MouseEncoding": {
+      "description": "`mouse_encoding` of A.6.\n\nClause: Codec A.6.",
+      "type": "string",
+      "enum": [
+        "x10",
+        "utf8",
+        "sgr",
+        "urxvt",
+        "sgr_pixels",
+        "other"
+      ]
+    },
+    "Size": {
+      "description": "A terminal size.\n\nClause: Core 3, Core A2-1, Core SZ-1.",
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cols": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "cell_px": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CellPx"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "rows",
+        "cols"
+      ]
+    },
+    "CellPx": {
+      "description": "The pixel size of one cell, from 1.\n\nClause: Core 3, Core EV-8a.",
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        },
+        "height": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
+    },
+    "FactsCursor": {
+      "description": "The cursor as `ReadFacts` reports it.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "visible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "row",
+        "col",
+        "visible"
+      ]
+    },
+    "InputFacts": {
+      "description": "The input part of `Facts`.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "client": {
+          "$ref": "#/$defs/ClientFacts"
+        },
+        "host": {
+          "$ref": "#/$defs/HostFacts"
+        },
+        "client_tail": {
+          "$ref": "#/$defs/HexBytes"
+        },
+        "tail_complete": {
+          "type": "boolean"
+        },
+        "input_records": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputRecordEntry"
+          }
+        },
+        "next_cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "gap": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "client",
+        "host",
+        "client_tail",
+        "tail_complete",
+        "input_records",
+        "next_cursor",
+        "gap"
+      ]
+    },
+    "ClientFacts": {
+      "description": "The client part of the input facts.\n\nClause: Core ST-7, Core IN-10.",
+      "type": "object",
+      "properties": {
+        "rev": {
+          "$ref": "#/$defs/InputRev"
+        },
+        "age_ms": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "rev",
+        "age_ms"
+      ]
+    },
+    "InputRev": {
+      "description": "An opaque token: equality only.\n\nClause: Core IN-10, Core ST-4.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "HostFacts": {
+      "description": "The host side of the input facts.\n\nClause: Core ST-7, Core IN-10.",
+      "type": "object",
+      "properties": {
+        "rev": {
+          "$ref": "#/$defs/InputRev"
+        }
+      },
+      "required": [
+        "rev"
+      ]
+    },
+    "HexBytes": {
+      "type": "object",
+      "properties": {
+        "$bytes_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})*$"
+        }
+      },
+      "required": [
+        "$bytes_hex"
+      ],
+      "additionalProperties": false
+    },
+    "InputRecordEntry": {
+      "description": "One entry of `input_records`: a record or the status update of an earlier record.\n\nClause: Core ST-7.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "record": {
+              "$ref": "#/$defs/InputRecord"
+            }
+          },
+          "required": [
+            "record"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "status_update": {
+              "$ref": "#/$defs/InputStatusUpdate"
+            }
+          },
+          "required": [
+            "status_update"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InputRecord": {
+      "description": "A record of one PTY input, created at the worker's receipt of it.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "source": {
+          "$ref": "#/$defs/InputSource"
+        },
+        "at": {
+          "description": "The worker's monotonic stamp.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "kind": {
+          "$ref": "#/$defs/InputKind"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/KeyEvent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mods": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          }
+        },
+        "shifted_key": {
+          "description": "The original key fields of 5.1A, kept as sent.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "base_layout_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Key"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "repeat": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "require_bracketed": {
+          "description": "The `Paste` field of IN-8, kept as sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MouseInput"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "focus": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "payload": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HexBytes"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payload_truncated": {
+          "type": "boolean",
+          "default": false
+        },
+        "state": {
+          "$ref": "#/$defs/InputRecordState"
+        },
+        "pty_bytes": {
+          "description": "Null while the record is pending (ST-7).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "cursor",
+        "source",
+        "at",
+        "kind",
+        "state"
+      ]
+    },
+    "InputCursor": {
+      "description": "An opaque cursor: equality and `after` only.\n\nClause: Core ST-7.",
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "InputSource": {
+      "description": "The source of an input record.\n\nClause: Core ST-7, Core IN-4.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "Host"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Client": {
+              "type": "object",
+              "properties": {
+                "route_tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "owner": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "Client"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "InputKind": {
+      "description": "The kind of an input record.\n\nClause: Core ST-7.",
+      "type": "string",
+      "enum": [
+        "bytes",
+        "text",
+        "paste",
+        "key",
+        "mouse",
+        "focus"
+      ]
+    },
+    "KeyEvent": {
+      "description": "The `event` of a key input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "repeat",
+        "release"
+      ]
+    },
+    "Key": {
+      "description": "A key: `{\"named\": <NamedKey>}` or `{\"char\": \"<one scalar>\"}`.\n\nClause: Codec A.5, Core 5.1A.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "named": {
+              "$ref": "#/$defs/NamedKey"
+            }
+          },
+          "required": [
+            "named"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "char": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "char"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NamedKey": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "tab",
+        "backspace",
+        "escape",
+        "insert",
+        "delete",
+        "home",
+        "end",
+        "page_up",
+        "page_down",
+        "arrow_up",
+        "arrow_down",
+        "arrow_left",
+        "arrow_right",
+        "f1",
+        "f2",
+        "f3",
+        "f4",
+        "f5",
+        "f6",
+        "f7",
+        "f8",
+        "f9",
+        "f10",
+        "f11",
+        "f12",
+        "f13",
+        "f14",
+        "f15",
+        "f16",
+        "f17",
+        "f18",
+        "f19",
+        "f20",
+        "f21",
+        "f22",
+        "f23",
+        "f24",
+        "f25",
+        "f26",
+        "f27",
+        "f28",
+        "f29",
+        "f30",
+        "f31",
+        "f32",
+        "f33",
+        "f34",
+        "f35",
+        "kp_0",
+        "kp_1",
+        "kp_2",
+        "kp_3",
+        "kp_4",
+        "kp_5",
+        "kp_6",
+        "kp_7",
+        "kp_8",
+        "kp_9",
+        "kp_decimal",
+        "kp_divide",
+        "kp_multiply",
+        "kp_subtract",
+        "kp_add",
+        "kp_enter",
+        "kp_equal",
+        "caps_lock",
+        "scroll_lock",
+        "num_lock",
+        "print_screen",
+        "pause",
+        "menu",
+        "left_shift",
+        "left_control",
+        "left_alt",
+        "left_super",
+        "right_shift",
+        "right_control",
+        "right_alt",
+        "right_super"
+      ]
+    },
+    "Modifier": {
+      "description": "A modifier of Core 5.1A.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "shift",
+        "alt",
+        "ctrl",
+        "meta",
+        "super",
+        "hyper",
+        "caps_lock",
+        "num_lock"
+      ]
+    },
+    "MouseInput": {
+      "description": "A semantic mouse event (5.1A `Mouse`).\n\nClause: Core IN-9, Core 5.1A.",
+      "type": "object",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/MouseAction"
+        },
+        "button": {
+          "$ref": "#/$defs/MouseButton"
+        },
+        "row": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "col": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "x": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "y": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "mods": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          },
+          "default": []
+        },
+        "notches": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "action",
+        "button",
+        "row",
+        "col"
+      ]
+    },
+    "MouseAction": {
+      "description": "The `action` of a mouse input.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "press",
+        "release",
+        "move",
+        "wheel"
+      ]
+    },
+    "MouseButton": {
+      "description": "The `button` of a mouse input. `action` is `wheel` exactly when the button is a `wheel_*` value.\n\nClause: Codec A.5, Core 5.1A.",
+      "type": "string",
+      "enum": [
+        "left",
+        "middle",
+        "right",
+        "back",
+        "forward",
+        "none",
+        "wheel_up",
+        "wheel_down",
+        "wheel_left",
+        "wheel_right"
+      ]
+    },
+    "InputRecordState": {
+      "description": "The state of an input record. `pending` has no byte count yet.\n\nClause: Core ST-7.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "pending",
+            "written",
+            "partial",
+            "cancelled",
+            "unknown"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "not_written": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "$ref": "#/$defs/NotWrittenReason"
+                }
+              },
+              "required": [
+                "reason"
+              ]
+            }
+          },
+          "required": [
+            "not_written"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "NotWrittenReason": {
+      "description": "Why a write is a certain zero.\n\nClause: Core IN-2, Core A2-2, Core IN-7, Core IN-8, Core IN-10.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "LaneFull",
+            "SessionEnded",
+            "Stopping",
+            "Stale",
+            "ModePreconditionFailed",
+            "NotReported"
+          ]
+        },
+        {
+          "description": "Route input (A2-2).",
+          "type": "string",
+          "const": "Refused"
+        },
+        {
+          "description": "Route input (IN-2).",
+          "type": "string",
+          "const": "PayloadTooLarge"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unsupported": {
+              "type": "object",
+              "properties": {
+                "what": {
+                  "$ref": "#/$defs/UnsupportedWhat"
+                }
+              },
+              "required": [
+                "what"
+              ]
+            }
+          },
+          "required": [
+            "Unsupported"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "UnsupportedWhat": {
+      "anyOf": [
+        {
+          "description": "What an event had no encoding for. A receiver treats an unknown value as opaque.\n\nClause: Core A2-2, Core 5.1A.",
+          "type": "string",
+          "enum": [
+            "pixel_position",
+            "produced_text",
+            "named_key",
+            "wheel_direction",
+            "coordinate",
+            "release_event",
+            "other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "pixel_position",
+              "produced_text",
+              "named_key",
+              "wheel_direction",
+              "coordinate",
+              "release_event",
+              "other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "pixel_position",
+                "produced_text",
+                "named_key",
+                "wheel_direction",
+                "coordinate",
+                "release_event",
+                "other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "InputStatusUpdate": {
+      "description": "The status update of an earlier record.\n\nClause: Core ST-7.",
+      "type": "object",
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "updates": {
+          "$ref": "#/$defs/InputCursor"
+        },
+        "state": {
+          "$ref": "#/$defs/InputRecordState"
+        },
+        "pty_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0,
+          "default": null
+        }
+      },
+      "required": [
+        "cursor",
+        "updates",
+        "state"
+      ]
+    }
+  }
+}

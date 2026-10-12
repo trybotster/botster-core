@@ -1,0 +1,205 @@
+{
+  "id": "conf::en_7b_caller_operation_id_resolves_after_kill9",
+  "contract": "hc",
+  "clause": "EN-7",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "crash",
+      "hold_recovery",
+      "recovery_done"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "create",
+        "kind": "session",
+        "args": {
+          "command": {
+            "argv": [
+              "sh"
+            ]
+          }
+        },
+        "operation_id": "my-op-1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "operation_id": "my-op-1"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-7b"
+    },
+    {
+      "control": {
+        "op": "hold_recovery"
+      }
+    },
+    {
+      "control": {
+        "op": "crash"
+      }
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "get",
+        "kind": "operation",
+        "target": "my-op-1"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "err": {
+          "code": "busy",
+          "retryable": true
+        }
+      },
+      "on": "c2",
+      "because": "HC EN-7b"
+    },
+    {
+      "control": {
+        "op": "recovery_done"
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "get",
+        "kind": "operation",
+        "target": "my-op-1"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "ok": {
+          "id": "my-op-1"
+        }
+      },
+      "on": "c2",
+      "because": "HC EN-7b"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "get",
+        "kind": "operation",
+        "target": "never-admitted"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "err": {
+          "code": "not_found"
+        }
+      },
+      "on": "c2",
+      "because": "HC EN-7b"
+    }
+  ]
+}

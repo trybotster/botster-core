@@ -1,0 +1,37 @@
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# The base is the Core contract of `frozen/current` (manifest final38), with Amendments 2 to 19 and Errata 1 to 4, which are unchanged except where A20-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# - A5-4 says (`core-contract-v1.17-amendment-5-candidate4.md`, line 38):
+[rows."8"]
+"core-contract-v1.17-amendment-5-candidate4.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# - A5-3 names the one class of ids that runs on the real tier only (`core-contract-v1.17-amendment-5-candidate4.md`, line 32):
+[rows."10"]
+"core-contract-v1.17-amendment-5-candidate4.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# > A code that only a real OS condition can produce (a real crash, fsync durability, descriptor handoff, `payload_dies_with_guardian`) is a **named real-process test** (section 11), and the suite lists it as such.
+[rows."11"]
+"payload_dies_with_guardian" = ["core::Feature::PayloadDiesWithGuardian"]
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# - DP-3 says that "The limit is **checked before any allocation**". Steward ruling R-37 allows one proof of it: an allocation-peak observer, a `#[global_allocator]` wrapper with one atomic `fetch_max` per allocation, in the test binary, observing "the process in which the worker's route reader runs". On the testkit, the worker runs in the test process (A5-1), so the observer sees the route reader's allocations.
+[rows."12"]
+"#[global_allocator]" = "n/a: a Rust attribute of the test binary (steward ruling R-37), not a contract symbol"
+"fetch_max" = "n/a: a Rust standard library atomic operation (steward ruling R-37), not a contract symbol"
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only
+# | A20-1 | **A proof that observes the worker's own allocator is a testkit proof.**<br>- An id whose proof needs an observation **at the process allocator boundary of the process in which the worker's code runs** is proven on the testkit only. On the testkit, that process is the test process (A5-1), and the observer follows steward ruling R-37's conditions: it observes at the allocator boundary, adds no wait, lock or synchronization point, lives only in `botster-core-testkit`, and never instruments worker code.<br>- On the real tier, the suite lists such an id as **testkit-proven**, with this clause as its reason. It is not run, and it is not a failure.<br>- The class has **one member**: `conf::dp_3_frame_limit_checked_before_allocation`. A new member needs a Core amendment that names it.<br>- The class does not weaken the real tier for DP-3. The real tier still runs every other DP-3 id, including the refusal of an over-limit frame header (`frame_too_large`).<br>- A5-4's rule stands for every other id: both run the same suite, and both must pass. A5-3's named real-process tests are unchanged. | `conf::a20_1_testkit_proven_ids_are_exactly_the_named_list` |
+[rows."21"]
+"botster-core-testkit" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+
+# Core contract v1.17, Amendment 20 (candidate 1): a proof that observes the worker's own allocator runs on the testkit only > A20-2. Text replaced
+# - Old (`frozen/current/core-contract-v1.17-amendment-5-candidate4.md`, line 38):
+[rows."37"]
+"frozen/current/core-contract-v1.17-amendment-5-candidate4.md" = "n/a: a repository path"

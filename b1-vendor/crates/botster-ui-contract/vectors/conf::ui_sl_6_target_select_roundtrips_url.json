@@ -1,0 +1,42 @@
+{
+  "id": "conf::ui_sl_6_target_select_roundtrips_url",
+  "contract": "ui",
+  "clause": "UI-SL-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a target with a select maps to a URL with the slot and the row key",
+      "url": {
+        "op": "web_url",
+        "expect": "https://web.example/hubs/hub1/v/acme-tickets/board?sel_t=t1",
+        "origin": "https://web.example",
+        "hub_id": "hub1",
+        "package": "acme-tickets",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "t1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    },
+    {
+      "name": "loading the URL restores the same slots",
+      "url": {
+        "op": "parse_route",
+        "expect": {
+          "package": "acme-tickets",
+          "target": {
+            "view": "board",
+            "select": {
+              "sel_t": "t1"
+            }
+          }
+        },
+        "route": "/v/acme-tickets/board?sel_t=t1"
+      },
+      "because": "UI UI-SL-6"
+    }
+  ]
+}

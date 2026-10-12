@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string"
+    },
+    "credential_id": {
+      "type": "string"
+    },
+    "created_at": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "credential_id",
+    "created_at"
+  ],
+  "description": "The `push_subscription` row. The endpoint is never returned.\n\nClause: HC section 6 (`push_subscription`), SF-5b, A2 H-15.",
+  "x-kind": "push_subscription",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "create": {
+      "effect": "committed",
+      "args": "PushSubscriptionCreateArgs",
+      "reasons": [
+        "invalid_arguments:endpoint_not_https",
+        "conflict"
+      ],
+      "clause": "A2 H-15"
+    },
+    "delete": {
+      "effect": "committed",
+      "reasons": [
+        "not_found"
+      ],
+      "clause": "A2 H-15"
+    }
+  },
+  "x-actions": {},
+  "$defs": {
+    "PushSubscriptionCreateArgs": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string"
+        },
+        "keys": {
+          "$ref": "#/$defs/PushKeys"
+        }
+      },
+      "required": [
+        "endpoint",
+        "keys"
+      ],
+      "description": "Arguments of `create(push_subscription)`. The endpoint is never returned.\n\nClause: HC SF-5b, A2 H-15."
+    },
+    "PushKeys": {
+      "type": "object",
+      "properties": {
+        "p256dh": {
+          "type": "string"
+        },
+        "auth": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "p256dh",
+        "auth"
+      ],
+      "description": "The Web Push keys.\n\nClause: HC SF-5b, A2 H-15."
+    }
+  }
+}

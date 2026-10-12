@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActionError",
+  "description": "The failure of an action as the client reads it (UI-AC-1b, UI-FM-7).",
+  "type": "object",
+  "properties": {
+    "field_errors": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/FieldError"
+      }
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "FieldError": {
+      "description": "The wire form of a field error (UI-FM-7, UI-ID-4).",
+      "type": "object",
+      "properties": {
+        "field_id": {
+          "type": "string"
+        },
+        "pointer": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "field_id",
+        "pointer",
+        "code",
+        "message"
+      ]
+    }
+  }
+}

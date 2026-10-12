@@ -1,0 +1,113 @@
+{
+ "id": "conf::pm_3_content_hash_is_path_sorted_with_type_mode_and_digest",
+ "contract": "hp",
+ "clause": "PM-3",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "the package has files in unsorted creation order, one executable file, one link and a non-ASCII path",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "link": {
+        "link": "a.lua"
+       },
+       "é.lua": {
+        "text": "e"
+       },
+       "a/b.lua": {
+        "text": "ab",
+        "mode": "755"
+       },
+       "a.lua": {
+        "text": "a"
+       },
+       "B/z.lua": {
+        "text": "z"
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\\n"
+       },
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "content_hash": "692bf3bc6b86e31771a3c1e2b86cfd08a312fd4a006deec050107adf59126309"
+    }
+   },
+   "because": "HP PM-3"
+  }
+ ]
+}

@@ -1,0 +1,36 @@
+{
+ "id": "conf::lb_17_dollar_schema_accepted_and_ignored",
+ "contract": "lb",
+ "clause": "LB-17",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "admit_package"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {},
+ "steps": [
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest",
+      "$schema": "https://example.test/botster-plugin.schema.json"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LB-17"
+  }
+ ]
+}

@@ -1,0 +1,90 @@
+{
+ "id": "conf::pm_2_catalog_content_never_runs",
+ "contract": "hp",
+ "clause": "PM-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "client_read",
+   "client_verb",
+   "execution_count",
+   "script_catalog"
+  ]
+ },
+ "setup": {
+  "given": "a catalog entry carries keys that look like commands; the catalog is refreshed",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "e1",
+       "kind": "plugin",
+       "name": "e1",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/a.git"
+       },
+       "run": "touch /tmp/x",
+       "post_install": "sh -c x"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "execution_count"
+   },
+   "expect": {
+    "started": 0
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "e1"
+   },
+   "expect": {
+    "status": "available"
+   },
+   "because": "HP PM-2"
+  }
+ ]
+}

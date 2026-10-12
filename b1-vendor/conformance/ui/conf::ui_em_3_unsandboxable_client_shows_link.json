@@ -1,0 +1,84 @@
+{
+  "id": "conf::ui_em_3_unsandboxable_client_shows_link",
+  "contract": "ui",
+  "clause": "UI-EM-3",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-graph.node": {
+          "projection_allowlist": [
+            "/label",
+            "/count"
+          ],
+          "owner": "botster-graph"
+        }
+      },
+      "handlers": {},
+      "package": "botster-graph",
+      "views": []
+    },
+    "app_origin": "https://app.example.test"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "graph",
+          "title": "Graph",
+          "requires": [
+            "ui_embed"
+          ],
+          "root": {
+            "type": "embed",
+            "id": "page",
+            "title": "Knowledge graph",
+            "page": {
+              "asset": {
+                "name": "graph"
+              }
+            },
+            "empty": {
+              "title": "No page"
+            },
+            "error": {
+              "title": "Page unavailable"
+            }
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "frame": {
+            "loaded": false
+          }
+        },
+        "because": "UI UI-EM-3",
+        "node_id": "page"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "link": {
+            "open_in_browser": true,
+            "reveals_url": false
+          }
+        },
+        "because": "UI UI-EM-6",
+        "node_id": "page"
+      }
+    }
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "id": "conf::ui_cf_6_embed_is_not_ui_embed",
+  "contract": "ui",
+  "clause": "UI-CF-6",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a renderer with ui_embed and without embed shows the view, and the embed gets no channel",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "title": "Graph",
+            "channel": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "a renderer with ui_embed and with embed shows the view, and the embed gets its channel",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_embed",
+          "embed"
+        ]
+      },
+      "expect_nodes": {
+        "e": {
+          "type": "embed",
+          "props": {
+            "channel": {
+              "$any": true
+            }
+          }
+        }
+      },
+      "expect_no_diagnostics": true,
+      "because": "UI UI-CF-6"
+    },
+    {
+      "name": "a renderer with embed and without ui_embed cannot show a view that requires ui_embed",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_embed"
+        ],
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "asset_id": "a1"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              },
+              "channel": {
+                "from_page": [
+                  {
+                    "type": "pick",
+                    "select": "sel_x"
+                  }
+                ],
+                "to_page": []
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "sel_x"
+          }
+        ]
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "embed"
+        ]
+      },
+      "expect": {
+        "diagnostics": [
+          {
+            "$any": true
+          }
+        ]
+      },
+      "because": "UI UI-CF-6"
+    }
+  ]
+}

@@ -1,0 +1,414 @@
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# # Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+[rows."1"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# The base is the Core contract of `frozen/current` (manifest final37 staging), with Amendments 2 to 18 and Errata 1 to 4, which are unchanged except where A19-3 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# **Supersedes candidate 1** (`733955c1…411b`, commit `a7156e8`), **rejected** (verdict `ffd8e07`). This candidate makes these 3 fixes:
+[rows."7"]
+"a7156e8" = "n/a: a commit id of the amendment history"
+"ffd8e07" = "n/a: a commit id of the amendment history"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 1. **`terminal_query.query_id` (finding 1).** A19-1 gains a representation rule: the worker mints `query_id` as a u64 and sends it as a decimal string, by the codec's existing rule for u64 identifiers (A.1). So its widest value is the 20 digits of the largest u64, from the type, with no new number. A client still treats the id as opaque, so the codec text does not change. A19-3 item 6 states the EV-8 reading.
+[rows."8"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+"terminal_query.query_id" = ["codec::ToClient::TerminalQuery", "codec::TerminalQuery::query_id"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 3. **The larger refusal frame (finding 3).** The A19-2 test gains a second case, where only the largest `input_refused` with `path` exceeds the cap, and both cases use a path with JSON escapes.
+[rows."10"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"path" = ["codec::InputRefused::path"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - A9-1 states the floor of `max_frame_bytes` (`core-contract-v1.17-amendment-9-candidate1.md`, line 13):
+[rows."13"]
+"core-contract-v1.17-amendment-9-candidate1.md" = "n/a: a repository path"
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# > **A route's `max_frame_bytes` must carry that route's own `attached` frame.** The worker knows the frame's exact size at attach: the selected features, the terminal format and the limits.
+[rows."14"]
+"attached" = ["codec::ToClient::Attached"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - After `attached`, the worker sends `baseline_begin`. Its body carries the full `ModeFlags` (route codec revision 37, line 260):
+[rows."15"]
+"ModeFlags" = ["codec::ModeFlags"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# > | `0x02` | `baseline_begin` | JSON `{ rows, cols, modes: ModeFlags }` |
+[rows."16"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"{ rows, cols, modes: ModeFlags }" = ["codec::BaselineBegin::rows", "codec::BaselineBegin::cols", "codec::BaselineBegin::modes", "codec::ModeFlags"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - The codec bounds that frame by `max_frame_bytes` (route codec revision 37, line 223):
+[rows."17"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# > On a route, `screen` is bound by `route_limits.max_screen_frame_bytes`, `history` by `route_limits.max_history_page_bytes`, and every other frame by `route_limits.max_frame_bytes`;
+[rows."18"]
+"history" = ["codec::ToClient::History"]
+"route_limits.max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes", "codec::RouteLimits"]
+"route_limits.max_history_page_bytes" = ["codec::RouteLimits::max_history_page_bytes", "codec::RouteLimits"]
+"route_limits.max_screen_frame_bytes" = ["codec::RouteLimits", "codec::RouteLimits::max_screen_frame_bytes"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - DP-3 states the same bound (`core-contract-v1.17.md`, line 164):
+[rows."19"]
+"core-contract-v1.17.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# > every frame except the screen and a history page is at most `max_frame_bytes`;
+[rows."20"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes", "core::AppliedRouteLimits::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - The codec crate agrees: `bound_of` (`crates/botster-route-codec/src/wire.rs`) gives `max_screen` to `screen`, `max_history` to `history`, and `max_frame` to every other type byte.
+[rows."21"]
+"bound_of" = ["codec::bound_of"]
+"crates/botster-route-codec/src/wire.rs" = "n/a: a repository path"
+"history" = ["codec::ToClient::History"]
+"max_frame" = ["codec::FrameBounds::max_frame"]
+"max_history" = ["codec::FrameBounds::max_history"]
+"max_screen" = ["codec::FrameBounds::max_screen"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - The Core lead measured the frames at default attach options on a 24 by 80 session (testkit Core, contracts-v0.1.21, before Amendment 17 removed `max_chunk_bytes` from `attached`). Each size is the type byte plus the body: `attached` 344 bytes; `baseline_begin` 747 bytes; `modes` 747 bytes; `baseline_end{not_requested}` 28; `live` 1; `resync` 21 or 22; `route_closed{attach_failed}` 61 or 62. `screen` (1,158) has its own bound.
+[rows."22"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"baseline_end{not_requested}" = ["codec::ToClient::BaselineEnd", "codec::BaselineEnd::history", "codec::HistoryState::NotRequested"]
+"live" = ["codec::ToClient::Live"]
+"max_chunk_bytes" = "n/a: the route chunk bound; removed from the route limits by Core A17 and HC A8-3 (final37)"
+"modes" = ["codec::ToClient::Modes"]
+"resync" = ["codec::ToClient::Resync"]
+"route_closed{attach_failed}" = ["codec::ToClient::RouteClosed", "codec::RouteClosed::reason", "codec::CloseReason::AttachFailed"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - So a route with `max_frame_bytes` equal to its `attached` frame attaches, and then its `baseline_begin` decodes as `frame_too_large`. A9-1's test `conf::a9_1_frame_cap_equal_to_the_attached_frame_attaches` cannot pass on an implementation that keeps the codec bound.
+[rows."23"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - The `attached` frame is not the largest frame of fixed shape. `baseline_begin` and `modes` carry `ModeFlags`, and the size of `ModeFlags` changes while the route is open. So the floor must use the widest value of each frame, not the value at attach.
+[rows."24"]
+"ModeFlags" = ["codec::ModeFlags"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"modes" = ["codec::ToClient::Modes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 2. the codec bounds it by `route_limits.max_frame_bytes` (every type except `screen` and `history`, codec A.1);
+[rows."29"]
+"history" = ["codec::ToClient::History"]
+"route_limits.max_frame_bytes" = ["codec::RouteLimits", "codec::RouteLimits::max_frame_bytes"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# | A19-1 | **A route's `max_frame_bytes` must be at least that route's floor.** It replaces A9-1's floor (the `attached` frame only).<br>- **The floor frames** are `attached`, `baseline_begin`, `modes`, `baseline_end`, `live`, `resync`, `route_closed`, `input_refused` and `input_done` without `path`, and `terminal_query` on a route that can be asked a query (`answers_queries` is true, EV-8). A later worker-to-client frame type that agrees with the three conditions of the term is a floor frame too.<br>- **Not floor frames:** `screen` and `history` (their own bounds, DP-3); `output` and `output_deflate` (the worker sets the payload length of each frame, DP-3); `output_dropped` (the worker shortens it to fit, Amendment 3, A3-1 item 4); `input_refused` and `input_done` with `path` (A19-2 checks each file before the worker creates it).<br>- **The widest value of each field:**<br>&nbsp;&nbsp;- a value that attach fixes (`features`, `terminal_format`, the applied limits): its exact value;<br>&nbsp;&nbsp;- `rows` and `cols`: the largest size that Amendment 2 allows (A2-1, `Size`);<br>&nbsp;&nbsp;- `ModeFlags`: each bool as `false`; `kitty_flags` at the largest value of the codec's bitset (A.6); each enum at its longest name that the worker sends; `other_modes` with every mode that the terminal model tracks and that has no normative field (E2-2), each as `false`. The tracked modes are the modes of the terminal model of the target worker's protocol version. Core knows that set for every worker protocol version that it supports, because it must know it to adopt such a worker (AD-4). No hello or handshake field is added;<br>&nbsp;&nbsp;- a name from a set (a reason, a `what` name, a query `kind`): its longest name that the worker sends;<br>&nbsp;&nbsp;- **`what` in `unsupported{what}`** is a name from the worker's own set: the names that Amendment 2 lists for `NotWritten(Unsupported{what})` (Amendment 2, the definitions of the IN-2 reasons, `core-contract-v1.17-amendment-2-candidate4.md`, line 80), and the codec's `utf8` (TS-5b). It never contains client text. So its longest name is known at attach;<br>&nbsp;&nbsp;- a part that a clause bounds by a value known at attach: that bound. For `terminal_query`, `request_bytes_base64` is the base64 of `max_query_bytes` bytes (EV-8), and `answer_within_ms` is the route's `query_deadline` in milliseconds;<br>&nbsp;&nbsp;- **`query_id` in `terminal_query`**: the worker mints it as a u64 and sends it as a decimal string, by the codec's rule for a u64 identifier (A.1: "A u64 identifier (request `id`, `op` in JSON) is sent as a **decimal string**."). So its widest value is the decimal string of the largest u64, `18446744073709551615` (20 digits). The width comes from the type, so this adds no number. A client still treats `query_id` as opaque and does not depend on its form (EV-8, A19-3 item 6);<br>&nbsp;&nbsp;- any other integer: the largest value that its clause allows, or the codec's integer range (A.1) when no clause gives one;<br>&nbsp;&nbsp;- an optional field: present.<br>- **The refusal does not change.** A smaller value is refused synchronously with `InvalidInput{field: route_limits.max_frame_bytes}`, before any route is reserved, as A9-1 and A7-1 state. Core computes the floor for the target worker at the call, as A9-1 computes the `attached` frame. A value equal to the floor is accepted.<br>- **A floor above the ceiling.** When the floor is larger than `CoreLimits.max_route_frame_bytes`, no value is valid. Every attach with those options is refused with the same sync `InvalidInput{field: route_limits.max_frame_bytes}`. `open` does not refuse that configuration. The reason: such a route could not decode its own frames. For example, a `CoreLimits.max_query_bytes` near `max_route_frame_bytes` (9B) gives this result on a route with `answers_queries: true`.<br>- The floor comes from the codec schema and from the route's own values, so this adds **no number**. Amendment 3 computes the worst-case minimum `output_dropped` frame the same way (A3-1 item 4). | `conf::a9_1_frame_cap_below_the_routes_attached_frame_is_invalid_input` (kept), `conf::a19_1_frame_cap_equal_to_the_floor_attaches_and_carries_its_baseline`, `conf::a19_1_frame_cap_one_byte_below_the_floor_is_invalid_input`, `conf::a19_1_every_floor_frame_at_its_widest_value_fits_the_floor`, `conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries`, `conf::a19_1_floor_above_the_ceiling_opens_and_refuses_every_attach_with_those_options`, `conf::a19_1_query_id_is_a_u64_decimal_string` |
+[rows."36"]
+"CoreLimits.max_query_bytes" = ["core::CoreLimits", "core::CoreLimits::max_query_bytes"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"InvalidInput{field: route_limits.max_frame_bytes}" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits", "core::ErrorCode::InvalidInput::field"]
+"ModeFlags" = ["codec::ModeFlags"]
+"NotWritten(Unsupported{what})" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::Unsupported::what"]
+"Size" = ["core::Size"]
+"answer_within_ms" = ["codec::TerminalQuery::answer_within_ms"]
+"answers_queries" = ["core::AttachOptions::answers_queries"]
+"answers_queries: true" = { symbols = ["core::AttachOptions::answers_queries"], uncovered = { true = "a JSON literal value" } }
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"baseline_end" = ["codec::ToClient::BaselineEnd"]
+"cols" = ["codec::BaselineBegin::cols", "codec::Modes::cols"]
+"core-contract-v1.17-amendment-2-candidate4.md" = "n/a: a repository path"
+"false" = "n/a: a JSON literal value"
+"features" = ["codec::Attached::features"]
+"history" = ["codec::ToClient::History"]
+"id" = ["hub::Req::id", "hub::RequestId"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"kind" = ["codec::TerminalQuery::kind"]
+"kitty_flags" = ["codec::ModeFlags::kitty_flags"]
+"live" = ["codec::ToClient::Live"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+"max_query_bytes" = ["core::AppliedRouteLimits::max_query_bytes"]
+"max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"modes" = ["codec::ToClient::Modes"]
+"op" = ["codec::Op"]
+"open" = { symbols = ["core::OpenConfig"], uncovered = { open = "the constructor of the real Core; the contract crate holds its argument OpenConfig" } }
+"other_modes" = ["codec::ModeFlags::other_modes"]
+"output" = ["codec::ToClient::Output"]
+"output_deflate" = ["codec::ToClient::OutputDeflate"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+"path" = ["codec::InputDone::path", "codec::InputRefused::path"]
+"query_deadline" = ["core::AppliedRouteLimits::query_deadline"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+"request_bytes_base64" = ["codec::TerminalQuery::request_bytes_base64"]
+"resync" = ["codec::ToClient::Resync"]
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"rows" = ["codec::BaselineBegin::rows", "codec::Modes::rows"]
+"screen" = ["codec::ToClient::Screen"]
+"terminal_format" = ["codec::Attached::terminal_format"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+"unsupported{what}" = ["codec::RefusalReason::Unsupported", "codec::RefusalReason::Unsupported::what"]
+"utf8" = { symbols = ["codec::RefusalReason::Unsupported::what"], uncovered = { utf8 = "a value of what (codec TS-5b)" } }
+"what" = ["codec::RefusalReason::Unsupported::what"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# | A19-2 | **The frame that carries a file's path must fit `max_frame_bytes` before the file exists.** It extends DP-5b's check before the file is created (A19-3 item 5).<br>- At `file_commit`, **before** it creates the file, the worker encodes **every frame that can carry this file's path, at its largest**: the `input_done` frame, and the `input_refused` frame with `path` (DP-5b) with its longest `reason` and every optional field present. Each encoding is the type byte plus the JSON, with every JSON escape of `path`.<br>- If the larger of these frames is larger than the route's `max_frame_bytes`, the worker refuses the commit with `input_refused{too_large}`, in the form without `path`. It creates no file, and it pastes nothing.<br>- The forms of `input_done` and `input_refused` with `path` stay outside the floor (A19-1). Their size depends on each file's name, so Core cannot compute it at attach. | `conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created` |
+[rows."37"]
+"file_commit" = ["codec::Input::FileCommit"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"input_refused{too_large}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::TooLarge"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"path" = ["codec::InputDone::path", "codec::InputRefused::path"]
+"reason" = ["codec::InputRefused::reason"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_frame_cap_equal_to_the_floor_attaches_and_carries_its_baseline`: attach with `max_frame_bytes` equal to the floor. The route receives `attached`, `baseline_begin`, `screen`, `baseline_end` and `live`, and then a `modes` frame after a mode change. No frame is `frame_too_large`.
+[rows."40"]
+"attached" = ["codec::ToClient::Attached"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"baseline_end" = ["codec::ToClient::BaselineEnd"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"live" = ["codec::ToClient::Live"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+"modes" = ["codec::ToClient::Modes"]
+"screen" = ["codec::ToClient::Screen"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_frame_cap_one_byte_below_the_floor_is_invalid_input`: attach with the floor minus one. The result is sync `InvalidInput{field: route_limits.max_frame_bytes}`, and no route is reserved.
+[rows."41"]
+"InvalidInput{field: route_limits.max_frame_bytes}" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits", "core::ErrorCode::InvalidInput::field"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_every_floor_frame_at_its_widest_value_fits_the_floor`: encode each floor frame with the widest values of A19-1 through the codec. Each encoded frame is at most the floor that Core computed for the route. It includes `ModeFlags` with every tracked mode in `other_modes`, `rows` and `cols` at their largest value, and a `terminal_query` with `query_id` `"18446744073709551615"`.
+[rows."42"]
+"ModeFlags" = ["codec::ModeFlags"]
+"cols" = ["codec::BaselineBegin::cols", "codec::Modes::cols"]
+"other_modes" = ["codec::ModeFlags::other_modes"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+"rows" = ["codec::BaselineBegin::rows", "codec::Modes::rows"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_query_id_is_a_u64_decimal_string`: every `terminal_query` that the worker sends has a `query_id` that is the decimal string of a u64: digits only, with no sign and no leading zero, and at most 20 digits.
+[rows."43"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_floor_above_the_ceiling_opens_and_refuses_every_attach_with_those_options`: `open` with an otherwise valid configuration whose floor with `answers_queries: true` is larger than `CoreLimits.max_route_frame_bytes` (for example, a large `max_query_bytes`). `open` succeeds. An attach with `answers_queries: true` and `max_frame_bytes` equal to `max_route_frame_bytes`, and an attach with the default cap, each return sync `InvalidInput{field: route_limits.max_frame_bytes}`, with no route reserved and no event. An attach with `answers_queries: false`, whose floor fits, succeeds.
+[rows."44"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"InvalidInput{field: route_limits.max_frame_bytes}" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits", "core::ErrorCode::InvalidInput::field"]
+"answers_queries: false" = { symbols = ["core::AttachOptions::answers_queries"], uncovered = { false = "a JSON literal value" } }
+"answers_queries: true" = { symbols = ["core::AttachOptions::answers_queries"], uncovered = { true = "a JSON literal value" } }
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+"max_query_bytes" = ["core::CoreLimits::max_query_bytes"]
+"max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"open" = { symbols = ["core::OpenConfig"], uncovered = { open = "the constructor of the real Core; the contract crate holds its argument OpenConfig" } }
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_1_terminal_query_is_in_the_floor_only_when_the_route_answers_queries`: with the same options, the floor with `answers_queries: false` does not include `terminal_query`. The floor with `answers_queries: true` is at least the worst-case `terminal_query` frame.
+[rows."45"]
+"answers_queries: false" = { symbols = ["core::AttachOptions::answers_queries"], uncovered = { false = "a JSON literal value" } }
+"answers_queries: true" = { symbols = ["core::AttachOptions::answers_queries"], uncovered = { true = "a JSON literal value" } }
+"terminal_query" = ["codec::ToClient::TerminalQuery"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - `conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created`, with two cases. Each uses a `file_directory` whose path has characters that JSON escapes (a `"` and a `\\`), so the escaped length differs from the byte length.
+[rows."46"]
+"file_directory" = ["core::AttachOptions::file_directory"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 1. The path paste fits `max_paste_bytes`, but the `input_done` frame with the path does not fit `max_frame_bytes`.
+[rows."47"]
+"input_done" = ["codec::ToClient::InputDone"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes", "core::AppliedRouteLimits::max_paste_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 2. The path paste and the `input_done` frame with the path both fit `max_frame_bytes`, but the largest `input_refused` frame with the path (its longest `reason`, every optional field present) does not.
+[rows."48"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"reason" = ["codec::InputRefused::reason"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# In each case, upload a file and commit it. The route receives `input_refused{too_large}` without `path`. No file exists in the directory, and the PTY receives no paste. An implementation that checks only `input_done` fails case 2.
+[rows."49"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused{too_large}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::TooLarge"]
+"path" = ["codec::InputRefused::path"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# **A9-2 still holds, with no change.** A9-2's reason is that the `attached` frame alone is larger than the worst-case minimum `output_dropped` frame. The `attached` frame is a floor frame, so the floor is at least the `attached` frame. So under A19-1, every route that attaches can carry the minimum frame, and A3-1 item 4's guard never removes the feature. `conf::a9_2_every_attached_route_can_carry_the_minimum_output_dropped_frame` is unchanged.
+[rows."51"]
+"attached" = ["codec::ToClient::Attached"]
+"output_dropped" = ["codec::ToClient::OutputDropped"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 1. **Exempt `baseline_begin` (and `modes`) from `max_frame_bytes`.** This removes the client's bound on these frames. The client then cannot check the frame length before it allocates (DP-3).
+[rows."54"]
+"baseline_begin" = ["codec::ToClient::BaselineBegin"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"modes" = ["codec::ToClient::Modes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# 2. **A cap on the size of `ModeFlags`.** This adds a number with no authority. The terminal model already gives the widest value (E2-2).
+[rows."55"]
+"ModeFlags" = ["codec::ModeFlags"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route
+# - **Kept**: `conf::a9_1_frame_cap_below_the_routes_attached_frame_is_invalid_input`. A value below the `attached` frame is below the floor, so the test stays true.
+[rows."59"]
+"attached" = ["codec::ToClient::Attached"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17-amendment-9-candidate1.md`, line 13):
+[rows."68"]
+"frozen/current/core-contract-v1.17-amendment-9-candidate1.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > **A route's `max_frame_bytes` must carry that route's own `attached` frame.** The worker knows the frame's exact size at attach: the selected features, the terminal format and the limits.
+[rows."69"]
+"attached" = ["codec::ToClient::Attached"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - New: "A route's `max_frame_bytes` must be at least that route's floor (A19-1). Core computes the floor at attach from the codec schema and the route's own values."
+[rows."70"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17-amendment-9-candidate1.md`, line 36):
+[rows."74"]
+"frozen/current/core-contract-v1.17-amendment-9-candidate1.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > "and is at least the size of the route's own `attached` frame (A9-1)"
+[rows."75"]
+"attached" = ["codec::ToClient::Attached"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - So the OU-1 text, Old (`frozen/current/core-contract-v1.17.md`, line 142):
+[rows."77"]
+"frozen/current/core-contract-v1.17.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > `max_frame_bytes` defaults to and is at most `CoreLimits.max_route_frame_bytes`
+[rows."78"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AppliedRouteLimits::max_frame_bytes", "codec::RouteLimits::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - reads: "`max_frame_bytes` defaults to and is at most `CoreLimits.max_route_frame_bytes`, and is at least the route's floor (A19-1)".
+[rows."79"]
+"CoreLimits.max_route_frame_bytes" = ["core::CoreLimits::max_route_frame_bytes"]
+"max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AppliedRouteLimits::max_frame_bytes", "codec::RouteLimits::max_frame_bytes"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17-amendment-9-candidate1.md`, line 37):
+[rows."82"]
+"frozen/current/core-contract-v1.17-amendment-9-candidate1.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - New: "A7-1's list of rules gains the rule `route_limits.max_frame_bytes` below the route's floor (A19-1)." A7-1's own text (`core-contract-v1.17-amendment-7-candidate4.md`, line 29) names no `attached`-frame floor, so it has no other change.
+[rows."84"]
+"attached" = ["codec::ToClient::Attached"]
+"core-contract-v1.17-amendment-7-candidate4.md" = "n/a: a repository path"
+"route_limits.max_frame_bytes" = ["core::RouteLimitChoices::max_frame_bytes", "core::AttachOptions::route_limits"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17-amendment-9-candidate1.md`, line 20):
+[rows."87"]
+"frozen/current/core-contract-v1.17-amendment-9-candidate1.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - New: this sentence and A9-2's clause read "A9-1" as A9-1 replaced by A19-1. The reason stays true, because the `attached` frame is a floor frame.
+[rows."89"]
+"attached" = ["codec::ToClient::Attached"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17.md`, line 167):
+[rows."92"]
+"frozen/current/core-contract-v1.17.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > **The encoded path paste is validated before the final file is created:** at `file_begin`, and again before the file is created at the commit, Core computes the **worst-case encoded size of the path paste** (the directory, the separator, the longest sanitized and uniquified name, **the trailing space**, and the bracketed-paste markers) and, if it exceeds `max_paste_bytes` or the route's frame bound, **refuses with `too_large` and creates no file**.
+[rows."93"]
+"file_begin" = ["codec::Input::FileBegin"]
+"max_paste_bytes" = ["codec::RouteLimits::max_paste_bytes", "core::AppliedRouteLimits::max_paste_bytes"]
+"too_large" = ["codec::RefusalReason::TooLarge"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - New: the sentence stands, and A19-2 adds a second check at the commit. Before the file is created, the worker also encodes every frame that can carry the path, at its largest (`input_done`, and `input_refused` with `path`). If the larger is larger than the route's `max_frame_bytes`, the worker refuses the commit with `input_refused{too_large}`, without `path`. It creates no file, and it pastes nothing (A19-2). The DP-5b test column gains `conf::a19_2_path_frame_over_max_frame_is_refused_before_the_file_is_created`.
+[rows."94"]
+"input_done" = ["codec::ToClient::InputDone"]
+"input_refused" = ["codec::ToClient::InputRefused"]
+"input_refused{too_large}" = ["codec::ToClient::InputRefused", "codec::RefusalReason::TooLarge"]
+"max_frame_bytes" = ["codec::RouteLimits::max_frame_bytes"]
+"path" = ["codec::InputDone::path", "codec::InputRefused::path"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# 6. **EV-8, the form of `query_id`.**
+[rows."96"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - Old (`frozen/current/core-contract-v1.17.md`, line 238):
+[rows."97"]
+"frozen/current/core-contract-v1.17.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > `query_id` is **opaque, minted by the worker**
+[rows."98"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - New: "`query_id` is **opaque, minted by the worker** as a u64 and sent as a decimal string (codec A.1, A19-1). A client treats it as opaque and does not depend on its form."
+[rows."99"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - The codec's rule, Old (`frozen/current/route-codec-v1-extract-rev37.md`, line 218):
+[rows."100"]
+"frozen/current/route-codec-v1-extract-rev37.md" = "n/a: a repository path"
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# > A u64 identifier (request `id`, `op` in JSON) is sent as a **decimal string**.
+[rows."101"]
+"id" = ["hub::Req::id", "hub::RequestId"]
+"op" = ["codec::Op"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# - is unchanged, and A19-1 applies it to `query_id`.
+[rows."102"]
+"query_id" = ["codec::TerminalQuery::query_id"]
+
+# Core contract v1.17, Amendment 19 (candidate 2): a route's `max_frame_bytes` must carry every fixed-shape frame of that route > A19-3. Text replaced
+# The route codec does not state the `attached`-frame floor, so A19 asks for no codec revision. The Hub→client contract is unchanged.
+[rows."104"]
+"attached" = ["codec::ToClient::Attached"]

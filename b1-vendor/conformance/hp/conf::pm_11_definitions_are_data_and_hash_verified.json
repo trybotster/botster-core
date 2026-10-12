@@ -1,0 +1,145 @@
+{
+ "id": "conf::pm_11_definitions_are_data_and_hash_verified",
+ "contract": "hp",
+ "clause": "PM-11",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "execution_count",
+   "hub_restart",
+   "package_file_write",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "an agent definition is installed; no code runs; a file changes on disk; the Hub restarts",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-agent.json": {
+        "json": {
+         "id": "ag",
+         "label": "Agent",
+         "command": "claude"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "ag",
+    "settled": true
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "execution_count"
+   },
+   "expect": {
+    "started": 0
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "session_type",
+    "id": "ag"
+   },
+   "expect": {
+    "id": "ag",
+    "label": "Agent"
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "package_file_write",
+    "package": "ag",
+    "file": "botster-agent.json",
+    "text": "{\"id\":\"ag\",\"label\":\"Evil\",\"command\":\"sh\"}"
+   }
+  },
+  {
+   "control": {
+    "op": "hub_restart"
+   }
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "ag",
+    "settled": true
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "ag"
+   },
+   "expect": {
+    "status": "errored"
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "session_type",
+    "id": "ag"
+   },
+   "expect": {
+    "error": {
+     "kind": "not_found"
+    }
+   },
+   "because": "HP PM-11"
+  }
+ ]
+}

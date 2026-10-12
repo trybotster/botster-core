@@ -1,0 +1,314 @@
+{
+  "id": "conf::ui_nv_5_field_form_and_action_errors",
+  "contract": "ui",
+  "clause": "UI-NV-5",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a fields entry is the error prop of the field node",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+          "props": {
+            "error": {
+              "code": "too_long",
+              "message": "Too long"
+            }
+          }
+        },
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:note": {
+          "props": {
+            "error": {
+              "$absent": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a fields entry with no message has a code only",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "required_missing"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+          "props": {
+            "error": {
+              "code": "required_missing",
+              "message": {
+                "$absent": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a forms entry is an error-tone text node of the form with the string as authored text",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "errors": {
+          "forms": {
+            "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item": "Cannot rename"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item5:error": {
+          "type": "text",
+          "props": {
+            "text": "Cannot rename",
+            "tone": "danger"
+          }
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item5:error"
+            },
+            {
+              "id": "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name"
+            },
+            {}
+          ]
+        }
+      }
+    },
+    {
+      "name": "an actions entry is an error-tone text node of the button",
+      "because": "UI UI-NV-5",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "errors": {
+          "actions": {
+            "go": "Go failed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:2:go5:error": {
+          "type": "text",
+          "props": {
+            "text": "Go failed",
+            "tone": "danger"
+          }
+        }
+      }
+    },
+    {
+      "name": "an error whose field is gone is kept and not shown",
+      "because": "UI UI-NV-4",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "ren",
+                  "label": "Ren",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "note": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "form": {
+              "button": "ren"
+            }
+          }
+        ],
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name": {
+              "code": "too_long"
+            }
+          }
+        }
+      },
+      "expect": {
+        "local_changes": {
+          "$absent": true
+        }
+      },
+      "expect_absent": [
+        "botster-ui-descendant-v1:75:botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:ren9:container4:item4:name"
+      ]
+    }
+  ]
+}

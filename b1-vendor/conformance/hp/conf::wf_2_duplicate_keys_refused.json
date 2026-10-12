@@ -1,0 +1,98 @@
+{
+ "id": "conf::wf_2_duplicate_keys_refused",
+ "contract": "hp",
+ "clause": "WF-2",
+ "subject": "plugin_hub",
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "send_frame_raw": {
+    "lane": 3,
+    "type": 32,
+    "payload_text": "{\"epoch\":{{e}},\"call_id\":1,\"context\":\"autonomous\",\"call\":\"log.write\",\"args\":{\"level\":\"info\"},\"args\":{\"level\":\"warn\"},\"max_result_bytes\":1000}"
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP WF-2"
+  },
+  {
+   "send_frame_raw": {
+    "lane": 3,
+    "type": 32,
+    "payload_text": "{\"epoch\":{{e}},\"call_id\":2,\"context\":\"autonomous\",\"call\":\"log.write\",\"args\":{\"level\":\"info\",\"message\":\"m\"},\"max_result_bytes\":1000}"
+   }
+  },
+  {
+   "expect": {
+    "lane": "bulk",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP WF-2"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "log.write": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "seq": 1
+      }
+     }
+    }
+   ]
+  }
+ }
+}

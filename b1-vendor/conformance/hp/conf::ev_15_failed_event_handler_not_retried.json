@@ -1,0 +1,200 @@
+{
+ "id": "conf::ev_15_failed_event_handler_not_retried",
+ "contract": "hp",
+ "clause": "EV-15",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "settle",
+   "terminal_feed"
+  ]
+ },
+ "setup": {
+  "given": "the session s1 is spawned by the plugin; the plugin holds events_terminal",
+  "grants": [
+   {
+    "surface": "events",
+    "scope": "events_terminal"
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "he",
+        "pattern": {
+         "owner": "terminal",
+         "name": "title"
+        }
+       }
+      ],
+      "gap_handler": "hg"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "one"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "title",
+      "payload": {
+       "text": "one"
+      }
+     }
+    }
+   },
+   "because": "HP EV-15"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c1",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "x",
+       "retryable": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "terminal_feed",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    },
+    "kind": "title",
+    "text": "two"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c2",
+     "handler": "he",
+     "origin": "event",
+     "payload": {
+      "owner": "terminal",
+      "name": "title",
+      "payload": {
+       "text": "two"
+      }
+     }
+    }
+   },
+   "because": "HP EV-15"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "payload": {
+      "payload": {
+       "text": "one"
+      }
+     }
+    }
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP EV-15"
+  }
+ ]
+}

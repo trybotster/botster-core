@@ -1,0 +1,153 @@
+{
+ "id": "conf::vc_3_token_per_run",
+ "contract": "hp",
+ "clause": "VC-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke"
+  ]
+ },
+ "setup": {
+  "proofs": {
+   "tok_s1": {
+    "kind": "session",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s1"
+    }
+   },
+   "tok_s2": {
+    "kind": "session",
+    "session": {
+     "hub_id": "hub-1",
+     "session_id": "s2"
+    }
+   }
+  },
+  "given": "two running sessions s1 and s2, each with the bearer token of its own run"
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "proof": "tok_s1"
+   },
+   "bind": {
+    "t1": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "handler": "h1",
+     "caller": {
+      "kind": "session",
+      "session": {
+       "session_id": "s1"
+      }
+     }
+    }
+   },
+   "because": "HP VC-3"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r1",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "proof": "tok_s2"
+   },
+   "bind": {
+    "t2": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "handler": "h1",
+     "caller": {
+      "kind": "session",
+      "session": {
+       "session_id": "s2"
+      }
+     }
+    }
+   },
+   "because": "HP VC-3"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r2",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

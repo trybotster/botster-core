@@ -1,0 +1,132 @@
+{
+  "id": "conf::ui_fd_1_userinfo_refused",
+  "contract": "ui",
+  "clause": "UI-FD-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a URL with a user name and a password is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://user:secret@example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "https://user:secret@example.com/a",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    },
+    {
+      "name": "a URL with a user name only is plain text and not activatable",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "requires": [
+          "ui_1_1"
+        ],
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/u",
+                "display": "link"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r0",
+              "u": "https://user@example.com/a"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r01:f": {
+          "type": "text",
+          "props": {
+            "text": "https://user@example.com/a",
+            "href": {
+              "$absent": true
+            },
+            "activate": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-FD-1"
+    }
+  ]
+}

@@ -1,0 +1,215 @@
+{
+  "id": "conf::st_7_client_tail_is_exact_and_bounded",
+  "contract": "core",
+  "clause": "ST-7",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "input_tail_bytes": 8
+    }
+  },
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "size": {
+                "rows": 10,
+                "cols": 40
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "30313233343536373839"
+        }
+      },
+      "route": "r1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Activity": {
+            "id": "s1",
+            "source": {
+              "Client": "$r1"
+            }
+          }
+        }
+      },
+      "because": "Core IN-4"
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 10
+      }
+    },
+    {
+      "begin": {
+        "op": {
+          "ReadFacts": {
+            "session": "s1"
+          }
+        }
+      },
+      "bind": "$f"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$f",
+            "result": {
+              "ok": {
+                "facts": {
+                  "input": {
+                    "client_tail": {
+                      "$bytes_hex": "3233343536373839"
+                    },
+                    "tail_complete": false
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core ST-7"
+    }
+  ]
+}

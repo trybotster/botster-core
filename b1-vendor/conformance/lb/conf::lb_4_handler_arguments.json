@@ -1,0 +1,155 @@
+{
+ "id": "conf::lb_4_handler_arguments",
+ "contract": "lb",
+ "clause": "LB-4",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.events.on({ owner = \"hub\", name = \"probe\" }, function(record, request)\n  return { event_owner = record.owner, event_name = record.name, own_data = record.payload.n, origin = request.origin }\nend)\nbotster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local ok_write = pcall(function() request.id = \"changed\" end)\n      return {\n        arg = payload.x,\n        caller_kind = request.caller.kind,\n        origin = request.origin,\n        has_id = request.id ~= nil,\n        deadline_is_number = type(request.deadline_ms) == \"number\",\n        request_read_only = not ok_write,\n      }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "events": {
+      "subscribed": [
+       {
+        "handler_id": "$he",
+        "pattern": {
+         "owner": "hub",
+         "name": "probe"
+        }
+       }
+      ]
+     }
+    }
+   },
+   "because": [
+    "HP HS-1",
+    "LB LB-6"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {
+      "x": 5
+     },
+     "origin": "mcp_tool",
+     "caller": {
+      "kind": "operator"
+     },
+     "deadline_ms": 5000
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "arg": 5,
+       "caller_kind": "operator",
+       "origin": "mcp_tool",
+       "has_id": true,
+       "deadline_is_number": true,
+       "request_read_only": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-4"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$he",
+     "kind": "event",
+     "payload": {
+      "owner": "hub",
+      "name": "probe",
+      "priority": "normal",
+      "source": {
+       "kind": "hub"
+      },
+      "payload": {
+       "n": 9
+      },
+      "at": 1000
+     },
+     "origin": "event",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "event_owner": "hub",
+       "event_name": "probe",
+       "own_data": 9,
+       "origin": "event"
+      }
+     }
+    }
+   },
+   "because": "LB LB-4"
+  }
+ ]
+}

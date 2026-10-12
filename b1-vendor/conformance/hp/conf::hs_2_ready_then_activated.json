@@ -1,0 +1,52 @@
+{
+ "id": "conf::hs_2_ready_then_activated",
+ "contract": "hp",
+ "clause": "HS-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "status"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "loaded"
+   },
+   "because": "HP HS-2"
+  }
+ ]
+}

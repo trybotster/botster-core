@@ -1,0 +1,118 @@
+{
+  "id": "conf::vb_5_delete_wrong_state",
+  "contract": "hc",
+  "clause": "VB-5",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "delete",
+        "kind": "session",
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "err": {
+          "code": "wrong_state"
+        }
+      },
+      "on": "c1",
+      "because": [
+        "HC VB-5",
+        "HC A.2c"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "delete",
+        "kind": "session",
+        "target": "s2"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "ok": {}
+      },
+      "on": "c1",
+      "because": [
+        "HC VB-5",
+        "HC A.2c"
+      ]
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "get",
+        "kind": "session",
+        "target": "s2"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "err": {
+          "code": "not_found"
+        }
+      },
+      "on": "c1",
+      "because": "HC VB-5"
+    }
+  ]
+}

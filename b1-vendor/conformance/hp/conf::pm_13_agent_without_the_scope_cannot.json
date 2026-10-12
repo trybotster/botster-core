@@ -1,0 +1,106 @@
+{
+ "id": "conf::pm_13_agent_without_the_scope_cannot",
+ "contract": "hp",
+ "clause": "PM-13",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "client_verb",
+   "edge_requests",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "an agent holds no package scope and tries to install and to remove",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-plugin.json": {
+        "json": {
+         "botster_plugin_api": 1,
+         "name": "demo",
+         "version": "1.0.0",
+         "entrypoints": {
+          "service": {
+           "lua": "main.lua"
+          }
+         }
+        }
+       },
+       "main.lua": {
+        "text": "-- v1.0.0\n"
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "https://git.example/a.git",
+      "ref": "v1"
+     }
+    },
+    "as": {
+     "kind": "agent",
+     "scopes": []
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "capability_denied"
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "delete",
+    "id": "demo",
+    "args": {},
+    "as": {
+     "kind": "agent",
+     "scopes": []
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "capability_denied"
+    }
+   },
+   "because": "HP PM-13"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "git"
+   },
+   "expect": {
+    "requests": []
+   },
+   "because": "HP PM-13"
+  }
+ ]
+}

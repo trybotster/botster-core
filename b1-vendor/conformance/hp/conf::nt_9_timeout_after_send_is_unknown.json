@@ -1,0 +1,426 @@
+{
+ "id": "conf::nt_9_timeout_after_send_is_unknown",
+ "contract": "hp",
+ "clause": "NT-9",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_operation",
+   "invoke",
+   "net_seen",
+   "net_world"
+  ]
+ },
+ "setup": {
+  "given": "the plugin holds net with allow [https://api.example, https://dns.example, https://conn.example, https://tls.example, https://big.example, https://p10.example]; the outside world is scripted by net_world",
+  "grants": [
+   {
+    "surface": "net",
+    "scope": "net",
+    "allow": [
+     "https://api.example",
+     "https://dns.example",
+     "https://conn.example",
+     "https://tls.example",
+     "https://big.example",
+     "https://p10.example"
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "net_world",
+    "endpoints": [
+     {
+      "origin": "https://api.example",
+      "addresses": [
+       "203.0.113.5"
+      ],
+      "answers": [
+       {
+        "status": 200,
+        "body_b64": "b2s=",
+        "hold": true
+       }
+      ]
+     },
+     {
+      "origin": "https://dns.example",
+      "addresses": [],
+      "fail": "net_dns"
+     },
+     {
+      "origin": "https://conn.example",
+      "addresses": [
+       "203.0.113.50"
+      ],
+      "fail": "net_connect"
+     },
+     {
+      "origin": "https://tls.example",
+      "addresses": [
+       "203.0.113.51"
+      ],
+      "fail": "net_tls"
+     },
+     {
+      "origin": "https://big.example",
+      "addresses": [
+       "203.0.113.52"
+      ],
+      "answers": [
+       {
+        "status": 200,
+        "body_b64": "MTIzNDU="
+       }
+      ]
+     },
+     {
+      "origin": "https://p10.example",
+      "addresses": [
+       "10.0.0.5"
+      ],
+      "answers": [
+       {
+        "status": 200,
+        "body_b64": "b2s="
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "http.request",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "method": "GET",
+      "url": "https://api.example/held",
+      "timeout_ms": 100
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op18",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP NT-9"
+  },
+  {
+   "advance_clock": {
+    "ms": 100
+   }
+  },
+  {
+   "control": {
+    "op": "await_operation",
+    "operation_id": "$op18",
+    "terminal": true
+   }
+  },
+  {
+   "control": {
+    "op": "net_seen",
+    "path_and_query": "/held"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "origin": "https://api.example"
+      },
+      "min": 1,
+      "max": 1
+     }
+    }
+   },
+   "because": "HP NT-9"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op18"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op18",
+       "state": "failed",
+       "terminal": true,
+       "error": {
+        "kind": "timed_out",
+        "detail": {
+         "code": "net_timeout"
+        }
+       },
+       "effect": "unknown"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP NT-9"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "http.request",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "method": "GET",
+      "url": "https://api.example/cancel",
+      "timeout_ms": 30000
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op19",
+       "kind": "http",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP NT-9"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 4,
+     "call": "operations.cancel",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op19"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 4,
+     "result": {
+      "ok": true,
+      "value": {
+       "terminal": true
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP CA-17"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 5,
+     "call": "operations.get",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "operation_id": "$op19"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 5,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op19",
+       "state": "failed",
+       "terminal": true,
+       "error": {
+        "kind": "cancelled",
+        "detail": {
+         "code": "net_cancelled"
+        }
+       },
+       "effect": "unknown"
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": "HP NT-9"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

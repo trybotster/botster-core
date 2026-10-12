@@ -1,0 +1,136 @@
+{
+ "id": "conf::pm_12_target_discovery_uses_the_same_statuses_and_operations",
+ "contract": "hp",
+ "clause": "PM-12",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_package",
+   "client_read",
+   "client_verb",
+   "discover_targets",
+   "target_dir"
+  ]
+ },
+ "setup": {
+  "given": "the package demo is discovered in the target t1; the operator pins, unpins and reads its status",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "target_dir",
+    "target_id": "t1",
+    "files": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "demo",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    }
+   },
+   "bind": {
+    "path_t1": "/path"
+   }
+  },
+  {
+   "control": {
+    "op": "discover_targets"
+   }
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo@t1",
+    "settled": true
+   },
+   "because": "HP PM-12"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo@t1"
+   },
+   "expect": {
+    "status": "live"
+   },
+   "because": "HP PM-12"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo@t1",
+    "args": {
+     "action": "pin",
+     "ref": "v1"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-12"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo@t1"
+   },
+   "expect": {
+    "pinned_ref": "v1"
+   },
+   "because": "HP PM-12"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo@t1",
+    "args": {
+     "action": "unpin"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-12"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo@t1",
+    "args": {
+     "action": "status"
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-12"
+  }
+ ]
+}

@@ -1,0 +1,42 @@
+# Handoff: lb-cli-suite (Stage 0), CLI part 2
+
+Written by the implementer, 2026-10-02, at the user's pause. The Lua binding part 1 is MERGED (reviewer CLEAN at 587bfd3c, lead merged). This file is about part 2, the CLI.
+
+## Goal and clause list
+- Feature: the CLI conformance runner with a real-subject harness trait (`CliSubject`) and the transcripts of the 120 CLI ids (contract `cli`, `frozen/current/cli-spec-v1-candidate34.md`, informative, ids still need transcripts). Part 1 (Lua binding, 54 ids) is done.
+- Pin: ~/botster-sessions/pins/foundation-lb-cli-suite.82ea3b99.md. Id list: ~/botster-sessions/shared/foundation/ids-cli-suite.txt (120 ids). Rules: docs/BUILD.md (real subjects through injected edges, no re-implementation of the CLI, rule 0 prior art note, testing rules), role-implementer.md, pair-common.md.
+
+## Branch and head
+- Branch `foundation/lb-cli-suite` (pushed), head **244d5ed0762e2076ca9760c8bbc27b75b107bfca**. Worktree ~/botster-sessions/trybotster-botster-contracts-foundation-lb-cli-suite (clean). Part 1's own worktree/branch `foundation/lb-cli-suite-p1` is merged and disposable.
+- Gate on this exact head: GREEN, all 10 jobs: ~/botster-sessions/gates/lb-cli-suite-part2-r2.log (linux, 301 s; includes mutants, none missed). Main merged through the last code change at the time (a8db5c9 had only docs/amendments after). No gate is queued or running.
+
+## Done (on the branch, not yet CLEAN for part 2)
+- Crate `botster-cli-conformance`: `CliSubject` (the real CLI with injected edges), `CliDriver`, `CliSchemas`, `cli_conformance_tests!`, `StructuralCli` (Phase 0 subject, R-1.4), `expand_golden` (`{"$golden"}` / `{"$golden_json"}` expand to `conformance/cli/fixtures/golden/*`).
+- `conformance/cli/`: 119 transcripts + `fixtures/frames.json` + `fixtures/golden/` (config.json, context.json, json-get-a.json, json-set-result.json, json-delete-result.txt, status-running-binary.txt). All structural (R-1.4).
+- Docs: `docs/cli-subject-controls.md` (every setup key, step and control as a harness obligation, including the lifetime of process/cargo indices and per-command observers), `docs/lb-cli-suite-notes.md` part 2 (prior art, ids, assumptions, held ids).
+- Shared engine pieces (part 1, merged): matcher `$set`, `botster_conformance::template::expand`, HP step `answer_host_call`. CLI-only: driver steps `hub_answer`, `http_answer` (substitutes a bound request variable but not the `"$request_id"` marker), `hub_policy`, `expect_stdout_json`, `expect_stdout_json_exact`, `expect_stdout_lines`, `expect_stdout_jsonl`, `expect_output`, `expect_file` (`text`/`json`/`json_exact`/`absent`); answers are validated against `ServerFrame` before dispatch.
+
+## Left
+- **`conf::cli_pl3_staged_not_error` is PENDING** (back in conformance/pending.txt; transcript deleted): the install operation names no result, so the CLI cannot learn the package key. Waits for HC Amendment 6 (below).
+- The install ids `cli_pl3_install_sources`, `cli_pl3_bind_maps_to_bindings`, `cli_pl3_ambiguous_provider_lists_candidates`, `cli_pl10_no_reach_in`, `cli_pl14_failure_texts` assert only the create request and the exit code; after A6 add the read `get(package, result.package)` and the `Installed <name> <version> (<source>)` line.
+- R-25's "a detached worktree is marked detached" is not asserted yet (the row had no way to say detached); after A6 add a harness observer (a control reporting which rows the command marked detached, no marker text) to `cli_wt1_*` and `cli_cv3_golden_outputs`.
+- `cli_cx6_agent_scripts_run_verbatim`: replacement-map proof is now `slow:agent-scripts` (lead confirmed): a real shell runs the 10 CLI-CV2 scripts with the CLI binary as `botster`. The transcript stays as a structural one and does not claim that proof. The slow test itself is Phase 1.
+
+## Review state (reviewer "lb-cli-suite — reviewer", Sol)
+- Part 1: CLEAN 587bfd3c (merged).
+- Part 2: READY 08c5e314 was REJECTED with findings 1 to 21 (all received, listed below). Revised head 244d5ed was never re-reviewed (the pause came first). My closures, to be checked by the reviewer: 1 main/CI drift (merged); 2 http_answer bound request variable (fixed + test); 3 pretty-JSON matchers replaced by structure (`expect_stdout_json`, `expect_file json/json_exact`, a "\n " pretty check); 4 cx6 (slow map, above); 5 cv3 golden fixtures and real comparisons, list-worktrees by content (detached part waits); 6 pl13 `expect_stdout_json_exact`; 7 install identity (held, above); 8 st5 `--offline` answers the hub read and asserts no notice/update; 9 pl9 incarnation loss uses `hub_policy` (reconnect or not); 10 and 18 sigint: one quiet step forbids only mutating verbs on the `operation` kind (a request `cancel` is allowed); 11 rt2 runs every command group with a successful scripted peer and reads `file_reads` after each command (attempts, per command); 12 `hub_answer` validated against ServerFrame (+ test); 13 pl11 observes display and prompt before `y` (policy + settle), `-y` via control `stdout_at_request`; 14 MS2 stdout parsed as JSON lines (`expect_stdout_jsonl`), any POST containing the method after the lost reply is forbidden (session initialization allowed); 15 idle-update case removed; 16 control `statements` (`no_package_changed`) for effect none vs unknown; 17 G3 via controls `log_config` and `files_in` (destination, level, label, retained set, stderr fallback); 19 `$set` for bindings/accept_breaking, `expect_stdout_lines` + `$set` for catalog lines; 20 cx1 `file_reads` min 1; 21 lifetime of indices documented. Items 2 to 21 are unverified by the reviewer.
+
+## Steward rulings and amendments in play
+- R-25 (status/list-worktrees by content, not layout; goldens only for fixed output), R-27 (a refusal's place is open: accept local and forwarded; Lua part, applied), R-23 (route.ended is the Hub's), R-1.4 (no fake for lua_host and cli).
+- **HC Amendment 6 candidate 1 (0082564, under review; details can change)**: `package.install` result `{package, version}` (also on a staged end); worktree row `branch` optional (absent, not null, when HEAD is detached) with a new `head` field. New ids: a6_1_install_result_names_the_package_key_and_version, a6_1_staged_install_carries_the_result, a6_2_detached_worktree_has_no_branch_and_a_head, a6_2_branch_worktree_has_branch_and_head. The hub-contract crate needs the row and result changes (the lead routes that). The affected CLI ids above wait for the manifest.
+
+## Gotchas
+- `botster-gate`: the 60 s default tier and xtask 2 s tests can fail only under load; do not move tests to slow, re-run once. Main moves often: merge `origin/main` before every READY, regenerate with `cargo xtask replacement-map`, `cargo xtask real-only`, check `cargo xtask ledger --check`; `conformance/pending.txt` may only shrink against main (filter it by `origin/main` after a merge; a bad conflict resolution brings landed ids back).
+- `expect_quiet_until` consumes every non-forbidden item before its marker: put it at the end of a command's exchange or where no later expected item can be consumed (review finding 3 of part 1).
+- Mutation surface: every function of the new crate runs under cargo-mutants; keep tests that kill trivial mutants (adapter delegations, `run_test` fails a bad stimulus, structural subject inert). A "replace with vec![]" mutant on a `Vec::new()` body is reported as missed: write `vec![]`.
+- Generators (not in the repo): ~/botster-sessions/shared/foundation/scratch-lb-cli-suite/ (`gen_cli_a.py` to `gen_cli_g.py`, `lib_cli.py`; `LBREPO=<worktree> python3 gen_cli_g.py` rewrites conformance/cli; they also validate every frame and row against the HC schemas). The JSON files in the repo are the source of truth now; edit them directly or the generators.
+
+## Exact next step for a fresh implementer
+1. `cd ~/botster-sessions/trybotster-botster-contracts-foundation-lb-cli-suite`; `git fetch && git merge origin/main`; fix conflicts as in Gotchas; `cargo test -p botster-cli-conformance`.
+2. Send the reviewer "READY FOR REVIEW foundation/lb-cli-suite <sha>" for the revised part 2 with a green `botster-gate` log on the exact head (the log above is for 244d5ed) and the closure list of this file. Fix every finding (LOW included).
+3. When HC Amendment 6 is in the manifest: add the four a6 ids' CLI side as above, restore `cli_pl3_staged_not_error` (staged status after the install operation, via the result's package key), add the detached observer, and re-gate.

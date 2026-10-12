@@ -1,0 +1,131 @@
+{
+ "id": "conf::lb_8_bytes_round_trip_base64",
+ "contract": "lb",
+ "clause": "LB-8",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local e = botster.base64.encode{ bytes = \"hello\" }\n      local d = botster.base64.decode{ text = e.value }\n      local w = botster.sessions.write{ session = { hub_id = \"hub-1\", session_id = \"s1\" }, bytes_b64 = e.value }\n      return { encoded = e.value, decoded = d.value, write_ok = w.ok, write_state = w.value.state }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.write",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "bytes_b64": "$b"
+     }
+    }
+   },
+   "because": [
+    "LB LB-8",
+    "LB LBA1-2"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "state": "written",
+       "accepted_bytes": 5,
+       "written_bytes": 5
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "encoded": "$b",
+       "decoded": "hello",
+       "write_ok": true,
+       "write_state": "written"
+      }
+     }
+    }
+   },
+   "because": [
+    "LB LB-8",
+    "LB LBA1-2"
+   ]
+  }
+ ]
+}

@@ -1,0 +1,820 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-2-candidate4.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Pins: `core-contract-v1.17.md` (sha256 8ee7ca05300156312363a00bf3bafae99674d0f09fc349866f71bb2f3a6d3486) is unchanged. This amendment adds clauses and replaces the named sentences of v1.17. It re-pins the route codec to **revision 30** (...
+[rows."3"]
+"core-contract-v1.17.md" = "n/a: a repository path"
+"route-codec-v1-extract-rev30.md" = "n/a: a repository path"
+
+# Author: Core writer. Date: 2026-09-30. Status: DESIGN ONLY. Source: the completeness sweep `audits/completeness-sweep-B2-20260930.md` (B2-41 to B2-61) and `audits/completeness-sweep-A-20260930.md` (G-11). Every clause has a test id. Immu...
+[rows."5"]
+"audits/completeness-sweep-A-20260930.md" = "n/a: a repository path"
+"audits/completeness-sweep-B2-20260930.md" = "n/a: a repository path"
+
+# **Rule.** Every `begin` operation has one row. A row gives the arguments, the `Ok` value, the sync errors, the async errors and the states in which the operation is admitted. **Every row also has the sync error `PendingLimit`** (EV-5a). ...
+[rows."13"]
+"Ok" = ["core::OpResult::Ok"]
+"PendingLimit" = ["core::ErrorCode::PendingLimit"]
+"Released" = ["core::SessionState::Released"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"begin" = ["core::CoreApi::begin"]
+
+# - `SessionRecord` = the record that `get(id)` returns (LC-9), read at completion.
+[rows."16"]
+"SessionRecord" = ["core::SessionRecord"]
+"get(id)" = { symbols = ["core::CoreApi::get"], uncovered = { id = "the argument of the call" } }
+
+# - `SessionEnd` = `Exited(Exit)` or `Lost(reason)`.
+[rows."17"]
+"Exited(Exit)" = ["core::SessionEnd::Exited", "core::Exit"]
+"Lost(reason)" = { symbols = ["core::SessionEnd::Lost", "core::LostReason"], uncovered = { reason = "the LostReason payload" } }
+"SessionEnd" = ["core::SessionEnd"]
+
+# - `Screen{text, rows, cols, history_unavailable, model_rev}`; `Cursor{row, col, visible, row_text, text_before_cursor, model_rev}` (ST-3); `Modes{flags: ModeFlags, model_rev}`; `Capture` (ST-6); `Facts` (ST-7); `Answer{route, answer}` (D...
+[rows."18"]
+"Answer{route, answer}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"Capture" = ["core::Capture"]
+"Cursor{row, col, visible, row_text, text_before_cursor, model_rev}" = ["core::Cursor::col", "core::Cursor::model_rev", "core::Cursor::row", "core::Cursor::row_text", "core::Cursor::text_before_cursor", "core::Cursor::visible"]
+"Facts" = ["core::Facts"]
+"Modes{flags: ModeFlags, model_rev}" = ["codec::ModeFlags", "core::Modes::flags", "core::Modes::model_rev"]
+"Screen{text, rows, cols, history_unavailable, model_rev}" = ["core::Screen::cols", "core::Screen::history_unavailable", "core::Screen::model_rev", "core::Screen::rows", "core::Screen::text"]
+"SpawnReport" = ["core::SpawnReport"]
+
+# - `Size{rows, cols, cell_px?}`: **`rows` and `cols` are 1 to 65,535; a zero, or a value above 65,535, is `InvalidInput`** (B2-59). A size such as 80 by 24 is valid.
+[rows."19"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"Size{rows, cols, cell_px?}" = ["core::Size::cell_px", "core::Size::cols", "core::Size::rows"]
+"cols" = ["core::Size::cols"]
+"rows" = ["core::Size::rows"]
+
+# - `SpawnRequest{argv: Vec<String>, env: Map<String,String>, cwd: String, size: Size, labels: Map<String,String>, color_profile?: ColorProfile}` (B2-54). `argv` is non-empty (an empty `argv` is `InvalidInput`). `env` is **exact** (the ses...
+[rows."20"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"SpawnRequest{argv: Vec<String>, env: Map<String,String>, cwd: String, size: Size, labels: Map<String,String>, color_profile?: ColorProfile}" = { symbols = ["core::SpawnRequest::color_profile", "core::SpawnRequest::size", "core::SpawnRequest::argv", "core::SpawnRequest::cwd", "core::SpawnRequest::env", "core::SpawnRequest::labels"], uncovered = { Map = "a primitive type name", String = "a primitive type name", Vec = "a primitive type name" } }
+"Start" = ["core::Op::Start"]
+"StartFailed{CwdMissing}" = ["core::StartFailReason::CwdMissing", "core::ErrorCode::StartFailed"]
+"argv" = ["core::SpawnRequest::argv"]
+"cwd" = ["core::SpawnRequest::cwd"]
+"env" = ["core::SpawnRequest::env"]
+
+# - `ColorProfile{palette?: [Rgb; 256], foreground: Rgb, background: Rgb, cursor?: Rgb}` with `Rgb{r, g, b: u8}` (EV-8 shadow answers use it).
+[rows."21"]
+"ColorProfile{palette?: [Rgb; 256], foreground: Rgb, background: Rgb, cursor?: Rgb}" = ["core::ColorProfile::background", "core::ColorProfile::cursor", "core::ColorProfile::foreground", "core::ColorProfile::palette", "core::Rgb"]
+"Rgb{r, g, b: u8}" = { symbols = ["core::Rgb::b", "core::Rgb::g", "core::Rgb::r"], uncovered = { u8 = "a primitive type name" } }
+
+# - `StartFailReason` (non-exhaustive) = `ExecFailed{errno}`, `CwdMissing`, `StartupTimeout`, `WorkerFailed`, `GuardianFailed`, `WebRtcFailed`.
+[rows."22"]
+"CwdMissing" = ["core::StartFailReason::CwdMissing"]
+"ExecFailed{errno}" = ["core::StartFailReason::ExecFailed::errno"]
+"GuardianFailed" = ["core::StartFailReason::GuardianFailed"]
+"StartFailReason" = ["core::StartFailReason"]
+"StartupTimeout" = ["core::StartFailReason::StartupTimeout"]
+"WebRtcFailed" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"WorkerFailed" = ["core::StartFailReason::WorkerFailed"]
+
+# - Session `ExitCause` (non-exhaustive; a host maps an unknown value to `Other`) = `Normal` (the payload exited by itself with a code), `Signal` (a signal that Core did not send ended it), `HostStop` (it ended after `Stop`, `Signal` or `S...
+[rows."23"]
+"ExitCause" = ["core::ExitCause"]
+"HostStop" = ["core::ExitCause::HostStop"]
+"Killed" = ["core::ExitCause::Killed"]
+"Normal" = ["core::ExitCause::Normal"]
+"Other" = ["core::ExitCause::Other"]
+"Signal" = ["core::ExitCause::Signal"]
+"Stop" = ["core::Op::Stop"]
+"StopAll" = ["core::Op::StopAll"]
+"stop_grace" = ["core::CoreLimits::stop_grace"]
+
+# | Operation | Arguments | `Ok` | Sync errors | Async errors | Admitted in |
+[rows."25"]
+"Ok" = ["core::OpResult::Ok"]
+
+# | `Create` | `session: SessionId` (host-chosen, ID-1), `request: SpawnRequest` | `SessionRecord` (state `Created`) | `IdTooLong`, `IdInUse`, `SessionLimit`, `InvalidInput` | `RegistryFailed` | no session with that id |
+[rows."27"]
+"Create" = ["core::Op::Create"]
+"Created" = ["core::SessionState::Created"]
+"IdInUse" = ["core::ErrorCode::IdInUse"]
+"IdTooLong" = ["core::ErrorCode::IdTooLong"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"SessionLimit" = ["core::ErrorCode::SessionLimit"]
+"SessionRecord" = ["core::SessionRecord"]
+"request: SpawnRequest" = ["core::SpawnRequest", "core::Op::Create::request"]
+"session: SessionId" = ["core::SessionId", "core::Op::Create::session"]
+
+# | `Start` | `id` | `SessionRecord` (state `Running`) | `UnknownSession`, `WrongState` | `StartFailed{StartFailReason}`, `RegistryFailed`, `WrongState` | `Created` |
+[rows."28"]
+"Created" = ["core::SessionState::Created"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"SessionRecord" = ["core::SessionRecord"]
+"Start" = ["core::Op::Start"]
+"StartFailed{StartFailReason}" = ["core::StartFailReason", "core::ErrorCode::StartFailed"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::Start::id"]
+
+# | `Stop` | `id` | `SessionEnd` | `UnknownSession`, `WrongState` | `RegistryFailed` | `Starting`, `Running`, `Stopping`, `Exited`, `Lost` |
+[rows."29"]
+"Exited" = ["core::SessionState::Exited"]
+"Lost" = ["core::SessionState::Lost"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"SessionEnd" = ["core::SessionEnd"]
+"Starting" = ["core::SessionState::Starting"]
+"Stop" = ["core::Op::Stop"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::Stop::id"]
+
+# | `Signal` | `id`, `sig` | `()` after the signal was sent | `UnknownSession`, `WrongState`, `Unsupported` | `SessionEnded`, `WorkerLinkFailed` | `Running`, `Stopping` |
+[rows."30"]
+"Running" = ["core::SessionState::Running"]
+"SessionEnded" = ["core::ErrorCode::SessionEnded"]
+"Signal" = ["core::Op::Signal"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::Signal::id"]
+"sig" = ["core::Op::Signal::sig"]
+
+# | `Remove` | `id` | `()` after LC-7 step 5 | `UnknownSession`, `WrongState` | `RegistryFailed` | `Created`, `Exited`, `Lost` |
+[rows."31"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"Lost" = ["core::SessionState::Lost"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Remove" = ["core::Op::Remove"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::Remove::id"]
+
+# | `StopAll` | none | `()` | none | none (a target that cannot be stopped is left as LC-12 says) | always |
+[rows."32"]
+"StopAll" = ["core::Op::StopAll"]
+
+# | `UpdateMetadata` | `id`, `labels` | `()` after the durable write | `UnknownSession`, `InvalidInput` | `RegistryFailed` | `Created`, `Starting`, `Running`, `Stopping`, `Exited`, `Lost` |
+[rows."33"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"Lost" = ["core::SessionState::Lost"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"UpdateMetadata" = ["core::Op::UpdateMetadata"]
+"id" = ["core::Op::UpdateMetadata::id"]
+"labels" = ["core::Op::UpdateMetadata::labels"]
+
+# | `SetSizePolicy` | `session`, `policy` | `()` | `UnknownSession`, `WrongState`, `Unsupported` (`policy` needs `size_policy_other`) | `WorkerLinkFailed`, `SessionEnded` | `Created`, `Starting`, `Running` |
+[rows."34"]
+"Created" = ["core::SessionState::Created"]
+"Running" = ["core::SessionState::Running"]
+"SessionEnded" = ["core::ErrorCode::SessionEnded"]
+"SetSizePolicy" = ["core::Op::SetSizePolicy"]
+"Starting" = ["core::SessionState::Starting"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"policy" = ["core::Op::SetSizePolicy::policy"]
+"session" = ["core::Op::SetSizePolicy::session"]
+"size_policy_other" = ["core::Feature::SizePolicyOther"]
+
+# | `SetColorProfile` | `session`, `ColorProfile` | `()` | `UnknownSession`, `WrongState`, `InvalidInput` | `WorkerLinkFailed` | `Created`, `Starting`, `Running`, `Stopping`, `Exited` |
+[rows."35"]
+"ColorProfile" = ["core::ColorProfile"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"Running" = ["core::SessionState::Running"]
+"SetColorProfile" = ["core::Op::SetColorProfile"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"session" = ["core::Op::SetColorProfile::session"]
+
+# | `SetOutputTap` | `session`, `enabled` | `()` | `UnknownSession`, `WrongState` | `WorkerLinkFailed` | `Running`, `Stopping` |
+[rows."36"]
+"Running" = ["core::SessionState::Running"]
+"SetOutputTap" = ["core::Op::SetOutputTap"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"enabled" = ["core::Op::SetOutputTap::enabled"]
+"session" = ["core::Op::SetOutputTap::session"]
+
+# | `ReadScreen` | `session`, `history: bool` | `Screen` | `UnknownSession`, `WrongState` | `WorkerLinkFailed`, `CursorReadUnsupported` | `Starting`, `Running`, `Stopping`, `Exited` |
+[rows."37"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"Exited" = ["core::SessionState::Exited"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"Running" = ["core::SessionState::Running"]
+"Screen" = ["core::Screen"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"history: bool" = { symbols = ["core::Op::ReadScreen::history"], uncovered = { bool = "a primitive type name" } }
+"session" = ["core::Op::ReadScreen::session"]
+
+# | `ReadCursor` | `session` | `Cursor` | as `ReadScreen` | as `ReadScreen` | as `ReadScreen` |
+[rows."38"]
+"Cursor" = ["core::Cursor"]
+"ReadCursor" = ["core::Op::ReadCursor"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"session" = ["core::Op::ReadCursor::session"]
+
+# | `ReadModeFlags` | `session` | `Modes` | as `ReadScreen` | as `ReadScreen` | as `ReadScreen` |
+[rows."39"]
+"Modes" = ["core::Modes"]
+"ReadModeFlags" = ["core::Op::ReadModeFlags"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"session" = ["core::Op::ReadModeFlags::session"]
+
+# | `CaptureSnapshot` | `session`, `owner` | `Capture` | `UnknownSession`, `WrongState`, `CaptureLimit` | `SnapshotTooLarge`, `WorkerLinkFailed`, `CursorReadUnsupported` | as `ReadScreen` |
+[rows."40"]
+"Capture" = ["core::Capture"]
+"CaptureLimit" = ["core::ErrorCode::CaptureLimit"]
+"CaptureSnapshot" = ["core::Op::CaptureSnapshot"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"owner" = ["core::Op::CaptureSnapshot::owner"]
+"session" = ["core::Op::CaptureSnapshot::session"]
+
+# | `ReadFacts` | `session`, `after?` | `Facts` | `UnknownSession`, `WrongState` | `WorkerLinkFailed`, `CursorReadUnsupported` | as `ReadScreen` |
+[rows."41"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"Facts" = ["core::Facts"]
+"ReadFacts" = ["core::Op::ReadFacts"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"after?" = ["core::Op::ReadFacts::after"]
+"session" = ["core::Op::ReadFacts::session"]
+
+# | `Resize` | `session`, `Size` | `Applied{actual}` or `Superseded{by}` (SZ-3) | `UnknownSession`, `WrongState`, `InvalidInput` | `WorkerLinkFailed`, `SessionEnded` | `Created` (stores the spawn size; completes `Applied` in the next `pump...
+[rows."42"]
+"Applied" = ["core::ResizeResult::Applied"]
+"Applied{actual}" = ["core::ResizeResult::Applied::actual"]
+"Created" = ["core::SessionState::Created"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"Resize" = ["core::Op::Resize"]
+"Running" = ["core::SessionState::Running"]
+"SessionEnded" = ["core::ErrorCode::SessionEnded"]
+"Size" = ["core::Size"]
+"Starting" = ["core::SessionState::Starting"]
+"Superseded{by}" = ["core::ResizeResult::Superseded::by"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WorkerLinkFailed" = ["core::ErrorCode::WorkerLinkFailed"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"pump" = ["core::CoreApi::pump"]
+"session" = ["core::Op::Resize::session"]
+
+# | `WriteInput` | `session`, `payload`, `guard?` | `InputResult` | `UnknownSession`, `WrongState`, `InvalidInput`, `PayloadTooLarge`, `LaneFull`, `Unsupported` | `Internal` only (A2-2) | `Running`, `Stopping`, `Exited`, `Lost` |
+[rows."43"]
+"Exited" = ["core::SessionState::Exited"]
+"InputResult" = ["core::InputResult"]
+"Internal" = ["core::ErrorCode::Internal"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"LaneFull" = ["core::ErrorCode::LaneFull"]
+"Lost" = ["core::SessionState::Lost"]
+"PayloadTooLarge" = ["core::ErrorCode::PayloadTooLarge"]
+"Running" = ["core::SessionState::Running"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WriteInput" = ["core::Op::WriteInput"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"guard?" = ["core::Op::WriteInput::guard"]
+"payload" = ["core::Op::WriteInput::payload"]
+"session" = ["core::Op::WriteInput::session"]
+
+# | `Detach` | `route`, `reason` | `()` after `RouteClosed` is posted (DP-7) | `UnknownRoute` | none | any live route |
+[rows."44"]
+"Detach" = ["core::Op::Detach"]
+"RouteClosed" = ["core::Event::RouteClosed"]
+"UnknownRoute" = ["core::ErrorCode::UnknownRoute"]
+"reason" = ["core::Op::Detach::reason"]
+"route" = ["core::Op::Detach::route"]
+
+# | `AttachWebRtc` | `client`, `session`, `offer`, `expected_fingerprint`, `options` | `Answer` | as `attach`, plus `InvalidInput` for an `options` field | `InvalidOffer{reason}`, `StartFailed{WebRtcFailed}` | as `attach` |
+[rows."45"]
+"Answer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"AttachWebRtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"InvalidOffer{reason}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"StartFailed{WebRtcFailed}" = { symbols = ["core::ErrorCode::StartFailed"], uncovered = { WebRtcFailed = "WebRTC-only; removed from Core by Core A17 (final37)" } }
+"attach" = ["core::CoreApi::attach"]
+"client" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"expected_fingerprint" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"offer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"options" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"session" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# | `AdoptAll` | none | `()` (one `SessionState` per row, LC-11) | `WrongState` (a second `AdoptAll` on one handle) | `RegistryFailed` | once per handle |
+[rows."46"]
+"AdoptAll" = ["core::Op::AdoptAll"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"SessionState" = ["core::SessionState"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+
+# | `Adopt` | `id` | `SessionRecord` (its state tells the outcome: `Running`, `Exited` or `Lost(reason)` again) | `UnknownSession`, `WrongState` | `RegistryFailed` | `Lost(WorkerUnreachable)`, `Lost(WorkerVersion)` |
+[rows."47"]
+"Adopt" = ["core::Op::Adopt"]
+"Exited" = ["core::SessionState::Exited"]
+"Lost(WorkerUnreachable)" = ["core::SessionState::Lost", "core::LostReason::WorkerUnreachable"]
+"Lost(WorkerVersion)" = ["core::SessionState::Lost", "core::LostReason::WorkerVersion"]
+"Lost(reason)" = { symbols = ["core::SessionState::Lost", "core::LostReason"], uncovered = { reason = "the LostReason payload" } }
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Running" = ["core::SessionState::Running"]
+"SessionRecord" = ["core::SessionRecord"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::Adopt::id"]
+
+# | `SpawnService` | `service_id`, `argv`, `env`, `cwd`, `ServiceLimits` | `SpawnReport` | `IdInUse`, `ServiceLimit`, `InvalidConfig`, `InvalidInput` (`service_id` is not 32 bytes), `BoundUnavailable` | `StartFailed{ExecFailed{errno}}`, `S...
+[rows."48"]
+"BoundUnavailable" = ["core::ErrorCode::BoundUnavailable"]
+"IdInUse" = ["core::ErrorCode::IdInUse"]
+"InvalidConfig" = ["core::ErrorCode::InvalidConfig"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"ServiceLimit" = ["core::ErrorCode::ServiceLimit"]
+"ServiceLimits" = ["core::ServiceLimits", "core::Op::SpawnService::limits"]
+"SpawnReport" = ["core::SpawnReport"]
+"SpawnService" = ["core::Op::SpawnService"]
+"StartFailed{ExecFailed{errno}}" = ["core::StartFailReason::ExecFailed::errno", "core::ErrorCode::StartFailed"]
+"StartFailed{GuardianFailed}" = ["core::StartFailReason::GuardianFailed", "core::ErrorCode::StartFailed"]
+"argv" = ["core::Op::SpawnService::argv"]
+"cwd" = ["core::Op::SpawnService::cwd"]
+"env" = ["core::Op::SpawnService::env"]
+"service_id" = ["core::Op::SpawnService::service_id"]
+
+# | `StopService` | `id` | `ServiceExit` (the `Exited` payload, SV-5) | `UnknownService`, `WrongState` | `RegistryFailed` | `Started`, `Reconnected`, `Exited`, `Lost` |
+[rows."49"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"Reconnected" = ["core::ServiceState::Reconnected"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"ServiceExit" = ["core::ServiceExit"]
+"Started" = ["core::ServiceState::Started"]
+"StopService" = ["core::Op::StopService"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::StopService::id"]
+
+# | `RemoveService` | `id` | `()` after the id is free | `UnknownService`, `WrongState` | `RegistryFailed` | `Exited`, `Lost` |
+[rows."50"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"RemoveService" = ["core::Op::RemoveService"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"id" = ["core::Op::RemoveService::id"]
+
+# | `EndEpoch` | `service` | `()` after every lane of the epoch is closed | `UnknownService`, `WrongState` | `WrongState` (the service ended meanwhile) | a service with a committed epoch |
+[rows."51"]
+"EndEpoch" = ["core::Op::EndEpoch"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"service" = ["core::Op::EndEpoch::service"]
+
+# **The sync `attach` call (OU-1)** is admitted for a session in `Starting`, `Running` or `Exited` (an `Exited` session serves its final model, ST-5). It is `WrongState` for `Created`, `Stopping` and `Lost`. `attach` also has the sync erro...
+[rows."53"]
+"Created" = ["core::SessionState::Created"]
+"Exited" = ["core::SessionState::Exited"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"Lost" = ["core::SessionState::Lost"]
+"RouteLimit" = ["core::ErrorCode::RouteLimit"]
+"Running" = ["core::SessionState::Running"]
+"Starting" = ["core::SessionState::Starting"]
+"Stopping" = ["core::SessionState::Stopping"]
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"attach" = ["core::CoreApi::attach"]
+
+# **`ReadScreen` (B2-55).** `text` is the visible screen. With `history: true` it is the scrollback followed by the visible screen. When history was asked for and is not available, `text` is the visible screen and `history_unavailable` is ...
+[rows."55"]
+"ReadScreen" = ["core::Op::ReadScreen"]
+"cols" = ["core::Screen::cols"]
+"history: true" = { symbols = ["core::Op::ReadScreen::history"], uncovered = { true = "a JSON literal value" } }
+"history_unavailable" = ["core::Screen::history_unavailable"]
+"model_rev" = ["core::Screen::model_rev"]
+"rows" = ["core::Screen::rows"]
+"text" = ["core::Screen::text"]
+
+# **The code `CursorReadUnsupported` keeps its name and means "no worker model for this session"** for every read in the table, not only the cursor read. Reads of a `Created` session or a `Lost` session are `WrongState` (sync) because Core...
+[rows."57"]
+"Created" = ["core::SessionState::Created"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"Lost" = ["core::SessionState::Lost"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+
+# **No other code names a deadline.** `DeadlineExpired` is **removed** from 9.3 (B2-56). Every deadline has a named outcome: the startup deadline completes `Start` with `StartFailed{StartupTimeout}` (LC-4); a service that does not authenti...
+[rows."59"]
+"DeadlineExpired" = "n/a: a code that this amendment removes (B2-56); the crate has no such code"
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"ServiceState{Exited{cause: StartupTimeout}}" = ["core::ServiceState::Exited", "core::ServiceExit::cause", "core::ServiceExitCause::StartupTimeout"]
+"Start" = ["core::Op::Start"]
+"StartFailed{StartupTimeout}" = ["core::ErrorCode::StartFailed", "core::StartFailReason::StartupTimeout"]
+"connect_deadline" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"query_deadline" = ["core::AttachOptions::query_deadline"]
+"startup" = ["core::ServiceLimits::startup"]
+
+# **`cancel(op)` (B2-51).** `cancel` applies to `WriteInput` only (IN-6). For an op that is already completed it returns `TooLate`, as IN-6 says. For any other uncompleted op it returns `Refused(NotCancellable)`; nothing changes. `NotCance...
+[rows."61"]
+"CancelResult" = ["core::CancelResult"]
+"Full" = ["core::CancelRefusal::Full"]
+"NotCancellable" = ["core::CancelRefusal::NotCancellable"]
+"Refused" = ["core::CancelResult::Refused"]
+"Refused(NotCancellable)" = ["core::CancelRefusal::NotCancellable", "core::CancelResult::Refused"]
+"TooLate" = ["core::CancelResult::TooLate"]
+"WriteInput" = ["core::Op::WriteInput"]
+"cancel" = ["core::CoreApi::cancel"]
+"cancel(op)" = ["core::CoreApi::cancel", "core::Op"]
+
+# **New codes (additive, 9.3).** `UnknownService` (caller, sync: the id names no service); `InvalidOffer{reason: bad_offer | offer_without_candidates}` (caller, **async**: the worker parsed the offer and refused it). Widened: `IdInUse` als...
+[rows."65"]
+"IdInUse" = ["core::ErrorCode::IdInUse"]
+"InvalidConfig" = ["core::ErrorCode::InvalidConfig"]
+"InvalidOffer{reason: bad_offer | offer_without_candidates}" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"SpawnService" = ["core::Op::SpawnService"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+"open" = { symbols = ["core::OpenConfig"], uncovered = { open = "the constructor of the real Core; the contract crate holds its argument OpenConfig" } }
+"service_id" = ["core::Op::SpawnService::service_id"]
+
+# ## A2-2. `WriteInput` has one result path with exact outcomes (adds to IN-2, IN-6 and IN-7; closes B2-42 and B2-50)
+[rows."69"]
+"WriteInput" = ["core::Op::WriteInput"]
+
+# **`WriteInput` completes `Ok(InputResult)` for every admitted write.** It never completes `Err(SessionEnded)`, `Err(Cancelled)` or `Err(WorkerLinkFailed)`: those `CoreError` codes do not apply to `WriteInput`. **Its only async error is `...
+[rows."71"]
+"CoreError" = ["core::CoreError"]
+"Err(Cancelled)" = ["core::ErrorCode::Cancelled", "core::OpResult::Err"]
+"Err(SessionEnded)" = ["core::OpResult::Err", "core::ErrorCode::SessionEnded"]
+"Err(WorkerLinkFailed)" = ["core::OpResult::Err", "core::ErrorCode::WorkerLinkFailed"]
+"InputResult" = ["core::InputResult"]
+"Internal" = ["core::ErrorCode::Internal"]
+"Ok(InputResult)" = ["core::InputResult", "core::OpResult::Ok"]
+"WriteInput" = ["core::Op::WriteInput"]
+
+# - A write that was **never sent** to the worker, and a write to an `Exited` or `Lost` session, completes `NotWritten(SessionEnded)` with exact zero bytes (IN-7). A certain zero stays a certain zero.
+[rows."72"]
+"Exited" = ["core::SessionState::Exited"]
+"Lost" = ["core::SessionState::Lost"]
+"NotWritten(SessionEnded)" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::SessionEnded"]
+
+# - A write that was **sent and not acknowledged** when the worker link failed completes `Unknown{max_payload_bytes}` (IN-2, IN-7). Core never turns it into a zero.
+[rows."73"]
+"Unknown{max_payload_bytes}" = ["core::WriteOutcome::Unknown", "core::WriteOutcome::Unknown::max_payload_bytes"]
+
+# - A `cancel` that is admitted completes the op with what really happened (IN-6): `Cancelled` (exact counts), `Partial`, `Unknown` if the link failed, **or the real outcome of the write if the write finished first** (`Written`, `Failed`, ...
+[rows."74"]
+"Cancelled" = ["core::WriteOutcome::Cancelled"]
+"Failed" = ["core::WriteOutcome::Failed"]
+"NotWritten(...)" = ["core::WriteOutcome::NotWritten"]
+"Partial" = ["core::WriteOutcome::Partial"]
+"Unknown" = ["core::WriteOutcome::Unknown"]
+"Written" = ["core::WriteOutcome::Written"]
+"cancel" = ["core::CoreApi::cancel"]
+
+# `InputResult.detail` is a human-readable string with no compatibility promise (B2-58). `outcome` and the counts are the contract.
+[rows."76"]
+"InputResult.detail" = ["core::InputResult::detail"]
+"outcome" = ["core::InputResult::outcome"]
+
+# - `NotWritten(Refused)`: the worker refused the write for a reason that is **not** a mode precondition, a guard, a size or a session state. **Route input only.** In 0.1 the causes are the **sequencing errors** of the route codec (TS-5d f...
+[rows."79"]
+"BadFrame{malformed_frame}" = ["core::RouteCloseReason::BadFrame", "codec::ProtocolErrorCode::MalformedFrame"]
+"NotWritten(Refused)" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::Refused"]
+"Refused" = ["core::NotWrittenReason::Refused"]
+"WriteInput" = ["core::Op::WriteInput"]
+"file_begin" = ["codec::Input::FileBegin"]
+"input_refused{refused}" = ["codec::InputRefused", "codec::RefusalReason::Refused"]
+"op" = ["core::Op"]
+"paste_begin" = ["codec::Input::PasteBegin"]
+
+# - `NotWritten(Unsupported{what})`: no encoding exists for the event (5.1A rule 5). `what` is non-exhaustive: `pixel_position`, `produced_text`, `named_key`, `wheel_direction`, `coordinate`, `release_event`. A receiver treats an unknown `...
+[rows."80"]
+"NotWritten(Unsupported{what})" = ["core::WriteOutcome::NotWritten", "core::NotWrittenReason::Unsupported::what"]
+"coordinate" = ["core::UnsupportedWhat::Coordinate"]
+"named_key" = ["core::UnsupportedWhat::NamedKey"]
+"pixel_position" = ["core::UnsupportedWhat::PixelPosition"]
+"produced_text" = ["core::UnsupportedWhat::ProducedText"]
+"release_event" = ["core::UnsupportedWhat::ReleaseEvent"]
+"what" = ["core::NotWrittenReason::Unsupported::what"]
+"wheel_direction" = ["core::UnsupportedWhat::WheelDirection"]
+
+# `RouteCloseReason` (non-exhaustive; a host maps an unknown value to `PeerClosed`) has these values:
+[rows."88"]
+"PeerClosed" = ["core::RouteCloseReason::PeerClosed"]
+"RouteCloseReason" = ["core::RouteCloseReason"]
+
+# `Detached`, `Replaced`, `Revoked` (the three `Detach{reason}` values of DP-7); `SessionEnded{exit}`; `SessionRemoved`; `SessionLost` (the session's worker exited or the session is `Lost`); `PeerClosed`; `WriteFailed` (the worker's write ...
+[rows."90"]
+"BadFrame{code}" = ["core::RouteCloseReason::BadFrame::code"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"Detached" = ["core::RouteCloseReason::Detached"]
+"Detach{reason}" = ["core::Op::Detach::reason"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"Lost" = ["core::SessionState::Lost"]
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"PeerClosed" = ["core::RouteCloseReason::PeerClosed"]
+"Replaced" = ["core::RouteCloseReason::Replaced"]
+"Revoked" = ["core::RouteCloseReason::Revoked"]
+"SessionEnded{exit}" = ["core::RouteCloseReason::SessionEnded::exit"]
+"SessionLost" = ["core::RouteCloseReason::SessionLost"]
+"SessionRemoved" = ["core::RouteCloseReason::SessionRemoved"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge"]
+"StallTimeout" = ["core::RouteCloseReason::StallTimeout"]
+"WriteFailed" = ["core::RouteCloseReason::WriteFailed"]
+"code" = ["core::RouteCloseReason::BadFrame::code"]
+"frame_too_large" = ["codec::ProtocolErrorCode::FrameTooLarge"]
+"invalid_input" = ["codec::ProtocolErrorCode::InvalidInput"]
+"malformed_frame" = ["codec::ProtocolErrorCode::MalformedFrame"]
+"unknown_frame" = ["codec::ProtocolErrorCode::UnknownFrame"]
+
+# OU-2's list of the events that close a route gains `WriteFailed` and `SessionLost`. The first reason wins (OU-2).
+[rows."92"]
+"SessionLost" = ["core::RouteCloseReason::SessionLost"]
+"WriteFailed" = ["core::RouteCloseReason::WriteFailed"]
+
+# **The mapping to the route wire (the codec's revision 30 form).** `Detached`, `Replaced`, `Revoked`, `SessionEnded`, `SessionRemoved`, `SnapshotTooLarge`, `BadPeer` and `BadFrame` map as OU-2b says. The failed-route reasons map to the co...
+[rows."94"]
+"BadFrame" = ["core::RouteCloseReason::BadFrame"]
+"BadPeer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"Detached" = ["core::RouteCloseReason::Detached"]
+"HandoffFailed" = ["core::RouteCloseReason::HandoffFailed"]
+"NotConnected" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"PeerClosed" = ["core::RouteCloseReason::PeerClosed"]
+"Replaced" = ["core::RouteCloseReason::Replaced"]
+"Revoked" = ["core::RouteCloseReason::Revoked"]
+"SessionEnded" = ["core::RouteCloseReason::SessionEnded"]
+"SessionLost" = ["core::RouteCloseReason::SessionLost"]
+"SessionRemoved" = ["core::RouteCloseReason::SessionRemoved"]
+"SnapshotTooLarge" = ["core::ErrorCode::SnapshotTooLarge"]
+"StallTimeout" = ["core::RouteCloseReason::StallTimeout"]
+"WriteFailed" = ["core::RouteCloseReason::WriteFailed"]
+"handoff_failed" = ["core::RouteCloseReason::HandoffFailed"]
+"not_connected" = ["codec::RouteEndReason::NotConnected"]
+"session_lost" = ["core::RouteCloseReason::SessionLost"]
+"stalled" = ["codec::RouteEndReason::Stalled"]
+"transport_lost" = ["codec::RouteEndReason::TransportLost"]
+"write_failed" = ["core::RouteCloseReason::WriteFailed"]
+
+# Every payload below carries `id` (the `SessionId`), `instance` (the `InstanceId`, EV-9) and `at` (unix seconds from the injected clock, TM-1). They are class D events (EV-2).
+[rows."102"]
+"InstanceId" = ["core::InstanceId"]
+"SessionId" = ["core::SessionId"]
+"at" = "n/a: a field of every event payload; each event row below maps it"
+"id" = "n/a: a field of every event payload; each event row below maps it"
+"instance" = "n/a: a field of every event payload; each event row below maps it"
+
+# - `Bell{id, instance, at}`.
+[rows."104"]
+"Bell{id, instance, at}" = ["core::Event::Bell", "core::Event::Bell::at", "core::Event::Bell::id", "core::Event::Bell::instance"]
+
+# - `PromptMark{id, instance, mark, exit_code?, at}`. `mark` is `PromptStart` (OSC 133 `A`), `CommandStart` (`B`, the end of the prompt), `CommandExecuted` (`C`, the program starts), `CommandFinished` (`D`). `exit_code` (an `i32`) is prese...
+[rows."105"]
+"CommandExecuted" = ["core::PromptMarkKind::CommandExecuted"]
+"CommandFinished" = ["core::PromptMarkKind::CommandFinished"]
+"CommandStart" = ["core::PromptMarkKind::CommandStart"]
+"PromptMark{id, instance, mark, exit_code?, at}" = ["core::Event::PromptMark::at", "core::Event::PromptMark::exit_code", "core::Event::PromptMark::id", "core::Event::PromptMark::instance", "core::Event::PromptMark::mark"]
+"PromptStart" = ["core::PromptMarkKind::PromptStart"]
+"exit_code" = ["core::Event::PromptMark::exit_code"]
+"i32" = "n/a: a primitive type name"
+"mark" = ["core::Event::PromptMark::mark"]
+
+# - `Notification{id, instance, source, title?, body, truncated, at}`. `source` is `Osc9` or `Osc777`. **The pinned emulator's classification decides which sequences are a notification**: OSC 9 with a text, and OSC 777 in its `notify` form...
+[rows."106"]
+"CoreLimits.clipboard_bytes" = ["core::CoreLimits::clipboard_bytes"]
+"Notification" = ["core::Event::Notification"]
+"Notification{id, instance, source, title?, body, truncated, at}" = ["core::Event::Notification", "core::Event::Notification::at", "core::Event::Notification::body", "core::Event::Notification::id", "core::Event::Notification::instance", "core::Event::Notification::source", "core::Event::Notification::title", "core::Event::Notification::truncated"]
+"Osc777" = ["core::NotificationSource::Osc777"]
+"Osc9" = ["core::NotificationSource::Osc9"]
+"Output" = ["codec::ToClient::Output"]
+"body" = ["core::Event::Notification::body"]
+"notify" = "n/a: the OSC 777 sub-command name that the emulator classifies"
+"source" = ["core::Event::Notification::source"]
+"title" = ["core::Event::Notification::title"]
+"true" = "n/a: a JSON literal value"
+"truncated" = ["core::Event::Notification::truncated"]
+
+# **`EventsLost.kinds`** is a set (non-exhaustive) of: `Bell`, `PromptMark`, `Notification`, `ClipboardWrite`, `Query` (a query offer that was dropped, EV-8), `Tap` (TP-1).
+[rows."108"]
+"Bell" = ["core::Event::Bell"]
+"ClipboardWrite" = ["core::LostKind::ClipboardWrite"]
+"EventsLost.kinds" = ["core::Event::EventsLost::kinds"]
+"Notification" = ["core::Event::Notification"]
+"PromptMark" = ["core::Event::PromptMark"]
+"Query" = ["core::LostKind::Query"]
+"Tap" = ["core::LostKind::Tap"]
+
+# - `service_send(id, lane, frame) -> Result<(), SendError>`. It is sync. `SendError` (non-exhaustive) = `Backpressured` (the lane's outbound queue has no room; **resume:** `ServiceWritable{id, lane}`); `UnknownService`; `NoSuchLane`; `Not...
+[rows."117"]
+"Backpressured" = ["core::SendError::Backpressured"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"NoSuchLane" = ["core::SendError::NoSuchLane"]
+"NotConnected" = ["core::SendError::NotConnected"]
+"Oversize" = ["core::SendError::Oversize"]
+"SendError" = ["core::SendError"]
+"ServiceEnded" = ["core::SendError::ServiceEnded"]
+"ServiceState{Reconnected}" = ["core::ServiceState::Reconnected"]
+"ServiceWritable{id, lane}" = ["core::Event::ServiceWritable::id", "core::Event::ServiceWritable::lane"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"max_frame_bytes" = ["core::LaneSpec::max_frame_bytes"]
+"service_send(id, lane, frame) -> Result<(), SendError>" = { symbols = ["core::CoreApi::service_send", "core::Frame", "core::SendError"], uncovered = { id = "an argument of the call", lane = "an argument of the call", Result = "the Rust standard Result type" } }
+
+# - `service_recv(id, lane) -> Result<Option<Frame>, RecvError>`. It is sync. It returns `Ok(None)` when the inbound queue is empty. `RecvError` = `UnknownService`, `NoSuchLane`. Frames that were received stay readable after `Exited` until...
+[rows."118"]
+"Exited" = ["core::ServiceState::Exited"]
+"NoSuchLane" = ["core::RecvError::NoSuchLane"]
+"Ok(None)" = "n/a: Rust standard values (Result::Ok, Option::None)"
+"RecvError" = ["core::RecvError"]
+"RemoveService" = ["core::Op::RemoveService"]
+"UnknownService" = ["core::RecvError::UnknownService"]
+"service_recv(id, lane) -> Result<Option<Frame>, RecvError>" = { symbols = ["core::CoreApi::service_recv", "core::Frame", "core::RecvError"], uncovered = { id = "an argument of the call", lane = "an argument of the call", Result = "the Rust standard Result type", Option = "a primitive type name" } }
+
+# - `Backpressured` is a `SendError` value, **not** a `CoreError` code.
+[rows."119"]
+"Backpressured" = ["core::SendError::Backpressured"]
+"CoreError" = ["core::CoreError"]
+"SendError" = ["core::SendError"]
+
+# **`ServiceState` (SV-5)** = `Started`; `Reconnected{epoch}`; `Exited{code, signal, cause, descendants_may_remain}`; `Lost{reason, payload_may_remain}` (`reason` is `GuardianLost` or `EpochExhausted`, as AD-2); `Released`. Every value is ...
+[rows."121"]
+"EpochExhausted" = ["core::LostReason::EpochExhausted"]
+"Exited{code, signal, cause, descendants_may_remain}" = ["core::ServiceState::Exited", "core::ServiceExit::code", "core::ServiceExit::signal", "core::ServiceExit::cause", "core::ServiceExit::descendants_may_remain"]
+"GuardianLost" = ["core::LostReason::GuardianLost"]
+"Lost{reason, payload_may_remain}" = ["core::ServiceState::Lost::reason", "core::ServiceState::Lost::payload_may_remain"]
+"Reconnected{epoch}" = ["core::ServiceState::Reconnected::epoch"]
+"Released" = ["core::ServiceState::Released"]
+"ServiceState" = ["core::ServiceState"]
+"Started" = ["core::ServiceState::Started"]
+"reason" = ["core::ServiceState::Lost::reason"]
+
+# **`LaneEnded.reason` (SV-3, SV-5)** (non-exhaustive) = `BadLane`, `Oversize`, `Truncated`, `PeerClosed`, `EpochEnded` (the host called `EndEpoch`), `Superseded` (a higher epoch was staged, SV-6), `ServiceExited`, `ServiceRemoved`.
+[rows."123"]
+"BadLane" = ["core::LaneEndReason::BadLane"]
+"EndEpoch" = ["core::Op::EndEpoch"]
+"EpochEnded" = ["core::LaneEndReason::EpochEnded"]
+"LaneEnded.reason" = ["core::Event::LaneEnded::reason"]
+"Oversize" = ["core::LaneEndReason::Oversize"]
+"PeerClosed" = ["core::LaneEndReason::PeerClosed"]
+"ServiceExited" = ["core::LaneEndReason::ServiceExited"]
+"ServiceRemoved" = ["core::LaneEndReason::ServiceRemoved"]
+"Superseded" = ["core::LaneEndReason::Superseded"]
+"Truncated" = ["core::LaneEndReason::Truncated"]
+
+# **`ServiceLimits` (SV-2, SV-4)** adds `peer_identity: Uid` (default: the host's uid) and gives each rlimit the form `Option<{value, required: bool}>`. **`startup` runs from `exec` until every lane of epoch 1 has authenticated** (SV-6 com...
+[rows."125"]
+"Option<{value, required: bool}>" = { symbols = ["core::RlimitSpec::required", "core::RlimitSpec::value"], uncovered = { Option = "a primitive type name", bool = "a primitive type name" } }
+"ServiceLimits" = ["core::ServiceLimits"]
+"ServiceState{Exited{cause: StartupTimeout}}" = ["core::ServiceState::Exited", "core::ServiceExit::cause", "core::ServiceExitCause::StartupTimeout"]
+"exec" = "n/a: the OS exec of the service process"
+"peer_identity: Uid" = { symbols = ["core::ServiceLimits::peer_identity"], uncovered = { Uid = "the OS user id, carried as u32" } }
+"startup" = ["core::ServiceLimits::startup"]
+
+# **Spawn failures** are in the A2-1 row: sync `IdInUse`, `ServiceLimit`, `InvalidConfig`, `InvalidInput`, `BoundUnavailable{bound}`; async `StartFailed{ExecFailed{errno}}`, `StartFailed{GuardianFailed}`.
+[rows."127"]
+"BoundUnavailable{bound}" = ["core::ErrorCode::BoundUnavailable::bound"]
+"IdInUse" = ["core::ErrorCode::IdInUse"]
+"InvalidConfig" = ["core::ErrorCode::InvalidConfig"]
+"InvalidInput" = ["core::ErrorCode::InvalidInput"]
+"ServiceLimit" = ["core::ErrorCode::ServiceLimit"]
+"StartFailed{ExecFailed{errno}}" = ["core::StartFailReason::ExecFailed::errno", "core::ErrorCode::StartFailed"]
+"StartFailed{GuardianFailed}" = ["core::StartFailReason::GuardianFailed", "core::ErrorCode::StartFailed"]
+
+# ## A2-6. The feature names (replaces the `features()` paragraphs of 9.3 and 9B; closes B2-52)
+[rows."133"]
+"features()" = ["core::CoreApi::features"]
+
+# `features()` is one set of names. This table lists every name, who reports it and whether it is optional.
+[rows."135"]
+"features()" = ["core::CoreApi::features"]
+
+# | `route_transport:stream`, `route_transport:webrtc` | Core | no (mandatory in 0.1; listed for the C ABI, section 13) | The route transports of DP-2. |
+[rows."139"]
+"route_transport:stream" = ["core::RouteTransport::Stream"]
+"route_transport:webrtc" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+
+# | `service_preamble_versions` | Core | no | The accepted service preamble versions (a list; SV-2). |
+[rows."140"]
+"service_preamble_versions" = ["core::Feature::ServicePreambleVersions"]
+
+# | `silence` | Core | **yes** | `set_silence_threshold` and `Silent` (TM-4). |
+[rows."141"]
+"Silent" = ["core::Event::Silent"]
+"set_silence_threshold" = ["core::CoreApi::set_silence_threshold"]
+"silence" = ["core::Feature::Silence"]
+
+# | `size_policy_other` | Core | **yes** | The `Smallest` and `Largest` size policies (DP-6). |
+[rows."142"]
+"Largest" = ["core::SizePolicy::Largest"]
+"Smallest" = ["core::SizePolicy::Smallest"]
+"size_policy_other" = ["core::Feature::SizePolicyOther"]
+
+# | `snapshot_graphics` | each session's worker | per worker | Images in snapshots (ST-6b). |
+[rows."143"]
+"snapshot_graphics" = ["core::Feature::SnapshotGraphics"]
+
+# | `focus_report` | each session's worker | per worker | `FocusChanged` (AD-3); an N−1 worker may lack it. |
+[rows."144"]
+"FocusChanged" = ["core::Event::FocusChanged"]
+"focus_report" = ["core::Feature::FocusReport"]
+
+# | `payload_dies_with_guardian` | the platform | per platform | SV-8. |
+[rows."145"]
+"payload_dies_with_guardian" = ["core::Feature::PayloadDiesWithGuardian"]
+
+# | `bound:cpu_seconds`, `bound:open_files`, `bound:processes`, `bound:address_space_bytes` | the platform | per platform | The OS bounds of SV-4. |
+[rows."146"]
+"bound:address_space_bytes" = ["core::Bound::AddressSpaceBytes"]
+"bound:cpu_seconds" = ["core::Bound::CpuSeconds"]
+"bound:open_files" = ["core::Bound::OpenFiles"]
+"bound:processes" = ["core::Bound::Processes"]
+
+# The sentence of 9B that says `silence` is the only optional feature is **replaced** by: "The optional Core features are `silence` and `size_policy_other`; the per-worker and per-platform names are reports, not options." A call that needs...
+[rows."148"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"silence" = ["core::Feature::Silence"]
+"size_policy_other" = ["core::Feature::SizePolicyOther"]
+
+# - `pump(now) -> PumpReport{more: bool, events_posted: u32}`.
+[rows."156"]
+"pump(now) -> PumpReport{more: bool, events_posted: u32}" = { symbols = ["core::PumpReport::events_posted", "core::PumpReport::more", "core::Now", "core::CoreApi::pump"], uncovered = { bool = "a primitive type name", u32 = "a primitive type name" } }
+
+# - `set_silence_threshold(session, Option<Duration>) -> Result<(), CoreError>`. It is sync. Errors: `UnknownSession`, `Unsupported` (no `silence` feature). `None` turns the threshold off.
+[rows."157"]
+"None" = "n/a: the Rust standard Option::None"
+"UnknownSession" = ["core::ErrorCode::UnknownSession"]
+"Unsupported" = ["core::ErrorCode::Unsupported"]
+"set_silence_threshold(session, Option<Duration>) -> Result<(), CoreError>" = { symbols = ["core::CoreApi::set_silence_threshold", "core::CoreError"], uncovered = { session = "an argument of the call", Duration = "the Rust standard Duration type", Result = "the Rust standard Result type", Option = "a primitive type name" } }
+"silence" = ["core::Feature::Silence"]
+
+# **TI-1.** `Core::terminal_identity() -> TerminalIdentity{term: String, terminfo_source: String}` is a sync read that needs no session. `term` is the value a host puts in `TERM` for a session: **`xterm-ghostty`**, the terminfo entry of th...
+[rows."165"]
+"Core::terminal_identity() -> TerminalIdentity{term: String, terminfo_source: String}" = { symbols = ["core::CoreApi::terminal_identity", "core::TerminalIdentity::term", "core::TerminalIdentity::terminfo_source"], uncovered = { Core = "the real Core type, which implements CoreApi", String = "a primitive type name" } }
+"env" = ["core::SpawnRequest::env"]
+"term" = ["core::TerminalIdentity::term"]
+"terminfo_source" = ["core::TerminalIdentity::terminfo_source"]
+"xterm-ghostty" = "n/a: a terminfo entry name"
+
+# The worker derives the file's name from `name` as DP-5b says (reduced to `A-Z a-z 0-9 . _ -`; an empty result becomes `file`; unique; never outside the directory). **The worker never refuses a file for the length of its name and adds no ...
+[rows."173"]
+"A-Z a-z 0-9 . _ -" = "n/a: a character set"
+"file" = "n/a: a literal file name"
+"name" = ["codec::Input::FileBegin::name"]
+
+# 3. **Drop the extension when it cannot fit.** If the extension is so long that rule 2 cannot hold (for example `a.` plus 300 letters), the worker treats the whole reduced name as the stem: it cuts the name to fit with the suffix. The res...
+[rows."176"]
+"a." = "n/a: an example file name"
+
+# 4. The reduced name is ASCII, so a cut never splits a character. An empty stem after the cut becomes `file`.
+[rows."177"]
+"file" = "n/a: a literal file name"
+
+# 1. Section 9.3: `DeadlineExpired` removed; `UnknownService` and `InvalidOffer` added; the widened meanings of `IdInUse`, `InvalidConfig`, `WrongState` and `CursorReadUnsupported` (A2-1).
+[rows."185"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"DeadlineExpired" = "n/a: a code that this amendment removes (B2-56); the crate has no such code"
+"IdInUse" = ["core::ErrorCode::IdInUse"]
+"InvalidConfig" = ["core::ErrorCode::InvalidConfig"]
+"InvalidOffer" = "n/a: WebRTC-only; removed from Core by Core A17 (final37)"
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"WrongState" = ["core::ErrorCode::WrongState"]
+
+# 2. 9B: the `silence`-only sentence replaced (A2-6). No limit is added.
+[rows."186"]
+"silence" = ["core::Feature::Silence"]
+
+# 3. IN-2, IN-6, IN-7: one result path and the `Refused` and `Unsupported` definitions per A2-2 (no outcome changes). IN-6: `Refused(NotCancellable)` added (A2-1).
+[rows."187"]
+"Refused" = ["core::NotWrittenReason::Refused"]
+"Refused(NotCancellable)" = ["core::CancelResult::Refused", "core::CancelRefusal::NotCancellable"]
+"Unsupported" = ["core::NotWrittenReason::Unsupported"]
+
+# 5. 6.2: the `Bell`, `PromptMark` and `Notification` rows per A2-4.
+[rows."189"]
+"Bell" = ["core::Event::Bell"]
+"Notification" = ["core::Event::Notification"]
+"PromptMark" = ["core::Event::PromptMark"]

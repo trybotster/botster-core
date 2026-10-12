@@ -1,0 +1,243 @@
+{
+ "hello": {
+  "epoch": 1,
+  "protocol_version": 1,
+  "min_protocol_version": 1,
+  "features": [],
+  "grants": [],
+  "limits": {
+   "frame_bytes": 65536,
+   "startup": 10000,
+   "shutdown": 5000,
+   "orphan_grace": 1000000,
+   "restart_window": 60000,
+   "invoke_queue": 4,
+   "dispatch_deadline": 5000,
+   "long_deadline": 60000,
+   "page_items": 1000000,
+   "max_result_bytes": 8192,
+   "max_watches": 1000000,
+   "max_timers": 1000000,
+   "operations_get_rate": 1000000,
+   "operation_receipt_window": 60000,
+   "operation_receipts": 16,
+   "log_record_bytes": 1000000,
+   "log_ring_records": 1000000,
+   "log_ring_bytes": 1000000,
+   "log_rate": 1000000,
+   "log_burst": 1000000,
+   "event_key_bytes": 1,
+   "event_queue": 1000000,
+   "event_queue_high": 4,
+   "event_queue_normal": 4,
+   "event_queue_low": 4,
+   "event_starvation_bound": 2,
+   "ingress_queue": 1000000,
+   "max_event_bytes": 1000000,
+   "loss_ledger_entries": 4,
+   "terminal_event_bytes": 256,
+   "output_tap_chunk_bytes": 256,
+   "session_family_inflight": 1,
+   "max_write_bytes": 1024,
+   "max_raw_write_bytes": 1024,
+   "write_pending_bytes": 1024,
+   "echo_deadline_ms": 100,
+   "cleanup_window_ms": 200,
+   "write_client_quiet_ms": 0,
+   "write_max_wait_ms": 10,
+   "probe_width": 2,
+   "max_notification_patterns": 1000000,
+   "max_argv_bytes": 1024,
+   "max_env_bytes": 1024,
+   "max_document_bytes": 1000000,
+   "max_plugin_bytes": 1000000,
+   "max_plugin_documents": 1000000,
+   "batch_ops": 1000000,
+   "net_timeout_max_ms": 1000000,
+   "webhook_timeout_ms": 1000000,
+   "net_body_bytes": 1000000,
+   "ws_send_queue_bytes": 1000000,
+   "net_concurrent_requests": 1000000,
+   "net_open_sockets": 1000000,
+   "net_bytes_in_flight": 1000000,
+   "net_rate": 1000000,
+   "max_relay_envelope_bytes": 1000,
+   "relay_queue": 1000000,
+   "relay_attempts_max": 1000000,
+   "relay_attempt_ttl_ms": 1000000,
+   "ice_servers_max": 1000000,
+   "asset_bytes_max": 1000000,
+   "asset_store_bytes": 1000000,
+   "asset_count_max": 1000000,
+   "asset_token_ttl_ms": 1000000,
+   "notice_ttl_max_ms": 1000000,
+   "notice_queue": 1000000,
+   "process_timeout_max_ms": 1000000,
+   "process_tail_bytes": 1000000,
+   "process_concurrent": 1000000,
+   "fs_read_bytes": 1000000,
+   "max_fs_watches": 1000000,
+   "plugin_call_depth": 1000000,
+   "plugin_call_idempotency_window": 1000000,
+   "plugin_call_timeout_max_ms": 1000000,
+   "package_bytes_max": 1000000,
+   "lock_history_max": 1000000,
+   "catalog_bytes_max": 1000000,
+   "mcp_proxy_call_deadline_ms": 1000000,
+   "mcp_proxy_concurrent": 1000000,
+   "mcp_servers_max": 1000000,
+   "mcp_proxy_init_deadline_ms": 1000000,
+   "mcp_proxy_list_pages": 1000000,
+   "mcp_proxy_tools_max": 1000000,
+   "mcp_proxy_message_bytes": 1000000,
+   "host_memory_bytes": 1048576,
+   "lanes": {
+    "control": {
+     "frames": 8,
+     "bytes": 262144
+    },
+    "invoke": {
+     "frames": 8,
+     "bytes": 262144
+    },
+    "call": {
+     "frames": 8,
+     "bytes": 262144
+    },
+    "bulk": {
+     "frames": 8,
+     "bytes": 262144
+    }
+   },
+   "probe_text": "zx",
+   "session_port_range": [
+    20000,
+    20100
+   ],
+   "target_plugin_dir": ".botster/plugins",
+   "process_path": "/usr/bin",
+   "net_listen": "127.0.0.1:0",
+   "assets_listen": "127.0.0.1:0",
+   "cpu_seconds": 1000000,
+   "open_files": 1000000,
+   "processes": 1000000,
+   "address_space_bytes": 1000000,
+   "stderr_bytes": 1000000,
+   "instruction_budget": 100000
+  },
+  "bindings": [],
+  "priorities": [
+   {
+    "name": "high",
+    "rank": 2
+   },
+   {
+    "name": "normal",
+    "rank": 1
+   },
+   {
+    "name": "low",
+    "rank": 0
+   }
+  ],
+  "instance": "inst-1",
+  "plugin_key": "demo",
+  "resumed": false,
+  "hub_id": "hub-1"
+ },
+ "ready": {
+  "epoch": 1,
+  "protocol_version": 1,
+  "handlers": [],
+  "tools": [],
+  "prompts": [],
+  "resources": [],
+  "events": {},
+  "entity_providers": [],
+  "timers": [],
+  "watches": [],
+  "fs_watches": [],
+  "session_actions": [],
+  "operations": {},
+  "grants": [],
+  "host": {
+   "name": "runner",
+   "version": "1",
+   "globals": []
+  },
+  "features": {
+   "required": [],
+   "optional": []
+  }
+ },
+ "activated": {
+  "epoch": 1
+ },
+ "shutdown": {
+  "epoch": 1,
+  "deadline_ms": 1000,
+  "reason": "unload"
+ },
+ "cancel": {
+  "epoch": 1,
+  "request_id": 1,
+  "reason": "caller"
+ },
+ "invoke": {
+  "epoch": 1,
+  "request_id": 1,
+  "handler": "h1",
+  "kind": "mcp_tool",
+  "payload": {},
+  "caller": {
+   "kind": "system"
+  },
+  "origin": "mcp_tool",
+  "descriptor_id": "d1",
+  "deadline_ms": 5000
+ },
+ "result": {
+  "epoch": 1,
+  "request_id": 1,
+  "result": {
+   "ok": true,
+   "value": {}
+  }
+ },
+ "host_call": {
+  "epoch": 1,
+  "call_id": 1,
+  "context": "autonomous",
+  "call": "log.write",
+  "max_result_bytes": 1000
+ },
+ "host_result": {
+  "epoch": 1,
+  "call_id": 1,
+  "result": {
+   "ok": true,
+   "value": {}
+  },
+  "effect": "none"
+ },
+ "manifest": {
+  "botster_plugin_api": 1,
+  "name": "demo",
+  "version": "1.0.0",
+  "entrypoints": {
+   "service": {
+    "lua": "main.lua"
+   }
+  }
+ },
+ "accessory": {
+  "id": "dev",
+  "label": "Dev",
+  "command": "npm",
+  "args": [
+   "run",
+   "dev"
+  ],
+  "role": "accessory"
+ }
+}

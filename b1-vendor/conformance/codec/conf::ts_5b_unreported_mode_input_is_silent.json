@@ -1,0 +1,176 @@
+{
+  "id": "conf::ts_5b_unreported_mode_input_is_silent",
+  "contract": "codec",
+  "clause": "TS-5b",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "mouse",
+        "op": "1",
+        "action": "press",
+        "button": "left",
+        "row": 2,
+        "col": 3,
+        "mods": []
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "focus",
+        "op": "2",
+        "focused": true
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "key",
+        "op": "3",
+        "key": {
+          "char": "a"
+        },
+        "mods": [],
+        "event": "release"
+      }
+    },
+    {
+      "route_expect_pty": [],
+      "because": [
+        "Codec TS-5b",
+        "Codec A.5"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "reason": {
+              "$one_of": [
+                "not_ready",
+                "not_writable",
+                "too_large",
+                "mode_precondition_failed",
+                "failed",
+                "session_ended",
+                "write_failed",
+                "already_replied",
+                "query_expired",
+                "wrong_route",
+                {
+                  "unsupported": {
+                    "what": {
+                      "$any": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "reply_terminal_query",
+          "op": "999",
+          "query_id": "none",
+          "reply": "decline"
+        }
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "999",
+        "reason": "unknown_query"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-5"
+}

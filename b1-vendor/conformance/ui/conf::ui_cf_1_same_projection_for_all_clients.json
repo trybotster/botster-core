@@ -1,0 +1,150 @@
+{
+  "id": "conf::ui_cf_1_same_projection_for_all_clients",
+  "contract": "ui",
+  "clause": "UI-CF-1",
+  "subject": "hub",
+  "setup": {
+    "hub": {
+      "packages": [
+        {
+          "key": "botster-demo",
+          "state": "enabled",
+          "views": [
+            {
+              "id": "botster-demo/home",
+              "component": "list",
+              "requires": [
+                "ui_1_3"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 1
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": []
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "connect": {
+        "as": "c2"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 1
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [
+          "ui_1_1",
+          "ui_embed",
+          "ui_1_3",
+          "display_metric",
+          "display_badge",
+          "embed"
+        ],
+        "terminal_formats": []
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "view"
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "view"
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": "$rows"
+        }
+      },
+      "on": "c1",
+      "because": "UI UI-CF-1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": "$rows"
+        }
+      },
+      "on": "c2",
+      "because": "UI UI-CF-1"
+    }
+  ]
+}

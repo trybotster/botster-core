@@ -1,0 +1,18 @@
+# The crate symbols of each code span of core-contract-v1.17-erratum-1-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base is the Core contract of `frozen/current` (v1.17 and Amendments 2 to 4), which is unchanged except for the one sentence below. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Why.** Section 13 says "a C embedder ships `botster-session-worker` and passes its path". The Hub→client contract's install layout (Amendment 2, RT-3) names the same binary `botster-worker`, and so does the CLI spec. Core receives the ...
+[rows."7"]
+"botster-session-worker" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-worker" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+
+# | E1-1 | **Section 13, the sentence** "a C embedder ships `botster-session-worker` and passes its path" becomes: "a C embedder ships the session worker binary built from `botster-core` and passes its path. **Core fixes no file name for i...
+[rows."11"]
+"botster-core" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-session-worker" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-session-worker.rs" = "n/a: a repository path"
+"botster-worker" = "n/a: a binary or crate name of the implementation, not a contract symbol"

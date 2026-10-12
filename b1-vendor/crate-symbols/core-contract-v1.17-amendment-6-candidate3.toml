@@ -1,0 +1,62 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-6-candidate3.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base files are the Core contract of `frozen/current` (manifest final12): v1.17, Amendments 2 to 5, and erratum 1. They are unchanged except where A6-4 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 2** (`b1e674cc…76d3`, commit `0aa03e5`), which the Amendment reviewer rejected (verdict `9d596e4`) on one finding. The active unreachable-worker case of DP-12 must produce `Lost(WorkerUnreachable)` (AD-2: the worke...
+[rows."5"]
+"Lost(WorkerUnreachable)" = ["core::SessionState::Lost", "core::LostReason::WorkerUnreachable"]
+"WorkerGone" = ["core::LostReason::WorkerGone"]
+"b1e674cc…76d3" = "n/a: a commit or file hash"
+
+# 1. **A6-3 covers worker loss during Remove.** Losing the worker or its report at any point gives `NotDeleted{reason: outcome_unknown}`, with no paths claimed. The teardown continues. `Deleted` needs a complete report from a worker authen...
+[rows."8"]
+"Deleted" = ["core::UploadsOutcome::Deleted"]
+"NotDeleted{reason: outcome_unknown}" = { symbols = ["core::UploadsOutcome::NotDeleted", "core::NotDeleted::OutcomeUnknown"], uncovered = { reason = "the serde tag of NotDeleted" } }
+
+# | A6-1 | **The testkit gains a service-lane transport edge.** Under it, a **scripted service** connects to the service's lane endpoints over in-memory connected streams, in place of the sockets in `CORE_SERVICE_ENDPOINT`.<br>- The servic...
+[rows."22"]
+"SpawnReport" = ["core::SpawnReport"]
+"WorkerGone" = ["core::LostReason::WorkerGone"]
+"WorkerUnreachable" = ["core::LostReason::WorkerUnreachable"]
+"payload_dies_with_guardian" = ["core::Feature::PayloadDiesWithGuardian"]
+
+# | A6-2 | **At the first worker protocol there is no previous protocol.** The first v1 worker protocol number is **1**.<br>- For a Core whose protocol T is 1, `adoptable_worker_protocols()` returns `{1}`, and `worker_protocol_compatibilit...
+[rows."28"]
+"Compatible" = ["core::WorkerCompatibility::Compatible"]
+"CursorReadUnsupported" = ["core::ErrorCode::CursorReadUnsupported"]
+"FocusChanged" = ["core::Event::FocusChanged"]
+"Lost(WorkerUnreachable)" = ["core::SessionState::Lost", "core::LostReason::WorkerUnreachable"]
+"Lost(WorkerVersion)" = ["core::SessionState::Lost", "core::LostReason::WorkerVersion"]
+"None" = "n/a: the Rust standard Option::None"
+"Unknown" = ["core::WorkerCompatibility::Unknown"]
+"adoptable_worker_protocols()" = ["core::CoreApi::adoptable_worker_protocols"]
+"focus_report" = ["core::Feature::FocusReport"]
+"p = 1" = "n/a: a formula over the protocol number p"
+"p = T" = "n/a: a formula over the protocol number p"
+"p = T − 1" = "n/a: a formula over the protocol number p"
+"terminal_state.focused" = ["core::TerminalState::focused"]
+"unknown" = ["core::FocusState::Unknown"]
+"worker_protocol_compatibility(Some(p))" = { symbols = ["core::CoreApi::worker_protocol_compatibility"], uncovered = { Some = "the Rust standard Option::Some", p = "an argument of the call" } }
+
+# | A6-3 | **Core owns the deletion of the files that the session's routes uploaded, and it reports the outcome honestly.**<br>- **When:** at LC-7 step 3. How Core finds the files is Core's choice.<br>- **The teardown always continues.** A...
+[rows."34"]
+"Completed{Remove}" = ["core::Event::Completed", "core::Op::Remove"]
+"Deleted" = ["core::UploadsOutcome::Deleted"]
+"NotDeleted{ reason: delete_failed, paths }" = { symbols = ["core::NotDeleted::DeleteFailed::paths"], uncovered = { reason = "the serde tag of NotDeleted" } }
+"NotDeleted{ reason: outcome_unknown }" = { symbols = ["core::NotDeleted::OutcomeUnknown"], uncovered = { reason = "the serde tag of NotDeleted" } }
+"RegistryFailed" = ["core::ErrorCode::RegistryFailed"]
+"Remove" = ["core::Op::Remove"]
+"RemoveReport" = ["core::OpOutput::RemoveReport"]
+"RemoveReport{ uploads }" = ["core::RemoveReport::uploads"]
+"file_directory" = ["core::AttachOptions::file_directory"]
+"paths" = ["core::NotDeleted::DeleteFailed::paths"]
+"sessions/<session_id>/uploads/" = "n/a: a path under the data root"
+"uploads" = ["core::RemoveReport::uploads"]
+
+# 1. **A2-1, the `Remove` row:** the result "`()` after LC-7 step 5" becomes "`RemoveReport` (A6-3) after LC-7 step 5".
+[rows."38"]
+"Remove" = ["core::Op::Remove"]
+"RemoveReport" = ["core::OpOutput::RemoveReport"]

@@ -1,0 +1,19 @@
+{
+  "id": "conf::ap_b_artifacts_match_code",
+  "contract": "hp",
+  "clause": "Appendix B",
+  "subject": "plugin_hub",
+  "description": "A code-only check, run by the Rust test tests/artifacts.rs: the schema artifacts that the code makes equal the checked-in files under schemas/plugin/, and every artifact is registered in cargo xtask codegen.",
+  "artifacts_dir": "schemas/plugin",
+  "artifacts": [
+    "plugin-frames.schema.json",
+    "plugin-manifest.schema.json",
+    "plugin-calls.schema.json",
+    "plugin-errors.json",
+    "lua-host-globals.json",
+    "agent-definition.schema.json",
+    "accessory.schema.json",
+    "catalog.schema.json"
+  ],
+  "because": "HP Appendix B"
+}

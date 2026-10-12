@@ -1,0 +1,665 @@
+{
+  "id": "conf::dp_8_route_adopted_event_per_live_route",
+  "contract": "core",
+  "clause": "DP-8",
+  "subject": "core",
+  "fake": "structural",
+  "ruling": "R-12",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "sb",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_sb"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_sb",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sb",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "sb"
+          }
+        }
+      },
+      "bind": "$s_sb"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_sb",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "sb",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s2",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s2"
+          }
+        }
+      },
+      "bind": "$s_s2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s2",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1",
+        "options": {
+          "history": "none",
+          "route_tag": "t1",
+          "owner": "o1"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r1"
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2",
+        "options": {
+          "history": "none",
+          "route_tag": "t2",
+          "owner": "o2"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r2"
+    },
+    {
+      "attach_route": {
+        "route": "r3",
+        "session": "s2",
+        "client": "c3",
+        "options": {
+          "history": "none",
+          "route_tag": "t3",
+          "owner": "o3"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r3"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r3"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r3"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r3"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r3"
+    },
+    {
+      "attach_route": {
+        "route": "r4",
+        "session": "s2",
+        "client": "c4",
+        "options": {
+          "history": "none",
+          "route_tag": "t4",
+          "owner": "o4"
+        }
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r4"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "because": "Core OU-9",
+      "on": "r4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "because": "Core OU-9",
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r4"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "because": "Core OU-9",
+      "on": "r4"
+    },
+    {
+      "begin": {
+        "op": {
+          "Detach": {
+            "route": "$r4",
+            "reason": "Detached"
+          }
+        }
+      },
+      "bind": "$d4"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "RouteClosed": {
+              "route": "$r4",
+              "reason": "Detached"
+            }
+          },
+          {
+            "Completed": {
+              "op": "$d4",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core DP-7",
+        "Core A2-1"
+      ]
+    },
+    {
+      "drop": {
+        "handle": "h"
+      }
+    },
+    {
+      "open": {
+        "as": "h2"
+      }
+    },
+    {
+      "begin": {
+        "op": "AdoptAll",
+        "handle": "h2"
+      },
+      "bind": "$aa"
+    },
+    {
+      "pump_collect": {
+        "events": [
+          {
+            "SessionState": {
+              "id": "s1",
+              "state": "Running"
+            }
+          },
+          {
+            "SessionState": {
+              "id": "s2",
+              "state": "Running"
+            }
+          },
+          {
+            "RouteAdopted": {
+              "session": "s1",
+              "route": "$ra1",
+              "route_tag": "t1",
+              "owner": "o1",
+              "client": "c1"
+            }
+          },
+          {
+            "RouteAdopted": {
+              "session": "s1",
+              "route": "$ra2",
+              "route_tag": "t2",
+              "owner": "o2",
+              "client": "c2"
+            }
+          },
+          {
+            "RouteAdopted": {
+              "session": "s2",
+              "route": "$ra3",
+              "route_tag": "t3",
+              "owner": "o3",
+              "client": "c3"
+            }
+          },
+          {
+            "Completed": {
+              "op": "$aa",
+              "result": {
+                "ok": "unit"
+              }
+            }
+          }
+        ],
+        "handle": "h2",
+        "forbid": [
+          {
+            "RouteAdopted": {
+              "route_tag": "t4"
+            }
+          }
+        ]
+      },
+      "because": [
+        "Core DP-8",
+        "Core AD-1",
+        "Core LC-11",
+        "Core A2-1"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "RouteAdopted": {
+          "$any": true
+        }
+      },
+      "barrier": {
+        "begin": {
+          "op": {
+            "UpdateMetadata": {
+              "id": "sb",
+              "labels": {
+                "b": "1"
+              }
+            }
+          },
+          "handle": "h2"
+        },
+        "bind": "$barb"
+      },
+      "until": {
+        "Completed": {
+          "op": "$barb",
+          "result": {
+            "ok": "unit"
+          }
+        }
+      },
+      "because": [
+        "Core DP-8"
+      ],
+      "on": {
+        "handle": "h2"
+      }
+    },
+    {
+      "check": {
+        "ne": [
+          "$ra1",
+          "$ra2"
+        ]
+      },
+      "because": [
+        "Core DP-8",
+        "Core ID-2"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$ra2",
+          "$ra3"
+        ]
+      },
+      "because": [
+        "Core DP-8",
+        "Core ID-2"
+      ]
+    }
+  ]
+}

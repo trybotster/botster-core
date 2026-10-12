@@ -1,0 +1,174 @@
+{
+  "id": "conf::bd_3_client_uses_only_welcome_limits",
+  "contract": "hc",
+  "clause": "BD-3",
+  "subject": "client",
+  "setup": {
+    "client": {}
+  },
+  "steps": [
+    {
+      "client_act": {
+        "connect": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "hello",
+        "protocol": "botster-hub"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "send": {
+        "type": "welcome",
+        "hub_id": "hub-1",
+        "incarnation": "i1",
+        "version": 2,
+        "features": [],
+        "terminal_format": "ghostsnp/2+raw",
+        "limits": {
+          "max_frame_bytes": 4096,
+          "max_chunk_bytes": 1024,
+          "max_outstanding": 3,
+          "max_watches": 64,
+          "route_connect_seconds": 10,
+          "idempotency_window_seconds": 60,
+          "cursor_idle_seconds": 30,
+          "operation_retention_seconds": 600,
+          "max_paste_bytes": 1024,
+          "max_file_bytes": 1024,
+          "query_client_deadline_ms": 100
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_act": {
+        "demand": {
+          "requests": 5,
+          "payload_bytes": 1000
+        }
+      }
+    },
+    {
+      "client_requests": {
+        "at_most": 3,
+        "max_frame_bytes": 4096
+      },
+      "because": "HC BD-3"
+    },
+    {
+      "client_act": {
+        "reconnect": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "hello",
+        "protocol": "botster-hub"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "send": {
+        "type": "welcome",
+        "hub_id": "hub-1",
+        "incarnation": "i1",
+        "version": 2,
+        "features": [],
+        "terminal_format": "ghostsnp/2+raw",
+        "limits": {
+          "max_frame_bytes": 256,
+          "max_chunk_bytes": 1024,
+          "max_outstanding": 1,
+          "max_watches": 64,
+          "route_connect_seconds": 10,
+          "idempotency_window_seconds": 60,
+          "cursor_idle_seconds": 30,
+          "operation_retention_seconds": 600,
+          "max_paste_bytes": 1024,
+          "max_file_bytes": 1024,
+          "query_client_deadline_ms": 100
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_act": {
+        "demand": {
+          "requests": 3,
+          "payload_bytes": 1000
+        }
+      }
+    },
+    {
+      "client_requests": {
+        "at_most": 1,
+        "max_frame_bytes": 256
+      },
+      "because": "HC BD-3"
+    },
+    {
+      "client_act": {
+        "reconnect": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "hello",
+        "protocol": "botster-hub"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "send": {
+        "type": "welcome",
+        "hub_id": "hub-1",
+        "incarnation": "i1",
+        "version": 2,
+        "features": [],
+        "terminal_format": "ghostsnp/2+raw",
+        "limits": {
+          "max_frame_bytes": 16384,
+          "max_chunk_bytes": 1024,
+          "max_outstanding": 8,
+          "max_watches": 2,
+          "route_connect_seconds": 10,
+          "idempotency_window_seconds": 60,
+          "cursor_idle_seconds": 30,
+          "operation_retention_seconds": 600,
+          "max_paste_bytes": 1024,
+          "max_file_bytes": 1024,
+          "query_client_deadline_ms": 100
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_act": {
+        "demand": {
+          "watches": 4
+        }
+      }
+    },
+    {
+      "client_requests": {
+        "verb": "watch",
+        "at_most": 2
+      },
+      "because": "HC BD-3"
+    },
+    {
+      "client_idle": {}
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-1.4"
+}

@@ -1,0 +1,173 @@
+{
+  "id": "conf::ui_id_3_escape_roundtrip",
+  "contract": "ui",
+  "clause": "UI-ID-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the scheme with a plain key",
+      "ids": {
+        "op": "child",
+        "parent": "ab",
+        "segment": "c",
+        "expect": "botster-ui-descendant-v1:2:ab1:c"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "slash",
+      "ids": {
+        "op": "child",
+        "parent": "list",
+        "segment": "hub/session"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "colon",
+      "ids": {
+        "op": "child",
+        "parent": "list",
+        "segment": "a:1:b"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "pipe",
+      "ids": {
+        "op": "child",
+        "parent": "li|st",
+        "segment": "a|b"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "backslash",
+      "ids": {
+        "op": "child",
+        "parent": "list",
+        "segment": "a\\b\\"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "all four together",
+      "ids": {
+        "op": "child",
+        "parent": "p/:|\\",
+        "segment": "/:|\\"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "an empty segment",
+      "ids": {
+        "op": "child",
+        "parent": "p",
+        "segment": ""
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "a multi-byte key counts UTF-8 bytes",
+      "ids": {
+        "op": "child",
+        "parent": "p",
+        "segment": "é",
+        "expect": "botster-ui-descendant-v1:1:p2:é"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "the shipped vector with accented and CJK text",
+      "ids": {
+        "op": "child",
+        "parent": "café",
+        "segment": "重命名",
+        "expect": "botster-ui-descendant-v1:5:café9:重命名"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "the shipped vector with emoji",
+      "ids": {
+        "op": "child",
+        "parent": "会話-😀",
+        "segment": "remove-🧹",
+        "expect": "botster-ui-descendant-v1:11:会話-😀11:remove-🧹"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "a nested id is split one level at a time",
+      "ids": {
+        "op": "child",
+        "parent": "botster-ui-descendant-v1:1:l2:r1",
+        "segment": "f"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "two different pairs never give one id",
+      "ids": {
+        "op": "distinct",
+        "a": [
+          "ab",
+          "c"
+        ],
+        "b": [
+          "a",
+          "bc"
+        ]
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "two pairs that a separator could confuse",
+      "ids": {
+        "op": "distinct",
+        "a": [
+          "a:1:b",
+          "c"
+        ],
+        "b": [
+          "a",
+          "1:b1:c"
+        ]
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "text that is not a built id",
+      "ids": {
+        "op": "split_none",
+        "id": "plain"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "a length longer than the text",
+      "ids": {
+        "op": "split_none",
+        "id": "botster-ui-descendant-v1:9:ab1:c"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "a length with a leading zero",
+      "ids": {
+        "op": "split_none",
+        "id": "botster-ui-descendant-v1:02:ab1:c"
+      },
+      "because": "UI UI-ID-3"
+    },
+    {
+      "name": "trailing text after the key",
+      "ids": {
+        "op": "split_none",
+        "id": "botster-ui-descendant-v1:2:ab1:cx"
+      },
+      "because": "UI UI-ID-3"
+    }
+  ]
+}

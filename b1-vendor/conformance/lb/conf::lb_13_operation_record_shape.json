@@ -1,0 +1,166 @@
+{
+ "id": "conf::lb_13_operation_record_shape",
+ "contract": "lb",
+ "clause": "LB-13",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.operations.on(function(record, request) return record end)\nbotster.register{ tools = {} }\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "operations": {
+      "subscribed": "$ho"
+     }
+    }
+   },
+   "because": [
+    "LB LB-7"
+   ]
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-1",
+      "kind": "safe_write",
+      "state": "delivered",
+      "terminal": true,
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "reason": "ok",
+      "probe_written": true,
+      "residue": "none",
+      "text_written_bytes": 12
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-1",
+       "kind": "safe_write",
+       "state": "delivered",
+       "terminal": true,
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "reason": "ok",
+       "probe_written": true,
+       "residue": "none",
+       "text_written_bytes": 12
+      }
+     }
+    }
+   },
+   "because": "LB LB-13"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "$ho",
+     "kind": "operation",
+     "payload": {
+      "operation_id": "op-2",
+      "kind": "process",
+      "state": "done",
+      "terminal": true,
+      "exit_code": 0,
+      "stdout_tail_b64": "aGk=",
+      "stderr_tail_b64": "",
+      "truncated": false,
+      "duration_ms": 14
+     },
+     "origin": "operation",
+     "caller": {
+      "kind": "system"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-2",
+       "kind": "process",
+       "state": "done",
+       "terminal": true,
+       "exit_code": 0,
+       "stdout_tail_b64": "aGk=",
+       "stderr_tail_b64": "",
+       "truncated": false,
+       "duration_ms": 14
+      }
+     }
+    }
+   },
+   "because": "LB LB-13"
+  }
+ ]
+}

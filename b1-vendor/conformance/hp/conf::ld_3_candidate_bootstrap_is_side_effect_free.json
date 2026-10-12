@@ -1,0 +1,395 @@
+{
+ "id": "conf::ld_3_candidate_bootstrap_is_side_effect_free",
+ "contract": "hp",
+ "clause": "LD-3",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "reload"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "reload"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP LD-3",
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 10,
+     "call": "store.put",
+     "context": "bootstrap",
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 10,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP LD-3",
+    "HP HS-7"
+   ],
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 11,
+     "call": "events.emit",
+     "context": "bootstrap",
+     "args": {
+      "name": "e",
+      "payload": {}
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 11,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP LD-3",
+    "HP HS-7"
+   ],
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 12,
+     "call": "timers.arm",
+     "context": "bootstrap",
+     "args": {
+      "timer_id": "t1",
+      "delay_ms": 100
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 12,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP LD-3",
+    "HP HS-7"
+   ],
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 13,
+     "call": "entity.publish",
+     "context": "bootstrap",
+     "args": {
+      "entity_type": "x",
+      "type": "upsert",
+      "id": "e1",
+      "entity": {}
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 13,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP LD-3",
+    "HP HS-7"
+   ],
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 14,
+     "call": "session_types.spawn",
+     "context": "bootstrap",
+     "args": {
+      "session_type_id": "st1"
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 14,
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "detail": {
+        "code": "wrong_context"
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "because": [
+    "HP LD-3",
+    "HP HS-7"
+   ],
+   "on": "cand"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e2",
+     "call_id": 20,
+     "call": "store.get",
+     "context": "bootstrap",
+     "args": {
+      "collection": "c",
+      "id": "a"
+     }
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e2",
+     "call_id": 20,
+     "result": {
+      "ok": true
+     }
+    }
+   },
+   "because": "HP HS-7",
+   "on": "cand"
+  }
+ ],
+ "setup": {
+  "calls": {
+   "store.put": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": "r2"
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "events.emit": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "timers.arm": [
+    {
+     "result": {
+      "ok": true,
+      "value": {}
+     },
+     "effect": "committed"
+    }
+   ],
+   "entity.publish": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "status": "accepted"
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "session_types.spawn": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op1",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   ],
+   "store.get": [
+    {
+     "result": {
+      "ok": true,
+      "value": {
+       "doc": {
+        "v": 1
+       },
+       "revision": "r1"
+      }
+     }
+    }
+   ]
+  }
+ }
+}

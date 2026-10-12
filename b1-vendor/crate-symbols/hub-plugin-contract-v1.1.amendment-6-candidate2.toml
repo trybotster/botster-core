@@ -1,0 +1,37 @@
+# The crate symbols of each code span of hub-plugin-contract-v1.1.amendment-6-candidate2.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # Hub→plugin contract v1.1, Amendment 6 (candidate 2): when `entity.publish` answers `pending_gap` or `resync_scheduled`
+[rows."1"]
+"entity.publish" = ["plugin.call:entity.publish"]
+"pending_gap" = ["plugin::PublishStatus::PendingGap"]
+"resync_scheduled" = ["plugin::PublishStatus::ResyncScheduled"]
+
+# The base is the Hub→plugin contract of `frozen/current` (manifest final26): v1.1 joint J4e, with Amendments 1 to 5, which are unchanged except where A6-2 names a replacement. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"frozen/current" = "n/a: a repository path"
+
+# **Supersedes candidate 1** (`2f15ce7f…3b90`, commit `b4cfcba`), which the Amendment reviewer rejected (verdict `37cc49f`). The status is now decided at one observation point, the publish's admission, and it counts a gap that this publish...
+[rows."5"]
+"accepted" = ["plugin::PublishStatus::Accepted"]
+"b4cfcba" = "n/a: a commit or file hash"
+
+# - `pending_gap`: "a subscriber that missed it gets a reset and a fresh baseline (EN-3), the plugin does nothing";
+[rows."10"]
+"pending_gap" = ["plugin::PublishStatus::PendingGap"]
+
+# - `resync_scheduled`: "the Hub will ask the provider for a new snapshot, the plugin does nothing".
+[rows."11"]
+"resync_scheduled" = ["plugin::PublishStatus::ResyncScheduled"]
+
+# | A6-1 | **`entity.publish` answers by the family's projection and its subscribers' state at one observation point: the publish's admission, after the Hub has offered this change to every current subscriber of the family.** A subscriber ...
+[rows."17"]
+"accepted" = ["plugin::PublishStatus::Accepted"]
+"entity.publish" = ["plugin.call:entity.publish"]
+"pending_gap" = ["plugin::PublishStatus::PendingGap"]
+"resync_scheduled" = ["plugin::PublishStatus::ResyncScheduled"]
+
+# 1. **A2-7, the `pending_gap` and `resync_scheduled` meanings** read with A6-1.
+[rows."21"]
+"pending_gap" = ["plugin::PublishStatus::PendingGap"]
+"resync_scheduled" = ["plugin::PublishStatus::ResyncScheduled"]

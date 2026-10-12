@@ -1,0 +1,121 @@
+{
+  "id": "conf::hs_7_each_binding_authenticates_to_operator",
+  "contract": "hc",
+  "clause": "HS-7",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "caller_of"
+    ]
+  },
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "caller_of",
+        "conn": "c1"
+      },
+      "expect": {
+        "kind": "operator",
+        "credential_id": {
+          "$absent": true
+        }
+      },
+      "because": "HC HS-7"
+    },
+    {
+      "connect": {
+        "as": "c2",
+        "credential": "cred-1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c2"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c2",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "caller_of",
+        "conn": "c2"
+      },
+      "expect": {
+        "kind": "operator",
+        "credential_id": "cred-1"
+      },
+      "because": "HC HS-7"
+    }
+  ]
+}

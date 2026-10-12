@@ -1,0 +1,399 @@
+{
+ "id": "conf::mp_8_failing_server_marked_unavailable",
+ "contract": "hp",
+ "clause": "MP-8",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_server",
+   "load_plugin",
+   "mcp_call",
+   "mcp_list",
+   "mcp_response",
+   "mcp_server_event",
+   "script_mcp"
+  ]
+ },
+ "setup": {
+  "given": "plugin demo has the stdio server s and the http server h; plugin b has its own server; s exits and h fails",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     },
+     {
+      "id": "h",
+      "transport": "http",
+      "url": "https://mcp.example/mcp"
+     },
+     {
+      "id": "k",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   },
+   "b": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "s",
+      "transport": "stdio",
+      "command": "mcp-server",
+      "args": [
+       "--x"
+      ],
+      "env": {
+       "A": "1"
+      }
+     }
+    ]
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "s",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "h",
+    "transport": "http",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "k",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "kk",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "b",
+    "server": "s",
+    "transport": "stdio",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "h",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "k",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "b",
+    "as": "b"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_b",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "b",
+    "server": "s",
+    "state": "available"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_server_event",
+    "plugin": "demo",
+    "server": "s",
+    "event": "exit"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_server_event",
+    "plugin": "demo",
+    "server": "h",
+    "event": "fail"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "s",
+    "state": "unavailable"
+   }
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "h",
+    "state": "unavailable"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "demo"
+   },
+   "expect": {
+    "items": [
+     {
+      "name": "demo__k__kk"
+     }
+    ]
+   },
+   "because": "HP MP-8"
+  },
+  {
+   "control": {
+    "op": "mcp_list",
+    "kind": "tools",
+    "plugin": "b"
+   },
+   "expect": {
+    "items": [
+     {
+      "name": "b__s__echo"
+     }
+    ]
+   },
+   "because": "HP MP-8"
+  },
+  {
+   "control": {
+    "op": "mcp_call",
+    "tool": "demo__k__kk",
+    "arguments": {}
+   },
+   "bind": {
+    "tk": "/ticket"
+   },
+   "because": "HP MP-8"
+  },
+  {
+   "control": {
+    "op": "mcp_response",
+    "ticket": "$tk"
+   },
+   "expect": {
+    "is_error": false
+   },
+   "because": "HP MP-8"
+  }
+ ]
+}

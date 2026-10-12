@@ -1,0 +1,168 @@
+{
+  "id": "conf::ev_9_old_instance_event_is_distinguishable",
+  "contract": "core",
+  "clause": "EV-9",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "instance": "$a",
+            "state": "Created"
+          }
+        }
+      },
+      "because": [
+        "Core EV-9",
+        "Core ID-1"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Stop": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$p"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$p",
+            "result": {
+              "ok": {
+                "end": {
+                  "Exited": {
+                    "$any": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core LC-5"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Remove": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$rm"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "instance": "$a",
+            "state": "Released"
+          }
+        }
+      },
+      "because": [
+        "Core EV-9",
+        "Core LC-7"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "SessionState": {
+            "id": "s1",
+            "instance": "$b",
+            "state": "Created"
+          }
+        }
+      },
+      "because": [
+        "Core EV-9",
+        "Core ID-1"
+      ]
+    },
+    {
+      "check": {
+        "ne": [
+          "$a",
+          "$b"
+        ]
+      },
+      "because": [
+        "Core EV-9",
+        "Core ID-1"
+      ]
+    }
+  ]
+}

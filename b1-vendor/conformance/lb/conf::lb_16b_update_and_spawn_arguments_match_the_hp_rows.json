@@ -1,0 +1,306 @@
+{
+ "id": "conf::lb_16b_update_and_spawn_arguments_match_the_hp_rows",
+ "contract": "lb",
+ "clause": "LB-16b",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local a = botster.session_types.spawn{ session_type_id = \"agent\", target_id = \"tg1\", worktree_id = \"w1\",\n        cwd = { target_id = \"tg1\", relative = \"sub\" }, environment = { FOO = \"bar\" }, prompt = \"go\", context = { issue = \"42\" } }\n      local b = botster.session_types.ensure_worktree_and_spawn{ session_type_id = \"agent\", target_id = \"tg1\",\n        worktree = { branch = \"feat\", base_ref = \"main\", reuse_worktree_id = \"w9\" } }\n      local c = botster.sessions.update{ session = { hub_id = \"hub-1\", session_id = \"s1\" }, label = \"L\", task = \"T\" }\n      return { spawn_state = a.value.state, ensure_state = b.value.state, update_ok = c.ok }\n    end },\n    { kind = \"mcp_tool\", id = \"h_u\", name = \"u\", description = \"d\", input_schema = { type = \"object\" }, call = function(payload, request)\n\n      local d = botster.session_types.spawn{ session_type_id = \"agent\", session_id = \"chosen\" }\n      return { ok = d.ok, kind = d.error and d.error.kind, effect = d.error and d.error.effect }\n    end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "context": {
+      "request": 1
+     },
+     "call": "session_types.spawn",
+     "args": {
+      "session_type_id": "agent",
+      "target_id": "tg1",
+      "worktree_id": "w1",
+      "cwd": {
+       "target_id": "tg1",
+       "relative": "sub"
+      },
+      "environment": {
+       "FOO": "bar"
+      },
+      "prompt": "go",
+      "context": {
+       "issue": "42"
+      }
+     }
+    }
+   },
+   "because": "LB LB-16b"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c1",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-1",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "context": {
+      "request": 1
+     },
+     "call": "session_types.ensure_worktree_and_spawn",
+     "args": {
+      "session_type_id": "agent",
+      "target_id": "tg1",
+      "worktree": {
+       "branch": "feat",
+       "base_ref": "main",
+       "reuse_worktree_id": "w9"
+      }
+     }
+    }
+   },
+   "because": "LB LB-16b"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c2",
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "op-2",
+       "kind": "spawn",
+       "session": {
+        "hub_id": "hub-1",
+        "session_id": "s1"
+       },
+       "state": "starting",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "context": {
+      "request": 1
+     },
+     "call": "sessions.update",
+     "args": {
+      "session": {
+       "hub_id": "hub-1",
+       "session_id": "s1"
+      },
+      "label": "L",
+      "task": "T"
+     }
+    }
+   },
+   "because": "LB LB-16b"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": 7,
+     "call_id": "$c3",
+     "result": {
+      "ok": true,
+      "value": {
+       "id": "s1",
+       "hub_id": "hub-1",
+       "label": "L",
+       "state": "running",
+       "lifecycle_class": "current",
+       "exit": {},
+       "size": {
+        "rows": 24,
+        "cols": 80
+       },
+       "session_type": {
+        "id": "t",
+        "source": "device"
+       },
+       "traits": [],
+       "restartable": false,
+       "activity": "idle",
+       "presentation": "default",
+       "metadata": {}
+      }
+     },
+     "effect": "committed"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "spawn_state": "starting",
+       "ensure_state": "starting",
+       "update_ok": true
+      }
+     }
+    }
+   },
+   "because": "LB LB-16b"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 2,
+     "handler": "h_u",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "ok": false,
+       "kind": "invalid_request",
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "call",
+     "type": "HostCall",
+     "payload": {
+      "call": "session_types.spawn"
+     }
+    }
+   ],
+   "ack": {
+    "answer_host_call": {
+     "item": {
+      "$item": ""
+     },
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "invalid_request",
+       "message": "scripted",
+       "retryable": false,
+       "effect": "none"
+      }
+     }
+    }
+   },
+   "because": [
+    "LB LB-16b",
+    "LB LB-2"
+   ]
+  }
+ ]
+}

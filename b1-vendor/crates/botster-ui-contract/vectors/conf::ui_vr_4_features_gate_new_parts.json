@@ -1,0 +1,192 @@
+{
+  "id": "conf::ui_vr_4_features_gate_new_parts",
+  "contract": "ui",
+  "clause": "UI-VR-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a new part without requires",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "missing_requires"
+      },
+      "because": "UI UI-VR-4"
+    },
+    {
+      "name": "a new part with requires",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "embed",
+              "id": "e",
+              "title": "Graph",
+              "page": {
+                "asset": {
+                  "lit": {
+                    "name": "graph"
+                  }
+                }
+              },
+              "empty": {
+                "title": "No page"
+              },
+              "error": {
+                "title": "Failed"
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_embed"
+        ]
+      },
+      "expect_admitted": true,
+      "because": "UI UI-VR-4"
+    },
+    {
+      "name": "a 1.1 activation without requires",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/other"
+            }
+          }
+        }
+      },
+      "expect_admission": {
+        "code": "missing_requires"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ],
+        "package": "p"
+      },
+      "because": "UI UI-VR-4"
+    },
+    {
+      "name": "a 1.1 activation with requires",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/v"
+              }
+            ]
+          },
+          "activate": {
+            "navigate": {
+              "view": "p/other"
+            }
+          }
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ],
+        "package": "p"
+      },
+      "because": "UI UI-VR-4"
+    }
+  ]
+}

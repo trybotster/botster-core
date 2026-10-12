@@ -1,0 +1,260 @@
+{
+  "id": "conf::ui_em_5_push_only_allowlisted_fields",
+  "contract": "ui",
+  "clause": "UI-EM-5",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "pkg.items": {
+          "projection_allowlist": [
+            "/title"
+          ],
+          "owner": "pkg"
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "name"
+            ],
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "del": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "pages"
+      ]
+    },
+    "app_origin": "https://app.example"
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "pages",
+          "title": "Pages",
+          "requires": [
+            "ui_embed"
+          ],
+          "selections": [
+            {
+              "id": "sel_p"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "embed",
+                "id": "page1",
+                "title": "Graph",
+                "page": {
+                  "asset": {
+                    "name": "graph"
+                  }
+                },
+                "empty": {
+                  "title": "Nothing here"
+                },
+                "error": {
+                  "title": "Page failed"
+                },
+                "channel": {
+                  "from_page": [
+                    {
+                      "type": "rename",
+                      "invoke": "ren"
+                    },
+                    {
+                      "type": "remove",
+                      "invoke": "rm"
+                    },
+                    {
+                      "type": "pick",
+                      "select": "sel_p"
+                    }
+                  ],
+                  "to_page": [
+                    {
+                      "type": "rows",
+                      "source": {
+                        "kind": "pkg.items"
+                      },
+                      "fields": [
+                        "/title"
+                      ],
+                      "on": "change"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "ren",
+                    "label": "Rename",
+                    "handler": "rename",
+                    "args_schema": {
+                      "type": "object",
+                      "required": [
+                        "name"
+                      ],
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "id": "rm",
+                    "label": "Remove",
+                    "handler": "del",
+                    "confirm": {
+                      "message": "Remove it?",
+                      "tone": "danger"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "list",
+                "id": "pl",
+                "source": {
+                  "kind": "pkg.items"
+                },
+                "selects": "sel_p",
+                "item": {
+                  "fields": [
+                    {
+                      "id": "pt",
+                      "path": "/title"
+                    }
+                  ]
+                },
+                "empty": {
+                  "title": "Nothing here"
+                }
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_embed",
+            "embed"
+          ]
+        },
+        "kind_snapshots": {
+          "pkg.items": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "r1",
+                "title": "A",
+                "secret": "s"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "request_sent": {
+            "action": "open_asset",
+            "target": "pkg",
+            "args": {
+              "name": "graph"
+            },
+            "count": 1
+          }
+        },
+        "because": "UI UI-EM-7",
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "url": "https://assets.example:8443/pkg/a1?t=tok1",
+              "expires_at": "2026-10-01T00:00:00Z"
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "frame_load": {}
+        },
+        "node_id": "page1"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "pkg.items",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "r1",
+                "title": "B",
+                "secret": "s"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "pushed": {
+            "type": "rows",
+            "payload": {
+              "rows": [
+                {
+                  "id": "r1",
+                  "fields": {
+                    "/title": "B"
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "because": "UI UI-EM-14",
+        "node_id": "page1"
+      }
+    }
+  ]
+}

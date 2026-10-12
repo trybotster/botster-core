@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WhoamiResult",
+  "description": "`whoami {}` of the MCP binding.\n\nClause: HC MC-2, A2 H-8.",
+  "type": "object",
+  "properties": {
+    "caller": {
+      "$ref": "#/$defs/SessionRef"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "required": [
+    "caller",
+    "scopes"
+  ],
+  "$defs": {
+    "ListTool": {
+      "description": "`list { kind, filter?, cursor?, limit? }`.\n\nClause: HC MC-2, VB-1.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "filter": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "GetTool": {
+      "description": "`get { ref }`.\n\nClause: HC MC-2.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/AnyRef"
+        }
+      },
+      "required": [
+        "ref"
+      ]
+    },
+    "AnyRef": {
+      "description": "A `ref` argument: a `SessionRef` or a `ResourceRef` (P5).\n\nClause: HC MC-2, P5.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResourceRef"
+        },
+        {
+          "$ref": "#/$defs/SessionRef"
+        }
+      ]
+    },
+    "ResourceRef": {
+      "description": "Any other resource: `{hub_id, kind, id}`. The session `{hub_id, session_id}` is `{hub_id, kind: \"session\", id: session_id}`.\n\nClause: HC P5.",
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "kind",
+        "id"
+      ]
+    },
+    "SessionRef": {
+      "description": "A session identity: `{hub_id, session_id}`.\n\nClause: HC P5.",
+      "type": "object",
+      "properties": {
+        "hub_id": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hub_id",
+        "session_id"
+      ]
+    },
+    "CreateTool": {
+      "description": "`create { kind, args, idempotency_key?, operation_id? }`.\n\nClause: HC MC-2.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "args": true,
+        "idempotency_key": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "args"
+      ]
+    },
+    "UpdateTool": {
+      "description": "`update { ref, patch, if_rev?, idempotency_key? }`.\n\nClause: HC MC-2, VB-4.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/AnyRef"
+        },
+        "patch": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "if_rev": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "patch"
+      ]
+    },
+    "DeleteTool": {
+      "description": "`delete { ref, args?, idempotency_key?, operation_id? }`.\n\nClause: HC MC-2, A2 H-8.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/AnyRef"
+        },
+        "args": true,
+        "idempotency_key": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref"
+      ]
+    },
+    "InvokeTool": {
+      "description": "`invoke { ref, action, args, idempotency_key?, operation_id?, descriptor_id? }`. `ref` maps to `kind` and `target`, and `action` to `req.action` (EN-1a).\n\nClause: HC MC-2, A4 EN-1a.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/AnyRef"
+        },
+        "action": {
+          "type": "string"
+        },
+        "args": true,
+        "idempotency_key": {
+          "type": "string"
+        },
+        "operation_id": {
+          "type": "string"
+        },
+        "descriptor_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref",
+        "action",
+        "args"
+      ]
+    }
+  }
+}

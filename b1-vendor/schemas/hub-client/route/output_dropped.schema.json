@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OutputDropped",
+  "description": "Body of `0x0F output_dropped`: sent only when `notifications` is at least 1, and before the `resync`.\n\nClause: Codec A.4, TS-4c.",
+  "type": "object",
+  "properties": {
+    "notifications": {
+      "type": "integer",
+      "format": "uint64",
+      "minimum": 0
+    },
+    "last": {
+      "$ref": "#/$defs/DroppedNotification"
+    }
+  },
+  "required": [
+    "notifications",
+    "last"
+  ],
+  "$defs": {
+    "DroppedNotification": {
+      "description": "The last notification that passed the policy, in `output_dropped`. An empty `title` or `body` is omitted, never sent as `\"\"`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "object",
+      "properties": {
+        "source": {
+          "$ref": "#/$defs/NotificationSource"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "source"
+      ]
+    },
+    "NotificationSource": {
+      "description": "The source of a notification in `output_dropped`.\n\nClause: Codec A.4, TS-4c.",
+      "type": "string",
+      "enum": [
+        "bell",
+        "osc9",
+        "osc777"
+      ]
+    }
+  }
+}

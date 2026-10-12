@@ -1,0 +1,272 @@
+{
+  "id": "conf::ui_id_4_results_keyed_by_node_id",
+  "contract": "ui",
+  "clause": "UI-ID-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a field error names the property as field_id",
+      "parse": {
+        "type": "FieldError",
+        "valid": true,
+        "value": {
+          "field_id": "name",
+          "pointer": "/name",
+          "code": "too_short",
+          "message": "Too short"
+        }
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "a field error without field_id is not a field error",
+      "parse": {
+        "type": "FieldError",
+        "valid": false,
+        "value": {
+          "pointer": "/name",
+          "code": "x",
+          "message": "m"
+        }
+      },
+      "because": "UI UI-FM-7"
+    },
+    {
+      "name": "the node of a field error is the form node id plus the field_id",
+      "ids": {
+        "op": "draft_key",
+        "form_node": "f1",
+        "field_id": "name",
+        "expect": "botster-ui-descendant-v1:2:f14:name"
+      },
+      "because": "UI UI-ID-4"
+    },
+    {
+      "name": "a form error is keyed by the form node id and shown as an error-tone text first in the form",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "errors": {
+          "forms": {
+            "botster-ui-descendant-v1:1:f9:container": "Not allowed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container5:error": {
+          "type": "text",
+          "props": {
+            "text": "Not allowed",
+            "tone": "danger"
+          }
+        },
+        "botster-ui-descendant-v1:1:f9:container": {
+          "children": [
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container5:error"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name"
+            },
+            {
+              "id": "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container6:action"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-NV-5"
+    },
+    {
+      "name": "an action error is keyed by the button node id and follows its button",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "errors": {
+          "actions": {
+            "go": "Not allowed"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:2:go5:error": {
+          "type": "text",
+          "props": {
+            "text": "Not allowed",
+            "tone": "danger"
+          }
+        }
+      },
+      "because": "UI UI-NV-5"
+    },
+    {
+      "name": "a field error is keyed by the draft key and is the error prop of the field node",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name": {
+              "code": "too_short",
+              "message": "Too short"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name": {
+          "props": {
+            "error": {
+              "code": "too_short",
+              "message": "Too short"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-5"
+    }
+  ]
+}

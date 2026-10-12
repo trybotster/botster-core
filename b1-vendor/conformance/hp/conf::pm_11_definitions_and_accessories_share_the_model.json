@@ -1,0 +1,284 @@
+{
+ "id": "conf::pm_11_definitions_and_accessories_share_the_model",
+ "contract": "hp",
+ "clause": "PM-11",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "await_package",
+   "client_read",
+   "client_verb",
+   "script_catalog",
+   "script_git"
+  ]
+ },
+ "setup": {
+  "given": "an agent definition and an accessory are installed from a git url and from catalog entries, like a plugin",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/a.git",
+    "refs": {
+     "v1": {
+      "commit": "1111111111111111111111111111111111111111",
+      "files": {
+       "botster-agent.json": {
+        "json": {
+         "id": "ag",
+         "label": "Agent",
+         "command": "claude"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_git",
+    "url": "https://git.example/b.git",
+    "refs": {
+     "v1": {
+      "commit": "2222222222222222222222222222222222222222",
+      "files": {
+       "botster-accessory.json": {
+        "json": {
+         "id": "dev",
+         "label": "Dev",
+         "command": "npm",
+         "args": [
+          "run",
+          "dev"
+         ],
+         "role": "accessory"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "script_catalog",
+    "url": "https://catalog.example/k1.json",
+    "document": {
+     "catalog_version": 1,
+     "entries": [
+      {
+       "id": "ag",
+       "kind": "agent_definition",
+       "name": "Agent",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/a.git",
+        "ref": "v1"
+       }
+      },
+      {
+       "id": "dev",
+       "kind": "accessory",
+       "name": "Dev",
+       "description": "d",
+       "source": {
+        "url": "https://git.example/b.git",
+        "ref": "v1"
+       }
+      }
+     ]
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "https://catalog.example/k1.json"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "https://catalog.example/k1.json",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "catalog",
+      "catalog_id": "https://catalog.example/k1.json",
+      "entry_id": "ag"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "catalog",
+      "catalog_id": "https://catalog.example/k1.json",
+      "entry_id": "dev"
+     }
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "ag",
+    "settled": true
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "dev",
+    "settled": true
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "ag"
+   },
+   "expect": {
+    "kind": "agent_definition",
+    "status": {
+     "$type": "string"
+    },
+    "lock": {
+     "package": {
+      "$type": "string"
+     },
+     "source": {
+      "$type": "object"
+     },
+     "resolved_commit": "1111111111111111111111111111111111111111",
+     "content_hash": "9a9c45a89ddc90ab2a23cba05808835415f0fcb9cbd8ab38f88ccf7861094cfa",
+     "manifest_hash": {
+      "$type": "string"
+     },
+     "approved_grants": {
+      "$type": "array"
+     },
+     "resolved_requires": {
+      "$type": "array"
+     },
+     "locked_at": {
+      "$type": "integer"
+     }
+    }
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "dev"
+   },
+   "expect": {
+    "kind": "accessory",
+    "status": {
+     "$type": "string"
+    },
+    "lock": {
+     "package": {
+      "$type": "string"
+     },
+     "source": {
+      "$type": "object"
+     },
+     "resolved_commit": "2222222222222222222222222222222222222222",
+     "content_hash": "9ae29541fa89a52c59891c14977068850663471ceaf05a618b3c9739a715b06b",
+     "manifest_hash": {
+      "$type": "string"
+     },
+     "approved_grants": {
+      "$type": "array"
+     },
+     "resolved_requires": {
+      "$type": "array"
+     },
+     "locked_at": {
+      "$type": "integer"
+     }
+    }
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "ag",
+    "args": {
+     "action": "pin",
+     "ref": "v1"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-11"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "ag"
+   },
+   "expect": {
+    "status": "pinned"
+   },
+   "because": "HP PM-11"
+  }
+ ]
+}

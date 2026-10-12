@@ -1,0 +1,198 @@
+{
+  "id": "conf::ui_ac_8_pending_text_wins_over_disabled_reason",
+  "contract": "ui",
+  "clause": "UI-AC-8",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "ws": {
+          "projection_allowlist": [
+            "/id",
+            "/name"
+          ]
+        }
+      },
+      "handlers": {
+        "restart": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "workspace_id"
+            ],
+            "properties": {
+              "workspace_id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "package": "pkg",
+      "views": [
+        "ops"
+      ],
+      "features": [
+        "ui_1_1",
+        "ui_embed",
+        "ui_1_3",
+        "ui_1_4"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "ops",
+          "title": "Ops",
+          "requires": [
+            "ui_1_3"
+          ],
+          "selections": [
+            {
+              "id": "sel_ws"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "list",
+                "id": "wl",
+                "source": {
+                  "kind": "ws"
+                },
+                "selects": "sel_ws",
+                "item": {
+                  "fields": [
+                    {
+                      "id": "wn",
+                      "path": "/name"
+                    }
+                  ]
+                },
+                "empty": {
+                  "title": "Nothing here"
+                }
+              },
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "restart",
+                    "args": {
+                      "workspace_id": {
+                        "sel": "sel_ws/id"
+                      }
+                    },
+                    "disabled_reason": "Pick a workspace first"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "ws": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "w1",
+                "name": "Alpha"
+              }
+            ]
+          }
+        },
+        "local_state": {
+          "selections": {
+            "sel_ws": "w1"
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "ui_1_3"
+          ]
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "activate": {}
+        },
+        "node_id": "go"
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_result": {
+            "request": 1,
+            "ok": {
+              "operation": {
+                "id": "op1"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "operation",
+            "baseline": true,
+            "rows": [
+              {
+                "id": "op1",
+                "kind": "safe_write",
+                "state": "typing",
+                "terminal": false
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "client_act": {
+        "action": {
+          "hub_rows": {
+            "kind": "ws",
+            "baseline": true,
+            "rows": []
+          }
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "disabled": true
+        },
+        "because": "UI UI-AC-8",
+        "node_id": "go"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "shows_pending_text": true
+        },
+        "because": "UI UI-AC-8",
+        "node_id": "go"
+      }
+    }
+  ]
+}

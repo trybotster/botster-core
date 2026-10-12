@@ -1,0 +1,34 @@
+# core-p4a-ou: Core transcripts for the route clauses OU-1 to OU-12, A2-3, A3-1 and A3-3
+
+Feature `core-p4a-ou`, Stage 1 package p4a-routes, part 2. It adds 67 transcripts to `conformance/core/` and removes the 67 ids from `conformance/pending.txt`. Eleven ids stay pending (see "Open questions").
+
+All 67 are `"fake": "structural"` with the ruling R-12 (one with R-7, because it asks the oracle for the focus-out bytes). They run in full against the real Core testkit in Stage 1. Each carries the proof kind of `conformance/replacement-map.json` for its id (42 `core-testkit`, 23 `core-testkit+edge`, 2 `core-testkit+perturb`). FakeCore is not changed.
+
+## Ids that already had a transcript
+
+None of the 78 listed ids had one. The `a3_2_*` ids carry the clause OU-2 in the ledger and are in this feature. The eleven `a7_1_*` ids belong to core-p4a-dp-2. A7-1 is cited by no transcript here, because no OU-1 transcript here asserts an `InvalidInput{field}` refusal.
+
+## Prior art (BUILD.md rule 0)
+
+- Vault: `botster v1 terminal routes terminate at session workers` (the worker owns the transport), `backpressure recovery tests must cover empty and failed snapshot branches` (a recovery test needs the failed branch too: used for the stall, overflow and oversize-snapshot branches), `a stalled web terminal attach can suppress all queued input without a failure event` (a stalled route must be reported to the host).
+- botster-core@053148f, `crates/botster-core-daemon`: only a session-lifecycle resync exists; there is no route data plane, no per-route queue and no `output_dropped`. Nothing was reused, so there is no `Stolen-From` commit.
+- This repo: the route frames and the close reasons come from `botster-route-codec` and `botster-core-contract` (the schemas validate every frame). The step idioms (the `paste_commit` refusal as the barrier of a negative route assertion, `await_quiet` before a clock step, `route_expect_pty` with `oracle_encode`) come from the transcripts of core-p1 and core-p4a-dp. The route controls `route_gate`, `fail_handoff` and `input_blocked` are core-p4a-dp's, and `queue_overflow` and `storage_fail_write` are core-p3's. This branch merges `foundation/core-p4a-dp` (its commits are in the history) because the transcripts need `route_gate` and the routing of a control with a step key `route`.
+- Hand-rolled with a reason: six route-transport controls that no pair has (`route_accept`, `fail_writes`, `drop_transport`, `client_close`, `unknown_close_reason`, `route_spurious_ready`; `docs/core-testkit-controls.md`). Each is an edge of the testkit (Core A5-1) and cites the clauses that need it.
+
+## How a negative assertion is observed
+
+- A route frame that must not arrive: `expect_quiet_until` with the barrier of a `paste_commit` that no `paste_begin` opened. The refusal `input_refused{op: 99, reason: refused}` follows every earlier frame of the route (DP-5), so the fence is an event of the route, never a time.
+- A host event that must not arrive: `expect_quiet_until` with an `UpdateMetadata` barrier.
+- A PTY write that must not happen: `pty_input` before and after, with `await_quiet` between.
+- A stall: `route_gate` (the stream takes no byte), then `advance_clock` by `reader_progress_deadline`. A reader that progresses: `route_accept` (the stream takes N bytes, which restarts the count).
+
+## Steward answers (2026-10-02, through the lead; Core Amendment 9 is accepted and in the manifest final17)
+
+1. The two `a3_1` minimum-frame ids (`a3_1_route_too_small_...`, `a3_1_minimum_frame_includes_...`) are withdrawn by Core A9-2 (accepted, final17) and replaced by `a9_2_every_attached_route_can_carry_the_minimum_output_dropped_frame`. They need no transcript. Remaining action (the lead's): remove the two ids from the ledger and `pending.txt` when the withdrawal is applied, and add the A9-2 id.
+2. A9-3 (accepted, final17) makes the testkit's scheduler edge choose DP-3's per-frame compression. `a3_1_deflate_frame_is_charged_at_its_inflated_size_to_route_queue_bytes` and `a3_1_compressed_repeated_bells_never_exceed_the_count_digits_of_route_queue_bytes` need a testkit control that forces the choice (compress or not for an eligible payload); that control is the remaining action, in a later feature. Their drafts (they pass for a worker that never compresses) are in `docs/core-p4a-ou-withheld/`, outside `conformance/`.
+3. BadPeer: the host `RouteClosed` event is the testkit proof; the wire form `route_closed{attach_failed{bad_peer}}` is a slow-tier proof (a real WebRTC peer). SessionRemoved is reachable on a stream route (a route attaches to the Exited session, then `Remove`), and both transcripts assert the host event and the wire form.
+
+4. `a3_1_plain_output_frame_charge_is_unchanged` is withheld (reviewer finding 3, round 1): output framing and source backpressure (OU-3d) leave the number of queued frames open, so a flood cannot fix an overflow point. It needs an observation of the encoded frame charges at the queue boundary. The draft is in `docs/core-p4a-ou-withheld/`.
+5. `ou_1_attach_hands_transport_to_worker` and `ou_11_transport_ownership_is_defined` are withheld (reviewer finding 10, round 1). Echoed PTY input, a detach and a new `RouteId` do not exclude a Core that keeps the host descriptor open or relays the bytes. The proof is descriptor ownership and closure at the real transport boundary, including the failed handoff: `slow:fd-handoff` (the same limit as core-p4a-dp's `dp_2_stream_handoff_*`). The drafts are in `docs/core-p4a-ou-withheld/`.
+6. `ou_9_attach_is_sync_baseline_in_pump` is withheld (finding 11). The `RouteLimit` check shows a synchronous registration only. No step in the vocabulary reads the client end of a route before a pump, so nothing observes that `attach` forms no baseline. It needs an observer at the transport or model boundary (for example a control that reports the bytes the worker wrote to the route's stream before the first pump). The draft is in `docs/core-p4a-ou-withheld/`.
+7. `ou_9_oversize_snapshot_closes_route_typed`, `a2_3_every_route_close_reason_maps_to_one_wire_reason` and `ou_2b_every_core_close_reason_maps_to_one_wire_reason` are withheld (round 3, finding 5). The `SnapshotTooLarge` row needs a premise that the snapshot of the attempted attach exceeds `max_snapshot_bytes`. No clause fixes a snapshot size, and A8-1 says that two captures of one session may differ in `total_bytes`, so a size that one capture measured does not fix the size of another. The proof needs an observer that reports the size of the snapshot that the worker forms for the specific attach (a testkit control on the real model, or the A8-2 stimulus of a pending sequence beyond the format's continuation limit). Both matrices otherwise cover every other reason of A2-3 and OU-2b; their drafts, with the `SnapshotTooLarge` row, are in `docs/core-p4a-ou-withheld/`.

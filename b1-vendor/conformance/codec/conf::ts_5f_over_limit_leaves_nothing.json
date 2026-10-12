@@ -1,0 +1,228 @@
+{
+  "id": "conf::ts_5f_over_limit_leaves_nothing",
+  "contract": "codec",
+  "clause": "TS-5f",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "fs_list",
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "max_file_bytes": 8,
+      "max_paste_bytes": 24,
+      "script": {
+        "writes": {
+          "file": "46494c45"
+        },
+        "admission": {
+          "file": 25
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "1",
+        "name": "big.bin"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "313233343536373839"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "1"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "1"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "refused",
+        "op": "1"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "control": {
+        "op": "fs_list"
+      },
+      "expect": {
+        "files": []
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_begin",
+        "op": "2",
+        "name": "a-very-long-file-name.txt"
+      }
+    },
+    {
+      "route_send": {
+        "frame": "file_chunk",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "6f6b"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "file_commit",
+        "op": "2"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "2"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": "Codec TS-5f"
+    },
+    {
+      "control": {
+        "op": "fs_list"
+      },
+      "expect": {
+        "files": []
+      },
+      "because": "Codec TS-5f"
+    },
+    {
+      "route_expect_pty": [],
+      "because": "Codec TS-5f"
+    }
+  ]
+}

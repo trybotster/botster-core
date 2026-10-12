@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AdmissionFailure",
+  "description": "A typed admission failure with the path of the defect (UI-AD-1).",
+  "type": "object",
+  "properties": {
+    "code": {
+      "$ref": "#/$defs/AdmissionCode"
+    },
+    "path": {
+      "description": "A JSON Pointer into the document.",
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "path",
+    "message"
+  ],
+  "$defs": {
+    "AdmissionCode": {
+      "description": "The typed admission failures (UI-AD-1).",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "duplicate_id",
+            "reserved_id",
+            "unknown_slot",
+            "unknown_ref",
+            "unknown_action",
+            "schema_unsupported",
+            "unknown_bound_property",
+            "arg_type_mismatch",
+            "bad_alternatives",
+            "link_not_text"
+          ]
+        },
+        {
+          "description": "UI-VR-1, UI-VR-3.",
+          "type": "string",
+          "const": "unsupported_version"
+        },
+        {
+          "description": "UI-VR-4: a feature that the document uses is not in `requires`, or `requires` names an unknown feature.",
+          "type": "string",
+          "const": "missing_requires"
+        },
+        {
+          "description": "UI-PT-1.",
+          "type": "string",
+          "const": "unsupported_part"
+        },
+        {
+          "description": "UI-EM-11.",
+          "type": "string",
+          "const": "unknown_property"
+        },
+        {
+          "description": "UI-PT-5, UI-AD-1 (predicates in the grammar).",
+          "type": "string",
+          "const": "bad_property_type"
+        },
+        {
+          "description": "UI-ID-1.",
+          "type": "string",
+          "const": "invalid_id"
+        },
+        {
+          "description": "UI-BD-2.",
+          "type": "string",
+          "const": "kind_not_admitted"
+        },
+        {
+          "description": "UI-AD-1: a path outside the projection allowlist.",
+          "type": "string",
+          "const": "path_not_allowed"
+        },
+        {
+          "description": "UI-BD-3.",
+          "type": "string",
+          "const": "unbound_context"
+        },
+        {
+          "description": "UI-AD-1: no registered `ui_action` handler.",
+          "type": "string",
+          "const": "unknown_handler"
+        },
+        {
+          "description": "UI-FM-1.",
+          "type": "string",
+          "const": "schema_mismatch"
+        },
+        {
+          "description": "UI-FM-3.",
+          "type": "string",
+          "const": "visible_when_required"
+        },
+        {
+          "description": "UI-CF-3.",
+          "type": "string",
+          "const": "bad_default"
+        },
+        {
+          "description": "UI-PT-3.",
+          "type": "string",
+          "const": "when_not_exclusive"
+        },
+        {
+          "description": "UI-SL-5.",
+          "type": "string",
+          "const": "unknown_view"
+        },
+        {
+          "description": "UI-AD-3.",
+          "type": "string",
+          "const": "bad_placement"
+        },
+        {
+          "description": "UI-AD-4, UI-EM-12: a `to_page` source that is not a kind of this package.",
+          "type": "string",
+          "const": "embed_source_not_own"
+        },
+        {
+          "description": "UI-FD-2: a document number outside the double range.",
+          "type": "string",
+          "const": "number_out_of_range"
+        },
+        {
+          "description": "UI-FD-2: a map key that could never match.",
+          "type": "string",
+          "const": "non_canonical_map_key"
+        }
+      ]
+    }
+  }
+}

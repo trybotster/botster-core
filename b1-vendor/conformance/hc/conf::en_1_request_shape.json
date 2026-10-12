@@ -1,0 +1,121 @@
+{
+  "id": "conf::en_1_request_shape",
+  "contract": "hc",
+  "clause": "EN-1",
+  "subject": "hub",
+  "setup": {
+    "fixture": "base"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "get",
+        "kind": "session",
+        "target": "s1",
+        "x_future_field": {
+          "a": 1
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "list",
+        "kind": "spawn_target",
+        "args": {
+          "limit": 1
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "18446744073709551615",
+        "verb": "invoke",
+        "kind": "hub",
+        "action": "check_update",
+        "args": {},
+        "idempotency_key": "k-1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_set": [
+        {
+          "type": "res",
+          "id": "1",
+          "ok": {
+            "id": "s1"
+          }
+        },
+        {
+          "type": "res",
+          "id": "2",
+          "ok": {
+            "items": [
+              {}
+            ]
+          }
+        },
+        {
+          "type": "res",
+          "id": "18446744073709551615",
+          "ok": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "c1",
+      "because": [
+        "HC EN-1",
+        "HC EN-3",
+        "HC EN-6"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+{
+ "id": "conf::er_2_retryable_is_not_safe_to_repeat",
+ "contract": "hp",
+ "clause": "ER-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "ta": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "m",
+       "retryable": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1",
+    "idempotency_key": "k1"
+   },
+   "bind": {
+    "tb": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rb",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$rb",
+     "result": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "message": "m",
+       "retryable": true
+      }
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$ta",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "retryable": false,
+       "effect": {
+        "$one_of": [
+         "unknown",
+         "committed"
+        ]
+       }
+      }
+     }
+    },
+    {
+     "ticket": "$tb",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "failed",
+       "retryable": true,
+       "effect": {
+        "$one_of": [
+         "unknown",
+         "committed"
+        ]
+       }
+      }
+     }
+    }
+   ],
+   "because": [
+    "HP ER-2",
+    "HP ER-5"
+   ]
+  }
+ ]
+}

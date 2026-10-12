@@ -1,0 +1,568 @@
+{
+  "id": "conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops",
+  "contract": "core",
+  "clause": "DP-5",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked",
+      "pty_input",
+      "input_blocked",
+      "edges_quiet",
+      "program_ready"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "route_input_queue_bytes": 8
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "await_control": {
+        "control": {
+          "op": "program_ready",
+          "session": "s1"
+        },
+        "expect": {
+          "ready": true
+        }
+      }
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_0": {
+          "repeat": [
+            "30",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_0": {
+          "repeat": [
+            "0",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_1": {
+          "repeat": [
+            "31",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_1": {
+          "repeat": [
+            "1",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_2": {
+          "repeat": [
+            "32",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_2": {
+          "repeat": [
+            "2",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_3": {
+          "repeat": [
+            "33",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_3": {
+          "repeat": [
+            "3",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_4": {
+          "repeat": [
+            "34",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_4": {
+          "repeat": [
+            "4",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_5": {
+          "repeat": [
+            "35",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_5": {
+          "repeat": [
+            "5",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_6": {
+          "repeat": [
+            "36",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_6": {
+          "repeat": [
+            "6",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_7": {
+          "repeat": [
+            "37",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_7": {
+          "repeat": [
+            "7",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_8": {
+          "repeat": [
+            "38",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_8": {
+          "repeat": [
+            "8",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_hex_9": {
+          "repeat": [
+            "39",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "let": {
+        "$chunk_9": {
+          "repeat": [
+            "9",
+            524288
+          ]
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_0"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_1"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_2"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_3"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_4"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_5"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_6"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_7"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "9",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_8"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "$chunk_hex_9"
+        }
+      }
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": true
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [],
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 5242880
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": [
+        {
+          "var": "$chunk_0"
+        },
+        {
+          "var": "$chunk_1"
+        },
+        {
+          "var": "$chunk_2"
+        },
+        {
+          "var": "$chunk_3"
+        },
+        {
+          "var": "$chunk_4"
+        },
+        {
+          "var": "$chunk_5"
+        },
+        {
+          "var": "$chunk_6"
+        },
+        {
+          "var": "$chunk_7"
+        },
+        {
+          "var": "$chunk_8"
+        },
+        {
+          "var": "$chunk_9"
+        }
+      ],
+      "because": [
+        "Core DP-5",
+        "Core AM-2"
+      ]
+    },
+    {
+      "control": {
+        "op": "input_blocked"
+      },
+      "route": "r1",
+      "expect": {
+        "blocked": false
+      },
+      "because": [
+        "Core DP-5"
+      ]
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "op": {
+              "$not": "99"
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "paste_commit",
+          "op": "99"
+        },
+        "route": "r1"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "99",
+        "reason": "refused"
+      },
+      "on": "r1",
+      "because": [
+        "Core DP-5"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

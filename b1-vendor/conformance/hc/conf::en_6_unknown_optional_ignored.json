@@ -1,0 +1,127 @@
+{
+  "id": "conf::en_6_unknown_optional_ignored",
+  "contract": "hc",
+  "clause": "EN-6",
+  "subject": "client",
+  "setup": {
+    "client": {}
+  },
+  "steps": [
+    {
+      "client_act": {
+        "connect": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "hello",
+        "protocol": "botster-hub"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC HS-1"
+    },
+    {
+      "send": {
+        "type": "welcome",
+        "hub_id": "hub-1",
+        "incarnation": "i1",
+        "version": 2,
+        "features": [],
+        "terminal_format": "ghostsnp/2+raw",
+        "limits": {
+          "max_frame_bytes": 16384,
+          "max_chunk_bytes": 1024,
+          "max_outstanding": 8,
+          "max_watches": 64,
+          "route_connect_seconds": 10,
+          "idempotency_window_seconds": 60,
+          "cursor_idle_seconds": 30,
+          "operation_retention_seconds": 600,
+          "max_paste_bytes": 1024,
+          "max_file_bytes": 1024,
+          "query_client_deadline_ms": 100
+        },
+        "x_future_field": {
+          "a": 1
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_act": {
+        "request": {
+          "verb": "get",
+          "kind": "session",
+          "target": "s1"
+        }
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "req",
+        "id": "$r",
+        "verb": "get",
+        "kind": "session",
+        "target": "s1"
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC EN-1"
+    },
+    {
+      "send": {
+        "type": "res",
+        "id": "$r",
+        "ok": {
+          "id": "s1",
+          "hub_id": "hub-1",
+          "label": "session s1",
+          "state": "running",
+          "lifecycle_class": "current",
+          "exit": {},
+          "size": {
+            "rows": 24,
+            "cols": 80
+          },
+          "session_type": {
+            "id": "shell",
+            "source": "device"
+          },
+          "traits": [],
+          "restartable": true,
+          "activity": "idle",
+          "presentation": "default",
+          "metadata": {}
+        },
+        "x_future_field": {
+          "a": 1
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "welcome_accepted": {}
+        },
+        "because": "HC EN-6"
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "response_delivered": {
+            "id": "$r"
+          }
+        },
+        "because": "HC EN-6"
+      }
+    },
+    {
+      "client_idle": {}
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-1.4"
+}

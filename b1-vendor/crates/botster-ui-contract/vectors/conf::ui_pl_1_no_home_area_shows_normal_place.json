@@ -1,0 +1,34 @@
+{
+  "id": "conf::ui_pl_1_no_home_area_shows_normal_place",
+  "contract": "ui",
+  "clause": "UI-PL-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a client without a home area offers no view there",
+      "home": {
+        "views": [
+          {
+            "id": "a",
+            "placement": {
+              "area": "home",
+              "size": "small",
+              "order": 1
+            }
+          },
+          {
+            "id": "b",
+            "placement": {
+              "area": "home",
+              "size": "wide",
+              "order": 2
+            }
+          }
+        ],
+        "area": null,
+        "expect": []
+      },
+      "because": "UI UI-PL-1"
+    }
+  ]
+}

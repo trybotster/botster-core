@@ -1,0 +1,266 @@
+{
+  "id": "conf::ui_sl_3_activation_forms",
+  "contract": "ui",
+  "clause": "UI-SL-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "activate select",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "activate": {
+            "select": "s"
+          }
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "select": "s"
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    },
+    {
+      "name": "activate invoke carries the row key",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ],
+            "actions": [
+              {
+                "id": "go",
+                "label": "Go",
+                "handler": "h"
+              }
+            ]
+          },
+          "activate": {
+            "invoke": "go"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "invoke": "go",
+              "row_key": "r1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    },
+    {
+      "name": "activate open on a ref",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "t",
+                "value": {
+                  "ref": "r/name"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "k2",
+              "key": "/n",
+              "absent": {
+                "text": "x"
+              }
+            }
+          },
+          "activate": {
+            "open": "r"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "k2@1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    },
+    {
+      "name": "activate on a table row",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "tb",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "N",
+              "path": "/n"
+            }
+          ],
+          "activate": {
+            "select": "s"
+          },
+          "selects": "s"
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "selections": {
+          "s": "r1"
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "rows": [
+              {
+                "id": "botster-ui-descendant-v1:2:tb2:r1",
+                "selected": true,
+                "activate": {
+                  "select": "s"
+                }
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-SL-3"
+    }
+  ]
+}

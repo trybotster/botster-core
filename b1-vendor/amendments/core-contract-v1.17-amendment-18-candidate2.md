@@ -1,0 +1,32 @@
+# Core contract v1.17, Amendment 18 (candidate 2): `last_output_at` is the host's observation, and an adopted session's idle period starts at its adoption
+
+The base is the Core contract of `frozen/current` (manifest final35), with Amendments 2 to 16 and Errata 1 to 4, which are unchanged except where A18-2 names a replacement. Core Amendment 17 (in review) touches no clause named here. Other contracts are cited by contract name and clause id only.
+
+**Supersedes candidate 1** (`287b645d…2fd8`, commit `8c000c5`), which the Amendment reviewer rejected (verdict `15a2a96`):
+1. Candidate 1 did not define the adopted silence event's `since`, and it measured the idle period with the optional unix stamp. Candidate 2 defines the **adoption point**, which supplies both a monotonic start and a unix `since`. It keeps the threshold on the monotonic clock (TM-1), and it keeps E3-1's event-budget rule.
+2. Candidate 1 quoted fragments. Candidate 2 quotes each affected base sentence exactly and states its amended reading.
+
+Author: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-10-09. Found by the Stage 1 Core lead (P5, `conf::ad_3_adopted_equals_started`, step 13).
+
+**Why.**
+- ST-4: "`terminal_state(id)` is a sync read: `{ size, modes, title, cwd, last_output_at, focused, model_rev, input_rev{client, host} }`."
+- TM-1: "The host passes a monotonic `Instant` and a unix time to `pump` and to stamped calls. **Every threshold and deadline** (silence, stop grace, reader progress, startup) uses the **monotonic** clock. Unix time only stamps `at` fields. Core reads no clock of its own." So `last_output_at` is the unix time that the host passed to the `pump` that observed the output. The worker has no clock to stamp it with, so the worker does not hold it.
+- AD-3: "After adoption a session is indistinguishable from one started in this host: same reads, same input, same events (the state is re-read from the worker)." A new host re-reads only what the worker holds, so it cannot know the earlier host's stamp. `conf::ad_3_adopted_equals_started` requires the two `last_output_at` values to be equal, which no implementation can meet under TM-1.
+- TM-4: "`Silent{since}` is posted by the **first `pump` with `now ≥ last_output_at + threshold`**, exactly once per idle period; the next output re-arms it." For an adopted session that has had no output under this host, no clause gives the start of the idle period or the value of `since`.
+
+**Terms.**
+- **The adoption point** of a session is the `pump` in which Core posts that session's `SessionState` for its adoption (`AdoptAll`, LC-11, or `Adopt`, A2-1). Its **monotonic start** is the `Instant` that the host passed to that `pump`, and its **unix time** is the unix time that the host passed to that `pump` (TM-1).
+- **The idle start** of a session is the point from which TM-4 measures the idle period. It is the latest output observation by this host. For an adopted session that has no output observation yet, it is the adoption point. Each has a monotonic start and a unix time.
+
+| # | Clause | Test |
+|---|---|---|
+| A18-1 | **`last_output_at` is the host's observation.**<br>- `last_output_at` is the unix time that the host passed to the `pump` in which Core observed the session's latest output (TM-1). It is `None` while this host has observed no output of the session.<br>- **After adoption,** it is `None` until the adopting host observes output. Core does not carry the earlier host's stamp, and the worker does not stamp time.<br>- **AD-3's "same reads"** covers the state that is re-read from the worker. `last_output_at` is not part of that state: it is a host observation, like the event history that AD-3 does not replay. The comparison of `conf::ad_3_adopted_equals_started` excludes `last_output_at` and nothing else. | `conf::a18_1_adopted_last_output_at_is_none_until_output`, `conf::a18_1_adopted_last_output_at_is_set_by_the_first_output`, `conf::ad_3_adopted_equals_started` |
+| A18-2 | **The silence edge is measured from the idle start, on the monotonic clock.**<br>- `Silent{id, since}` becomes due at the first `pump` whose monotonic `now` is at least the idle start's monotonic start plus the threshold (TM-1). `since` is the idle start's unix time.<br>- So for a session with output under this host, `since` is its `last_output_at`. For an adopted session that has had no output under this host, the idle start is the adoption point. `Silent` then becomes due a threshold after the adoption point, and `since` is the adoption point's unix time.<br>- It is still posted exactly once per idle period, and the next output re-arms it.<br>- **E3-1 is unchanged:** `Silent` is one atomic step with its event (E3-1 item 2). If the `pump` at which it becomes due has no event budget left, the step is carried whole to the next `pump`, and carried steps come first (E3-1 item 3). | `conf::a18_2_adopted_idle_session_is_silent_a_threshold_after_adoption` (asserts `since` = the adoption point's unix time), `conf::a18_2_adopted_silent_due_at_an_exhausted_budget_is_carried` |
+
+## A18-3. Text replaced
+
+1. **ST-4:** "`terminal_state(id)` is a sync read: `{ size, modes, title, cwd, last_output_at, focused, model_rev, input_rev{client, host} }`." stands, and `last_output_at` reads with A18-1: the unix time of this host's latest output observation, or `None` when this host has observed none, including after adoption.
+2. **AD-3:** "After adoption a session is indistinguishable from one started in this host: same reads, same input, same events (the state is re-read from the worker)." reads "After adoption a session is indistinguishable from one started in this host: same reads, same input, same events (the state is re-read from the worker), except `last_output_at`, which is a host observation and is `None` until this host observes output (A18-1)."
+3. **TM-4:** "`Silent{since}` is posted by the **first `pump` with `now ≥ last_output_at + threshold`**, exactly once per idle period; the next output re-arms it." reads "`Silent{since}` is posted by the first `pump` whose monotonic `now` is at least the idle start's monotonic start plus the threshold, with `since` the idle start's unix time, exactly once per idle period; the next output re-arms it. The idle start is the latest output observation by this host, or the adoption point for an adopted session with none (A18-2)." E3-1 still applies to it.
+
+Every other clause is unchanged.

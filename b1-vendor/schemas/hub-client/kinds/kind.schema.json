@@ -1,0 +1,245 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string",
+      "description": "`hub` or a package key."
+    },
+    "descriptor_id": {
+      "type": "string",
+      "description": "Changes whenever the owning plugin reloads or the kind's schema changes (DS-6)."
+    },
+    "schema_version": {
+      "type": "string",
+      "description": "`\"M.m\"` (section 12, Versioning)."
+    },
+    "schema": {
+      "description": "The kind's JSON Schema (draft 2020-12)."
+    },
+    "core_fields": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "verbs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/VerbDescriptor"
+      }
+    },
+    "actions": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ActionDescriptor"
+      }
+    },
+    "watchable": {
+      "type": "boolean"
+    },
+    "durable": {
+      "type": "boolean"
+    },
+    "projection_allowlist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The fields that views and watches of this kind may read (DS-1, UI-AD-1)."
+    },
+    "list": {
+      "$ref": "#/$defs/ListMode"
+    },
+    "range_filters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The range filters that the kind declares for `list` (VB-1), by field name."
+    }
+  },
+  "required": [
+    "kind",
+    "owner",
+    "descriptor_id",
+    "schema_version",
+    "schema",
+    "core_fields",
+    "verbs",
+    "actions",
+    "watchable",
+    "durable",
+    "projection_allowlist"
+  ],
+  "description": "The descriptor of one kind: the row of the watchable kind `kind`, and an element of the `describe` result.\n\nClause: HC DS-1, DS-2, DS-3.",
+  "x-kind": "kind",
+  "x-schema-version": "1.0",
+  "x-verbs": {
+    "list": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "VB-1"
+    },
+    "watch": {
+      "effect": "read",
+      "reasons": [],
+      "clause": "WT-1"
+    }
+  },
+  "x-actions": {},
+  "$defs": {
+    "VerbDescriptor": {
+      "type": "object",
+      "properties": {
+        "effect": {
+          "$ref": "#/$defs/EffectClass"
+        },
+        "permission": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "boolean",
+          "description": "A hint for this caller. The Hub enforces every call (DS-5)."
+        }
+      },
+      "required": [
+        "effect",
+        "permission",
+        "allowed"
+      ],
+      "description": "A verb of a kind, as `describe` lists it.\n\nClause: HC DS-1, DS-5."
+    },
+    "EffectClass": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "read",
+            "immediate",
+            "committed",
+            "accepted"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "ActionDescriptor": {
+      "type": "object",
+      "properties": {
+        "args_schema": true,
+        "result_schema": true,
+        "effect": {
+          "$ref": "#/$defs/EffectClass"
+        },
+        "durable_operation": {
+          "type": "boolean",
+          "description": "Per action, never inferred from the resource (EN-7)."
+        },
+        "idempotent": {
+          "type": "boolean"
+        },
+        "permission": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DescribedReason"
+          },
+          "description": "Disabled actions are listed with `allowed: false` and their reasons (DS-6)."
+        },
+        "owner": {
+          "type": "string"
+        },
+        "descriptor_id": {
+          "type": "string"
+        },
+        "warning": {
+          "type": "string"
+        },
+        "label_pointer": {
+          "type": "string"
+        },
+        "status_pointer": {
+          "type": "string"
+        },
+        "url_pointer": {
+          "type": "string"
+        },
+        "applies_to": {
+          "$ref": "#/$defs/AppliesTo"
+        }
+      },
+      "required": [
+        "args_schema",
+        "result_schema",
+        "effect",
+        "durable_operation",
+        "idempotent",
+        "permission",
+        "allowed",
+        "reasons"
+      ],
+      "description": "An action of a kind. `owner`, `descriptor_id` and the VW-8 fields appear on an action that a plugin contributes to another owner's kind.\n\nClause: HC DS-1, DS-5, DS-6, EN-7."
+    },
+    "DescribedReason": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "description": "One reason an action is disabled: a section 11 code or a kind `reason`.\n\nClause: HC A2 H-13, DS-6."
+    },
+    "AppliesTo": {
+      "type": "object",
+      "properties": {
+        "session_type_id": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "interaction": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "has_port": {
+          "type": "boolean"
+        }
+      },
+      "description": "The closed equality filter of a contributed session action (HP VW-8): the fields that must equal the session's.\n\nClause: HC section 6 (`session` row), DS-1."
+    },
+    "ListMode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "enum": [
+            "current_read"
+          ]
+        },
+        {
+          "type": "string"
+        }
+      ]
+    }
+  }
+}

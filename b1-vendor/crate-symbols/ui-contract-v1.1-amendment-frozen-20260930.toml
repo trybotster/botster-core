@@ -1,0 +1,166 @@
+# The crate symbols of each code span of ui-contract-v1.1-amendment-frozen-20260930.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Supersedes candidate 3 (`92e1bcba…ff8e`; TUI and Web confirmed it) by two changes: the UI-BD-6 authority claim is removed and UI-SA cites HP VW-8 (A4r44) for pointers; UI-CF-5(a) shows the ASCII host. Earlier: candidate 2 (`b700628a…3fed...
+[rows."6"]
+"92e1bcba…ff8e" = "n/a: a commit or file hash"
+"b700628a…3fed" = "n/a: a commit or file hash"
+"f774e173…2ad5" = "n/a: a commit or file hash"
+"{url}" = ["ui::Activate::Url"]
+
+# Base: `ui-contract-v1-frozen-20260930.md`, sha256 `2063e8977c36c0e3cacdd0526de131f537b8bc63f4d39ec6db76e3300e5a7661`. This file changes nothing in the base except where it says so. Clause ids continue the base.
+[rows."7"]
+"ui-contract-v1-frozen-20260930.md" = "n/a: a repository path"
+
+# Source: `audits/plugin-parity-20260930.md` section 3, gaps G-13, G-14, G-15, G-16, G-20.
+[rows."8"]
+"audits/plugin-parity-20260930.md" = "n/a: a repository path"
+
+# **Version.** The additions are MINOR (UI-VR-1). `ui_contract_view` becomes `"1.1"`. A view that uses any clause below sets `requires: ["ui_1_1"]` (UI-VR-4). A client that supports only 1.0 shows a local diagnostic for that view (UI-CF-1)...
+[rows."10"]
+"requires: [\"ui_1_1\"]" = ["ui::ViewDocument::requires", "ui.feature:ui_1_1"]
+"ui_contract_view" = ["ui::ViewDocument::ui_contract_view"]
+
+# `Activate` (UI-SL-3) gains two forms:
+[rows."14"]
+"Activate" = ["ui::Activate"]
+
+# | UI-SL-5 | **Navigate.** `navigate.view` names a view of the **same package**. The client opens that view. For each `select` entry, the client resolves the operand (scope of UI-BD-3) and sets that slot of the **target** view to the reso...
+[rows."24"]
+"navigate.view" = ["ui::Activate::Navigate", "ui::Navigate::view"]
+"select" = ["ui::Navigate::select"]
+"unknown_view" = ["ui::AdmissionCode::UnknownView"]
+
+# | UI-SL-6 | **Navigation target and URL form.** The client navigation target (Hub→client `navigation` kind) gains an optional `select: { "<slot id>": "<row key>" }`. A Web client maps a target to the URL `…/<package>/<view>?<slot>=<row k...
+[rows."25"]
+"navigation" = ["hub.kind:navigation"]
+"select: { \"<slot id>\": \"<row key>\" }" = { symbols = ["ui::NavigationTarget::select", "hub::NavTarget::select"], uncovered = { slot = "the placeholder for a slot id", id = "the placeholder for a slot id", row = "the placeholder for a row key", key = "the placeholder for a row key" } }
+"ui_sl_6_url_not_rewritten_by_selection" = "n/a: a UI vector name; no vector file and no ledger id holds it yet"
+"…/<package>/<view>?<slot>=<row key>" = { symbols = ["ui::NavigationTarget::view", "ui::NavigationTarget::select"], uncovered = { package = "the placeholder for a package id", slot = "the placeholder for a slot id", row = "the placeholder for a row key", key = "the placeholder for a row key" } }
+
+# | UI-FD-1 | **`Field.display: "link"`.** The value must be an `http` or `https` URL without userinfo. The client shows the host (and the field `label`), and on activation opens the URL **outside the app with no opener and no referrer** (...
+[rows."26"]
+"Field.display: \"link\"" = ["ui::Display::Link", "ui::Field::display"]
+"http" = "n/a: a URL scheme"
+"https" = "n/a: a URL scheme"
+"label" = ["ui::Field::label"]
+"window.open(url, \"_blank\", \"noopener,noreferrer\")" = "n/a: a browser API call that a web client makes; no contract crate holds it"
+
+# | UI-SL-7 | **`{ url: Operand }` activation** has the same rule as UI-FD-1 for the resolved value. It may be used on a `list`, a `table` or a `Ref` (as `activate`, UI-SL-3). It is **not** allowed on an action button; a link in a toolbar ...
+[rows."27"]
+"Ref" = ["ui::Ref"]
+"activate" = ["ui::Ref::activate", "ui::ListPart::activate", "ui::TablePart::activate"]
+"link" = ["ui::Display::Link"]
+"list" = ["ui::Part::List"]
+"table" = ["ui::Part::Table"]
+"{ url: Operand }" = ["ui::Activate::Url", "ui::Operand"]
+
+# | UI-RZ-2e | **Realized props.** `navigate` realizes as the prop `activate = { navigate: { view, select: { slot: rowKey } } }` with operands resolved. `url` realizes as `activate = { url }` (or plain text per UI-FD-1). `link` realizes as...
+[rows."28"]
+"activate = { navigate: { view, select: { slot: rowKey } } }" = { symbols = ["ui::Ref::activate", "ui::Activate::Navigate", "ui::Navigate::view", "ui::Navigate::select"], uncovered = { slot = "the placeholder for a slot id", rowKey = "the placeholder for a row key" } }
+"activate = { url }" = ["ui::Activate::Url"]
+"href" = ["ui.prop:text:href"]
+"link" = ["ui::Display::Link"]
+"navigate" = ["ui::Activate::Navigate"]
+"text" = ["ui::UiNodeKind::Text"]
+"url" = ["ui::Activate::Url"]
+
+# | UI-CF-5 | **Fallbacks for 1.1 (extends UI-CF-2).** (a) A renderer that cannot open a URL outside the app (`external_open` absent from `ui_capabilities.features`) shows the **full validated URL as text**, with its host in the ASCII (pun...
+[rows."29"]
+"(n)" = "n/a: a placeholder for a count in prose"
+"count" = { symbols = ["ui::Badge::display"], uncovered = { count = "GAP(ui): a Badge::display string value (admission.rs), not a typed member" } }
+"dot" = { symbols = ["ui::Badge::display"], uncovered = { dot = "GAP(ui): a Badge::display string value (admission.rs), not a typed member" } }
+"external_open" = ["ui.client_feature:external_open"]
+"ui_capabilities.features" = { symbols = ["ui::Capabilities::features"], uncovered = { ui_capabilities = "the UI section 11 name of the declaration that ui::Capabilities types (UI-CF-6)" } }
+"{url}" = ["ui::Activate::Url"]
+
+# | UI-BD-6 | A view may use `owner` of the Hub `session` kind (the spawning plugin key) in `where`, `order`, a field or a ref **only when the kind's `projection_allowlist` lists `owner`** (UI-AD-1). This amendment adds no other allowlist ...
+[rows."35"]
+"order" = ["ui::Source::order"]
+"owner" = ["hub::SessionRow::owner"]
+"owner?" = ["hub::SessionRow::owner"]
+"projection_allowlist" = ["ui::KindDescriptor::projection_allowlist"]
+"session" = ["hub.kind:session"]
+"where" = ["ui::Source::where_"]
+"where eq(path /owner, lit \"knowledge-inbox-pipeline\")" = { symbols = ["ui::Source::where_", "ui::Pred::Eq", "ui::Operand::Path", "ui::Operand::Lit", "hub::SessionRow::owner"], uncovered = { knowledge = "part of an example plugin key", inbox = "part of an example plugin key", pipeline = "part of an example plugin key" } }
+
+# | UI-PL-1 | **Home placement.** A view with `placement` is also offered in the client's home area, in ascending `order` (ties by view id). The client maps `size` to its grid: a client with fewer sizes maps `full` to `wide` and `wide` to ...
+[rows."46"]
+"full" = { symbols = ["ui::Placement::size"], uncovered = { full = "GAP(ui): a Placement::size string value (admission.rs), not a typed member" } }
+"medium" = { symbols = ["ui::Placement::size"], uncovered = { medium = "GAP(ui): a Placement::size string value (admission.rs), not a typed member" } }
+"order" = ["ui::Placement::order"]
+"placement" = ["ui::ViewDocument::placement"]
+"size" = ["ui::Placement::size"]
+"small" = { symbols = ["ui::Placement::size"], uncovered = { small = "GAP(ui): a Placement::size string value (admission.rs), not a typed member" } }
+"wide" = { symbols = ["ui::Placement::size"], uncovered = { wide = "GAP(ui): a Placement::size string value (admission.rs), not a typed member" } }
+
+# | UI-NB-1 | **Navigation badge.** A `navigation` entry (Hub→client `navigation` kind, declared by the package) may carry `badge`. `source` names **one row and one field**: `kind` (an admitted kind, UI-BD-2), `id` (the row id) and `field`...
+[rows."47"]
+"badge" = ["hub::NavigationRow::badge", "ui::Badge"]
+"display: \"count\"" = { symbols = ["ui::Badge::display"], uncovered = { count = "GAP(ui): a Badge::display string value (admission.rs), not a typed member" } }
+"display: \"dot\"" = { symbols = ["ui::Badge::display"], uncovered = { dot = "GAP(ui): a Badge::display string value (admission.rs), not a typed member" } }
+"false" = "n/a: a JSON literal value"
+"field" = ["ui::BadgeSource::field"]
+"id" = ["ui::BadgeSource::id"]
+"kind" = ["ui::BadgeSource::kind"]
+"navigation" = ["hub.kind:navigation"]
+"source" = ["ui::Badge::source"]
+"tone" = ["ui::Badge::tone"]
+
+# | UI-AD-3 | Admission also checks: `placement` values, `navigate.view` ids, `badge.source` against UI-AD-1 (kind admitted, field in `projection_allowlist`), and `display: "link"` only on a text-valued field. | `conf::ui_ad_3_new_admissio...
+[rows."48"]
+"badge.source" = ["hub::NavigationRow::badge", "ui::Badge::source"]
+"display: \"link\"" = ["ui::Display::Link"]
+"navigate.view" = ["ui::Activate::Navigate", "ui::Navigate::view"]
+"placement" = ["ui::ViewDocument::placement"]
+"projection_allowlist" = ["ui::KindDescriptor::projection_allowlist"]
+
+# Hub→plugin VW-8 lets a plugin contribute an action to Hub session rows. The plugin-platform pair adds `label_pointer`, `status_pointer` and `url_pointer` (JSON pointers into the session row's `metadata[<plugin key>]`, which the plugin wr...
+[rows."52"]
+"applies_to.has_port" = ["plugin::AppliesTo::has_port"]
+"label_pointer" = ["plugin::SessionActionUi::label_pointer"]
+"metadata[<plugin key>]" = { symbols = ["hub::SessionRow::metadata"], uncovered = { plugin = "the placeholder for a plugin key", key = "the placeholder for a plugin key" } }
+"sessions.update" = ["plugin.call:sessions.update"]
+"status_pointer" = ["plugin::SessionActionUi::status_pointer"]
+"url_pointer" = ["plugin::SessionActionUi::url_pointer"]
+
+# | UI-SA-1 | **Pointers (cites Hub→plugin VW-8, A4r44).** A pointer stays inside the package's own `metadata[<package>]` (the Hub fails the load otherwise). A pointer that resolves to nothing or to a non-string **shows nothing**: no error...
+[rows."56"]
+"label" = ["plugin::SessionActionUi::label"]
+"label_pointer" = ["plugin::SessionActionUi::label_pointer"]
+"metadata[<package>]" = { symbols = ["hub::SessionRow::metadata"], uncovered = { package = "the placeholder for a package key" } }
+
+# | UI-SA-2 | **Status.** If `status_pointer` resolves to a string, the client shows it adjacent to the action, or in the same session panel, as secondary text in the neutral tone. An error is conveyed by the plugin in that text (for examp...
+[rows."57"]
+"status_pointer" = ["plugin::SessionActionUi::status_pointer"]
+
+# | UI-SA-3 | **Link.** If `url_pointer` resolves to a value, the client shows it by UI-FD-1 (host shown, opened outside the app, plain text if invalid) and by UI-CF-5 when it cannot open a URL. | `conf::ui_sa_3_url_uses_link_rule` |
+[rows."58"]
+"url_pointer" = ["plugin::SessionActionUi::url_pointer"]
+
+# | UI-SA-4 | **Changes.** The three values are read from the watched `session` row. A `sessions.update` by the plugin re-realizes the action without a view reload. The rules apply **wherever the client shows the session's actions** (toolb...
+[rows."59"]
+"allowed" = ["hub::ActionDescriptor::allowed"]
+"reasons" = ["hub::ActionDescriptor::reasons"]
+"session" = ["hub.kind:session"]
+"sessions.update" = ["plugin.call:sessions.update"]
+
+# ## A5. `dialog` (confirmation requested by the plan auditor)
+[rows."61"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+
+# The ui-contract has **no `dialog` part** (UI-AC-4; the base contract lists six data parts and seven structural parts). Its realized trees contain **`dialog` nodes** (UI-RZ-2b): the UiNode vocabulary needs them for an open action form and...
+[rows."63"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+
+# - G-21 fields other than `owner` (worktree, branch, title) need no UI change: they are ordinary allowlisted fields when the descriptor lists them (UI-AD-1).
+[rows."69"]
+"owner" = ["hub::SessionRow::owner"]
+
+# 1. UI-SL-3: the `Activate` grammar is the one above (A1).
+[rows."73"]
+"Activate" = ["ui::Activate"]
+
+# 2. UI-VR-1: `"1.1"` is the current MINOR; feature name `ui_1_1` (UI-VR-4).
+[rows."74"]
+"ui_1_1" = ["ui.feature:ui_1_1"]

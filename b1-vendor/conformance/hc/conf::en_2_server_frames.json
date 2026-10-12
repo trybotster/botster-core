@@ -1,0 +1,191 @@
+{
+  "id": "conf::en_2_server_frames",
+  "contract": "hc",
+  "clause": "EN-2",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "shutdown_now"
+    ]
+  },
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "limits": {
+        "route_connect_seconds": 10
+      },
+      "worker_terminal_formats": [
+        "ghostsnp/2+raw"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "watch",
+        "kind": "spawn_target"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "watch_id": "$w"
+        }
+      },
+      "ignore": [],
+      "on": "c1",
+      "because": "HC EN-2"
+    },
+    {
+      "expect_eventually": {
+        "type": "watch",
+        "watch_id": "$w"
+      },
+      "ignore": [
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC EN-2"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "invoke",
+        "kind": "session",
+        "action": "attach",
+        "args": {
+          "history": "none"
+        },
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect_eventually": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "route_id": "$rid"
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": "HC EN-2"
+    },
+    {
+      "advance_clock": {
+        "ms": 11000
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "event",
+        "stream_id": "routes",
+        "owner": "hub",
+        "name": "route.ended",
+        "subject": {
+          "route_id": "$rid"
+        },
+        "payload": {
+          "reason": "not_connected"
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": [
+        "HC EN-2",
+        "HC TS-9"
+      ]
+    },
+    {
+      "control": {
+        "op": "shutdown_now"
+      }
+    },
+    {
+      "expect_eventually": {
+        "type": "close",
+        "reason": {
+          "hub_shutdown": {
+            "lock_released": true
+          }
+        }
+      },
+      "ignore": [
+        {
+          "type": "watch"
+        },
+        {
+          "type": "event"
+        }
+      ],
+      "on": "c1",
+      "because": [
+        "HC EN-2",
+        "HC HS-9"
+      ]
+    }
+  ]
+}

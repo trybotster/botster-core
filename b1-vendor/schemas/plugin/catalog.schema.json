@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:botster:schema:plugin:v1:catalog.schema.json",
+  "title": "Catalog",
+  "description": "The catalog document (HP PM-2, A2-44): served over `https` as `application/json`. An unknown key is ignored.",
+  "type": "object",
+  "properties": {
+    "catalog_version": {
+      "description": "The integer `1` (HP A2-44).",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 1,
+      "maximum": 1
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CatalogEntry"
+      }
+    }
+  },
+  "required": [
+    "catalog_version",
+    "entries"
+  ],
+  "$defs": {
+    "CatalogEntry": {
+      "description": "A catalog entry (HP PM-2, A2-44): `id` is unique in the document and matches `[a-z0-9-]+`.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+$"
+        },
+        "kind": {
+          "$ref": "#/$defs/PackageKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/CatalogSource"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "description",
+        "source"
+      ]
+    },
+    "PackageKind": {
+      "description": "The kind of a catalog entry and of a package (HP PM-2, PK-6).",
+      "type": "string",
+      "enum": [
+        "plugin",
+        "agent_definition",
+        "accessory"
+      ]
+    },
+    "CatalogSource": {
+      "description": "The source of a catalog entry: a git URL, an optional ref and an optional `path` (HP PM-2, PK-5).",
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  }
+}

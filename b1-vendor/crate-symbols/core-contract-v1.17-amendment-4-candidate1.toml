@@ -1,0 +1,36 @@
+# The crate symbols of each code span of core-contract-v1.17-amendment-4-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# The base files are the Core contract of manifest `final8`: v1.17 and Amendments 2 and 3, which are unchanged. Other contracts are cited by contract name and clause id only.
+[rows."3"]
+"final8" = "n/a: a manifest name"
+
+# **Why.** SV-4 says that the spawn completion is `Ok(SpawnReport{ applied, unsupported })`, "and the same lists are in the service's state". Amendment 2, A2-5, defines `ServiceState` as the event values `Started`, `Reconnected{epoch}`, `E...
+[rows."7"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"Ok(SpawnReport{ applied, unsupported })" = ["core::OpResult::Ok", "core::SpawnReport::applied", "core::SpawnReport::unsupported"]
+"Reconnected{epoch}" = ["core::ServiceState::Reconnected::epoch"]
+"Released" = ["core::ServiceState::Released"]
+"ServiceState" = ["core::ServiceState"]
+"Started" = ["core::ServiceState::Started"]
+
+# ## A4-1. `service_report` (adds to SV-4 and to the A2-1 operation table)
+[rows."9"]
+"service_report" = ["core::CoreApi::service_report"]
+
+# | A4-1 | **`service_report(id) -> Result<SpawnReport, UnknownService>`** is a sync read.<br>- It returns the `SpawnReport{ applied, unsupported }` of the service's spawn: the same lists as the spawn completion (SV-4).<br>- It answers fro...
+[rows."13"]
+"Exited" = ["core::ServiceState::Exited"]
+"Lost" = ["core::ServiceState::Lost"]
+"Ok" = ["core::OpResult::Ok"]
+"RemoveService" = ["core::Op::RemoveService"]
+"ServiceState" = ["core::ServiceState"]
+"SpawnReport{ applied, unsupported }" = ["core::SpawnReport::applied", "core::SpawnReport::unsupported"]
+"UnknownService" = ["core::ErrorCode::UnknownService"]
+"service_report" = ["core::CoreApi::service_report"]
+"service_report(id) -> Result<SpawnReport, UnknownService>" = { symbols = ["core::CoreApi::service_report", "core::SpawnReport", "core::ErrorCode::UnknownService"], uncovered = { id = "an argument of the call", Result = "the Rust standard Result type" } }
+
+# `FakeCore` implements it from the clause, as script data for the bounds (Core section 11).
+[rows."15"]
+"FakeCore" = "n/a: a frozen fake, not a contract crate"

@@ -1,0 +1,972 @@
+# The crate symbols of each code span of hub-client-contract-v1-amendment-2-candidate6.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# Owner: plan auditor. Reviewer: Sol Hub A. Date: 2026-09-30. **This file is the amendment, in the post-freeze amendment path.** The base is the frozen `hub-client-contract-v1-candidate-parity45.md` plus Amendment 1 (`hub-client-contract-v...
+[rows."3"]
+"hub-client-contract-v1-amendment-1-candidate5.md" = "n/a: a repository path"
+"hub-client-contract-v1-candidate-parity45.md" = "n/a: a repository path"
+
+# **Why:** the completeness sweep (`audits/completeness-sweep-20260930.md`) asked two questions of the frozen package. (A) Where does each name, path and setting live? (B) Is every command fully specified? This amendment closes every HC ga...
+[rows."5"]
+"audits/completeness-sweep-20260930.md" = "n/a: a repository path"
+
+# | RT-1 | **App name and roots** (G-7; CLI-RT1 and CLI-RT2 become normative here, and the CLI spec cites this clause). The app name is `botster` in every build, release or development. **The config root** is `BOTSTER_CONFIG_DIR`, else the...
+[rows."15"]
+"$XDG_CONFIG_HOME/botster" = "n/a: the product and binary name"
+"botster" = "n/a: the product and binary name"
+"~/.botster" = "n/a: the product and binary name"
+"~/.config/botster" = "n/a: a platform configuration path (RT-1)"
+"~/Library/Application Support/botster" = "n/a: a platform configuration path (RT-1)"
+
+# | RT-2 | **Data-root layout** (G-8, G-24, G-25, G-27). The Hub creates these, each with mode 0700 (a file 0600), and owns them:<br>- `hub.lock`: the single-instance lock (RT-4);<br>- `store/`: the Hub's durable store (plugin stores, pack...
+[rows."16"]
+"<config root>/cli/" = "n/a: a path of the CLI layout (RT-2)"
+"<config root>/logs/cli/" = "n/a: a path of the CLI layout (RT-2)"
+"botster context" = "n/a: a CLI command"
+"cli/" = "n/a: a path of the CLI layout (RT-2)"
+"context.json" = "n/a: a repository path"
+"diagnostics" = ["hub.action:hub.diagnostics"]
+"file_directory" = ["core::AttachOptions::file_directory"]
+"hub.lock" = "n/a: a path of the data-root layout (RT-2)"
+"logs/cli/" = "n/a: a path of the CLI layout (RT-2)"
+"logs/hub.log" = "n/a: a path of the data-root layout (RT-2)"
+"packages/" = "n/a: a path of the data-root layout (RT-2)"
+"sessions/<session_id>/" = "n/a: a path of the data-root layout (RT-2)"
+"sessions/<session_id>/context.json" = "n/a: a repository path"
+"sessions/<session_id>/uploads/" = "n/a: a path of the data-root layout (RT-2)"
+"store/" = "n/a: a path of the data-root layout (RT-2)"
+"terminfo/" = "n/a: a path of the data-root layout (RT-2)"
+"uploads/" = "n/a: a path of the data-root layout (RT-2)"
+
+# | RT-3 | **Install layout** (G-12). An install is one directory that holds `botster`, `botster-hub`, `botster-tui`, `botster-worker`, `botster-plugin-host`, `botster-mcp-bridge` and `botster-process-bridge`. **Each binary finds the other...
+[rows."17"]
+"botster" = "n/a: the product and binary name"
+"botster-hub" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-mcp-bridge" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-plugin-host" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-process-bridge" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-tui" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"botster-worker" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"hub update" = "n/a: a CLI command"
+
+# | RT-4 | **Single-instance lock** (G-8). The lock is an exclusive advisory lock on `<data root>/hub.lock`. **Its scope is the data root:** two Hubs with different data roots may run. A Hub takes the lock before it binds its socket, and i...
+[rows."18"]
+"<data root>/hub.lock" = "n/a: a path of the data-root layout (RT-2)"
+"failed lock_held" = { symbols = ["hub.ready_failure:lock_held"], uncovered = { failed = "the word of the ready line (HS-0)" } }
+"lock_released: true" = { symbols = ["hub::HubShutdownData::lock_released"], uncovered = { true = "a JSON literal value" } }
+
+# | RT-5 | **Runtime directory and socket safety** (G-9). The Hub creates `/tmp/botster-<uid>` (when `XDG_RUNTIME_DIR` is unset) and `<runtime dir>/botster` with mode 0700. If either exists and is not owned by the Hub's uid, or has a wider...
+[rows."19"]
+"/tmp/botster-<uid>" = "n/a: a runtime directory path (RT-5)"
+"<runtime dir>/botster" = "n/a: a runtime directory path (RT-5)"
+"failed socket_unavailable" = { symbols = ["hub.ready_failure:socket_unavailable"], uncovered = { failed = "the word of the ready line (HS-0)" } }
+
+# | CF-1 | **The Hub configuration file** (G-1, G-10, G-26). The Hub reads its parameters from `<config root>/hub.toml` (TOML 1.0, UTF-8). The file is optional; a missing key takes its documented default. The operator creates and edits it,...
+[rows."20"]
+"<config root>/hub.toml" = "n/a: a repository path"
+"[hub] offline = true" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"botster-hub up" = "n/a: a CLI command"
+"failed config_invalid <key>" = { symbols = ["hub.ready_failure:config_invalid"], uncovered = { failed = "the word of the ready line (HS-0)", key = "a placeholder for the key" } }
+"failed config_unknown_key <key>" = { symbols = ["hub.ready_failure:config_unknown_key"], uncovered = { failed = "the word of the ready line (HS-0)", key = "a placeholder for the key" } }
+"hub/config.changed { keys, restart_required: [key] }" = { symbols = ["plugin.event:hub/config.changed", "plugin::ConfigChangedEvent::keys", "plugin::ConfigChangedEvent::restart_required"], uncovered = { key = "a placeholder for a key" } }
+"invalid_arguments { reason: config_invalid, detail: { key } }" = { symbols = ["hub.reason:hub.reload_config:invalid_arguments:config_invalid", "hub::Error::reason", "hub::Error::detail"], uncovered = { key = "a member of detail (an open object)" } }
+"invoke(hub, diagnostics)" = ["hub::Verb::Invoke", "hub.action:hub.diagnostics"]
+"invoke(hub, id, reload_config)" = { symbols = ["hub::Verb::Invoke", "hub.action:hub.reload_config"], uncovered = { id = "the target argument" } }
+
+# | CF-2 | **HC parameters in `hub.toml`.** Each row is the key path, type, default and when it applies. Section 15 of HP lists the HP keys. | `conf::cf_2_every_hc_parameter_has_a_key` |
+[rows."21"]
+"hub.toml" = "n/a: a repository path"
+
+# | `[hub] offline` | bool | `false` | restart. When true, no update check runs, and `check_update` answers `failed { reason: offline }`. |
+[rows."27"]
+"[hub] offline" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"check_update" = ["hub.action:hub.check_update"]
+"failed { reason: offline }" = ["hub::CheckUpdateState::Failed", "hub::ReasonData::reason", "hub.value:CHECK_UPDATE_FAILURE_REASONS:offline"]
+"false" = "n/a: a JSON literal value"
+
+# | `[hub] log_level` | `debug \| info \| warn \| error` | `info` | live |
+[rows."28"]
+"[hub] log_level" = { symbols = ["hub::LogLevel"], uncovered = { hub = "the hub.toml table name", log_level = "a hub.toml key" } }
+"debug \\| info \\| warn \\| error" = ["hub::LogLevel::Debug", "hub::LogLevel::Error", "hub::LogLevel::Info", "hub::LogLevel::Warn"]
+"info" = ["hub::LogLevel::Info"]
+
+# | `[limits] max_frame_bytes`, `max_chunk_bytes`, `max_outstanding`, `max_watches` (at least 32), `route_connect_seconds`, `idempotency_window_seconds`, `cursor_idle_seconds`, `operation_retention_seconds` | integers | the Hub's defaults,...
+[rows."29"]
+"[limits] max_frame_bytes" = ["hub::Limits::max_frame_bytes"]
+"cursor_idle_seconds" = ["hub::Limits::cursor_idle_seconds"]
+"idempotency_window_seconds" = ["hub::Limits::idempotency_window_seconds"]
+"max_chunk_bytes" = ["hub::Limits::max_chunk_bytes"]
+"max_outstanding" = ["hub::Limits::max_outstanding"]
+"max_watches" = ["hub::Limits::max_watches"]
+"operation_retention_seconds" = ["hub::Limits::operation_retention_seconds"]
+"route_connect_seconds" = ["hub::Limits::route_connect_seconds"]
+"welcome.limits" = ["hub::Welcome::limits"]
+
+# | `[routes] max_paste_bytes`, `max_file_bytes`, `query_client_deadline_ms`, `stall_deadline_ms`, `stall_close_after_ms` | integers | the Hub's defaults, reported per route in `route_limits` (TS-1) | live, for new routes |
+[rows."30"]
+"[routes] max_paste_bytes" = { symbols = ["codec::RouteLimits::max_paste_bytes"], uncovered = { routes = "the hub.toml table name" } }
+"max_file_bytes" = ["codec::RouteLimits::max_file_bytes"]
+"query_client_deadline_ms" = ["codec::RouteLimits::query_client_deadline_ms"]
+"route_limits" = ["hub::AttachResult::route_limits"]
+"stall_close_after_ms" = ["codec::RouteLimits::stall_close_after_ms"]
+"stall_deadline_ms" = ["codec::RouteLimits::stall_deadline_ms"]
+
+# | `[sessions] activity_idle_ms` | integer | `3000` | live |
+[rows."31"]
+"[sessions] activity_idle_ms" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[sessions] worktree_base` | absolute path | `<data root>/worktrees` | live, for new worktrees |
+[rows."32"]
+"<data root>/worktrees" = "n/a: a default path under the data root"
+"[sessions] worktree_base" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[sessions] term` | string | Core's emulator entry name (Core names it) | restart |
+[rows."33"]
+"[sessions] term" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[agents] scopes` | list of permission names and `*` patterns | every client permission (MC-1b) | live |
+[rows."34"]
+"[agents] scopes" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[audit] retention_days` | integer | `30` | live |
+[rows."35"]
+"[audit] retention_days" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[audit] max_bytes` | integer | `67108864` (64 MiB) | live |
+[rows."36"]
+"[audit] max_bytes" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+
+# | `[network] trusted_hosts` | list of `{ path, sha256 }` | empty | restart (HP TR-1) |
+[rows."37"]
+"[network] trusted_hosts" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"{ path, sha256 }" = ["hub::TrustedHost::path", "hub::TrustedHost::sha256"]
+
+# | `[update] check_on_start` | bool | `true` | restart |
+[rows."38"]
+"[update] check_on_start" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"true" = "n/a: a JSON literal value"
+
+# | HS-0 | The ready line is UTF-8 and ends with `LF`. In `failed <code> <message>`, `code` is one of `lock_held`, `config_invalid`, `config_unknown_key`, `socket_path_too_long`, `socket_unavailable`, `adoption_failed`, `internal` (non-exh...
+[rows."44"]
+"adoption_failed" = ["hub.ready_failure:adoption_failed"]
+"code" = "n/a: a field of the ready line text (HS-0)"
+"config_invalid" = ["hub.ready_failure:config_invalid"]
+"config_unknown_key" = ["hub.ready_failure:config_unknown_key"]
+"failed <code> <message>" = "n/a: the form of the ready line text (HS-0)"
+"internal" = ["hub.ready_failure:internal"]
+"lock_held" = ["hub.ready_failure:lock_held"]
+"socket_path_too_long" = ["hub.ready_failure:socket_path_too_long"]
+"socket_unavailable" = ["hub.ready_failure:socket_unavailable"]
+
+# | TB-L1 | `<app>` is `botster` (RT-1). The directory creation and owner checks are RT-5. |
+[rows."45"]
+"<app>" = "n/a: a placeholder for the app name"
+"botster" = "n/a: the product and binary name"
+
+# | MC-1c | **`TERM`** is the value of `[sessions] term` (default: Core's emulator entry name), and **`TERMINFO`** is `<data root>/terminfo`, which the Hub populates from the entry Core ships (G-11). **The context file** is `<data root>/se...
+[rows."46"]
+"<data root>/sessions/<session_id>/context.json" = "n/a: a repository path"
+"<data root>/terminfo" = "n/a: a path of the data-root layout (RT-2)"
+"[sessions] term" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"agent_definition" = ["hub::PackageKind::AgentDefinition"]
+"create(session_type)" = ["hub::Verb::Create", "hub.kind:session_type"]
+"session_type_dir" = ["hub::SessionContextFile::session_type_dir"]
+
+# | Section 6, `session_type` row, `source` | G-16: a `{ repo: { target_id } }` session type is an `agent_definition` package discovered in the target (HP CP-8, PK-8, A2-39 to A2-51). The file in the repository is its definition. `create(s...
+[rows."47"]
+"agent_definition" = ["hub::PackageKind::AgentDefinition"]
+"create(session_type, { source: { repo } })" = ["hub::Verb::Create", "hub.kind:session_type", "hub::SessionTypeRow::source", "hub::TypeSource::Repo"]
+"rescan_packages" = ["hub.action:spawn_target.rescan_packages"]
+"session_type" = ["hub.kind:session_type"]
+"source" = ["hub::SessionTypeRow::source"]
+"unsupported { reason: repo_source_is_discovered }" = ["hub.reason:session_type.create:unsupported:repo_source_is_discovered", "hub::Error::reason"]
+"{ repo: { target_id } }" = ["hub::TypeSource::Repo", "hub::RepoSource::target_id"]
+
+# | SF-5b, `push_public_key` | G-20: it is the base64url encoding (no padding) of the uncompressed P-256 public point (65 bytes). The private key is in the Hub's durable store (RT-2). A new key pair invalidates every `push_subscription`. |
+[rows."48"]
+"push_public_key" = ["hub::HubRow::push_public_key"]
+"push_subscription" = ["hub.kind:push_subscription"]
+
+# | PR-4, the ICE endpoint | G-30: `GET <web origin>/hubs/<hub_id>/ice` answers `application/json` `{ servers: [{ urls: [string], username?, credential? }] }`, as HP WP-6 stores it. |
+[rows."49"]
+"GET <web origin>/hubs/<hub_id>/ice" = "n/a: an HTTP endpoint of the web origin (PR-4)"
+"application/json" = "n/a: a media type"
+"{ servers: [{ urls: [string], username?, credential? }] }" = { symbols = ["hub::IceServer::credential", "hub::IceServers::servers", "hub::IceServer::urls", "hub::IceServer::username"], uncovered = { string = "a primitive type name" } }
+
+# | PR-3 | G-33: a client that is not a browser keeps its client key in `<config root>/credentials/<hub_id>.json`, mode 0600. Only that client reads the file. |
+[rows."50"]
+"<config root>/credentials/<hub_id>.json" = "n/a: a client file path (PR-3)"
+
+# | Section 6, `navigation` row, and A.9 `resolve_route` | G-17 (ui-contract UI-SL-9): the Web URL of a navigation target is `<web origin>/hubs/<hub_id>/v/<package key>/<view>?<slot>=<row key>`. **`route_path`** is the part after `/hubs/<h...
+[rows."51"]
+"/hubs/<hub_id>" = "n/a: a URL path form (UI-SL-9)"
+"/ice" = "n/a: a reserved URL path"
+"/signal" = "n/a: a reserved URL path"
+"/v/<package key>/<view>" = "n/a: a URL path form (UI-SL-9)"
+"<web origin>/hubs/<hub_id>/v/<package key>/<view>?<slot>=<row key>" = "n/a: a URL form (UI-SL-9)"
+"?<slot>=<row key>" = "n/a: a URL query form (UI-SL-9)"
+"navigation" = ["hub.kind:navigation"]
+"not_found" = ["hub::ErrorCode::NotFound"]
+"resolve_route" = ["hub.action:navigation.resolve_route"]
+"resolve_route { route_path }" = ["hub.action:navigation.resolve_route", "hub::ResolveRouteArgs::route_path"]
+"route_path" = ["hub::ResolveRouteArgs::route_path"]
+"{ target: { kind: view, id, select? } }" = ["hub::NavTarget::id", "hub::NavTarget::kind", "hub::NavTarget::select", "hub::ResolveRouteResult::target", "hub::NavTargetKind::View"]
+
+# | Section 6, `catalog` row | The row's fields are exactly `id`, `url`, `refreshed_at?` and `entries` (CLI OI-9). |
+[rows."52"]
+"catalog" = ["hub.kind:catalog"]
+"entries" = ["hub::CatalogRow::entries"]
+"id" = ["hub::CatalogRow::id"]
+"refreshed_at?" = ["hub::CatalogRow::refreshed_at"]
+"url" = ["hub::CatalogRow::url"]
+
+# | `package` | `enable` (extended) | `{ fs_roots?: { <root_id>: <absolute path> } }` | `{ operation }` | accepted (not durable) | `invalid_arguments { reason: fs_root_unknown \| path_not_absolute \| path_not_found }`; `wrong_state { reaso...
+[rows."58"]
+"enable" = ["hub.action:package.enable"]
+"invalid_arguments { reason: fs_root_unknown \\| path_not_absolute \\| path_not_found }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.enable:invalid_arguments:fs_root_unknown", "hub.reason:package.enable:invalid_arguments:path_not_absolute", "hub.reason:package.enable:invalid_arguments:path_not_found", "hub::Error::reason"]
+"package" = ["hub.kind:package"]
+"wrong_state { reason: fs_root_unbound }" = ["hub.reason:package.enable:wrong_state:fs_root_unbound", "hub::Error::reason"]
+"{ fs_roots?: { <root_id>: <absolute path> } }" = { symbols = ["hub::EnableArgs::fs_roots"], uncovered = { root_id = "a placeholder key", absolute = "a placeholder value", path = "a placeholder value" } }
+"{ operation }" = ["hub.kind:operation"]
+
+# | `package` | `update` (configuration) | the `configuration` merge patch may set `webhook_secret`, a secret field (SF-3: never returned; shown as `set: bool`) | the package | committed | `invalid_arguments` (schema) |
+[rows."59"]
+"configuration" = ["hub::PackagePatch::configuration"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments"]
+"package" = ["hub.kind:package"]
+"set: bool" = "n/a: the display form of a secret field (SF-3)"
+"update" = ["hub.action:package.update"]
+"webhook_secret" = "n/a: a package-defined configuration field, not a contract field"
+
+# | `spawn_target` | `rescan_packages` | `{}` | `{ operation }`; the operation ends `succeeded { found: [package key], removed: [package key] }` (the instances the rescan found, and those it removed) or `failed { reason }` (HP A2-51(d)) | ...
+[rows."60"]
+"failed { reason }" = ["hub::OperationState::reason", "hub.operation_state:spawn_target.rescan_packages:failed"]
+"rescan_packages" = ["hub.action:spawn_target.rescan_packages"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"succeeded { found: [package key], removed: [package key] }" = { symbols = ["hub.operation_state:spawn_target.rescan_packages:succeeded", "hub::RescanResult::found", "hub::RescanResult::removed"], uncovered = { package = "a placeholder", key = "a placeholder" } }
+"wrong_state { reason: not_a_directory }" = ["hub.reason:spawn_target.rescan_packages:wrong_state:not_a_directory", "hub::Error::reason"]
+"{ operation }" = ["hub.kind:operation"]
+
+# | `session_type` | `create` / `update` | adds `agent_scopes?: [permission]` | the session type | committed | `invalid_arguments { reason: scope_widens }` when it names a scope outside `[agents] scopes` |
+[rows."61"]
+"[agents] scopes" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"agent_scopes?: [permission]" = { symbols = ["hub::SessionTypeDefinition::agent_scopes"], uncovered = { permission = "a placeholder for a permission name" } }
+"create" = ["hub.action:session_type.create"]
+"invalid_arguments { reason: scope_widens }" = ["hub.reason:session_type.create:invalid_arguments:scope_widens", "hub.reason:session_type.update:invalid_arguments:scope_widens", "hub::Error::reason"]
+"session_type" = ["hub.kind:session_type"]
+"update" = ["hub.action:session_type.update"]
+
+# | `session` | `create` | adds `agent_scopes?: [permission]` | the receipt | accepted (durable) | `invalid_arguments { reason: scope_widens }` |
+[rows."62"]
+"agent_scopes?: [permission]" = { symbols = ["hub::SessionCreateType::agent_scopes", "hub::SessionCreateCommand::agent_scopes"], uncovered = { permission = "a placeholder for a permission name" } }
+"create" = ["hub.action:session.create"]
+"invalid_arguments { reason: scope_widens }" = ["hub.reason:session.create:invalid_arguments:scope_widens", "hub::Error::reason"]
+"session" = ["hub.kind:session"]
+
+# | `hub` | `reload_config` | `{}` | `{ applied: [key], restart_required: [key] }` | committed | `invalid_arguments { reason: config_invalid, detail: { key } }` |
+[rows."63"]
+"hub" = ["hub.kind:hub"]
+"invalid_arguments { reason: config_invalid, detail: { key } }" = { symbols = ["hub.reason:hub.reload_config:invalid_arguments:config_invalid", "hub::Error::reason", "hub::Error::detail"], uncovered = { key = "a member of detail (an open object)" } }
+"reload_config" = ["hub.action:hub.reload_config"]
+"{ applied: [key], restart_required: [key] }" = { symbols = ["hub::ReloadConfigResult::applied", "hub::ReloadConfigResult::restart_required"], uncovered = { key = "a placeholder for a key" } }
+
+# `agent_scopes` only narrows: the effective scope set of an agent is the intersection of `[agents] scopes`, its session type's `agent_scopes` and its session's `agent_scopes` (MC-1b). The TR-1 trusted hosts are the `[network] trusted_host...
+[rows."65"]
+"[agents] scopes" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"[network] trusted_hosts" = "n/a: a hub.toml key; no contract crate parses hub.toml (CF-1)"
+"agent_scopes" = ["hub::SessionTypeDefinition::agent_scopes", "hub::SessionCreateType::agent_scopes"]
+
+# | A.1b | **Tagged values and error data** (H-1; codec revision 30 A.1 uses the same rule). In JSON, an enum value with no data is a string (`"running"`). An enum value with data is an object with exactly one key, the value name, whose va...
+[rows."75"]
+"\"running\"" = ["hub.operation_state:running"]
+"Error" = ["hub::Error"]
+"candidates" = { symbols = ["hub::Error::detail"], uncovered = { candidates = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"code" = { symbols = ["hub::Error::detail"], uncovered = { code = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"consumers" = { symbols = ["hub::Error::detail"], uncovered = { consumers = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"detail" = ["hub::Error::detail"]
+"detail?: object" = { symbols = ["hub::Error::detail"], uncovered = { object = "a JSON type name" } }
+"found" = { symbols = ["hub::Error::detail"], uncovered = { found = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"interface" = { symbols = ["hub::Error::detail"], uncovered = { interface = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"key" = { symbols = ["hub::Error::detail"], uncovered = { key = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"name" = { symbols = ["hub::Error::detail"], uncovered = { name = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"range" = { symbols = ["hub::Error::detail"], uncovered = { range = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"reason" = ["hub::Error::reason"]
+"sessions" = { symbols = ["hub::Error::detail"], uncovered = { sessions = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"unknown" = { symbols = ["hub::Error::detail"], uncovered = { unknown = "an example member name of Error::detail, an open object (A.1b); no type holds its members" } }
+"{ \"degraded\": { \"interface\": \"x\" } }" = { symbols = ["hub::PackageStatus::Degraded", "hub::DegradedData::interface"], uncovered = { x = "an example value" } }
+"{ \"failed\": { \"reason\": \"fetch_failed\" } }" = ["hub.operation_state:catalog.refresh:failed", "hub.operation_state:package.install:failed", "hub.operation_state:package.upgrade:failed", "hub::OperationState::reason", "hub.operation:catalog.refresh:fetch_failed", "hub.operation:package.install:fetch_failed", "hub.operation:package.upgrade:fetch_failed"]
+
+# | A.7b | **Operations** (H-2, H-17, H-29). The `{ operation }` result of every accepted action is **the full `operation` row at admission**. Session create keeps its own receipt `{ operation_id, session, state }`. Each kind, its states, ...
+[rows."76"]
+"cancelled" = ["hub.operation_state:hub.update:cancelled", "hub.operation_state:hub.shutdown:cancelled", "hub.operation_state:hub.restart:cancelled", "hub.operation_state:hub.swap:cancelled", "hub.operation_state:hub.upgrade_packages:cancelled", "hub.operation_state:hub.rollback_packages:cancelled", "hub.operation_state:session.stop:cancelled", "hub.operation_state:worktree.create:cancelled", "hub.operation_state:worktree.delete:cancelled", "hub.operation_state:package.install:cancelled", "hub.operation_state:package.remove:cancelled", "hub.operation_state:package.enable:cancelled", "hub.operation_state:package.disable:cancelled", "hub.operation_state:package.reload:cancelled", "hub.operation_state:package.entrypoint:cancelled", "hub.operation_state:package.upgrade:cancelled", "hub.operation_state:package.rollback:cancelled", "hub.operation_state:catalog.refresh:cancelled", "hub.operation_state:spawn_target.rescan_packages:cancelled"]
+"catalog.refresh" = ["hub.operation:catalog.refresh"]
+"close { hub_shutdown, lock_released }" = ["hub::Close", "hub::CloseReason::HubShutdown", "hub::HubShutdownData::lock_released"]
+"failed" = ["hub.operation_state:package.install:failed"]
+"failed { reason }" = ["hub.operation_state:hub.update:failed", "hub.operation_state:hub.shutdown:failed", "hub.operation_state:hub.restart:failed", "hub.operation_state:hub.swap:failed", "hub.operation_state:hub.upgrade_packages:failed", "hub.operation_state:hub.rollback_packages:failed", "hub.operation_state:session.stop:failed", "hub.operation_state:worktree.create:failed", "hub.operation_state:worktree.delete:failed", "hub.operation_state:package.install:failed", "hub.operation_state:package.remove:failed", "hub.operation_state:package.enable:failed", "hub.operation_state:package.disable:failed", "hub.operation_state:package.reload:failed", "hub.operation_state:package.entrypoint:failed", "hub.operation_state:package.upgrade:failed", "hub.operation_state:package.rollback:failed", "hub.operation_state:catalog.refresh:failed", "hub.operation_state:spawn_target.rescan_packages:failed", "hub::OperationState::reason"]
+"failed { reason: download_failed \\| verify_failed \\| install_failed }" = ["hub.operation_state:hub.update:failed", "hub::OperationState::reason", "hub.operation:hub.update:download_failed", "hub.operation:hub.update:verify_failed", "hub.operation:hub.update:install_failed"]
+"failed { reason: exec_failed \\| cwd_missing \\| worktree_failed \\| worker_failed \\| session_type_unavailable }" = ["hub.operation_state:spawn:failed", "hub::OperationState::reason", "hub.operation:spawn:exec_failed", "hub.operation:spawn:cwd_missing", "hub.operation:spawn:worktree_failed", "hub.operation:spawn:worker_failed", "hub.operation:spawn:session_type_unavailable"]
+"failed { reason: fetch_failed \\| hash_mismatch \\| activation_failed }" = ["hub.operation_state:package.upgrade:failed", "hub::OperationState::reason", "hub.operation:package.upgrade:fetch_failed", "hub.operation:package.upgrade:hash_mismatch", "hub.operation:package.upgrade:activation_failed"]
+"failed { reason: fetch_failed \\| url_refused \\| malformed \\| too_large }" = ["hub.operation_state:catalog.refresh:failed", "hub::OperationState::reason", "hub.operation:catalog.refresh:fetch_failed", "hub.operation:catalog.refresh:url_refused", "hub.operation:catalog.refresh:malformed", "hub.operation:catalog.refresh:too_large"]
+"failed { reason: git_failed }" = ["hub.operation_state:worktree.create:failed", "hub::OperationState::reason", "hub.operation:worktree.create:git_failed"]
+"failed { reason: hash_mismatch }" = ["hub.operation_state:package.rollback:failed", "hub::OperationState::reason", "hub.operation:package.rollback:hash_mismatch"]
+"failed.reason" = ["hub::OperationState::reason", "hub.operation_state:failed"]
+"fetch_failed" = ["hub.operation:package.install:fetch_failed"]
+"fraction" = ["hub::Progress::fraction"]
+"hash_mismatch" = ["hub.operation:package.install:hash_mismatch"]
+"hub.restart" = ["hub.operation:hub.restart"]
+"hub.rollback_packages" = ["hub.operation:hub.rollback_packages"]
+"hub.shutdown" = ["hub.operation:hub.shutdown"]
+"hub.swap" = ["hub.operation:hub.swap"]
+"hub.update" = ["hub.operation:hub.update"]
+"hub.upgrade_packages" = ["hub.operation:hub.upgrade_packages"]
+"installed" = ["hub.operation_state:spawn:installed"]
+"operation" = ["hub.kind:operation"]
+"package.disable" = ["hub.operation:package.disable"]
+"package.enable" = ["hub.operation:package.enable"]
+"package.entrypoint" = ["hub.operation:package.entrypoint"]
+"package.install" = ["hub.operation:package.install"]
+"package.reload" = ["hub.operation:package.reload"]
+"package.remove" = ["hub.operation:package.remove"]
+"package.rollback" = ["hub.operation:package.rollback"]
+"package.upgrade" = ["hub.operation:package.upgrade"]
+"progress" = ["hub::OperationRow::progress"]
+"queued" = ["hub.operation_state:hub.update:queued", "hub.operation_state:hub.shutdown:queued", "hub.operation_state:hub.restart:queued", "hub.operation_state:hub.swap:queued", "hub.operation_state:hub.upgrade_packages:queued", "hub.operation_state:hub.rollback_packages:queued", "hub.operation_state:session.stop:queued", "hub.operation_state:worktree.create:queued", "hub.operation_state:worktree.delete:queued", "hub.operation_state:package.install:queued", "hub.operation_state:package.remove:queued", "hub.operation_state:package.enable:queued", "hub.operation_state:package.disable:queued", "hub.operation_state:package.reload:queued", "hub.operation_state:package.entrypoint:queued", "hub.operation_state:package.upgrade:queued", "hub.operation_state:package.rollback:queued", "hub.operation_state:catalog.refresh:queued", "hub.operation_state:spawn_target.rescan_packages:queued"]
+"result" = ["hub::OperationRow::result"]
+"result { package, ref, resolved_commit }" = ["hub.operation_result:package.rollback", "hub::PackageRollbackResult::package", "hub::PackageRollbackResult::ref", "hub::PackageRollbackResult::resolved_commit", "hub::OperationRow::result"]
+"result { package, version, resolved_commit }" = ["hub.operation_result:package.upgrade", "hub::PackageUpgradeResult::package", "hub::PackageUpgradeResult::version", "hub::PackageUpgradeResult::resolved_commit", "hub::OperationRow::result"]
+"result { packages: [{ package, state: succeeded \\| failed, reason? }] }" = ["hub::OperationRow::result", "hub::BulkPackagesResult::packages", "hub::PackageOutcome::package", "hub::PackageOutcome::state", "hub.value:PACKAGE_OUTCOME_STATES:succeeded", "hub.value:PACKAGE_OUTCOME_STATES:failed", "hub::PackageOutcome::reason"]
+"result { version }" = ["hub.operation_result:hub.update", "hub::UpdateResult::version", "hub::OperationRow::result"]
+"running" = ["hub.operation_state:hub.update:running", "hub.operation_state:hub.shutdown:running", "hub.operation_state:hub.restart:running", "hub.operation_state:hub.swap:running", "hub.operation_state:hub.upgrade_packages:running", "hub.operation_state:hub.rollback_packages:running", "hub.operation_state:session.stop:running", "hub.operation_state:worktree.create:running", "hub.operation_state:worktree.delete:running", "hub.operation_state:package.install:running", "hub.operation_state:package.remove:running", "hub.operation_state:package.enable:running", "hub.operation_state:package.disable:running", "hub.operation_state:package.reload:running", "hub.operation_state:package.entrypoint:running", "hub.operation_state:package.upgrade:running", "hub.operation_state:package.rollback:running", "hub.operation_state:catalog.refresh:running", "hub.operation_state:spawn_target.rescan_packages:running"]
+"safe_write" = ["hub.action:session.safe_write"]
+"session.stop" = ["hub.operation:session.stop"]
+"spawn" = ["hub.operation:spawn"]
+"spawn_target.rescan_packages" = ["hub.operation:spawn_target.rescan_packages"]
+"starting" = ["hub.operation_state:spawn:starting"]
+"succeeded" = ["hub.operation_state:hub.update:succeeded", "hub.operation_state:hub.shutdown:succeeded", "hub.operation_state:hub.restart:succeeded", "hub.operation_state:hub.swap:succeeded", "hub.operation_state:hub.upgrade_packages:succeeded", "hub.operation_state:hub.rollback_packages:succeeded", "hub.operation_state:session.stop:succeeded", "hub.operation_state:worktree.create:succeeded", "hub.operation_state:worktree.delete:succeeded", "hub.operation_state:package.install:succeeded", "hub.operation_state:package.remove:succeeded", "hub.operation_state:package.enable:succeeded", "hub.operation_state:package.disable:succeeded", "hub.operation_state:package.reload:succeeded", "hub.operation_state:package.entrypoint:succeeded", "hub.operation_state:package.upgrade:succeeded", "hub.operation_state:package.rollback:succeeded", "hub.operation_state:catalog.refresh:succeeded", "hub.operation_state:spawn_target.rescan_packages:succeeded"]
+"succeeded { found, removed }" = ["hub.operation_state:spawn_target.rescan_packages:succeeded", "hub::RescanResult::found", "hub::RescanResult::removed"]
+"too_large" = ["hub.operation:package.install:too_large"]
+"url_refused" = ["hub.operation:package.install:url_refused"]
+"worktree.create" = ["hub.operation:worktree.create"]
+"worktree.delete" = ["hub.operation:worktree.delete"]
+"{ message, fraction? }" = ["hub::Progress::fraction", "hub::Progress::message"]
+"{ operation }" = ["hub.kind:operation"]
+"{ operation_id, session, state }" = ["hub::SessionCreateReceipt::operation_id", "hub::SessionCreateReceipt::session", "hub::SessionCreateReceipt::state"]
+
+# | A.9b | **Specific failures of each action** (H-10; the table below). Every request may also fail with the **common failures**: `invalid_arguments` (schema), `permission_denied`, `unsupported`, `not_found` (the target), `remote_hub_unsu...
+[rows."77"]
+"busy" = ["hub::ErrorCode::Busy"]
+"cancelled" = ["hub::ErrorCode::Cancelled"]
+"catalog_id" = ["hub::PackageSource::Catalog::catalog_id"]
+"code" = ["hub::Error::code"]
+"conf::a_9b_<kind>_<action>_<reason>" = "n/a: a pattern of conformance ids"
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"entry_id" = ["hub::PackageSource::Catalog::entry_id"]
+"entrypoint_id" = ["hub::EntrypointArgs::entrypoint_id"]
+"field_errors" = ["hub::Error::field_errors"]
+"hub_shutdown" = ["hub::ErrorCode::HubShutdown"]
+"internal" = ["hub::ErrorCode::Internal"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments"]
+"not_found" = ["hub::ErrorCode::NotFound"]
+"permission_denied" = ["hub::ErrorCode::PermissionDenied"]
+"plugin_failed" = ["hub::ErrorCode::PluginFailed"]
+"pointer" = ["hub::FieldError::pointer"]
+"ref" = ["hub::GetTool::ref", "hub::UpdateTool::ref", "hub::DeleteTool::ref", "hub::InvokeTool::ref"]
+"remote_hub_unsupported" = ["hub::ErrorCode::RemoteHubUnsupported"]
+"response_too_large" = ["hub::ErrorCode::ResponseTooLarge"]
+"route_id" = ["hub::DetachArgs::route_id"]
+"session_type_id" = ["hub::SessionCreateType::session_type_id"]
+"stale_descriptor" = ["hub::ErrorCode::StaleDescriptor"]
+"target_id" = ["hub::SessionCreateType::target_id"]
+"too_many_requests" = ["hub::ErrorCode::TooManyRequests"]
+"unsupported" = ["hub::ErrorCode::Unsupported"]
+"worktree_id" = ["hub::SessionCreateType::worktree_id"]
+
+# | H-18 | **Hub-wide operations do not overlap.** While `swap`, `update` or a bulk package operation (`upgrade_packages`, `rollback_packages`) runs, a second one of these, and `shutdown` and `restart`, are refused with `wrong_state { reas...
+[rows."78"]
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"restart" = ["hub.action:hub.restart"]
+"rollback_packages" = ["hub.action:hub.rollback_packages"]
+"shutdown" = ["hub.action:hub.shutdown"]
+"swap" = ["hub.action:hub.swap"]
+"update" = ["hub.action:hub.update"]
+"upgrade_packages" = ["hub.action:hub.upgrade_packages"]
+"wrong_state { reason: swap_in_progress \\| update_in_progress \\| package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub::Error::reason", "hub.reason:hub.update:wrong_state:swap_in_progress", "hub.reason:hub.update:wrong_state:update_in_progress", "hub.reason:hub.swap:wrong_state:swap_in_progress", "hub.reason:hub.swap:wrong_state:update_in_progress", "hub.reason:hub.swap:wrong_state:package_operation_in_progress", "hub.reason:package.upgrade:wrong_state:package_operation_in_progress"]
+
+# | `hub` | `check_update` | none: a failed check is the result `state: failed { reason }` (H-3) | read |
+[rows."84"]
+"check_update" = ["hub.action:hub.check_update"]
+"hub" = ["hub.kind:hub"]
+"state: failed { reason }" = ["hub::UpdateStatus::state", "hub::UpdateState::Failed", "hub::ReasonData::reason"]
+
+# | `hub` | `update` | `wrong_state { up_to_date \| offline \| dev_build \| update_in_progress \| swap_in_progress }`; operation failures in A.7b | accepted, durable |
+[rows."85"]
+"hub" = ["hub.kind:hub"]
+"update" = ["hub.action:hub.update"]
+"wrong_state { up_to_date \\| offline \\| dev_build \\| update_in_progress \\| swap_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.update:wrong_state:up_to_date", "hub.reason:hub.update:wrong_state:offline", "hub.reason:hub.update:wrong_state:dev_build", "hub.reason:hub.update:wrong_state:update_in_progress", "hub.reason:hub.update:wrong_state:swap_in_progress"]
+
+# | `hub` | `shutdown`, `restart` | `wrong_state { swap_in_progress \| update_in_progress \| package_operation_in_progress }` | accepted, not durable |
+[rows."86"]
+"hub" = ["hub.kind:hub"]
+"restart" = ["hub.action:hub.restart"]
+"shutdown" = ["hub.action:hub.shutdown"]
+"wrong_state { swap_in_progress \\| update_in_progress \\| package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.shutdown:wrong_state:swap_in_progress", "hub.reason:hub.restart:wrong_state:swap_in_progress", "hub.reason:hub.shutdown:wrong_state:update_in_progress", "hub.reason:hub.restart:wrong_state:update_in_progress", "hub.reason:hub.shutdown:wrong_state:package_operation_in_progress", "hub.reason:hub.restart:wrong_state:package_operation_in_progress"]
+
+# | `hub` | `reload_config` | `invalid_arguments { config_invalid }` (CF-1) | committed |
+[rows."87"]
+"hub" = ["hub.kind:hub"]
+"invalid_arguments { config_invalid }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:hub.reload_config:invalid_arguments:config_invalid"]
+"reload_config" = ["hub.action:hub.reload_config"]
+
+# | `hub` | `diagnostics`, `preview_package_upgrades` | common only | read |
+[rows."88"]
+"diagnostics" = ["hub.action:hub.diagnostics"]
+"hub" = ["hub.kind:hub"]
+"preview_package_upgrades" = ["hub.action:hub.preview_package_upgrades"]
+
+# | `hub` | `swap_preflight` | `invalid_arguments { unknown_worker_protocol }` (H-26) | read |
+[rows."89"]
+"hub" = ["hub.kind:hub"]
+"invalid_arguments { unknown_worker_protocol }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:hub.swap_preflight:invalid_arguments:unknown_worker_protocol"]
+"swap_preflight" = ["hub.action:hub.swap_preflight"]
+
+# | `hub` | `swap` | covered: `wrong_state { unadoptable_sessions }` with `detail { sessions, unknown }`; `wrong_state { swap_in_progress \| update_in_progress \| package_operation_in_progress }`; `invalid_arguments { unknown_worker_protoc...
+[rows."90"]
+"detail { sessions, unknown }" = ["hub::Error::detail", "hub.reason:hub.swap:wrong_state:unadoptable_sessions", "hub::UnadoptableDetail::sessions", "hub::UnadoptableDetail::unknown"]
+"hub" = ["hub.kind:hub"]
+"invalid_arguments { unknown_worker_protocol }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:hub.swap:invalid_arguments:unknown_worker_protocol"]
+"swap" = ["hub.action:hub.swap"]
+"wrong_state { swap_in_progress \\| update_in_progress \\| package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.swap:wrong_state:swap_in_progress", "hub.reason:hub.swap:wrong_state:update_in_progress", "hub.reason:hub.swap:wrong_state:package_operation_in_progress"]
+"wrong_state { unadoptable_sessions }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.swap:wrong_state:unadoptable_sessions"]
+
+# | `hub` | `issue_pairing` | covered: `wrong_state { no_web_origin }`; `invalid_arguments { ttl_out_of_range }` for a `ttl_seconds` that is not a positive integer. The Hub caps a larger value at its own maximum and reports the applied val...
+[rows."91"]
+"expires_at" = ["hub::IssuePairingResult::expires_at"]
+"hub" = ["hub.kind:hub"]
+"invalid_arguments { ttl_out_of_range }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:hub.issue_pairing:invalid_arguments:ttl_out_of_range"]
+"issue_pairing" = ["hub.action:hub.issue_pairing"]
+"ttl_seconds" = ["hub::IssuePairingArgs::ttl_seconds"]
+"wrong_state { no_web_origin }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.issue_pairing:wrong_state:no_web_origin"]
+
+# | `hub` | `upgrade_packages` | covered: `conflict { requirement_conflict \| ambiguous_provider \| requirement_missing }`; `conflict { breaking_not_accepted }` with `detail { consumers }`; `wrong_state { package_operation_in_progress }` |...
+[rows."92"]
+"conflict { breaking_not_accepted }" = ["hub::ErrorCode::Conflict", "hub.reason:hub.upgrade_packages:conflict:breaking_not_accepted"]
+"conflict { requirement_conflict \\| ambiguous_provider \\| requirement_missing }" = ["hub::ErrorCode::Conflict", "hub.reason:hub.upgrade_packages:conflict:requirement_conflict", "hub.reason:hub.upgrade_packages:conflict:ambiguous_provider", "hub.reason:hub.upgrade_packages:conflict:requirement_missing"]
+"detail { consumers }" = { symbols = ["hub::Error::detail"], uncovered = { consumers = "a key of the untyped error detail (hub::Error::detail is a JSON value)" } }
+"hub" = ["hub.kind:hub"]
+"upgrade_packages" = ["hub.action:hub.upgrade_packages"]
+"wrong_state { package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.upgrade_packages:wrong_state:package_operation_in_progress"]
+
+# | `hub` | `rollback_packages` | `wrong_state { no_history \| package_operation_in_progress }`; per-package outcomes in `result` (A.7b) | accepted, durable |
+[rows."93"]
+"hub" = ["hub.kind:hub"]
+"result" = ["hub::OperationRow::result"]
+"rollback_packages" = ["hub.action:hub.rollback_packages"]
+"wrong_state { no_history \\| package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:hub.rollback_packages:wrong_state:no_history", "hub.reason:hub.rollback_packages:wrong_state:package_operation_in_progress"]
+
+# | `session` | `create` (type) | covered: `wrong_state { swap_in_progress }`, `internal { credential_unavailable }`, `invalid_arguments { target_mismatch }`; `wrong_state { session_type_unavailable }` (`resolve.available` is false); `inva...
+[rows."94"]
+"create" = ["hub.action:session.create"]
+"internal { credential_unavailable }" = ["hub::ErrorCode::Internal", "hub.reason:session.create:internal:credential_unavailable"]
+"invalid_arguments { scope_widens }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.create:invalid_arguments:scope_widens"]
+"invalid_arguments { target_mismatch }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.create:invalid_arguments:target_mismatch"]
+"resolve.available" = ["hub.action:session_type.resolve", "hub::ResolveResult::available"]
+"session" = ["hub.kind:session"]
+"wrong_state { session_type_unavailable }" = ["hub::ErrorCode::WrongState", "hub.reason:session.create:wrong_state:session_type_unavailable"]
+"wrong_state { swap_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:session.create:wrong_state:swap_in_progress"]
+
+# | `session` | `create` (command) | covered: `permission_denied` (`session.create_command`); `invalid_arguments { argv_empty \| cwd_not_allowed }`; `wrong_state { swap_in_progress }` | accepted, durable |
+[rows."95"]
+"create" = ["hub.action:session.create"]
+"invalid_arguments { argv_empty \\| cwd_not_allowed }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.create:invalid_arguments:argv_empty", "hub.reason:session.create:invalid_arguments:cwd_not_allowed"]
+"permission_denied" = ["hub::ErrorCode::PermissionDenied", "hub.reason:session.create:permission_denied"]
+"session" = ["hub.kind:session"]
+"session.create_command" = { symbols = ["hub.kind:session"], uncovered = { create_command = "a permission name (a string of hub::VerbDescriptor::permission)" } }
+"wrong_state { swap_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:session.create:wrong_state:swap_in_progress"]
+
+# | `session` | `update` | covered: `conflict` (`if_rev`), `invalid_arguments` (identity fields). Allowed in every state (H-30) | committed |
+[rows."96"]
+"conflict" = ["hub::ErrorCode::Conflict", "hub.reason:session.update:conflict"]
+"if_rev" = ["hub::UpdateArgs::if_rev"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.update:invalid_arguments"]
+"session" = ["hub.kind:session"]
+"update" = ["hub.action:session.update"]
+
+# | `session` | `delete` | covered: `wrong_state` for `starting`, `running`, `stopping` (A.2c) | committed |
+[rows."97"]
+"delete" = ["hub.action:session.delete"]
+"running" = ["codec::SessionState::Running"]
+"session" = ["hub.kind:session"]
+"starting" = ["codec::SessionState::Starting"]
+"stopping" = ["codec::SessionState::Stopping"]
+"wrong_state" = ["hub::ErrorCode::WrongState", "hub.reason:session.delete:wrong_state"]
+
+# | `session` | `attach` | covered: `unsupported { binding_auth_unavailable \| terminal_format }`; before the reservation (H-4): `wrong_state { session_not_running }` (`ended`, `lost`), `not_found { route }` (a `replace_route` that is not ...
+[rows."98"]
+"attach" = ["hub.action:session.attach"]
+"attach_failed" = ["codec::CloseReason::AttachFailed"]
+"busy" = ["hub::ErrorCode::Busy", "hub.reason:session.attach:busy"]
+"ended" = ["codec::SessionState::Ended"]
+"lost" = ["codec::SessionState::Lost"]
+"not_found { route }" = ["hub::ErrorCode::NotFound", "hub.reason:session.attach:not_found:route"]
+"replace_route" = ["hub::AttachArgs::replace_route"]
+"session" = ["hub.kind:session"]
+"unsupported { binding }" = ["hub::ErrorCode::Unsupported", "hub.reason:session.attach:unsupported:binding"]
+"unsupported { binding_auth_unavailable \\| terminal_format }" = ["hub::ErrorCode::Unsupported", "hub.reason:session.attach:unsupported:binding_auth_unavailable", "hub.reason:session.attach:unsupported:terminal_format"]
+"wrong_state { session_not_running }" = ["hub::ErrorCode::WrongState", "hub.reason:session.attach:wrong_state:session_not_running"]
+
+# | `session` | `attach_offer` | H-5: `permission_denied { bad_signature }`; `not_found { route }` (unknown, or another caller's); `wrong_state { route_connected \| route_expired \| not_webrtc_route }`; `busy`. Each leaves the reservation ...
+[rows."99"]
+"attach_offer" = "n/a: the per-route attach_offer; removed by HC A8 (final37)"
+"busy" = ["hub::ErrorCode::Busy"]
+"not_found { route }" = { symbols = ["hub::ErrorCode::NotFound"], uncovered = { route = "the per-route attach_offer; removed by HC A8 (final37)" } }
+"permission_denied { bad_signature }" = { symbols = ["hub::ErrorCode::PermissionDenied"], uncovered = { bad_signature = "the per-route attach_offer; removed by HC A8 (final37)" } }
+"route_expired" = "n/a: the per-route attach_offer; removed by HC A8 (final37)"
+"session" = ["hub.kind:session"]
+"wrong_state { route_connected \\| route_expired \\| not_webrtc_route }" = { symbols = ["hub::ErrorCode::WrongState"], uncovered = { route_expired = "the per-route attach_offer; removed by HC A8 (final37)", route_connected = "the per-route attach_offer; removed by HC A8 (final37)", not_webrtc_route = "the per-route attach_offer; removed by HC A8 (final37)" } }
+
+# | `session` | `detach` | `not_found { route }` (unknown, or another caller's) | immediate |
+[rows."100"]
+"detach" = ["hub.action:session.detach"]
+"not_found { route }" = ["hub::ErrorCode::NotFound", "hub.reason:session.detach:not_found:route"]
+"session" = ["hub.kind:session"]
+
+# | `session` | `stop` | `wrong_state { not_running }` for `ended` and `lost`; on `stopping`, answers the existing operation | accepted, not durable |
+[rows."101"]
+"ended" = ["codec::SessionState::Ended"]
+"lost" = ["codec::SessionState::Lost"]
+"session" = ["hub.kind:session"]
+"stop" = ["hub.action:session.stop"]
+"stopping" = ["codec::SessionState::Stopping"]
+"wrong_state { not_running }" = ["hub::ErrorCode::WrongState", "hub.reason:session.stop:wrong_state:not_running"]
+
+# | `session` | `restart` | covered: `wrong_state { not_ended \| not_restartable \| record_unavailable \| environment_not_retained \| not_ready \| swap_in_progress }` | accepted, durable |
+[rows."102"]
+"restart" = ["hub.action:session.restart"]
+"session" = ["hub.kind:session"]
+"wrong_state { not_ended \\| not_restartable \\| record_unavailable \\| environment_not_retained \\| not_ready \\| swap_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:session.restart:wrong_state:not_ended", "hub.reason:session.restart:wrong_state:not_restartable", "hub.reason:session.restart:wrong_state:record_unavailable", "hub.reason:session.restart:wrong_state:environment_not_retained", "hub.reason:session.restart:wrong_state:not_ready", "hub.reason:session.restart:wrong_state:swap_in_progress"]
+
+# | `session` | `read_screen` | `wrong_state { no_screen_model }` only when the session has no model. A running session, or an ended one whose model is still kept (until it is removed), is read normally (frozen A.9; HP SA-1, A2-30) | read |
+[rows."103"]
+"read_screen" = ["hub.action:session.read_screen"]
+"session" = ["hub.kind:session"]
+"wrong_state { no_screen_model }" = ["hub::ErrorCode::WrongState", "hub.reason:session.read_screen:wrong_state:no_screen_model"]
+
+# | `session` | `clear_attention` | none: idempotent, `ok` with no attention set | committed |
+[rows."104"]
+"clear_attention" = ["hub.action:session.clear_attention"]
+"ok" = ["hub::Outcome::Ok"]
+"session" = ["hub.kind:session"]
+
+# | `session` | `safe_write` | by the section 11 extension (H-9): `wrong_state { session_ended }`, `invalid_arguments { text_too_long \| text_empty }`, `busy`; outcomes by operation (HP SW-2) | accepted, not durable |
+[rows."105"]
+"busy" = ["hub::ErrorCode::Busy", "hub.reason:session.safe_write:busy"]
+"invalid_arguments { text_too_long \\| text_empty }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.safe_write:invalid_arguments:text_too_long", "hub.reason:session.safe_write:invalid_arguments:text_empty"]
+"safe_write" = ["hub.action:session.safe_write"]
+"session" = ["hub.kind:session"]
+"wrong_state { session_ended }" = ["hub::ErrorCode::WrongState", "hub.reason:session.safe_write:wrong_state:session_ended"]
+
+# | `session` | `write` | by the section 11 extension (H-9): `wrong_state { session_ended }`, `busy` (lane full), `invalid_arguments { bytes_too_long \| bytes_empty \| bytes_invalid }` | immediate |
+[rows."106"]
+"busy" = ["hub::ErrorCode::Busy", "hub.reason:session.write:busy"]
+"invalid_arguments { bytes_too_long \\| bytes_empty \\| bytes_invalid }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session.write:invalid_arguments:bytes_too_long", "hub.reason:session.write:invalid_arguments:bytes_empty", "hub.reason:session.write:invalid_arguments:bytes_invalid"]
+"session" = ["hub.kind:session"]
+"write" = ["hub.action:session.write"]
+"wrong_state { session_ended }" = ["hub::ErrorCode::WrongState", "hub.reason:session.write:wrong_state:session_ended"]
+
+# | `session_type` | `create`, `update` | `conflict` (an id that exists, create); `invalid_arguments { port_env_invalid \| scope_widens }`; `wrong_state { not_editable }` (update); `unsupported { repo_source_is_discovered }` | committed |
+[rows."107"]
+"conflict" = ["hub::ErrorCode::Conflict", "hub.reason:session_type.create:conflict"]
+"create" = ["hub.action:session_type.create"]
+"invalid_arguments { port_env_invalid \\| scope_widens }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:session_type.create:invalid_arguments:port_env_invalid", "hub.reason:session_type.update:invalid_arguments:port_env_invalid", "hub.reason:session_type.create:invalid_arguments:scope_widens", "hub.reason:session_type.update:invalid_arguments:scope_widens"]
+"session_type" = ["hub.kind:session_type"]
+"unsupported { repo_source_is_discovered }" = ["hub::ErrorCode::Unsupported", "hub.reason:session_type.create:unsupported:repo_source_is_discovered", "hub.reason:session_type.update:unsupported:repo_source_is_discovered"]
+"update" = ["hub.action:session_type.update"]
+"wrong_state { not_editable }" = ["hub::ErrorCode::WrongState", "hub.reason:session_type.update:wrong_state:not_editable"]
+
+# | `session_type` | `delete` | `wrong_state { not_editable }`. Current sessions keep running | committed |
+[rows."108"]
+"delete" = ["hub.action:session_type.delete"]
+"session_type" = ["hub.kind:session_type"]
+"wrong_state { not_editable }" = ["hub::ErrorCode::WrongState", "hub.reason:session_type.delete:wrong_state:not_editable"]
+
+# | `session_type` | `resolve`, `definition` | common only (a missing `target_id` follows H-11) | read |
+[rows."109"]
+"definition" = ["hub.action:session_type.definition"]
+"resolve" = ["hub.action:session_type.resolve"]
+"session_type" = ["hub.kind:session_type"]
+"target_id" = ["hub::ResolveArgs::target_id"]
+
+# | `spawn_target` | `create`, `update` | `invalid_arguments { path_not_absolute \| path_not_found \| not_a_directory }`; `conflict { path_exists }` | committed |
+[rows."110"]
+"conflict { path_exists }" = ["hub::ErrorCode::Conflict", "hub.reason:spawn_target.create:conflict:path_exists", "hub.reason:spawn_target.update:conflict:path_exists"]
+"create" = ["hub.action:spawn_target.create"]
+"invalid_arguments { path_not_absolute \\| path_not_found \\| not_a_directory }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:spawn_target.create:invalid_arguments:path_not_absolute", "hub.reason:spawn_target.update:invalid_arguments:path_not_absolute", "hub.reason:spawn_target.create:invalid_arguments:path_not_found", "hub.reason:spawn_target.update:invalid_arguments:path_not_found", "hub.reason:spawn_target.create:invalid_arguments:not_a_directory", "hub.reason:spawn_target.update:invalid_arguments:not_a_directory"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"update" = ["hub.action:spawn_target.update"]
+
+# | `spawn_target` | `delete` | `wrong_state { in_use }` (worktrees or current sessions) | committed |
+[rows."111"]
+"delete" = ["hub.action:spawn_target.delete"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"wrong_state { in_use }" = ["hub::ErrorCode::WrongState", "hub.reason:spawn_target.delete:wrong_state:in_use"]
+
+# | `spawn_target` | `validate` | none: problems are in the result; `problems[].code` ∈ `path_missing`, `not_a_directory`, `not_git`, `unreadable` (non-exhaustive) | read |
+[rows."112"]
+"not_a_directory" = { symbols = ["hub::CodeMessage::code"], uncovered = { not_a_directory = "a non-exhaustive string code of CodeMessage::code" } }
+"not_git" = { symbols = ["hub::CodeMessage::code"], uncovered = { not_git = "a non-exhaustive string code of CodeMessage::code" } }
+"path_missing" = { symbols = ["hub::CodeMessage::code"], uncovered = { path_missing = "a non-exhaustive string code of CodeMessage::code" } }
+"problems[].code" = ["hub::ValidateResult::problems", "hub::CodeMessage::code"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"unreadable" = { symbols = ["hub::CodeMessage::code"], uncovered = { unreadable = "a non-exhaustive string code of CodeMessage::code" } }
+"validate" = ["hub.action:spawn_target.validate"]
+
+# | `spawn_target` | `browse` | `invalid_arguments { path_not_absolute }`; `not_found { path }`; `wrong_state { not_a_directory \| unreadable }` | read |
+[rows."113"]
+"browse" = ["hub.action:spawn_target.browse"]
+"invalid_arguments { path_not_absolute }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:spawn_target.browse:invalid_arguments:path_not_absolute"]
+"not_found { path }" = ["hub::ErrorCode::NotFound", "hub.reason:spawn_target.browse:not_found:path"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"wrong_state { not_a_directory \\| unreadable }" = ["hub::ErrorCode::WrongState", "hub.reason:spawn_target.browse:wrong_state:not_a_directory", "hub.reason:spawn_target.browse:wrong_state:unreadable"]
+
+# | `spawn_target` | `rescan_packages` | `wrong_state { not_a_directory }` | accepted, not durable |
+[rows."114"]
+"rescan_packages" = ["hub.action:spawn_target.rescan_packages"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"wrong_state { not_a_directory }" = ["hub::ErrorCode::WrongState", "hub.reason:spawn_target.rescan_packages:wrong_state:not_a_directory"]
+
+# | `worktree` | `create` | `wrong_state { not_git }`; `conflict { branch_checked_out }`; operation `failed { git_failed }` | accepted, durable |
+[rows."115"]
+"conflict { branch_checked_out }" = ["hub::ErrorCode::Conflict", "hub.reason:worktree.create:conflict:branch_checked_out"]
+"create" = ["hub.action:worktree.create"]
+"failed { git_failed }" = ["hub.operation_state:worktree.create:failed", "hub.operation:worktree.create:git_failed"]
+"worktree" = ["hub.kind:worktree"]
+"wrong_state { not_git }" = ["hub::ErrorCode::WrongState", "hub.reason:worktree.create:wrong_state:not_git"]
+
+# | `worktree` | `delete` | covered: `wrong_state { dirty }` (unless `force`), `wrong_state { occupied }` | accepted, durable |
+[rows."116"]
+"delete" = ["hub.action:worktree.delete"]
+"force" = ["hub::WorktreeDeleteArgs::force"]
+"worktree" = ["hub.kind:worktree"]
+"wrong_state { dirty }" = ["hub::ErrorCode::WrongState", "hub.reason:worktree.delete:wrong_state:dirty"]
+"wrong_state { occupied }" = ["hub::ErrorCode::WrongState", "hub.reason:worktree.delete:wrong_state:occupied"]
+
+# | `package` | `create` (install) | covered: `invalid_arguments { path_invalid }`, operation `failed` (A.7b); `conflict { already_installed }` | accepted, durable |
+[rows."117"]
+"conflict { already_installed }" = ["hub::ErrorCode::Conflict", "hub.reason:package.create:conflict:already_installed"]
+"create" = ["hub.action:package.create"]
+"failed" = ["hub.operation_state:package.install:failed"]
+"invalid_arguments { path_invalid }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.create:invalid_arguments:path_invalid"]
+"package" = ["hub.kind:package"]
+
+# | `package` | `delete` (remove) | none: the consumers that require its interfaces become `degraded { interface }` (HP PD-8) | accepted, durable |
+[rows."118"]
+"degraded { interface }" = ["hub::PackageStatus::Degraded", "hub::DegradedData::interface"]
+"delete" = ["hub.action:package.delete"]
+"package" = ["hub.kind:package"]
+
+# | `package` | `update` (configuration) | covered: `invalid_arguments` (schema, `field_errors`) | committed |
+[rows."119"]
+"field_errors" = ["hub::Error::field_errors"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.update:invalid_arguments"]
+"package" = ["hub.kind:package"]
+"update" = ["hub.action:package.update"]
+
+# | `package` | `enable` | `wrong_state { staged \| quarantined \| errored \| fs_root_unbound }`; `invalid_arguments { fs_root_unknown \| path_not_absolute \| path_not_found }`. Already enabled: `ok`, with no change | accepted, not durable |
+[rows."120"]
+"enable" = ["hub.action:package.enable"]
+"invalid_arguments { fs_root_unknown \\| path_not_absolute \\| path_not_found }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.enable:invalid_arguments:fs_root_unknown", "hub.reason:package.enable:invalid_arguments:path_not_absolute", "hub.reason:package.enable:invalid_arguments:path_not_found"]
+"ok" = ["hub::Outcome::Ok"]
+"package" = ["hub.kind:package"]
+"wrong_state { staged \\| quarantined \\| errored \\| fs_root_unbound }" = ["hub::ErrorCode::WrongState", "hub.reason:package.enable:wrong_state:staged", "hub.reason:package.enable:wrong_state:quarantined", "hub.reason:package.enable:wrong_state:errored", "hub.reason:package.enable:wrong_state:fs_root_unbound"]
+
+# | `package` | `disable` | none: already disabled is `ok` | accepted, not durable |
+[rows."121"]
+"disable" = ["hub.action:package.disable"]
+"ok" = ["hub::Outcome::Ok"]
+"package" = ["hub.kind:package"]
+
+# | `package` | `reload` | `wrong_state { disabled }` | accepted, not durable |
+[rows."122"]
+"package" = ["hub.kind:package"]
+"reload" = ["hub.action:package.reload"]
+"wrong_state { disabled }" = ["hub::ErrorCode::WrongState", "hub.reason:package.reload:wrong_state:disabled"]
+
+# | `package` | `start_entrypoint`, `stop_entrypoint`, `restart_entrypoint` | `wrong_state { disabled }`; an unknown `entrypoint_id` follows H-11 | accepted, not durable |
+[rows."123"]
+"entrypoint_id" = ["hub::EntrypointArgs::entrypoint_id"]
+"package" = ["hub.kind:package"]
+"restart_entrypoint" = ["hub.action:package.restart_entrypoint"]
+"start_entrypoint" = ["hub.action:package.start_entrypoint"]
+"stop_entrypoint" = ["hub.action:package.stop_entrypoint"]
+"wrong_state { disabled }" = ["hub::ErrorCode::WrongState", "hub.reason:package.start_entrypoint:wrong_state:disabled", "hub.reason:package.stop_entrypoint:wrong_state:disabled", "hub.reason:package.restart_entrypoint:wrong_state:disabled"]
+
+# | `package` | `preview_upgrade` | `wrong_state { local_source }`; `wrong_state { fetch_failed }` (retryable) | read |
+[rows."124"]
+"package" = ["hub.kind:package"]
+"preview_upgrade" = ["hub.action:package.preview_upgrade"]
+"wrong_state { fetch_failed }" = ["hub::ErrorCode::WrongState", "hub.reason:package.preview_upgrade:wrong_state:fetch_failed"]
+"wrong_state { local_source }" = ["hub::ErrorCode::WrongState", "hub.reason:package.preview_upgrade:wrong_state:local_source"]
+
+# | `package` | `upgrade` | H-6: `conflict { breaking_not_accepted \| ambiguous_provider \| requirement_missing \| requirement_conflict }` with `detail { consumers \| candidates }`, `effect: none`; `wrong_state { pinned \| local_source \| ...
+[rows."125"]
+"conflict { breaking_not_accepted \\| ambiguous_provider \\| requirement_missing \\| requirement_conflict }" = ["hub::ErrorCode::Conflict", "hub.reason:package.upgrade:conflict:breaking_not_accepted", "hub.reason:package.upgrade:conflict:ambiguous_provider", "hub.reason:package.upgrade:conflict:requirement_missing", "hub.reason:package.upgrade:conflict:requirement_conflict"]
+"detail { consumers \\| candidates }" = { symbols = ["hub::Error::detail", "hub::Ambiguity::candidates"], uncovered = { consumers = "a key of the untyped error detail (hub::Error::detail is a JSON value)" } }
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"package" = ["hub.kind:package"]
+"upgrade" = ["hub.action:package.upgrade"]
+"wrong_state { pinned \\| local_source \\| up_to_date \\| package_operation_in_progress }" = ["hub::ErrorCode::WrongState", "hub.reason:package.upgrade:wrong_state:pinned", "hub.reason:package.upgrade:wrong_state:local_source", "hub.reason:package.upgrade:wrong_state:up_to_date", "hub.reason:package.upgrade:wrong_state:package_operation_in_progress"]
+
+# | `package` | `pin` | `wrong_state { local_source }`; an unknown `ref` follows H-11 | committed |
+[rows."126"]
+"package" = ["hub.kind:package"]
+"pin" = ["hub.action:package.pin"]
+"ref" = ["hub::PinArgs::ref"]
+"wrong_state { local_source }" = ["hub::ErrorCode::WrongState", "hub.reason:package.pin:wrong_state:local_source"]
+
+# | `package` | `unpin` | none: not pinned is `ok` | committed |
+[rows."127"]
+"ok" = ["hub::Outcome::Ok"]
+"package" = ["hub.kind:package"]
+"unpin" = ["hub.action:package.unpin"]
+
+# | `package` | `rollback` | `wrong_state { no_history \| local_source }`; operation failures in A.7b; it ends `staged` when the rolled-back version needs a new approval (HP PM-9) | accepted, durable |
+[rows."128"]
+"package" = ["hub.kind:package"]
+"rollback" = ["hub.action:package.rollback"]
+"staged" = ["hub.reason:package.enable:wrong_state:staged"]
+"wrong_state { no_history \\| local_source }" = ["hub::ErrorCode::WrongState", "hub.reason:package.rollback:wrong_state:no_history", "hub.reason:package.rollback:wrong_state:local_source"]
+
+# | `package` | `approve_grants` | `conflict { grants_mismatch }` (the set is not exactly the pending set); `wrong_state { nothing_pending }` | committed |
+[rows."129"]
+"approve_grants" = ["hub.action:package.approve_grants"]
+"conflict { grants_mismatch }" = ["hub::ErrorCode::Conflict", "hub.reason:package.approve_grants:conflict:grants_mismatch"]
+"package" = ["hub.kind:package"]
+"wrong_state { nothing_pending }" = ["hub::ErrorCode::WrongState", "hub.reason:package.approve_grants:wrong_state:nothing_pending"]
+
+# | `package` | `open_asset` | covered: `not_found` for a foreign asset; also `not_found` for a disabled, quarantined or removed package, and for a staged name that the new version dropped (HP AS-4); `wrong_state { assets_origin_unconfigur...
+[rows."130"]
+"asset_id" = ["hub::OpenAssetArgs::ById::asset_id"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments", "hub.reason:package.open_asset:invalid_arguments"]
+"name" = ["hub::OpenAssetArgs::ByName::name"]
+"not_found" = ["hub::ErrorCode::NotFound", "hub.reason:package.open_asset:not_found"]
+"open_asset" = ["hub.action:package.open_asset"]
+"package" = ["hub.kind:package"]
+"wrong_state { assets_origin_unconfigured }" = ["hub::ErrorCode::WrongState", "hub.reason:package.open_asset:wrong_state:assets_origin_unconfigured"]
+
+# | `catalog` | `create` | `invalid_arguments { url_not_https }`; `conflict` (the URL is already added). It does not fetch: the first `refresh` does | committed |
+[rows."131"]
+"catalog" = ["hub.kind:catalog"]
+"conflict" = ["hub::ErrorCode::Conflict", "hub.reason:catalog.create:conflict"]
+"create" = ["hub.action:catalog.create"]
+"invalid_arguments { url_not_https }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:catalog.create:invalid_arguments:url_not_https"]
+"refresh" = ["hub.action:catalog.refresh"]
+
+# | `catalog` | `delete` | none: installed packages keep their lock | committed |
+[rows."132"]
+"catalog" = ["hub.kind:catalog"]
+"delete" = ["hub.action:catalog.delete"]
+
+# | `catalog` | `refresh` | operation failures in A.7b | accepted, not durable |
+[rows."133"]
+"catalog" = ["hub.kind:catalog"]
+"refresh" = ["hub.action:catalog.refresh"]
+
+# | `quarantine` | `resolve` | none: `release` while the cause still holds answers `ok`, and the package is quarantined again | committed |
+[rows."134"]
+"ok" = ["hub::Outcome::Ok"]
+"quarantine" = ["hub.kind:quarantine"]
+"release" = ["hub::Decision::Release"]
+"resolve" = ["hub.action:quarantine.resolve"]
+
+# | `navigation` | `resolve_route` | `not_found` (an unknown `route_path`) | read |
+[rows."135"]
+"navigation" = ["hub.kind:navigation"]
+"not_found" = ["hub::ErrorCode::NotFound", "hub.reason:navigation.resolve_route:not_found"]
+"resolve_route" = ["hub.action:navigation.resolve_route"]
+"route_path" = ["hub::ResolveRouteArgs::route_path"]
+
+# | `client_credential` | `delete` | none. For the caller's own credential, the Hub sends `res { ok: {} }`, then closes with `close { auth_failed }` (H-28) | committed |
+[rows."136"]
+"client_credential" = ["hub.kind:client_credential"]
+"close { auth_failed }" = ["hub::Close", "hub::CloseReason::AuthFailed"]
+"delete" = ["hub.action:client_credential.delete"]
+"res { ok: {} }" = ["hub::Res", "hub::Outcome::Ok"]
+
+# | `route` | `delete` | `not_found` for an unknown route or another caller's route | immediate |
+[rows."137"]
+"delete" = ["hub.action:route.delete"]
+"not_found" = ["hub::ErrorCode::NotFound", "hub.reason:route.delete:not_found"]
+"route" = ["hub.kind:route"]
+
+# | `push_subscription` | `create` | `invalid_arguments { endpoint_not_https }`; `conflict` (the endpoint is already registered) | committed |
+[rows."138"]
+"conflict" = ["hub::ErrorCode::Conflict", "hub.reason:push_subscription.create:conflict"]
+"create" = ["hub.action:push_subscription.create"]
+"invalid_arguments { endpoint_not_https }" = ["hub::ErrorCode::InvalidArguments", "hub.reason:push_subscription.create:invalid_arguments:endpoint_not_https"]
+"push_subscription" = ["hub.kind:push_subscription"]
+
+# | `push_subscription` | `delete` | `not_found` for another credential's subscription | committed |
+[rows."139"]
+"delete" = ["hub.action:push_subscription.delete"]
+"not_found" = ["hub::ErrorCode::NotFound", "hub.reason:push_subscription.delete:not_found"]
+"push_subscription" = ["hub.kind:push_subscription"]
+
+# | any plugin kind | declared actions | the declared `reasons`; plugin failures by the section 11 mapping | as declared |
+[rows."140"]
+"reasons" = ["hub::ActionDescriptor::reasons"]
+
+# | Hub row `update`, and A.9 `check_update` (H-3) | `update` is `{ state: idle \| checking \| available \| downloading \| installing \| failed { reason }, available?: { version } }`. `check_update` answers `{ state: up_to_date \| ahead \|...
+[rows."146"]
+"ahead" = ["hub::CheckState::Ahead"]
+"check_update" = ["hub.action:hub.check_update"]
+"get(operation, id)" = ["hub::Verb::Get", "hub::OperationRow::id", "hub.kind:operation"]
+"restart" = ["hub.action:hub.restart"]
+"update" = ["hub::HubRow::update"]
+"welcome" = ["hub::Welcome"]
+"{ state: idle \\| checking \\| available \\| downloading \\| installing \\| failed { reason }, available?: { version } }" = ["hub::UpdateStatus::state", "hub::UpdateState::Idle", "hub::UpdateState::Checking", "hub::UpdateState::Available", "hub::UpdateState::Downloading", "hub::UpdateState::Installing", "hub::UpdateState::Failed", "hub::ReasonData::reason", "hub::UpdateStatus::available", "hub::AvailableUpdate::version"]
+"{ state: up_to_date \\| ahead \\| available \\| failed { reason: check_failed \\| offline \\| dev_build }, available?: { version } }" = { symbols = ["hub::CheckUpdateResult::state", "hub::CheckState::UpToDate", "hub::CheckState::Ahead", "hub::CheckState::Available", "hub::CheckUpdateState::Failed", "hub::ReasonData::reason", "hub::CheckUpdateResult::available", "hub::AvailableUpdate::version"], uncovered = { check_failed = "a string reason of ReasonData", offline = "a string reason of ReasonData", dev_build = "a string reason of ReasonData" } }
+
+# | Section 6, `worktree` and `spawn_target` rows (H-7, H-34) | `worktree.state` ∈ `creating`, `ready`, `deleting`, `failed`, `missing` (the directory is gone). `spawn_target.kind` ∈ `directory`, `git` (non-exhaustive); it is also a create...
+[rows."147"]
+"creating" = ["hub::WorktreeState::Creating"]
+"deleting" = ["hub::WorktreeState::Deleting"]
+"directory" = ["hub::TargetKind::Directory"]
+"failed" = ["hub::WorktreeState::Failed"]
+"git" = "n/a: an external tool name"
+"missing" = ["hub::WorktreeState::Missing"]
+"path" = ["hub.reason:spawn_target.browse:not_found:path"]
+"ready" = ["hub::WorktreeState::Ready"]
+"root" = { symbols = ["hub::SpawnTargetRow::path"], uncovered = { root = "prose: the spawn target root directory" } }
+"spawn_target" = ["hub.kind:spawn_target"]
+"spawn_target.kind" = ["hub.kind:spawn_target", "hub::SpawnTargetRow::kind"]
+"state" = ["hub::WorktreeRow::state"]
+"status" = ["plugin::WorktreeRow::status"]
+"worktree" = ["hub.kind:worktree"]
+"worktree.state" = ["hub.kind:worktree", "hub::WorktreeRow::state"]
+
+# | MC-2 (H-8) | `whoami {}` answers `{ caller: SessionRef, scopes: [permission] }`. The `delete` tool is `delete { ref, args?, idempotency_key?, operation_id? }`, where `args` is as the kind declares in A.9. |
+[rows."148"]
+"args" = ["hub::DeleteTool::args"]
+"delete" = ["hub::Verb::Delete"]
+"delete { ref, args?, idempotency_key?, operation_id? }" = { symbols = ["hub::DeleteTool::reference", "hub::DeleteTool::args", "hub::DeleteTool::request", "hub::ToolRequestFields::idempotency_key", "hub::Verb::Delete"], uncovered = { ref = "the wire name of DeleteTool::reference", operation_id = "a member of the flattened request fields" } }
+"whoami {}" = { symbols = ["hub::WhoamiResult"], uncovered = { whoami = "the MCP tool name whose result is WhoamiResult" } }
+"{ caller: SessionRef, scopes: [permission] }" = { symbols = ["hub::WhoamiResult::caller", "hub::SessionRef", "hub::WhoamiResult::scopes"], uncovered = { permission = "a permission name (a string)" } }
+
+# | VB-5 (H-12) | `delete(kind, target, args?)`: `args` as the kind declares in A.9 (`package { purge? }`, `worktree { force? }`). |
+[rows."149"]
+"args" = ["hub::DeleteTool::args"]
+"delete(kind, target, args?)" = { symbols = ["hub::Verb::Delete", "hub::DeleteTool::args"], uncovered = { kind = "the placeholder for a kind name", target = "the target row of the verb (DeleteTool::reference)" } }
+"package { purge? }" = ["hub.kind:package", "hub::PackageRemoveArgs::purge"]
+"worktree { force? }" = ["hub.kind:worktree", "hub::WorktreeDeleteArgs::force"]
+
+# | DS-1 (H-13) | `reasons: [{ code, message }]`, where `code` is a section 11 code or a kind `reason`. |
+[rows."150"]
+"code" = ["hub::DescribedReason::code"]
+"reason" = { symbols = ["hub::DescribedReason::code"], uncovered = { reason = "prose: a kind reason that the code carries" } }
+"reasons: [{ code, message }]" = ["hub::ActionDescriptor::reasons", "hub::DescribedReason::code", "hub::DescribedReason::message"]
+
+# | Section 8 (H-14) | `watch(event, …)` answers `{ stream_id }`. |
+[rows."151"]
+"watch(event, …)" = ["hub::Verb::Watch", "hub::ServerFrame::Event"]
+"{ stream_id }" = ["hub::WatchOpened::stream_id"]
+
+# | A.7 and A.9 (H-15) | `push_subscription create { endpoint, keys: { p256dh, auth } }` answers the row without the endpoint (committed). `push_subscription delete` (committed). |
+[rows."152"]
+"push_subscription create { endpoint, keys: { p256dh, auth } }" = ["hub.action:push_subscription.create", "hub::PushKeys::auth", "hub::PushSubscriptionCreateArgs::endpoint", "hub::PushSubscriptionCreateArgs::keys", "hub::PushKeys::p256dh"]
+"push_subscription delete" = ["hub.action:push_subscription.delete"]
+
+# | Section 6, `spawn_target` row (H-16) | invoke `validate`, `browse` (operator permission `spawn_target.browse`), `rescan_packages`. |
+[rows."153"]
+"browse" = ["hub.action:spawn_target.browse"]
+"rescan_packages" = ["hub.action:spawn_target.rescan_packages"]
+"spawn_target" = ["hub.kind:spawn_target"]
+"spawn_target.browse" = ["hub.kind:spawn_target", "hub.action:spawn_target.browse"]
+"validate" = ["hub.action:spawn_target.validate"]
+
+# | Section 11 (H-9) | The plugin-failure mapping table also maps the refusals of the Hub primitives that a client reaches through `session safe_write` and `write`: `failed { wrong_state: r }` becomes `wrong_state { reason: r }`; `invalid_...
+[rows."154"]
+"backpressured" = ["plugin::ErrorKind::Backpressured", "plugin.call:sessions.safe_write:backpressured", "plugin.call:sessions.write:backpressured"]
+"busy" = ["hub::ErrorCode::Busy"]
+"effect: none" = ["hub::Error::effect", "hub::ErrorEffect::None"]
+"failed { wrong_state: r }" = { symbols = ["plugin::ErrorKind::Failed", "plugin.call:sessions.safe_write:failed:wrong_state", "plugin.call:sessions.write:failed:wrong_state"], uncovered = { r = "a placeholder for the primitive's reason" } }
+"invalid_arguments { reason: r }" = { symbols = ["hub::ErrorCode::InvalidArguments", "hub::Error::reason"], uncovered = { r = "a placeholder for the primitive's reason" } }
+"invalid_request { r }" = { symbols = ["plugin::ErrorKind::InvalidRequest", "plugin.call:sessions.safe_write:invalid_request", "plugin.call:sessions.write:invalid_request"], uncovered = { r = "a placeholder for the primitive's reason" } }
+"session safe_write" = ["hub.kind:session", "hub.action:session.safe_write"]
+"write" = ["hub.action:session.write"]
+"wrong_state { reason: r }" = { symbols = ["hub::ErrorCode::WrongState", "hub::Error::reason"], uncovered = { r = "a placeholder for the primitive's reason" } }
+
+# | Section 6, `quarantine` row (H-19) | `reason` ∈ `crash_loop`, `hash_mismatch`, `admission_failed`, `bootstrap_failed` (non-exhaustive). |
+[rows."155"]
+"admission_failed" = ["hub::QuarantineReason::AdmissionFailed"]
+"bootstrap_failed" = ["hub::QuarantineReason::BootstrapFailed"]
+"crash_loop" = ["hub::QuarantineReason::CrashLoop"]
+"hash_mismatch" = ["hub::QuarantineReason::HashMismatch"]
+"quarantine" = ["hub.kind:quarantine"]
+"reason" = ["hub::QuarantineRow::reason", "hub::QuarantineReason"]
+
+# | Section 6, `session` row (H-20) | `failure_reason` ∈ `spawn_failed`, `exec_failed`, `cwd_missing`, `worker_lost` (non-exhaustive). |
+[rows."156"]
+"cwd_missing" = ["hub.operation:spawn:cwd_missing"]
+"exec_failed" = ["hub.operation:spawn:exec_failed"]
+"failure_reason" = ["hub::SessionRow::failure_reason"]
+"session" = ["hub.kind:session"]
+"spawn_failed" = { symbols = ["hub::SessionRow::failure_reason"], uncovered = { spawn_failed = "a non-exhaustive string value of failure_reason" } }
+"worker_lost" = { symbols = ["hub::SessionRow::failure_reason"], uncovered = { worker_lost = "a non-exhaustive string value of failure_reason" } }
+
+# | A.9 `session_type create` (H-21) | `command` is a string: an executable path, or a name found on the session's `PATH`. `args?` is `[string]`. `interaction?` ∈ `interactive` (default), `noninteractive` (HP CA-18). `lifecycle?` ∈ `restar...
+[rows."157"]
+"[string]" = "n/a: a primitive type name"
+"args?" = ["hub::SessionTypeDefinition::args"]
+"command" = ["hub::SessionTypeDefinition::command"]
+"interaction?" = ["hub::SessionTypeDefinition::interaction"]
+"interactive" = ["hub::Interaction::Interactive"]
+"lifecycle?" = ["hub::SessionTypeDefinition::lifecycle"]
+"noninteractive" = ["hub::Interaction::Noninteractive"]
+"one_shot" = ["hub::Lifecycle::OneShot"]
+"restartable" = ["hub::Lifecycle::Restartable"]
+"role?" = ["hub::SessionTypeDefinition::role"]
+"session_type create" = ["hub.kind:session_type", "hub.action:session_type.create"]
+"traits?" = ["hub::SessionTypeDefinition::traits"]
+
+# | A.9 `swap`, `swap_preflight` (H-26) | `target_worker_protocol` is a u16. |
+[rows."158"]
+"swap" = ["hub.action:hub.swap"]
+"swap_preflight" = ["hub.action:hub.swap_preflight"]
+"target_worker_protocol" = ["hub::SwapArgs::target_worker_protocol", "hub::SwapPreflightArgs::target_worker_protocol"]
+
+# | A.9 `read_screen`, `resolve`, `validate` (H-31) | `history_unavailable?` is a history `unavailable` reason (A.2b). `diagnostics?` is `[{ code, message }]`. `problems[].code` is as the A.9b `validate` row. |
+[rows."159"]
+"[{ code, message }]" = ["hub::DescribedReason::code", "hub::DescribedReason::message"]
+"diagnostics?" = ["hub.action:hub.diagnostics"]
+"history_unavailable?" = ["hub::ReadScreenResult::history_unavailable"]
+"problems[].code" = ["hub::ValidateResult::problems", "hub::CodeMessage::code"]
+"read_screen" = ["hub.action:session.read_screen"]
+"resolve" = ["hub.action:session_type.resolve", "hub.action:quarantine.resolve"]
+"unavailable" = ["codec::HistoryState::Unavailable"]
+"validate" = ["hub.action:spawn_target.validate"]
+
+# | VB-1 (H-32) | `limit` is a positive integer. When it is absent or larger than the Hub's page maximum, the Hub uses its page maximum and returns that many items or fewer; a non-positive `limit` is `invalid_arguments`. No new number is i...
+[rows."160"]
+"invalid_arguments" = ["hub::ErrorCode::InvalidArguments"]
+"limit" = ["hub::ListArgs::limit"]
+
+# | Section 6, `plugin_log` row (H-33) | `level` ∈ `debug`, `info`, `warn`, `error` (HP `log.write`). |
+[rows."161"]
+"debug" = ["hub::LogLevel::Debug"]
+"error" = ["hub::LogLevel::Error"]
+"info" = ["hub::LogLevel::Info"]
+"level" = ["hub::LogRecord::level"]
+"log.write" = ["plugin.call:log.write"]
+"plugin_log" = ["hub.kind:plugin_log"]
+"warn" = ["hub::LogLevel::Warn"]
+
+# | TS-1, TS-5b, TS-5d, TS-5f, TS-8, A.1, A.2b, A.4, A.5, A.6 and the P9 binding | As route codec revision 30 (`route-codec-v1-extract-rev30.md`, which this amendment pins by hash in the joint manifest): `attach` gains `writable?`; the rep...
+[rows."162"]
+"attach" = ["hub.action:session.attach"]
+"attach_failed" = ["codec::CloseReason::AttachFailed"]
+"bad_peer" = ["codec::AttachFailedReason::BadPeer"]
+"route-codec-v1-extract-rev30.md" = "n/a: a repository path"
+"route_closed" = ["codec::ToClient::RouteClosed"]
+"snapshot_too_large" = ["codec::AttachFailedReason::SnapshotTooLarge"]
+"writable?" = ["hub::AttachArgs::writable"]
+"wrong_route" = ["codec::RefusalReason::WrongRoute"]

@@ -1,0 +1,981 @@
+# The crate symbols of each code span of ui-contract-v1-frozen-20260930.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7)
+# Author: plugin kit writer (Claude, sess-1790726020-0017), 2026-09-30. Reviewer: Sol Hub A (001f). Consumers: Web writer (001a), TUI writer (001b). Status: DESIGN ONLY. No code changes. Draft 1 is kept as `ui-contract-v1-draft1.backup.md`.
+[rows."5"]
+"ui-contract-v1-draft1.backup.md" = "n/a: a repository file name (draft 1 of this contract)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7)
+# - Web review section I, items 1 to 10 (`handoffs/web-review-of-contract-v1-draft5-20260930.md`), tracked as #102.
+[rows."8"]
+"handoffs/web-review-of-contract-v1-draft5-20260930.md" = "n/a: a repository path"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7)
+# - The TUI facts sheet and the TUI review of draft 1 (`handoffs/tui-review-ui-contract-v1-draft1-20260930.md`, D1 to D7).
+[rows."10"]
+"handoffs/tui-review-ui-contract-v1-draft1-20260930.md" = "n/a: a repository path"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7)
+# - Sol Hub A's HOLD on draft 1 (`verdicts/ui-contract-v1.md`): three required changes, the seam with VW-6, and the example defects.
+[rows."11"]
+"verdicts/ui-contract-v1.md" = "n/a: a repository path"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7)
+# **What changed since draft 1** (section 18 has the full list): the Hub never replaces or filters anything (UI-RC-4, UI-FM-3, UI-CF-1); refs are declared on the part; `realize` is production code and its output is the existing UiNode vocabulary through a normative mapping (UI-RZ-2); the viewport is an operand and a `realize` input; fallbacks for array and object properties; opaque bounded node ids; no numeric limit (UI-LM-1); confirmation is client presentation only; the amendments to VW-6 and section 7b are listed (section 17).
+[rows."14"]
+"realize" = ["ui::realize"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 1. Scope and principles
+# Out of scope: hand-built screens (terminal, logs), bound to `kind@MAJOR` (Hub→client DS-4); the watch and invoke wire protocol (Hub→client sections 5 and 7b); animation, timers, pixel layout, translation.
+[rows."31"]
+"kind@MAJOR" = ["hub::KindDescriptor::kind", "hub::KindDescriptor::schema_version"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 2. Document model
+# | UI-ID-1 | Every `Part`, `Field`, `Column`, `Ref`, `Action` and `Selection` has an author-given `id`. An id is a non-empty string of `[a-z0-9_.-]`, with no length limit (UI-LM-1). **An id is unique inside the whole view document across all of those kinds**, so one name never means two things. An id is never one of the reserved role words `label`, `value`, `widget`, `help`, `error`, `container`, `item`, `cell`, `action`, `empty` (UI-RZ-2). A reload that keeps the view's MAJOR keeps every id (Hub→client SF-1). | `conf::ui_id_1_unique_across_kinds_and_stable` |
+[rows."48"]
+"Action" = ["ui::Action"]
+"Column" = ["ui::Column"]
+"Field" = ["ui::Field"]
+"Part" = ["ui::Part"]
+"Ref" = ["ui::Ref"]
+"Selection" = { symbols = ["ui::SelectionDecl"], uncovered = { Selection = "the kind name of a selection declaration (SelectionDecl)" } }
+"[a-z0-9_.-]" = "n/a: a character class: the id alphabet that ui::is_author_id checks"
+"action" = ["ui.role:action"]
+"cell" = ["ui.role:cell"]
+"container" = ["ui.role:container"]
+"empty" = ["ui.role:empty"]
+"error" = ["ui.role:error"]
+"help" = ["ui.role:help"]
+"id" = ["ui::Part::id", "ui::Field::id", "ui::Column::id", "ui::Action::id", "ui::SelectionDecl::id"]
+"item" = ["ui.role:item"]
+"label" = ["ui.role:label"]
+"value" = ["ui.role:value"]
+"widget" = ["ui.role:widget"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 2. Document model
+# | UI-ID-2 | A static part has the **node id** `<part.id>`. A part realized once per bound row has a node id built from `<part.id>` and the row key by the UI-ID-3 algorithm. A child of a row part has a node id built from the row node id and `<child.id>` by the same algorithm. A generated node (label, value, widget, container) adds a **role segment** (UI-RZ-2). A node id never uses an array index. | `conf::ui_id_2_node_ids_from_ids_and_row_keys` |
+[rows."49"]
+"<child.id>" = { symbols = ["ui::Part::id", "ui::child_id"], uncovered = { child = "a placeholder: a child part of a row part" } }
+"<part.id>" = ["ui::Part", "ui::Part::id"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 2. Document model
+# | UI-ID-3 | **Node ids are opaque strings to every client.** They are built by one function that reuses the shipped length-prefixed scheme (`botster-ui-descendant-v1:<len>:<rowId><len>:<key>`, Web `realizeBindListDescendantId`, with its vectors), so no separator can collide with a key. A row key is the row's own `id` (for example `<hub_id>/<session_id>`), so it may contain `/` and `:`. The function and its inverse are in the contract crate, with vectors for keys that contain `/`, `:`, `|` and `\`. | `conf::ui_id_3_escape_roundtrip`, `conf::ui_id_3_row_key_with_separators` |
+[rows."50"]
+"<hub_id>/<session_id>" = ["ui::row_key", "hub::SessionRef::hub_id", "hub::SessionRef::session_id"]
+"botster-ui-descendant-v1:<len>:<rowId><len>:<key>" = { symbols = ["ui::ID_PREFIX", "ui::child_id"], uncovered = { botster = "a part of the prefix that ID_PREFIX holds", ui = "a part of the prefix that ID_PREFIX holds", descendant = "a part of the prefix that ID_PREFIX holds", v1 = "a part of the prefix that ID_PREFIX holds", len = "a placeholder: the length prefix of the next segment", rowId = "a placeholder: the row node id", key = "a placeholder: the row key" } }
+"id" = { symbols = ["ui::row_key"], uncovered = { id = "the id member of a row, which row_key reads" } }
+"realizeBindListDescendantId" = "n/a: a function of the Web client, outside this repo"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 2. Document model
+# | UI-ID-5 | **Draft keys.** A form field's draft key is the form's node id plus the `field_id` (UI-ID-3 algorithm). Property names need not be unique across different forms of one document, so two actions may both have a `name` property. `local_state` and the kit key drafts by this draft key, never by the bare property name. | `conf::ui_id_5_draft_key_includes_form_node_id` |
+[rows."51"]
+"field_id" = { symbols = ["ui::draft_key"], uncovered = { field_id = "the field id argument of draft_key (UI-ID-5)" } }
+"local_state" = ["ui::RealizeInput::local_state"]
+"name" = "n/a: an example property name of an action schema (plugin data in the example)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 2. Document model
+# | UI-ID-4 | A result or error that refers to a part uses its node id. A form error uses the property name as `field_id` inside its form (UI-FM-7, UI-ID-5). | `conf::ui_id_4_results_keyed_by_node_id` |
+[rows."52"]
+"field_id" = ["ui::FieldError::field_id"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# **Data parts** (six, the settled component set) bind a kind. **Structural parts** (seven) arrange and label. There are no other parts. A `dialog` is not a part (UI-AC-4).
+[rows."56"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `list` | data | Rows of one kind, one item per row | `source`, `refs?`, `item` (fields and actions per row), `order`, `activate`, `selects`, `empty`, `error` |
+[rows."60"]
+"activate" = ["ui::ListPart::activate"]
+"empty" = ["ui::ListPart::empty"]
+"error" = ["ui::ListPart::error"]
+"item" = ["ui::ListPart::item"]
+"list" = ["ui::Part::List"]
+"order" = ["ui::ListPart::order"]
+"refs?" = ["ui::ListPart::refs"]
+"selects" = ["ui::ListPart::selects"]
+"source" = ["ui::ListPart::source"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `table` | data | Rows as columns | `source`, `refs?`, `columns[{id,label,path|ref,display?,align?}]`, `order`, `activate`, `selects`, `empty`, `error` |
+[rows."61"]
+"activate" = ["ui::TablePart::activate"]
+"columns[{id,label,path|ref,display?,align?}]" = ["ui::TablePart::columns", "ui::Column::id", "ui::Column::label", "ui::Column::path", "ui::Column::ref", "ui::Column::display", "ui::Column::align"]
+"empty" = ["ui::TablePart::empty"]
+"error" = ["ui::TablePart::error"]
+"order" = ["ui::TablePart::order"]
+"refs?" = ["ui::TablePart::refs"]
+"selects" = ["ui::TablePart::selects"]
+"source" = ["ui::TablePart::source"]
+"table" = ["ui::Part::Table"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `detail` | data | One row as labeled fields | `source` (`{kind, id}` for one row, or `{sel}`), `refs?`, `fields[Field]`, `empty`, `error` |
+[rows."62"]
+"detail" = ["ui::Part::Detail"]
+"empty" = ["ui::DetailPart::empty"]
+"error" = ["ui::DetailPart::error"]
+"fields[Field]" = ["ui::DetailPart::fields", "ui::Field"]
+"refs?" = ["ui::DetailPart::refs"]
+"source" = ["ui::DetailPart::source"]
+"{kind, id}" = ["ui::DetailSource::ByKind", "ui::DetailSource::ByKind::kind", "ui::DetailSource::ByKind::id"]
+"{sel}" = ["ui::DetailSource::BySel", "ui::DetailSource::BySel::sel"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `form` | data | Inputs for one action | `action`, `schema` (section 7), `submit`, `cancel` |
+[rows."63"]
+"action" = ["ui::FormPart::action"]
+"cancel" = ["ui::FormPart::cancel"]
+"form" = ["ui::Part::Form"]
+"schema" = ["ui::FormPart::schema"]
+"submit" = ["ui::FormPart::submit"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `actions` | data | A set of buttons | `items[ActionRef]`, `overflow` |
+[rows."64"]
+"actions" = ["ui::Part::Actions"]
+"items[ActionRef]" = { symbols = ["ui::ActionsPart::items", "ui::Action"], uncovered = { ActionRef = "the v1 name of an action entry; the crate type is Action" } }
+"overflow" = ["ui::ActionsPart::overflow"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `status_badge` | data | One value as text and tone | `value` (an Operand), `map` (value to label and tone) |
+[rows."65"]
+"map" = ["ui::StatusBadgePart::map"]
+"status_badge" = ["ui::Part::StatusBadge"]
+"value" = ["ui::StatusBadgePart::value"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `stack` | structural | Children in a column or row | `direction`, `children`, `when?` |
+[rows."66"]
+"children" = ["ui::StackPart::children"]
+"direction" = ["ui::StackPart::direction"]
+"stack" = ["ui::Part::Stack"]
+"when?" = ["ui::StackPart::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `inline` | structural | Children in one wrapping line | `children`, `when?` |
+[rows."67"]
+"children" = ["ui::InlinePart::children"]
+"inline" = ["ui::Part::Inline"]
+"when?" = ["ui::InlinePart::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `panel` | structural | A titled group | `title`, `children`, `when?` |
+[rows."68"]
+"children" = ["ui::PanelPart::children"]
+"panel" = ["ui::Part::Panel"]
+"title" = ["ui::PanelPart::title"]
+"when?" = ["ui::PanelPart::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `section` | structural | A heading and children | `heading`, `children`, `when?` |
+[rows."69"]
+"children" = ["ui::SectionPart::children"]
+"heading" = ["ui::SectionPart::heading"]
+"section" = ["ui::Part::Section"]
+"when?" = ["ui::SectionPart::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `toolbar` | structural | Actions with an overflow rule | `items[ActionRef]`, `overflow: auto|never` |
+[rows."70"]
+"items[ActionRef]" = { symbols = ["ui::ToolbarPart::items", "ui::Action"], uncovered = { ActionRef = "the v1 name of an action entry; the crate type is Action" } }
+"overflow: auto|never" = ["ui::ToolbarPart::overflow", "ui::Overflow::Auto", "ui::Overflow::Never"]
+"toolbar" = ["ui::Part::Toolbar"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `text` | structural | Static copy or one bound value | `value` (literal or Operand), `tone?` |
+[rows."71"]
+"text" = ["ui::Part::Text"]
+"tone?" = ["ui::TextPart::tone"]
+"value" = ["ui::TextPart::value"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | `empty_state` | structural | Copy for no data | `title`, `body?` |
+[rows."72"]
+"body?" = ["ui::EmptyStatePart::body"]
+"empty_state" = ["ui::Part::EmptyState"]
+"title" = ["ui::EmptyStatePart::title"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# `Field.display` is one of `text` (default), `badge`, `metric` or `number`. `metric` realizes as a labeled count, so a counter needs no separate part (appendix A).
+[rows."74"]
+"Field.display" = ["ui::Field", "ui::Field::display"]
+"badge" = ["ui::Display::Badge"]
+"metric" = ["ui::Display::Metric"]
+"number" = ["ui::Display::Number"]
+"text" = ["ui::Display::Text"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | UI-PT-1 | The part set is exactly the table above. A document with another `type` fails admission (`unsupported_part`). | `conf::ui_pt_1_unknown_part_refused` |
+[rows."78"]
+"type" = { symbols = ["ui::Part"], uncovered = { type = "the serde tag of Part" } }
+"unsupported_part" = ["ui::AdmissionCode::UnsupportedPart"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | UI-PT-2 | **Seam with the other contracts (required amendments, section 17).** The six data parts are the settled component set. The seven structural parts are the client-rendered layout and presentation vocabulary that Hub→client section 7b already names (minus `dialog`). They carry no data binding and no behavior beyond `when`. | `conf::ui_pt_2_structural_parts_have_no_bindings` |
+[rows."79"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+"when" = ["ui::Part::when", "ui::Action::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | UI-PT-3 | A `when` on a structural part is a predicate over the **viewport** only: `{ viewport: "width" }`, `{ viewport: "height" }` and `{ viewport: "pointer" }` compared with `eq`/`ne` to a class. Width classes: `compact`, `regular`, `expanded`. Height classes: `short`, `regular`, `tall`. Pointer classes (`{ viewport: "pointer" }`): `fine` = click and hover; `coarse` = click or tap without hover; `none` = keyboard only. A renderer declares the class its input allows; the TUI declares `fine` with mouse capture on and `none` with it off. Exclusivity applies only to **conditional alternatives**: siblings that all carry a `when` and replace each other (declared with `alternatives: true` on the parent). Ordinary unconditional siblings, and siblings that may show together, need no exclusivity. Alternatives have **mutually exclusive** `when` predicates: admission enumerates all 27 (width, height, pointer) classes and refuses an alternatives set that is true together for any pair. | `conf::ui_pt_3_when_siblings_exclusive_by_enumeration` |
+[rows."80"]
+"alternatives: true" = { symbols = ["ui::StackPart::alternatives", "ui::InlinePart::alternatives", "ui::PanelPart::alternatives", "ui::SectionPart::alternatives"], uncovered = { true = "a JSON literal value" } }
+"coarse" = ["ui::PointerClass::Coarse"]
+"compact" = ["ui::WidthClass::Compact"]
+"eq" = ["ui::Pred::Eq"]
+"expanded" = ["ui::WidthClass::Expanded"]
+"fine" = ["ui::PointerClass::Fine"]
+"ne" = ["ui::Pred::Ne"]
+"none" = ["ui::PointerClass::None"]
+"regular" = ["ui::WidthClass::Regular", "ui::HeightClass::Regular"]
+"short" = ["ui::HeightClass::Short"]
+"tall" = ["ui::HeightClass::Tall"]
+"when" = ["ui::Part::when", "ui::Action::when"]
+'{ viewport: "height" }' = ["ui::Operand::Viewport", "ui::ViewportAxis::Height"]
+'{ viewport: "pointer" }' = ["ui::Operand::Viewport", "ui::ViewportAxis::Pointer"]
+'{ viewport: "width" }' = ["ui::Operand::Viewport", "ui::ViewportAxis::Width"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 3. The closed part set (version 1.0)
+# | UI-PT-4 | A `toolbar` or `actions` part orders items by `priority` (UI-AC-2), then declaration order. `overflow: auto` moves the lowest-priority items into an overflow menu when width is short. | `conf::ui_pt_4_overflow_by_priority` |
+[rows."81"]
+"actions" = ["ui::Part::Actions"]
+"overflow: auto" = ["ui::Overflow::Auto"]
+"priority" = ["ui::Action::priority"]
+"toolbar" = ["ui::Part::Toolbar"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 4. Sources, refs, operands and predicates
+# | UI-BD-1 | The grammar is complete. No arithmetic, string operation, function call or regular expression exists. `truthy` is false for `null`, absent, `false`, `0`, `""` and `[]`. `eq` compares JSON values exactly. | `conf::ui_bd_1_predicate_truth_table` (covers eq, ne, truthy, not, all([]), any([]), absent operands) |
+[rows."101"]
+"eq" = ["ui::Pred::Eq"]
+"false" = "n/a: a JSON literal value"
+"null" = "n/a: a JSON literal value"
+"truthy" = ["ui::Pred::Truthy"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 4. Sources, refs, operands and predicates
+# | UI-BD-2 | A `Source.kind` names a kind the package may watch: a kind of the same package, or a Hub kind its grants allow (Hub→client DS-7, EN-9). The client watches it while the view is shown (Hub→client section 5). | `conf::ui_bd_2_source_kind_admitted` |
+[rows."102"]
+"Source.kind" = ["ui::Source", "ui::Source::kind"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 4. Sources, refs, operands and predicates
+# | UI-BD-3 | **Scope of operands.** `path`: inside a part with a `source` (item, columns, fields, `where`). `row`: inside `item`, `columns`, row `actions`, and `options_source.where` of an action on a row. `form`: inside a `form` and its `options_source` and `visible_when`. `sel`: anywhere a selection slot is declared. `ref`: inside a part that declares the ref. `viewport`: only in `when`. A use outside its scope fails admission (`unbound_context`). | `conf::ui_bd_3_operand_scope` |
+[rows."103"]
+"actions" = ["ui::Item::actions"]
+"columns" = ["ui::TablePart::columns"]
+"form" = ["ui::Operand::Form", "ui::Part::Form"]
+"item" = ["ui::ListPart::item"]
+"options_source" = ["ui.prop:select:options_source"]
+"options_source.where" = { symbols = ["ui.prop:select:options_source"], uncovered = { where = "a member of an options_source value (the select prop holds it as JSON)" } }
+"path" = ["ui::Operand::Path"]
+"ref" = ["ui::Operand::Ref"]
+"row" = ["ui::Operand::Row"]
+"sel" = ["ui::Operand::Sel"]
+"source" = ["ui::Source"]
+"unbound_context" = ["ui::AdmissionCode::UnboundContext"]
+"viewport" = ["ui::Operand::Viewport"]
+"visible_when" = { symbols = ["ui::FormPart::schema"], uncovered = { visible_when = "a member of the ui annotation of a form schema (section 7); admission reads it from FormPart::schema as JSON, and no field types it" } }
+"when" = ["ui::Part::when", "ui::Action::when"]
+"where" = ["ui::Source::where_"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 4. Sources, refs, operands and predicates
+# | UI-BD-4 | A path that resolves to nothing is `absent`. `truthy(absent)` is false. `eq(absent, literal)` is false. `ne(absent, literal)` is **true**. `not(false)` is true. `all([])` is true. `any([])` is false. An absent operand on both sides: `eq` is true and `ne` is false. A field shown from an absent path renders as empty text, never as an error. | `conf::ui_bd_4_absent_path` |
+[rows."104"]
+"absent" = "n/a: the absent value: a None operand (truthy and eq take Option<&Value>)"
+"all([])" = ["ui::Pred::All"]
+"any([])" = ["ui::Pred::Any"]
+"eq" = ["ui::Pred::Eq"]
+"eq(absent, literal)" = { symbols = ["ui::Pred::Eq", "ui::OperandOrLit::Literal"], uncovered = { absent = "the absent value: a None operand (truthy and eq take Option<&Value>)" } }
+"ne" = ["ui::Pred::Ne"]
+"ne(absent, literal)" = { symbols = ["ui::Pred::Ne", "ui::OperandOrLit::Literal"], uncovered = { absent = "the absent value: a None operand (truthy and eq take Option<&Value>)" } }
+"not(false)" = { symbols = ["ui::Pred::Not"], uncovered = { false = "a JSON literal value" } }
+"truthy(absent)" = { symbols = ["ui::Pred::Truthy"], uncovered = { absent = "the absent value: a None operand (truthy and eq take Option<&Value>)" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 5. Typed references (Web items 3 and 9)
+# | UI-RF-1 | A `Ref` resolves `key` against the watched target kind by the target's own `id`. A structured key `{ hub_id, id }` names the hub too (federation rule); the membership row of section 14 uses it. A target on another hub resolves to `absent` with reason `remote_hub_unsupported` in v1. The realized node carries the reason as the prop `absent_reason` (also `not_found` and `no_baseline`). The client watches the target kind while the view is shown. | `conf::ui_rf_1_ref_resolves_by_id` |
+[rows."120"]
+"Ref" = ["ui::Ref"]
+"absent" = "n/a: the absent value: a None operand (truthy and eq take Option<&Value>)"
+"absent_reason" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason"]
+"id" = { symbols = ["ui::row_key"], uncovered = { id = "the id member of a row, which row_key reads" } }
+"key" = ["ui::Ref::key"]
+"no_baseline" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:no_baseline"]
+"not_found" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:not_found"]
+"remote_hub_unsupported" = ["ui.prop:text:absent_reason", "ui.prop:badge:absent_reason", "ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.absent_reason:remote_hub_unsupported"]
+"{ hub_id, id }" = ["ui::RefKey::Structured", "ui::RefKey::Structured::hub_id", "ui::RefKey::Structured::id"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 5. Typed references (Web items 3 and 9)
+# | UI-RF-2 | When the target row does not exist, or the target kind has no baseline yet (Hub→client WT-4), every `{ ref }` operand of that ref is `absent` (UI-BD-4) and the field shows `absent.text` with `absent.tone`. A row with an absent target is still a row. The part does not fail. | `conf::ui_rf_2_absent_target_shown`, `conf::ui_rf_2_no_baseline_is_absent_not_error` |
+[rows."121"]
+"absent" = "n/a: the absent value: a None operand (truthy and eq take Option<&Value>)"
+"absent.text" = ["ui::Ref::absent", "ui::AbsentCopy::text"]
+"absent.tone" = ["ui::Ref::absent", "ui::AbsentCopy::tone"]
+"{ ref }" = ["ui::Operand::Ref"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 5. Typed references (Web items 3 and 9)
+# | UI-RF-3 | A `{ ref: "<ref id>/<field>" }` operand is valid wherever `{ path }` is valid in the same part: in `Source.where` (so "current" and "unavailable" groups are two parts over one kind), in an item or column `value`, in a `Field`, in a `status_badge` value, and in `when`-free `text` inside an item. | `conf::ui_rf_3_ref_operand_everywhere_path_is` |
+[rows."122"]
+"Field" = ["ui::Field"]
+"Source.where" = { symbols = ["ui::Source", "ui::Source::where_"], uncovered = { where = "the wire name of Source::where_" } }
+"status_badge" = ["ui::Part::StatusBadge"]
+"text" = ["ui::Part::Text"]
+"value" = ["ui::Field::value", "ui::StatusBadgePart::value"]
+"when" = ["ui::Part::when", "ui::Action::when"]
+"{ path }" = ["ui::Operand::Path"]
+'{ ref: "<ref id>/<field>" }' = { symbols = ["ui::Operand::Ref"], uncovered = { id = "a placeholder: the id of a declared ref", field = "a placeholder: a field of the ref target row" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 5. Typed references (Web items 3 and 9)
+# | UI-RF-4 | `Ref.activate` is used when the user activates a value that shows the ref (section 8). | `conf::ui_rf_4_ref_activation` |
+[rows."123"]
+"Ref.activate" = ["ui::Ref", "ui::Ref::activate"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 5. Typed references (Web items 3 and 9) > Field (the one definition)
+# A `Field` appears in `item.fields`, `detail.fields` and `columns` (a column adds `align`). `status_badge.map` has the same shape as `Field.map`. A `display` or `tone` the renderer does not know is ignored and counted (UI-VR-2).
+[rows."135"]
+"Field" = ["ui::Field"]
+"Field.map" = ["ui::Field::map"]
+"align" = ["ui::Column::align"]
+"columns" = ["ui::TablePart::columns"]
+"detail.fields" = ["ui::Part::Detail", "ui::DetailPart::fields"]
+"display" = ["ui::Field::display"]
+"item.fields" = ["ui::ListPart::item", "ui::Item::fields"]
+"status_badge.map" = ["ui::Part::StatusBadge", "ui::StatusBadgePart::map"]
+"tone" = ["ui::Field::tone"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 6. Row context and action binding (Web items 1 and 2)
+# | UI-RC-1 | An `ActionRef` inside a row part has an implicit **target**: the row. The client sends `target = row key` (Hub→plugin VW-3). | `conf::ui_rc_1_row_action_targets_row` |
+[rows."143"]
+"ActionRef" = { symbols = ["ui::Action"], uncovered = { ActionRef = "the v1 name of an action entry; the crate type is Action" } }
+"target = row key" = { symbols = ["ui::row_key", "hub::Req::target"], uncovered = { row = "the row of a row part", key = "the row key that row_key computes" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 6. Row context and action binding (Web items 1 and 2)
+# | UI-RC-2 | An action may declare `args`: `{ <arg name>: Operand }`. The **client resolves** each operand (`row`, `sel`, `form`, `lit`, `path`, `ref`) and **sends the resolved value** as an ordinary argument. A bound argument is not shown in a form unless the form declares a field of the same name. | `conf::ui_rc_2_client_resolves_args` |
+[rows."144"]
+"args" = ["ui::Action::args"]
+"form" = ["ui::Operand::Form"]
+"lit" = ["ui::Operand::Lit"]
+"path" = ["ui::Operand::Path"]
+"ref" = ["ui::Operand::Ref"]
+"row" = ["ui::Operand::Row"]
+"sel" = ["ui::Operand::Sel"]
+"{ <arg name>: Operand }" = { symbols = ["ui::Action::args", "ui::Operand"], uncovered = { arg = "a placeholder: an argument name", name = "a placeholder: an argument name" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 6. Row context and action binding (Web items 1 and 2)
+# | UI-RC-3 | `options_source.where` may use `{ row }` to compare with the row being acted on. "Every workspace except this one" is `{ ne: [ {path:"/id"}, {row:"/id"} ] }`. | `conf::ui_rc_3_exclude_current_row` |
+[rows."145"]
+"options_source.where" = { symbols = ["ui.prop:select:options_source"], uncovered = { where = "a member of an options_source value (the select prop holds it as JSON)" } }
+'{ ne: [ {path:"/id"}, {row:"/id"} ] }' = { symbols = ["ui::Pred::Ne", "ui::Operand::Path", "ui::Operand::Row"], uncovered = { id = "the id member of a row (an example path)" } }
+"{ row }" = ["ui::Operand::Row"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 6. Row context and action binding (Web items 1 and 2)
+# | UI-RC-5 | **Absent bound operand.** An action whose `args` contain an operand that is `absent` at realization (for example `{sel}` with nothing selected) is shown **disabled** with the action's optional `disabled_reason` copy, or the generic text "Nothing selected", and the client sends no request. A vector covers Rename with no selection. | `conf::ui_rc_5_absent_bound_operand_disables` |
+[rows."146"]
+"absent" = "n/a: the absent value: a None operand (truthy and eq take Option<&Value>)"
+"args" = ["ui::Action::args"]
+"disabled_reason" = ["ui::Action::disabled_reason"]
+"{sel}" = ["ui::Operand::Sel"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-1 | The schema subset: `type` of `string|integer|number|boolean|array|object`, `properties`, `required`, `enum`, `default`, `minimum`, `maximum`, `minLength`, `maxLength`, `items`. No `$ref`, `oneOf`, `anyOf`, `if/then/else` or `pattern`. **The form's schema is the action's canonical schema** (the registered descriptor). Admission refuses a form whose schema differs from its action's. **Comparison:** remove every `ui` hint from the view's schema, then remove every property that the action binds in `args` (from `properties` and from `required`); the result must equal the canonical schema with the same bound properties removed. Each bound name must exist in the canonical schema, and the type of its operand (when known from the kind's schema) must be compatible with the property type. | `conf::ui_fm_1_schema_subset`, `conf::ui_fm_1_form_schema_equals_action_schema` |
+[rows."161"]
+"$ref" = "n/a: a JSON Schema keyword"
+"anyOf" = "n/a: a JSON Schema keyword"
+"args" = ["ui::Action::args"]
+"default" = "n/a: a JSON Schema keyword"
+"enum" = "n/a: a JSON Schema keyword"
+"if/then/else" = "n/a: a JSON Schema keyword"
+"items" = "n/a: a JSON Schema keyword"
+"maxLength" = "n/a: a JSON Schema keyword"
+"maximum" = "n/a: a JSON Schema keyword"
+"minLength" = "n/a: a JSON Schema keyword"
+"minimum" = "n/a: a JSON Schema keyword"
+"oneOf" = "n/a: a JSON Schema keyword"
+"pattern" = "n/a: a JSON Schema keyword"
+"properties" = "n/a: a JSON Schema keyword"
+"required" = "n/a: a JSON Schema keyword"
+"string|integer|number|boolean|array|object" = "n/a: JSON Schema type names"
+"type" = "n/a: a JSON Schema keyword"
+"ui" = { symbols = ["ui::FormPart::schema"], uncovered = { ui = "the UI-FM-2 widget hint schema keyword; admission reads it from FormPart::schema, and no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-2 | The `ui` hints are presentation only and never change validation: `placeholder`, `help`, `read_only`, `group`, `advanced`, `order`, `widget` (Web hint; `text|textarea|select|checkbox|number|password`; a renderer may ignore every `widget` and choose by JSON type, but **a `password` widget or a `secret: true` property never falls back to an echoing input**: a renderer without a masked input refuses the form with a diagnostic), `visible_when`, `required_when`, `options_source`. | `conf::ui_fm_2_hints_do_not_change_validation` |
+[rows."162"]
+"advanced" = { symbols = ["ui::FormPart::schema"], uncovered = { advanced = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"group" = { symbols = ["ui::FormPart::schema"], uncovered = { group = "the UI-FM-6 group schema keyword (not the generated group: role prefix); admission reads it from FormPart::schema, and no field types it" } }
+"help" = { symbols = ["ui::FormPart::schema"], uncovered = { help = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"options_source" = ["ui.prop:select:options_source"]
+"order" = { symbols = ["ui::FormPart::schema"], uncovered = { order = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"password" = { symbols = ["ui::FormPart::schema"], uncovered = { password = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"placeholder" = { symbols = ["ui::FormPart::schema"], uncovered = { placeholder = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"read_only" = { symbols = ["ui::FormPart::schema"], uncovered = { read_only = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"required_when" = { symbols = ["ui::FormPart::schema"], uncovered = { required_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+"secret: true" = { symbols = ["ui::FormPart::schema"], uncovered = { secret = "a form schema keyword (UI-FM-8) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"text|textarea|select|checkbox|number|password" = { symbols = ["ui::FormPart::schema"], uncovered = { text = "a widget hint value (UI-FM-2); no field types it", textarea = "a widget hint value (UI-FM-2); no field types it", select = "a widget hint value (UI-FM-2); no field types it", checkbox = "a widget hint value (UI-FM-2); no field types it", number = "a widget hint value (UI-FM-2); no field types it", password = "a widget hint value (UI-FM-2); no field types it" } }
+"ui" = { symbols = ["ui::FormPart::schema"], uncovered = { ui = "the UI-FM-2 widget hint schema keyword; admission reads it from FormPart::schema, and no field types it" } }
+"visible_when" = { symbols = ["ui::FormPart::schema"], uncovered = { visible_when = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+"widget" = { symbols = ["ui::FormPart::schema"], uncovered = { widget = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-3 | **Hidden fields follow the canonical schema.** `visible_when` shows or hides a field. The client **omits a hidden field** from the request. A field that may be hidden **must be optional in the action's schema**; admission refuses a `visible_when` on a property listed in `required`. The plugin enforces a condition such as "branch is required for a git target" and answers `field_errors` (UI-FM-7). `required_when: Pred` is a **client-side pre-check only**: it marks the field required in the form and blocks the submit locally; it never changes what the Hub validates. | `conf::ui_fm_3_hidden_field_omitted`, `conf::ui_fm_3_visible_when_needs_optional_property`, `conf::ui_fm_3_required_when_is_client_precheck` |
+[rows."163"]
+"field_errors" = ["ui::ActionError::field_errors"]
+"required" = "n/a: a JSON Schema keyword"
+"required_when: Pred" = { symbols = ["ui::FormPart::schema", "ui::Pred"], uncovered = { required_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+"visible_when" = { symbols = ["ui::FormPart::schema"], uncovered = { visible_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-4 | `options_source.where` may use `{ form }`. The options follow another field's value, and the client watches the source kind (SF-4). A selected value no longer in the options is cleared by the client and marked with a local field error `option_unavailable`. | `conf::ui_fm_4_dependent_options`, `conf::ui_fm_4_stale_selection_cleared` |
+[rows."164"]
+"option_unavailable" = ["ui::StampedError::code", "ui.local_error:option_unavailable"]
+"options_source.where" = { symbols = ["ui.prop:select:options_source"], uncovered = { where = "a member of an options_source value (the select prop holds it as JSON)" } }
+"{ form }" = ["ui::Operand::Form"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-5 | A property may have `default` (a literal) or `default_from: Operand`. A `read_only` field with a default is shown and sent. A default is shown as a default, not as a stored value (SF-3). | `conf::ui_fm_5_defaults_and_readonly` |
+[rows."165"]
+"default" = "n/a: a JSON Schema keyword"
+"default_from: Operand" = { symbols = ["ui::FormPart::schema", "ui::Operand"], uncovered = { default_from = "a form schema keyword (UI-FM-5) that admission reads from FormPart::schema; no field types it" } }
+"read_only" = { symbols = ["ui::FormPart::schema"], uncovered = { read_only = "a form schema keyword (UI-FM-5) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-6 | `group` names a section. A section collapses only when every field in it has `advanced: true`. An `advanced` field inside a section that has any non-advanced field is shown **in place** in that section. Fields with `advanced: true` and no `group` are shown in one collapsed "optional" section. Order follows `order`, then declaration. | `conf::ui_fm_6_optional_group` |
+[rows."166"]
+"advanced" = { symbols = ["ui::FormPart::schema"], uncovered = { advanced = "a form schema keyword (UI-FM-6) that admission reads from FormPart::schema; no field types it" } }
+"advanced: true" = { symbols = ["ui::FormPart::schema"], uncovered = { advanced = "a form schema keyword (UI-FM-6) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"group" = { symbols = ["ui::FormPart::schema"], uncovered = { group = "the UI-FM-6 group schema keyword (not the generated group: role prefix); admission reads it from FormPart::schema, and no field types it" } }
+"order" = { symbols = ["ui::FormPart::schema"], uncovered = { order = "a form schema keyword (UI-FM-6) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-7 | Every property's `field_id` is its property name. A field's identity is the form's node id plus the `field_id` (UI-ID-5); property names need not be unique across forms, and a form property is a `Field` for UI-ID-1 only inside its form. A refusal carries `field_errors: [{ field_id, pointer, code, message }]` (SF-2). The client marks the field. An error with no field is a form-level message. | `conf::ui_fm_7_field_errors_by_field_id` |
+[rows."167"]
+"Field" = ["ui::Field"]
+"field_errors: [{ field_id, pointer, code, message }]" = ["ui::ActionError::field_errors", "ui::FieldError::field_id", "ui::FieldError::pointer", "ui::FieldError::code", "ui::FieldError::message"]
+"field_id" = ["ui::FieldError::field_id"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 7. Forms (Web items 4 and 5; SF-2, SF-3, SF-4)
+# | UI-FM-8 | A property with `secret: true` never receives its value. The form shows `set: bool`. An empty value means "unchanged" unless the client sends `clear: true` (SF-3). | `conf::ui_fm_8_secret_contract` |
+[rows."168"]
+"clear: true" = { symbols = ["ui::Draft::Clear"], uncovered = { true = "a JSON literal value" } }
+"secret: true" = { symbols = ["ui::FormPart::schema"], uncovered = { secret = "a form schema keyword (UI-FM-8) that admission reads from FormPart::schema; no field types it", true = "a JSON literal value" } }
+"set: bool" = { symbols = ["ui::FormPart::schema"], uncovered = { set = "the secret state that the form shows (UI-FM-8); no field types it", bool = "a JSON type name" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 8. Selection, focus, activation and navigation (Web items 8 and 9)
+# | UI-SL-1 | A document declares `selections[{ id }]`. A `list` or `table` with `selects: "<id>"` sets that slot to the row the user **activates**. A slot holds one row key or nothing. The slot is **client-local** (P5). | `conf::ui_sl_1_selection_is_client_local` |
+[rows."174"]
+"list" = ["ui::Part::List"]
+"selections[{ id }]" = ["ui::ViewDocument::selections", "ui::SelectionDecl::id"]
+'selects: "<id>"' = ["ui::ListPart::selects", "ui::TablePart::selects", "ui::SelectionDecl::id"]
+"table" = ["ui::Part::Table"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 8. Selection, focus, activation and navigation (Web items 8 and 9)
+# | UI-SL-2 | A part whose `source` is `{ sel: "<id>" }`, or whose `where` tests `{ sel: "<id>/id" }`, follows the slot. With no selection it shows its `empty` copy. When the selected row leaves its kind, the slot clears. | `conf::ui_sl_2_detail_follows_selection`, `conf::ui_sl_2_deleted_row_clears_selection` |
+[rows."175"]
+"empty" = ["ui::ListPart::empty", "ui::TablePart::empty", "ui::DetailPart::empty"]
+"source" = ["ui::DetailPart::source", "ui::ListPart::source", "ui::TablePart::source"]
+"where" = { symbols = ["ui::Source::where_"], uncovered = { where = "the wire name of Source::where_" } }
+'{ sel: "<id>" }' = ["ui::DetailSource::BySel::sel", "ui::SelectionDecl::id"]
+'{ sel: "<id>/id" }' = { symbols = ["ui::Operand::Sel", "ui::SelectionDecl::id"], uncovered = { id = "a placeholder and the id member of the selected row" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 8. Selection, focus, activation and navigation (Web items 8 and 9)
+# | UI-SL-3 | `activate` (on a `list`, a `table` or a `Ref`) is one of `{ select: "<id>" }`, `{ invoke: "<action id>" }` or `{ open: "<ref id>" }`. `open` asks the client to show its **own screen** for the referenced kind (a hand-built screen bound to `kind@MAJOR`, DS-4). With no such screen the client shows the fallback of UI-CF-2 (the row's fields). | `conf::ui_sl_3_activation_forms`, `conf::ui_sl_3_open_without_screen_falls_back` |
+[rows."176"]
+"Ref" = ["ui::Ref"]
+"activate" = ["ui::ListPart::activate", "ui::TablePart::activate", "ui::Ref::activate"]
+"kind@MAJOR" = ["hub::KindDescriptor::kind", "hub::KindDescriptor::schema_version"]
+"list" = ["ui::Part::List"]
+"open" = ["ui::Activate::Open"]
+"table" = ["ui::Part::Table"]
+'{ invoke: "<action id>" }' = { symbols = ["ui::Activate::Invoke", "ui::Action::id"], uncovered = { action = "a placeholder: the id of an action" } }
+'{ open: "<ref id>" }' = { symbols = ["ui::Activate::Open"], uncovered = { ref = "a placeholder: the id of a declared ref", id = "a placeholder: the id of a declared ref" } }
+'{ select: "<id>" }' = ["ui::Activate::Select", "ui::SelectionDecl::id"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 9. Actions, confirmation and priority (Web items 6 and 10; DS-1)
+# | UI-AC-1 | An action is `invoke(<bound kind>, target?, action, args)` (SF-2). The plugin handles it as a `ui_action` (VW-3). The result is `{ ok, field_errors?, message? }` keyed by node id. A successful result carries no replacement tree: the view changes through the watched kinds (VW-4). | `conf::ui_ac_1_invoke_result_shape` |
+[rows."191"]
+"invoke(<bound kind>, target?, action, args)" = { symbols = ["hub::Verb::Invoke", "hub::Req::kind", "hub::Req::target", "hub::Req::action", "hub::Req::args"], uncovered = { bound = "the placeholder for the bound kind" } }
+"ui_action" = ["plugin::HandlerKind::UiAction"]
+"{ ok, field_errors?, message? }" = ["hub::Outcome::Ok::ok", "ui::ActionOk", "ui::ActionError::field_errors", "ui::ActionOk::message", "ui::ActionError::message"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 9. Actions, confirmation and priority (Web items 6 and 10; DS-1)
+# | UI-AC-2 | `priority: primary` marks the emphasized action, at most one per toolbar. A renderer maps it to its accent. It changes order and emphasis only. | `conf::ui_ac_2_priority_order_and_emphasis` |
+[rows."192"]
+"priority: primary" = ["ui::Action::priority", "ui::Priority::Primary"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 9. Actions, confirmation and priority (Web items 6 and 10; DS-1)
+# | UI-AC-3 | **Confirmation is a client presentation rule.** The client shows `confirm.message` with the declared tone before it sends the request, and sending nothing on cancel. The Hub does not enforce it, because a request flag cannot prove a prompt was shown. A plugin that needs a guarded operation adds its own argument and checks it. | `conf::ui_ac_3_confirm_is_presentation`, `conf::ui_ac_3_cancel_sends_nothing` |
+[rows."193"]
+"confirm.message" = ["ui::Action::confirm", "ui::Confirm::message"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 9. Actions, confirmation and priority (Web items 6 and 10; DS-1)
+# | UI-AC-4 | **Dialogs are a client rule.** An action with `args_schema` that has at least one user-entered field is rendered as a form in an overlay or sheet. An action without one runs directly. **Order: the form first, then the confirmation, then the request.** Overlay open state is client-local. | `conf::ui_ac_4_dialog_is_client_rule`, `conf::ui_ac_4_form_then_confirm` |
+[rows."194"]
+"args_schema" = ["ui::Action::args_schema"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 9. Actions, confirmation and priority (Web items 6 and 10; DS-1)
+# | UI-AC-5 | An action the caller may not run is shown disabled with the Hub's reason (DS-1 `allowed`, `reasons`), or hidden when `when` is false. A client never hides an action by its own policy. | `conf::ui_ac_5_disabled_with_reason` |
+[rows."195"]
+"allowed" = ["hub::ActionDescriptor::allowed"]
+"reasons" = ["hub::ActionDescriptor::reasons"]
+"when" = ["ui::Action::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 10. Copy and states (Web item 7)
+# | UI-CP-1 | Every data part and every `options_source` may declare `empty: Copy` and `error: Copy`. The client shows `empty` when the source has a baseline and no rows; `error` when the watch fails or ends, with the Hub's error message appended when one exists; a neutral "loading" indicator before the baseline. | `conf::ui_cp_1_empty_error_loading` |
+[rows."205"]
+"empty" = ["ui::ListPart::empty", "ui::TablePart::empty", "ui::DetailPart::empty"]
+"empty: Copy" = { symbols = ["ui::ListPart::empty", "ui::CopyText"], uncovered = { Copy = "the v1 name of the copy type; the crate type is CopyText" } }
+"error" = ["ui::ListPart::error", "ui::TablePart::error", "ui::DetailPart::error"]
+"error: Copy" = { symbols = ["ui::ListPart::error", "ui::CopyText"], uncovered = { Copy = "the v1 name of the copy type; the crate type is CopyText" } }
+"options_source" = ["ui.prop:select:options_source"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 10. Copy and states (Web item 7)
+# | UI-CP-2 | A part with no `empty` or `error` uses a generic default. | `conf::ui_cp_2_generic_defaults` |
+[rows."206"]
+"empty" = ["ui::ListPart::empty", "ui::TablePart::empty", "ui::DetailPart::empty"]
+"error" = ["ui::ListPart::error", "ui::TablePart::error", "ui::DetailPart::error"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 10. Copy and states (Web item 7)
+# | UI-CP-4 | An option source with no options shows its own `empty` copy inside the field (for example "No other workspace"). The action stays visible. | `conf::ui_cp_4_empty_options_copy` |
+[rows."208"]
+"empty" = { symbols = ["ui.prop:select:options_source"], uncovered = { empty = "a member of an options_source value (the select prop holds it as JSON)" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 11. Renderer capabilities and fallbacks
+# A renderer declares `ui_capabilities { ui_contract_view: ["M.m", ...], parts: [...], features: [...], widgets: [...] }` (the TUI has `tui_capabilities` today). The declaration is **diagnostic and local**: a client uses it to choose fallbacks and to explain a diagnostic. The Hub never reads it to filter a projection (UI-CF-1).
+[rows."212"]
+"tui_capabilities" = "n/a: the capability declaration of the TUI today, outside this repo"
+'ui_capabilities { ui_contract_view: ["M.m", ...], parts: [...], features: [...], widgets: [...] }' = { symbols = ["ui::Capabilities", "ui::Capabilities::ui_contract_view", "ui::Capabilities::parts", "ui::Capabilities::features", "ui::Capabilities::widgets"], uncovered = { ui_capabilities = "the declaration name of Capabilities", m = "a placeholder: the major and minor version numbers (M.m)" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 11. Renderer capabilities and fallbacks
+# | UI-CF-1 | **One shared projection.** The Hub sends **every admitted view to every client** in the one package projection (Hub→plugin EN-9). It never filters a view by a client's capabilities. A client that does not support a view's `ui_contract_view` or `requires` shows **a local diagnostic** (view id and reason) in place of the view. Capability-dependent information, if ever needed, is a separate `describe` result and not part of the projection. | `conf::ui_cf_1_same_projection_for_all_clients`, `conf::ui_cf_1_unsupported_view_is_local_diagnostic` |
+[rows."216"]
+"describe" = ["hub::Verb::Describe"]
+"requires" = ["ui::ViewDocument::requires"]
+"ui_contract_view" = ["ui::ViewDocument::ui_contract_view", "ui::Capabilities::ui_contract_view"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 11. Renderer capabilities and fallbacks
+# | UI-CF-2 | **Fallbacks (normative).** `table` without a column grid: a `list` of `label: value` lines. `status_badge`: label text plus the tone word in brackets. `detail`: labeled lines. `toolbar` overflow: a `menu`. `panel` and `section`: a heading and indented children. `metric`: `label: value`. A `widget` the renderer lacks: the default for the JSON type, except `password` and secret properties (UI-FM-2). `open` without a screen: the row's fields. | `conf::ui_cf_2_fallbacks` |
+[rows."217"]
+"detail" = ["ui::Part::Detail"]
+"label: value" = "n/a: the UI-CF-2 fallback text of a metric node (a label, a colon and a value)"
+"list" = ["ui::UiNodeKind::List"]
+"menu" = ["ui::UiNodeKind::Menu"]
+"metric" = ["ui::Display::Metric"]
+"open" = ["ui::Activate::Open"]
+"panel" = ["ui::Part::Panel"]
+"password" = { symbols = ["ui::FormPart::schema"], uncovered = { password = "a widget hint value (UI-FM-2); no field types it" } }
+"section" = ["ui::Part::Section"]
+"status_badge" = ["ui::Part::StatusBadge"]
+"table" = ["ui::Part::Table"]
+"toolbar" = ["ui::Part::Toolbar"]
+"widget" = { symbols = ["ui::FormPart::schema"], uncovered = { widget = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 11. Renderer capabilities and fallbacks
+# | UI-CF-3 | **Properties with no editor.** An `array` of strings is one text field, one element per line; an element that contains a newline is refused at admission for a `default` and shown read-only as JSON at run time. An `object` of strings is one text field of `KEY=VALUE` lines, **only when the round trip is lossless**: no key contains `=` or a newline, and no value contains a newline. The renderer splits each line at its first `=`. If any key or value breaks that rule, the renderer shows the property read-only as JSON and sends it unchanged. An unedited property is always sent as the same JSON value as received. An `array` or `object` of anything else, or a nested one, is shown **read-only as JSON and sent unchanged**; if it is `required` with no default, the renderer refuses the form with a diagnostic. | `conf::ui_cf_3_array_object_fallbacks`, `conf::ui_cf_3_object_roundtrip_lossless_or_readonly` |
+[rows."218"]
+"array" = "n/a: a JSON Schema type name"
+"default" = "n/a: a JSON Schema keyword"
+"object" = "n/a: a JSON Schema type name"
+"required" = "n/a: a JSON Schema keyword"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 11. Renderer capabilities and fallbacks
+# | UI-CF-4 | Keyboard is first class: Tab order follows realized document order; Enter activates; no affordance is pointer-only. A tone maps to a style, never to a fixed color in the document (`neutral|info|success|warning|danger`). | `conf::ui_cf_4_keyboard_and_tones` |
+[rows."219"]
+"neutral|info|success|warning|danger" = ["ui::Tone::Neutral", "ui::Tone::Info", "ui::Tone::Success", "ui::Tone::Warning", "ui::Tone::Danger"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# `realize(document, kind_snapshots, local_state, viewport, capabilities) -> RealizedTree`
+[rows."223"]
+"realize(document, kind_snapshots, local_state, viewport, capabilities) -> RealizedTree" = ["ui::RealizedTree", "ui::RealizeInput::document", "ui::RealizeInput::kind_snapshots", "ui::realize", "ui::RealizeInput::capabilities", "ui::RealizeInput::local_state", "ui::RealizeInput::viewport"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# - `kind_snapshots`: each watched kind's rows at one cut (Hub→client WT-4).
+[rows."225"]
+"kind_snapshots" = ["ui::RealizeInput::kind_snapshots"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# - `local_state`: selections, form drafts, open overlays, row focus.
+[rows."226"]
+"local_state" = ["ui::RealizeInput::local_state"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# - `viewport`: `{ width, height, pointer }` classes (a terminal resize or a window resize changes this input, not the function).
+[rows."227"]
+"viewport" = ["ui::RealizeInput::viewport"]
+"{ width, height, pointer }" = ["ui::Viewport::width", "ui::Viewport::height", "ui::Viewport::pointer"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# - **`RealizedTree` is a tree of the existing UiNode vocabulary** (`botster-ui-contract` `UiNode`), produced by the normative mapping in UI-RZ-2. The renderers (botster-tui-kit, the Web UiNode renderer) stay.
+[rows."228"]
+"RealizedTree" = ["ui::RealizedTree"]
+"UiNode" = ["ui::UiNode"]
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-1 | `realize` is pure and deterministic: same inputs, same tree. It does no I/O and reads no clock. | `conf::ui_rz_1_pure_deterministic` |
+[rows."232"]
+"realize" = ["ui::realize"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-2 | **Part to UiNode mapping (normative).** `list` → `list` of `list_item`; `table` → `table`; `detail` → `panel` of labeled `inline` rows (`text` label, `text` value, `badge`, `metric`); `form` → `form` with `form_section` and `form_field` holding `text_input`, `textarea`, `checkbox` or `select` by JSON type and `ui` hints; `actions` and `toolbar` → `toolbar` of `button` with `menu` overflow; `status_badge` → `status_badge`; `stack`, `inline`, `panel`, `section`, `text`, `empty_state` → the node of the same name. A `metric` field → `metric`. The mapping assigns each realized node a node id by UI-ID-2 and UI-ID-3. A part or field that realizes into several nodes gives each a fixed **role segment** appended by the same algorithm: `label`, `value`, `widget`, `help`, `error`, `container`, `item`, `cell`, `action`, `empty`. The part's outer node takes `container` only when the part has more than one node. Admission refuses an author id equal to a role word. | `conf::ui_rz_2_part_to_uinode_table` |
+[rows."233"]
+"action" = ["ui.role:action"]
+"actions" = ["ui::Part::Actions"]
+"badge" = ["ui::UiNodeKind::Badge"]
+"button" = ["ui::UiNodeKind::Button"]
+"cell" = ["ui.role:cell"]
+"checkbox" = ["ui::UiNodeKind::Checkbox"]
+"container" = ["ui.role:container"]
+"detail" = ["ui::Part::Detail"]
+"empty" = ["ui.role:empty"]
+"empty_state" = ["ui::Part::EmptyState", "ui::UiNodeKind::EmptyState"]
+"error" = ["ui.role:error"]
+"form" = ["ui::Part::Form", "ui::UiNodeKind::Form"]
+"form_field" = ["ui::UiNodeKind::FormField"]
+"form_section" = ["ui::UiNodeKind::FormSection"]
+"help" = ["ui.role:help"]
+"inline" = ["ui::Part::Inline", "ui::UiNodeKind::Inline"]
+"item" = ["ui.role:item"]
+"label" = ["ui.role:label"]
+"list" = ["ui::Part::List", "ui::UiNodeKind::List"]
+"list_item" = ["ui::UiNodeKind::ListItem"]
+"menu" = ["ui::UiNodeKind::Menu"]
+"metric" = ["ui::UiNodeKind::Metric"]
+"panel" = ["ui::Part::Panel", "ui::UiNodeKind::Panel"]
+"section" = ["ui::Part::Section", "ui::UiNodeKind::Section"]
+"select" = ["ui::UiNodeKind::Select"]
+"stack" = ["ui::Part::Stack", "ui::UiNodeKind::Stack"]
+"status_badge" = ["ui::Part::StatusBadge", "ui::UiNodeKind::StatusBadge"]
+"table" = ["ui::Part::Table", "ui::UiNodeKind::Table"]
+"text" = ["ui::Part::Text", "ui::UiNodeKind::Text"]
+"text_input" = ["ui::UiNodeKind::TextInput"]
+"textarea" = ["ui::UiNodeKind::Textarea"]
+"toolbar" = ["ui::Part::Toolbar", "ui::UiNodeKind::Toolbar"]
+"ui" = { symbols = ["ui::FormPart::schema"], uncovered = { ui = "the UI-FM-2 widget hint schema keyword; admission reads it from FormPart::schema, and no field types it" } }
+"value" = ["ui.role:value"]
+"widget" = ["ui.role:widget"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-2a | **Node props (normative).** The mapping table in the contract crate lists, for each part and field, the props of its nodes: `label`, `value` (draft value when a draft exists), `selects`, `activate`, `confirm`, `action_ref`, `absent_reason`, `disabled_reason`, `error`, `options`, `placeholder`, `help`, `disabled`, `required`, `tone`, `selected`. A prop with no value is omitted. | `conf::ui_rz_2a_props_table` |
+[rows."234"]
+"absent_reason" = ["ui.prop:metric:absent_reason", "ui.prop:status_badge:absent_reason", "ui.prop:text:absent_reason", "ui.prop:badge:absent_reason"]
+"action_ref" = ["ui.prop:button:action_ref", "ui.prop:menu_item:action_ref"]
+"activate" = ["ui.prop:metric:activate", "ui.prop:status_badge:activate", "ui.prop:text:activate", "ui.prop:badge:activate", "ui.prop:list_item:activate"]
+"confirm" = ["ui.prop:button:confirm", "ui.prop:menu_item:confirm"]
+"disabled" = ["ui.prop:form:disabled", "ui.prop:form_section:disabled", "ui.prop:form_field:disabled", "ui.prop:button:disabled", "ui.prop:menu_item:disabled", "ui.prop:text_input:disabled", "ui.prop:textarea:disabled", "ui.prop:checkbox:disabled", "ui.prop:select:disabled"]
+"disabled_reason" = ["ui.prop:button:disabled_reason", "ui.prop:menu_item:disabled_reason"]
+"error" = ["ui.prop:form:error", "ui.prop:form_section:error", "ui.prop:form_field:error", "ui.prop:text_input:error", "ui.prop:textarea:error", "ui.prop:checkbox:error", "ui.prop:select:error"]
+"help" = ["ui.prop:form_field:help", "ui.prop:text_input:help", "ui.prop:textarea:help", "ui.prop:checkbox:help", "ui.prop:select:help"]
+"label" = ["ui.prop:form_section:label", "ui.prop:metric:label", "ui.prop:toolbar:label", "ui.prop:status_badge:label", "ui.prop:badge:label", "ui.prop:button:label", "ui.prop:menu:label", "ui.prop:menu_item:label", "ui.prop:text_input:label", "ui.prop:textarea:label", "ui.prop:checkbox:label", "ui.prop:select:label"]
+"options" = ["ui.prop:select:options"]
+"placeholder" = ["ui.prop:form_field:placeholder", "ui.prop:text_input:placeholder", "ui.prop:textarea:placeholder", "ui.prop:select:placeholder"]
+"required" = ["ui.prop:form_field:required", "ui.prop:text_input:required", "ui.prop:textarea:required", "ui.prop:checkbox:required", "ui.prop:select:required"]
+"selected" = ["ui.prop:form_field:selected", "ui.prop:list_item:selected", "ui.prop:select:selected"]
+"selects" = ["ui.prop:list:selects", "ui.prop:list_item:selects", "ui.prop:table:selects"]
+"tone" = ["ui.prop:panel:tone", "ui.prop:metric:tone", "ui.prop:status_badge:tone", "ui.prop:text:tone", "ui.prop:badge:tone", "ui.prop:button:tone"]
+"value" = ["ui.prop:form_field:value", "ui.prop:metric:value", "ui.prop:list_item:value", "ui.prop:text_input:value", "ui.prop:textarea:value", "ui.prop:select:value"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-2b | **Overlays.** `local_state.overlays` lists open overlays. An open action form realizes as a `dialog` that holds the `form`. A pending confirmation realizes as a `dialog` with the message, a confirm `button` and a cancel `button`. With both pending, only the form shows first (UI-AC-4). Vectors cover "form, then confirm". | `conf::ui_rz_2b_overlay_dialogs`, `conf::ui_rz_2b_form_then_confirm` |
+[rows."235"]
+"button" = ["ui::UiNodeKind::Button"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+"form" = ["ui::UiNodeKind::Form"]
+"local_state.overlays" = ["ui::RealizedTree::overlays", "ui::LocalState::overlays"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-2c | **Drawable.** Every `expect` tree in a vector MUST render in botster-tui-kit and in the Web UiNode renderer with no unsupported-node and no unsupported-prop diagnostic. Both renderers run this check in their own suites. | `conf::ui_rz_2c_expect_trees_drawable` |
+[rows."236"]
+"expect" = "n/a: a key of a conformance vector file (vectors.rs reads the vector JSON by key)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-2d | **Source of truth.** `local_state` is the single source of truth for drafts, selections, row focus, scroll and overlays. A renderer MAY keep a widget's in-progress value inside the widget, but it MUST NOT treat that value as authoritative. It MUST publish the value to `local_state` before any `realize` that can depend on it: when a `{ form }` operand, a `visible_when` or an `options_source` reads it, and at submit. After `realize`, the renderer applies what `realize` changed (a cleared option per UI-FM-4, a stamped error, a reload) back into its widgets before the next draw. On conflict the output of `realize` wins. `realize` MUST be memoizable: stable node ids (UI-RZ-4) let focus survive a re-realize. Vectors check that the same `local_state` gives the same tree, not the renderer's architecture. Kit deliverable (open item O1): `set_draft_value`, `clear_draft_value`, `set_selected_row`, the new UiNode props and the `detail` and overlay mappings. | `conf::ui_rz_2d_local_state_is_source_of_truth` |
+[rows."237"]
+"clear_draft_value" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+"detail" = ["ui::Part::Detail"]
+"local_state" = ["ui::RealizeInput::local_state"]
+"options_source" = ["ui.prop:select:options_source"]
+"realize" = ["ui::realize"]
+"set_draft_value" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+"set_selected_row" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+"visible_when" = { symbols = ["ui::FormPart::schema"], uncovered = { visible_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+"{ form }" = ["ui::Operand::Form"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-3 | **Implementations.** `realize` is **production code** in the `botster-ui-contract` Rust crate (used by the TUI and by Hub admission for grammar checks). Web implements the same function in its own language. The Hub runs no `realize` for a client. All implementations pass the **vectors**: JSON files `{ document, kinds, local_state, viewport, capabilities, expect }` in the crate's `vectors/`. | `conf::ui_rz_3_vectors_pass_rust`, `conf::ui_rz_3_vectors_pass_web` |
+[rows."238"]
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"realize" = ["ui::realize"]
+"vectors/" = "n/a: a directory of the botster-ui-contract crate (the conformance vectors); a path, not an API symbol"
+"{ document, kinds, local_state, viewport, capabilities, expect }" = { symbols = ["ui::RealizeInput::document", "ui::RealizeInput::local_state", "ui::RealizeInput::viewport", "ui::RealizeInput::capabilities"], uncovered = { kinds = "a key of a conformance vector (the kind snapshots; vectors.rs reads it by key)", expect = "a key of a conformance vector (vectors.rs reads it by key)" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 12. Realization
+# | UI-RZ-4 | Rows appear in `order`, then by row key. A live change moves a row without changing other rows' node ids. | `conf::ui_rz_4_order_stable_ids` |
+[rows."239"]
+"order" = ["ui::ListPart::order", "ui::TablePart::order"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 13. Admission, versioning and size
+# | UI-AD-1 | At package load the Hub validates every view (Hub→plugin VW-1): known parts (UI-PT-1), unique ids (UI-ID-1), admitted source kinds (UI-BD-2), every path, field and ref path in the kind's **projection allowlist** (the `projection_allowlist` of the Hub's per-kind descriptor, never a client's own struct), operands in scope (UI-BD-3), every action naming a registered `ui_action` handler with the canonical schema (UI-FM-1), `visible_when` only on optional properties (UI-FM-3), every `selects`, `sel` and `ref` naming a declared slot or ref, sibling `when` exclusivity (UI-PT-3), predicates in the grammar. One failure fails the load with the path of the defect. | `conf::ui_ad_1_admission_rules` |
+[rows."246"]
+"projection_allowlist" = ["hub::KindDescriptor::projection_allowlist"]
+"ref" = ["ui::Column::ref_", "ui::Operand::Ref"]
+"sel" = ["ui::Operand::Sel"]
+"selects" = ["ui::ListPart::selects", "ui::TablePart::selects"]
+"ui_action" = ["plugin::HandlerKind::UiAction"]
+"visible_when" = { symbols = ["ui::FormPart::schema"], uncovered = { visible_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+"when" = ["ui::Part::when", "ui::Action::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 13. Admission, versioning and size
+# | UI-AD-2 | **Allowlist changes.** Adding a field to a kind's allowlist is a MINOR change of the kind. Removing one is a MAJOR change and makes every view that uses it `stale` (shown as a diagnostic) until the plugin reloads. | `conf::ui_ad_2_allowlist_minor_add_major_remove` |
+[rows."247"]
+"stale" = ["ui::Diagnostic::code", "ui.diagnostic:stale"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 13. Admission, versioning and size
+# | UI-VR-1 | `ui_contract_view: "M.m"`. A MINOR change is additive: a new optional property, `widget`, `tone`, `display` or a new part behind a feature. A MAJOR change removes or changes meaning. | `conf::ui_vr_1_additive_minor` |
+[rows."248"]
+"display" = ["ui::Field::display"]
+"tone" = ["ui::Field::tone"]
+'ui_contract_view: "M.m"' = { symbols = ["ui::ViewDocument::ui_contract_view"], uncovered = { m = "a placeholder: the major and minor version numbers (M.m)" } }
+"widget" = { symbols = ["ui::FormPart::schema"], uncovered = { widget = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 13. Admission, versioning and size
+# | UI-VR-2 | A client supports a range of MAJORs. It ignores an unknown optional property, `widget`, `display` or `tone` (using the default) and counts it. An unknown **required** property makes the view a local diagnostic (UI-CF-1). | `conf::ui_vr_2_unknown_optional_ignored` |
+[rows."249"]
+"display" = ["ui::Field::display"]
+"tone" = ["ui::Field::tone"]
+"widget" = { symbols = ["ui::FormPart::schema"], uncovered = { widget = "a form schema keyword (UI-FM-2) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 13. Admission, versioning and size
+# | UI-VR-4 | A new part or predicate operator appears first behind a name in `features`. A document uses it only with `requires: ["<feature>"]`. | `conf::ui_vr_4_features_gate_new_parts` |
+[rows."251"]
+"features" = ["ui::Capabilities::features"]
+'requires: ["<feature>"]' = { symbols = ["ui::ViewDocument::requires"], uncovered = { feature = "a placeholder: a feature name" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 14. Worked example: the workspaces plugin (informative; a conformance vector)
+# Kinds: `botster-workspaces.workspace` (`id`, `name`), `botster-workspaces.membership` (`id`, `workspace_id`, `session_id`, `hub_id`), and the Hub kind `session` (`id`, `label`, `lifecycle_class`). Every id is unique across the document (UI-ID-1).
+[rows."256"]
+"botster-workspaces.membership" = "n/a: the name of a kind of the workspaces plugin (plugin data in the example, not a contract name)"
+"botster-workspaces.workspace" = "n/a: the name of a kind of the workspaces plugin (plugin data in the example, not a contract name)"
+"hub_id" = "n/a: a field of a kind of the workspaces plugin (plugin data in the example)"
+"id" = ["hub::SessionRow::id"]
+"label" = ["hub::SessionRow::label"]
+"lifecycle_class" = ["hub::SessionRow::lifecycle_class"]
+"name" = "n/a: a field of a kind of the workspaces plugin (plugin data in the example)"
+"session" = ["hub.kind:session"]
+"session_id" = "n/a: a field of a kind of the workspaces plugin (plugin data in the example)"
+"workspace_id" = "n/a: a field of a kind of the workspaces plugin (plugin data in the example)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 14. Worked example: the workspaces plugin (informative; a conformance vector)
+# The "unavailable" group is a second `list` over the same kind with `ne(lifecycle_class, "current")`, or a row whose ref is absent (UI-RF-2). The example passes UI-ID-1 (all ids differ), UI-BD-3 (`ref` inside the part that declares it) and UI-RC-4 (`membership_id` is an ordinary argument; the plugin loads the membership row from its store).
+[rows."302"]
+"list" = ["ui::Part::List"]
+"membership_id" = "n/a: an argument of an action of the workspaces plugin (plugin data in the example)"
+'ne(lifecycle_class, "current")' = ["ui::Pred::Ne", "hub::SessionRow::lifecycle_class", "codec::LifecycleClass::Current"]
+"ref" = ["ui::Operand::Ref"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 16. Fakes, vectors and conformance
+# - **Vectors** (section 12) are the fake: at least one per clause that changes the realized tree, including the ten Web items and ids with `/`, `:`, `|` and `\`; one negative vector per admission rule; `viewport` vectors for all 27 classes.
+[rows."323"]
+"viewport" = ["ui::Viewport"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 16. Fakes, vectors and conformance
+# - **Reference implementation:** the Rust `realize` in the contract crate. Web and any other renderer are checked against the same vectors.
+[rows."324"]
+"realize" = ["ui::realize"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 16. Fakes, vectors and conformance
+# - **Skew vector:** a snapshot where a membership arrives before its session: the ref is `absent` (UI-RF-2) and later resolves without changing node ids.
+[rows."325"]
+"absent" = "n/a: the absent value: a None operand (truthy and eq take Option<&Value>)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 17. Amendments to the other contracts (required before freeze)
+# 2. **Hub→client section 7b.** Remove `dialog` from the layout list (UI-AC-4); name `ui-contract v1` as the owner of the vocabulary; state that capability-dependent filtering does not exist (UI-CF-1).
+[rows."331"]
+"dialog" = ["ui::UiNodeKind::Dialog"]
+"ui-contract v1" = "n/a: the name and version of this contract"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 17. Amendments to the other contracts (required before freeze)
+# 4. **Hub→client DS-1.** `allowed` and `reasons` stay as they are (UI-AC-5). No `confirmed` request field is added (UI-AC-3).
+[rows."333"]
+"allowed" = ["hub::ActionDescriptor::allowed"]
+"confirmed" = "n/a: a request field that this contract does not add (UI-AC-3); no crate symbol by design"
+"reasons" = ["hub::ActionDescriptor::reasons"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 18. Changes since draft 1
+# | Hidden required field dropped from `required` (UI-FM-3) | Hidden fields omitted; they must be optional in the canonical schema; `required_when` is a client pre-check (UI-FM-3) |
+[rows."340"]
+"required" = "n/a: a JSON Schema keyword"
+"required_when" = { symbols = ["ui::FormPart::schema"], uncovered = { required_when = "a form schema keyword (UI-FM-3) that admission reads from FormPart::schema; no field types it" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 18. Changes since draft 1
+# | Test-only `realize`; own tree vocabulary | Production `realize` in the crate; output is the UiNode vocabulary with a normative mapping (UI-RZ-2, UI-RZ-3) |
+[rows."343"]
+"realize" = ["ui::realize"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 18. Changes since draft 1
+# | No viewport input | `viewport` operand and `realize` input; exclusivity by enumeration of all 27 classes (UI-PT-3) |
+[rows."344"]
+"realize" = ["ui::realize"]
+"viewport" = ["ui::Operand::Viewport", "ui::RealizeInput::viewport"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 18. Changes since draft 1
+# | Hub enforced `confirm` | Client presentation only; form first, then confirm (UI-AC-3, UI-AC-4) |
+[rows."346"]
+"confirm" = ["ui::Action::confirm"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **Q2 and Q6:** `metric` and `number` are `Field.display` options with the UI-CF-2 fallbacks. No new data part. `metric_grid` stays out unless the user asks for a tile look.
+[rows."355"]
+"Field.display" = ["ui::Field", "ui::Field::display"]
+"metric" = ["ui::Display::Metric"]
+"metric_grid" = ["ui::UiNodeKind::MetricGrid"]
+"number" = ["ui::Display::Number"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **Q3:** no user sorting in v1; declared `order` only.
+[rows."356"]
+"order" = ["ui::ListPart::order", "ui::TablePart::order"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **Q5 (allowlist):** the projection allowlist of a kind is exactly the `projection_allowlist` field of its `KindDescriptor` (Hub→client DS-1), from the owner's single declaration (DS-2). Schema properties need not all be projected. View admission reads that field, never a client struct.
+[rows."358"]
+"KindDescriptor" = ["hub::KindDescriptor"]
+"projection_allowlist" = ["hub::KindDescriptor::projection_allowlist"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **O1:** the TUI spike (botster-tui-kit 6c46910, input.rs) found the router reads drafts, selections and focus but has no setters. The TUI writer adds `set_draft_value`, `clear_draft_value` and `set_selected_row`, the new UiNode props and the `detail` and overlay mappings. This is additive kit work and not a freeze blocker.
+[rows."359"]
+"clear_draft_value" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+"detail" = ["ui::Part::Detail"]
+"set_draft_value" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+"set_selected_row" = "n/a: a function of botster-tui-kit (open item O1), outside this repo"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **O2:** the production `realize` is published from the `botster-ui-contract` crate. Tagging and pin updates are later implementation work; this contract names no tag.
+[rows."360"]
+"botster-ui-contract" = "n/a: a binary or crate name of the implementation, not a contract symbol"
+"realize" = ["ui::realize"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > 19. Decisions and open items (freeze record)
+# - **Gone or new (Web facts):** `bind_list.source "@/field"` and `local:` paths do not exist in v1. `{ form }` operands, password/masked input, collapsed optional sections and dialog nodes are new Web work.
+[rows."361"]
+'bind_list.source "@/field"' = "n/a: an old Web path form that v1 removes"
+"local:" = "n/a: an old Web path prefix that v1 removes"
+"{ form }" = ["ui::Operand::Form"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative)
+# Source: `botster-project-pipelines` `plugin.lua` (`render_home` line 4465, `render_settings` line 4526, `drilldown_tables`, `workbench_dialogs`, `entity_stream_section`), at `3295408`. Today the plugin builds a UiNode tree in Lua (`surface_route`); the Hub contract removes that (EN-6, VW-2).
+[rows."369"]
+"botster-project-pipelines" = "n/a: a repository name (the evidence)"
+"drilldown_tables" = "n/a: a function of the project-pipelines plugin code (the evidence), outside this repo"
+"entity_stream_section" = "n/a: a function of the project-pipelines plugin code (the evidence), outside this repo"
+"plugin.lua" = "n/a: a file name of the project-pipelines plugin (the evidence)"
+"render_home" = "n/a: a function of the project-pipelines plugin code (the evidence), outside this repo"
+"render_settings" = "n/a: a function of the project-pipelines plugin code (the evidence), outside this repo"
+"surface_route" = "n/a: a handler kind that EN-6 and VW-2 forbid; no crate symbol holds it"
+"workbench_dialogs" = "n/a: a function of the project-pipelines plugin code (the evidence), outside this repo"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# ### Home (`project-pipelines.home`)
+[rows."371"]
+"project-pipelines.home" = "n/a: a view id of the project-pipelines plugin (plugin data in the example)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | Overview panel: toolbar plus four counters (needs attention, running, ready for review, open tickets) with tone | A computed count per tone | `detail` over a singleton kind `project-pipelines.summary` with `display: metric` fields and a tone `map`; counters are plugin-published (EN-2) |
+[rows."375"]
+"detail" = ["ui::Part::Detail"]
+"display: metric" = ["ui::Field::display", "ui::Display::Metric"]
+"map" = ["ui::Field::map"]
+"project-pipelines.summary" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | Three lists: Needs attention, Running, Ready for review, each with empty copy | Rows computed from runs, session requests and questions (for example an attention item comes from a blocked step, a failed spawn or an open question) | Three `list` parts over plugin-published kinds `attention_item`, `running_item`, `review_item`; the **plugin computes the rows** and publishes them; the view only lists them. This is why Q4 asks |
+[rows."376"]
+"attention_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"list" = ["ui::Part::List"]
+"review_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"running_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | "Common path" guidance: one text plus five entries naming tools | Static copy and entry points | A `text` part plus an `actions` part with real actions (Create project, Create ticket, Create pipeline, Start run, Spawn agent); the five "tool" entries become buttons |
+[rows."377"]
+"actions" = ["ui::Part::Actions"]
+"text" = ["ui::Part::Text"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | Records: four tables (projects, tickets, runs, agent spawns) with columns and empty copy; selecting a workspace-linked project focuses it | `table` with columns; a selection that filters the other tables | Four `table` parts; `selects: sel_project`; the other tables filter with `where` on `{sel: "sel_project/id"}` |
+[rows."378"]
+"selects: sel_project" = { symbols = ["ui::TablePart::selects"], uncovered = { sel_project = "a selection id in the example (plugin data)" } }
+"table" = ["ui::Part::Table"]
+"where" = ["ui::Source::where_"]
+'{sel: "sel_project/id"}' = { symbols = ["ui::Operand::Sel"], uncovered = { sel_project = "a selection id in the example (plugin data)", id = "the id member of the selected row" } }
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | Dialogs: Create ticket (project, title), Start run (ticket, pipeline), Spawn agent (feedback form) | Forms with project/ticket/pipeline pickers today typed as plain text inputs | Three `actions` entries with `args_schema`; the pickers become `options_source` selects over the project, ticket and pipeline kinds (an improvement over free text) |
+[rows."379"]
+"actions" = ["ui::Part::Actions"]
+"args_schema" = ["ui::Action::args_schema"]
+"options_source" = ["ui.prop:select:options_source"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Home (`project-pipelines.home`)
+# | Selected-workspace note per project | Conditional text | A `text` with `when`-free binding: a `detail` field over the selected project |
+[rows."381"]
+"detail" = ["ui::Part::Detail"]
+"text" = ["ui::Part::Text"]
+"when" = ["ui::Part::when", "ui::Action::when"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Settings (`project-pipelines.settings`)
+# ### Settings (`project-pipelines.settings`)
+[rows."383"]
+"project-pipelines.settings" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Settings (`project-pipelines.settings`)
+# | Five counters (projects, tickets, runs, agent spawns, open questions) | Counts | `detail` over `project-pipelines.summary` with `display: metric` |
+[rows."387"]
+"detail" = ["ui::Part::Detail"]
+"display: metric" = ["ui::Field::display", "ui::Display::Metric"]
+"project-pipelines.summary" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Settings (`project-pipelines.settings`)
+# | Readiness list, computed from the context and provider status | Computed rows | `list` over a plugin-published kind `readiness_item` |
+[rows."388"]
+"list" = ["ui::Part::List"]
+"readiness_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Settings (`project-pipelines.settings`)
+# | Provider dependency status: text and a badge | One computed value | `detail` over a singleton kind with a `status_badge` field |
+[rows."389"]
+"detail" = ["ui::Part::Detail"]
+"status_badge" = ["ui::Part::StatusBadge"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > Settings (`project-pipelines.settings`)
+# | Defaults: four read-only entries (spawn point, session type, pipeline mode, workspace) from package configuration | A read-only view of configuration | `detail` over a singleton kind `project-pipelines.settings` holding the values `config.get` returns. Editing configuration is an operator action outside the view (reload the package), as today |
+[rows."390"]
+"config.get" = ["plugin.call:config.get"]
+"detail" = ["ui::Part::Detail"]
+"project-pipelines.settings" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > What the inventory needs from this contract
+# 1. `display: metric` (counters) and tone maps (`status_badge.map`): Q2.
+[rows."394"]
+"display: metric" = ["ui::Field::display", "ui::Display::Metric"]
+"status_badge.map" = ["ui::Part::StatusBadge", "ui::StatusBadgePart::map"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > What the inventory needs from this contract
+# 2. Computed lists are plugin-published kinds, not view logic: Q4. No `where` across kinds is needed.
+[rows."395"]
+"where" = ["ui::Source::where_"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > What the inventory needs from this contract
+# 4. Forms with `options_source` pickers over plugin kinds: UI-FM-4.
+[rows."397"]
+"options_source" = ["ui.prop:select:options_source"]
+
+# UI contract v1: the declarative view schema (FROZEN 2026-09-30, from candidate7) > Appendix A. Project-pipelines view inventory (informative) > What the inventory needs from this contract
+# No part beyond the thirteen is needed. The plugin publishes seven computed or singleton kinds (`summary`, `attention_item`, `running_item`, `review_item`, `readiness_item`, `settings`, and the provider status in `settings`), which are plugin work under EN-1 and EN-2, not contract work.
+[rows."400"]
+"attention_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"readiness_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"review_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"running_item" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"settings" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"
+"summary" = "n/a: a kind that the project-pipelines plugin publishes (plugin data in the example, not a contract name)"

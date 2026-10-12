@@ -1,0 +1,93 @@
+{
+ "id": "conf::lba1_3_entity_provider_kind_is_written_entity_kind",
+ "contract": "lb",
+ "clause": "LBA1-3",
+ "subject": "lua_host",
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {\n    { kind = \"entity_provider\", id = \"ep\", entity_kind = \"workspace\", call = function(p, request) return { records = botster.json.array{} } end },\n  },\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "handlers": [
+      {
+       "id": "ep",
+       "kind": "entity_provider",
+       "descriptor": {
+        "kind": "workspace"
+       }
+      }
+     ]
+    }
+   },
+   "because": "LB LBA1-3"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "ep",
+     "kind": "entity_provider",
+     "payload": {
+      "kind": "workspace",
+      "request": "snapshot"
+     },
+     "origin": "entity_provider"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "records": []
+      }
+     }
+    }
+   },
+   "because": "LB LB-10"
+  }
+ ]
+}

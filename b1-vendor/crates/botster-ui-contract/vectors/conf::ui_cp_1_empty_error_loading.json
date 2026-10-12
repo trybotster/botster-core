@@ -1,0 +1,298 @@
+{
+  "id": "conf::ui_cp_1_empty_error_loading",
+  "contract": "ui",
+  "clause": "UI-CP-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "before the baseline: the loading state",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "empty": {
+            "title": "None"
+          },
+          "error": {
+            "title": "Bad"
+          }
+        }
+      },
+      "kinds": {},
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "loading"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "a baseline with no rows: the empty state shows the empty copy",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "empty": {
+            "title": "None",
+            "body": "Add one"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "empty"
+          }
+        },
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:l9:container5:empty": {
+          "type": "empty_state",
+          "props": {
+            "title": "None"
+          }
+        }
+      },
+      "because": "UI UI-CP-1"
+    },
+    {
+      "name": "the watch failed: the error state carries the Hub's message as detail",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "error": {
+            "title": "Bad",
+            "body": "Try later."
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [],
+          "error": {
+            "message": "boom"
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "error",
+            "detail": "boom"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "an error with no Hub message has no detail",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          },
+          "error": {
+            "title": "Bad"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [],
+          "error": {}
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": "error",
+            "detail": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "a table with a baseline and no rows is in the empty state",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "table",
+          "id": "tb",
+          "source": {
+            "kind": "k"
+          },
+          "columns": [
+            {
+              "id": "c",
+              "label": "N",
+              "path": "/n"
+            }
+          ],
+          "empty": {
+            "title": "No rows"
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "tb": {
+          "props": {
+            "state": "empty"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "a detail before the baseline is in the loading state",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "detail",
+          "id": "d",
+          "source": {
+            "kind": "k",
+            "id": {
+              "lit": "a"
+            }
+          },
+          "fields": [
+            {
+              "id": "f",
+              "path": "/n"
+            }
+          ]
+        }
+      },
+      "kinds": {},
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:d9:container": {
+          "props": {
+            "state": "loading"
+          }
+        }
+      },
+      "because": "UI UI-NV-1"
+    },
+    {
+      "name": "a list with rows has no state (a prop with no value is omitted)",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "k"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "f",
+                "path": "/n"
+              }
+            ]
+          }
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r",
+              "n": 1
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l9:container": {
+          "props": {
+            "state": {
+              "$absent": true
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2a"
+    }
+  ]
+}

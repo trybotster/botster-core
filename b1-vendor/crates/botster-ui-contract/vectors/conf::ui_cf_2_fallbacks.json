@@ -1,0 +1,680 @@
+{
+  "id": "conf::ui_cf_2_fallbacks",
+  "contract": "ui",
+  "clause": "UI-CF-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "a table without a column grid is a list of label: value lines",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "tb",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "c",
+                  "label": "Name",
+                  "path": "/n"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "type": "list",
+              "children": [
+                {
+                  "type": "list_item",
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "text": "Name: 7"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a status badge without a badge widget is label text",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "status_badge",
+              "id": "sb",
+              "value": {
+                "lit": "ok"
+              },
+              "map": {
+                "ok": {
+                  "label": "OK",
+                  "tone": "success"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "type": "text"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a panel without a panel node is a heading and indented children",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "panel",
+              "id": "pn",
+              "title": "Heading",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pt",
+                  "value": "inside"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "props": {
+                    "text": "Heading"
+                  }
+                },
+                {
+                  "type": "stack",
+                  "props": {
+                    "indent": true
+                  },
+                  "children": [
+                    {
+                      "id": "pt"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a section without a section node is a heading and indented children",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "section",
+              "id": "pn",
+              "heading": "Heading",
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pt",
+                  "value": "inside"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "toolbar",
+          "text",
+          "empty_state"
+        ]
+      },
+      "expect": {
+        "root": {
+          "children": [
+            {
+              "children": [
+                {
+                  "type": "text",
+                  "props": {
+                    "text": "Heading"
+                  }
+                },
+                {
+                  "type": "stack",
+                  "props": {
+                    "indent": true
+                  },
+                  "children": [
+                    {
+                      "id": "pt"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a metric field without the display_metric ability is label: value",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "m",
+                    "label": "Count",
+                    "path": "/n",
+                    "display": "metric"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ],
+        "features": []
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:m": {
+          "type": "text",
+          "props": {
+            "text": "Count: 7"
+          }
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a metric field with the display_metric ability is a metric node",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "m",
+                    "label": "Count",
+                    "path": "/n",
+                    "display": "metric"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": 7
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ],
+        "features": [
+          "display_metric"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:m": {
+          "type": "metric"
+        }
+      },
+      "because": "UI UI-RZ-2"
+    },
+    {
+      "name": "a widget that the renderer lacks falls back to the default of the JSON type",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "textarea"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "textarea"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ],
+        "widgets": []
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget": {
+          "type": "text_input"
+        }
+      },
+      "because": "UI UI-CF-2"
+    },
+    {
+      "name": "a password widget is refused with a diagnostic and never echoed",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "s": {
+                        "type": "string",
+                        "ui": {
+                          "widget": "password"
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "s": {
+                    "type": "string",
+                    "ui": {
+                      "widget": "password"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "parts": [
+          "list",
+          "table",
+          "detail",
+          "form",
+          "actions",
+          "status_badge",
+          "stack",
+          "inline",
+          "panel",
+          "section",
+          "toolbar",
+          "text",
+          "empty_state"
+        ],
+        "widgets": [
+          "textarea"
+        ]
+      },
+      "expect_diagnostics": [
+        "masked_input_unavailable"
+      ],
+      "expect_absent": [
+        "botster-ui-descendant-v1:70:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container1:s6:widget"
+      ],
+      "because": "UI UI-FM-2"
+    },
+    {
+      "name": "the toolbar overflow is a menu",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "bar",
+              "overflow": "auto",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "viewport": {
+        "width": "compact",
+        "height": "regular",
+        "pointer": "fine"
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:bar9:container4:item": {
+          "type": "menu"
+        }
+      },
+      "because": "UI UI-CF-2"
+    }
+  ]
+}

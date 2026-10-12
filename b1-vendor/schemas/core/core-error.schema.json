@@ -1,0 +1,304 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CoreError",
+  "description": "An error of Core.\n\nClause: Core 3, Core 9.3.",
+  "type": "object",
+  "properties": {
+    "code": {
+      "$ref": "#/$defs/ErrorCode"
+    },
+    "category": {
+      "$ref": "#/$defs/ErrorCategory"
+    },
+    "detail": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "category",
+    "detail"
+  ],
+  "$defs": {
+    "ErrorCode": {
+      "description": "Every error code of Core.\n\nClause: Core 9.3 (the table), Core A2-1, Core A2-10 (the removed and added codes).\n\nClause: Core 9.3, Core A2-1, Core A2-10.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "UnknownSession",
+            "UnknownRoute",
+            "IdTooLong",
+            "IdInUse",
+            "WrongState",
+            "SessionEnded",
+            "MissingWorkerPath",
+            "DataDirInUse",
+            "WorkerLinkFailed",
+            "LaneFull",
+            "PayloadTooLarge",
+            "PendingLimit",
+            "SessionLimit",
+            "RouteLimit",
+            "CaptureLimit",
+            "ServiceLimit",
+            "Cancelled",
+            "CursorReadUnsupported",
+            "UnknownCapture",
+            "PageOutOfRange",
+            "SnapshotTooLarge",
+            "Internal",
+            "UnknownService"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "StartFailed": {
+              "$ref": "#/$defs/StartFailReason"
+            }
+          },
+          "required": [
+            "StartFailed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Clause: Core A7-1, Core A15-1. `field` names the refused input (for example `route_limits.max_frame_bytes`, or `text`); it is absent when no clause names one.",
+          "type": "object",
+          "properties": {
+            "InvalidInput": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "InvalidInput"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "Unsupported": {
+              "type": "object",
+              "properties": {
+                "what": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/UnsupportedReason"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "required": [
+            "Unsupported"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "`field` names the refused limit.",
+          "type": "object",
+          "properties": {
+            "InvalidConfig": {
+              "type": "object",
+              "properties": {
+                "field": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "field"
+              ]
+            }
+          },
+          "required": [
+            "InvalidConfig"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Clause: Core AD-7 (`uncertain`).",
+          "type": "object",
+          "properties": {
+            "RegistryFailed": {
+              "type": "object",
+              "properties": {
+                "uncertain": {
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
+          },
+          "required": [
+            "RegistryFailed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "BoundUnavailable": {
+              "type": "object",
+              "properties": {
+                "bound": {
+                  "$ref": "#/$defs/Bound"
+                }
+              },
+              "required": [
+                "bound"
+              ]
+            }
+          },
+          "required": [
+            "BoundUnavailable"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StartFailReason": {
+      "anyOf": [
+        {
+          "description": "Why `Start` failed. A host maps an unknown reason to `Other`.\n\nClause: Core A2-1, Core LC-4, Core AD-7.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "CwdMissing",
+                "StartupTimeout",
+                "WorkerFailed",
+                "GuardianFailed",
+                "Other"
+              ]
+            },
+            {
+              "type": "object",
+              "properties": {
+                "ExecFailed": {
+                  "type": "object",
+                  "properties": {
+                    "errno": {
+                      "type": "integer",
+                      "format": "int32"
+                    }
+                  },
+                  "required": [
+                    "errno"
+                  ]
+                }
+              },
+              "required": [
+                "ExecFailed"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "CwdMissing",
+              "StartupTimeout",
+              "WorkerFailed",
+              "GuardianFailed",
+              "Other",
+              "ExecFailed"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "CwdMissing",
+                "StartupTimeout",
+                "WorkerFailed",
+                "GuardianFailed",
+                "Other",
+                "ExecFailed"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "UnsupportedReason": {
+      "anyOf": [
+        {
+          "description": "The typed reason of an `Unsupported` that the contract names for `attach`.\n\nClause: Core OU-1.",
+          "type": "string",
+          "enum": [
+            "terminal_format",
+            "other"
+          ]
+        },
+        {
+          "type": "string",
+          "not": {
+            "enum": [
+              "terminal_format",
+              "other"
+            ]
+          }
+        },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "propertyNames": {
+            "not": {
+              "enum": [
+                "terminal_format",
+                "other"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object"
+          }
+        }
+      ]
+    },
+    "Bound": {
+      "description": "An OS bound of a service (SV-4). The names match the `bound:` features.\n\nClause: Core SV-4, Core A2-6.",
+      "type": "string",
+      "enum": [
+        "cpu_seconds",
+        "open_files",
+        "processes",
+        "address_space_bytes"
+      ]
+    },
+    "ErrorCategory": {
+      "description": "The category of an error code (9.3).\n\nClause: Core 9.3.",
+      "type": "string",
+      "enum": [
+        "caller",
+        "state",
+        "fault",
+        "capacity"
+      ]
+    }
+  }
+}

@@ -1,0 +1,453 @@
+{
+  "id": "conf::ui_id_1_unique_across_kinds_and_stable",
+  "contract": "ui",
+  "clause": "UI-ID-1",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "unique ids are admitted",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "x"
+            },
+            {
+              "type": "text",
+              "id": "b",
+              "value": "y"
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a part id repeated",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "x"
+            },
+            {
+              "type": "text",
+              "id": "a",
+              "value": "y"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "duplicate_id"
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a field id equal to a part id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "name",
+              "value": "x"
+            },
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "name",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "duplicate_id"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a selection id equal to an action id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "pick",
+                  "label": "Pick",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "pick"
+          }
+        ]
+      },
+      "expect_admission": {
+        "code": "duplicate_id"
+      },
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a ref id equal to a column id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "table",
+              "id": "t",
+              "source": {
+                "kind": "k"
+              },
+              "columns": [
+                {
+                  "id": "r",
+                  "label": "L",
+                  "path": "/v"
+                }
+              ],
+              "refs": {
+                "r": {
+                  "kind": "k",
+                  "key": "/v",
+                  "absent": {
+                    "text": "none"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "duplicate_id"
+      },
+      "context": {
+        "kinds": {
+          "k": {
+            "projection_allowlist": [
+              "/id",
+              "/v",
+              "/name",
+              "/n"
+            ],
+            "field_types": {
+              "/n": "integer",
+              "/name": "string",
+              "/id": "string"
+            }
+          }
+        },
+        "handlers": {},
+        "views": [
+          "other"
+        ]
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a role word as a part id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "label",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "reserved_id",
+        "path": "/root/children/0/id"
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a role word as a form property name",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "properties": {
+                      "value": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "reserved_id"
+      },
+      "context": {
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "an id with a character outside the set",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "Bad Id",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "invalid_id",
+        "path": "/root/children/0/id"
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "an empty id",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "",
+              "value": "x"
+            }
+          ]
+        }
+      },
+      "expect_admission": {
+        "code": "invalid_id"
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a reload that keeps the MAJOR keeps every id: before",
+      "document": {
+        "ui_contract_view": "1.3",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "x"
+            },
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": 1
+            }
+          ]
+        }
+      },
+      "because": "UI UI-ID-1"
+    },
+    {
+      "name": "a reload that keeps the MAJOR keeps every id: after",
+      "document": {
+        "ui_contract_view": "1.1",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "text",
+              "id": "a",
+              "value": "changed"
+            },
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/v"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "v": 2
+            }
+          ]
+        }
+      },
+      "same_ids_as": "a reload that keeps the MAJOR keeps every id: before",
+      "because": "UI UI-ID-1"
+    }
+  ]
+}

@@ -1,0 +1,156 @@
+{
+  "id": "conf::en_4_outstanding_bound",
+  "contract": "hc",
+  "clause": "EN-4",
+  "subject": "hub",
+  "requires": {
+    "controls": [
+      "hold_completion",
+      "release_completion"
+    ]
+  },
+  "setup": {
+    "fixture": "base",
+    "hub": {
+      "limits": {
+        "max_outstanding": 2
+      }
+    }
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "control": {
+        "op": "hold_completion",
+        "count": 2
+      }
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "get",
+        "kind": "session",
+        "target": "s1"
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "get",
+        "kind": "session",
+        "target": "s2"
+      },
+      "on": "c1"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "get",
+        "kind": "session",
+        "target": "s3"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "err": {
+          "code": "too_many_requests",
+          "retryable": true
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-4"
+    },
+    {
+      "control": {
+        "op": "release_completion"
+      }
+    },
+    {
+      "expect_set": [
+        {
+          "type": "res",
+          "id": "1",
+          "ok": {
+            "id": "s1"
+          }
+        },
+        {
+          "type": "res",
+          "id": "2",
+          "ok": {
+            "id": "s2"
+          }
+        }
+      ],
+      "on": "c1",
+      "because": "HC EN-4"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "get",
+        "kind": "session",
+        "target": "s3"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "ok": {
+          "id": "s3"
+        }
+      },
+      "on": "c1",
+      "because": "HC EN-4"
+    }
+  ]
+}

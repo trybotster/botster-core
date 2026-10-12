@@ -1,0 +1,180 @@
+{
+  "id": "conf::ui_rf_4_ref_activation",
+  "contract": "ui",
+  "clause": "UI-RF-4",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "activating a value that shows a ref uses the ref activate: open",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "t",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              },
+              "activate": {
+                "open": "r"
+              }
+            }
+          }
+        }
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build"
+            }
+          ]
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "session",
+              "kind": "session",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "session@1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:m11:t": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "session",
+                "key": "s1"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RF-4"
+    },
+    {
+      "name": "activating a value that shows a ref uses the ref activate: select",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "list",
+          "id": "l",
+          "source": {
+            "kind": "botster-workspaces.membership"
+          },
+          "item": {
+            "fields": [
+              {
+                "id": "t",
+                "value": {
+                  "ref": "r/label"
+                }
+              }
+            ]
+          },
+          "refs": {
+            "r": {
+              "kind": "session",
+              "key": {
+                "hub_id": "/hub_id",
+                "id": "/session_id"
+              },
+              "absent": {
+                "text": "Session unavailable",
+                "tone": "warning"
+              },
+              "activate": {
+                "select": "s"
+              }
+            }
+          }
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "botster-workspaces.membership": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "m1",
+              "workspace_id": "w1",
+              "session_id": "s1",
+              "hub_id": "h1"
+            }
+          ]
+        },
+        "session": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "s1",
+              "label": "Build"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:m11:t": {
+          "props": {
+            "activate": {
+              "select": "s"
+            }
+          }
+        }
+      },
+      "because": "UI UI-RF-4"
+    }
+  ]
+}

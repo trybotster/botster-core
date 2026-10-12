@@ -1,0 +1,23 @@
+{
+  "id": "conf::ui_sl_9_route_path_after_hub_id",
+  "contract": "ui",
+  "clause": "UI-SL-9",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the route path is the part after /hubs/<hub_id>",
+      "url": {
+        "op": "route_path",
+        "expect": "/v/acme-tickets/board?sel_t=t1",
+        "package": "acme-tickets",
+        "target": {
+          "view": "board",
+          "select": {
+            "sel_t": "t1"
+          }
+        }
+      },
+      "because": "UI UI-SL-9"
+    }
+  ]
+}

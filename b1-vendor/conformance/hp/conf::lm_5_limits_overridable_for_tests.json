@@ -1,0 +1,128 @@
+{
+ "id": "conf::lm_5_limits_overridable_for_tests",
+ "contract": "hp",
+ "clause": "LM-5",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "completions"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "frame_bytes": 4096,
+   "invoke_queue": 1,
+   "event_queue_high": 1,
+   "event_queue_normal": 1,
+   "event_queue_low": 1,
+   "event_starvation_bound": 1,
+   "dispatch_deadline": 50
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "limits": {
+      "frame_bytes": 4096,
+      "invoke_queue": 1,
+      "event_queue_high": 1,
+      "event_queue_normal": 1,
+      "event_queue_low": 1,
+      "event_starvation_bound": 1,
+      "dispatch_deadline": 50
+     }
+    }
+   },
+   "because": "HP LM-5"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "ta": "/ticket"
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "tb": "/ticket"
+   }
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "tc": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$ra",
+     "handler": "h1",
+     "deadline_ms": 50
+    }
+   },
+   "because": "HP LM-5"
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$tc",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "backpressured"
+      }
+     }
+    }
+   ],
+   "because": "HP LM-5"
+  }
+ ]
+}

@@ -1,0 +1,768 @@
+{
+  "id": "conf::ui_rz_2c_expect_trees_drawable",
+  "contract": "ui",
+  "clause": "UI-RZ-2c",
+  "subject": "client",
+  "setup": {
+    "admission": {
+      "kinds": {
+        "botster-workspaces.workspace": {
+          "projection_allowlist": [
+            "/id",
+            "/name"
+          ],
+          "field_types": {
+            "/id": "string",
+            "/name": "string"
+          }
+        },
+        "botster-workspaces.membership": {
+          "projection_allowlist": [
+            "/id",
+            "/workspace_id",
+            "/session_id",
+            "/hub_id"
+          ],
+          "field_types": {
+            "/id": "string"
+          }
+        },
+        "session": {
+          "projection_allowlist": [
+            "/id",
+            "/label",
+            "/lifecycle_class",
+            "/owner"
+          ],
+          "field_types": {
+            "/id": "string",
+            "/label": "string"
+          }
+        },
+        "k": {
+          "projection_allowlist": [
+            "/id",
+            "/n"
+          ]
+        }
+      },
+      "handlers": {
+        "rename": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "workspace_id",
+              "name"
+            ],
+            "properties": {
+              "workspace_id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "delete": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "workspace_id"
+            ],
+            "properties": {
+              "workspace_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "remove_session": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "membership_id"
+            ],
+            "properties": {
+              "membership_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "move_session": {
+          "schema": {
+            "type": "object",
+            "required": [
+              "membership_id",
+              "workspace_id"
+            ],
+            "properties": {
+              "membership_id": {
+                "type": "string"
+              },
+              "workspace_id": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "h1_go": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "s": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "h1_go2": {
+          "schema": {
+            "type": "object"
+          }
+        },
+        "h2_go": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string",
+                "ui": {
+                  "group": "g"
+                }
+              },
+              "o": {
+                "type": "string",
+                "ui": {
+                  "options_source": {
+                    "kind": "k",
+                    "value_field": "/id",
+                    "label_field": "/id"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "views": [
+        "workspaces",
+        "v0",
+        "v1",
+        "v2"
+      ]
+    }
+  },
+  "steps": [
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v0",
+          "title": "Workspaces",
+          "selections": [
+            {
+              "id": "sel_ws"
+            }
+          ],
+          "root": {
+            "type": "stack",
+            "id": "page",
+            "direction": "row",
+            "children": [
+              {
+                "type": "list",
+                "id": "workspace_list",
+                "source": {
+                  "kind": "botster-workspaces.workspace",
+                  "order": [
+                    {
+                      "field": "/name",
+                      "dir": "asc"
+                    }
+                  ]
+                },
+                "selects": "sel_ws",
+                "item": {
+                  "fields": [
+                    {
+                      "id": "ws_name",
+                      "path": "/name"
+                    }
+                  ]
+                },
+                "empty": {
+                  "title": "No workspaces yet"
+                },
+                "error": {
+                  "title": "Workspaces unavailable"
+                }
+              },
+              {
+                "type": "stack",
+                "id": "right",
+                "direction": "column",
+                "children": [
+                  {
+                    "type": "detail",
+                    "id": "ws_detail",
+                    "source": {
+                      "sel": "sel_ws"
+                    },
+                    "fields": [
+                      {
+                        "id": "ws_detail_name",
+                        "label": "Name",
+                        "path": "/name"
+                      }
+                    ],
+                    "empty": {
+                      "title": "Select a workspace"
+                    }
+                  },
+                  {
+                    "type": "actions",
+                    "id": "ws_actions",
+                    "items": [
+                      {
+                        "id": "act_rename",
+                        "label": "Rename",
+                        "handler": "rename",
+                        "priority": "secondary",
+                        "args": {
+                          "workspace_id": {
+                            "sel": "sel_ws/id"
+                          }
+                        },
+                        "args_schema": {
+                          "type": "object",
+                          "required": [
+                            "name"
+                          ],
+                          "properties": {
+                            "name": {
+                              "type": "string",
+                              "minLength": 1,
+                              "ui": {
+                                "placeholder": "Release planning",
+                                "help": "A name for this grouping."
+                              }
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "id": "act_delete",
+                        "label": "Delete",
+                        "handler": "delete",
+                        "priority": "secondary",
+                        "args": {
+                          "workspace_id": {
+                            "sel": "sel_ws/id"
+                          }
+                        },
+                        "confirm": {
+                          "message": "Delete this workspace grouping. Sessions and Git worktrees stay available. This action cannot be undone.",
+                          "tone": "danger"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "list",
+                    "id": "members_current",
+                    "source": {
+                      "kind": "botster-workspaces.membership",
+                      "where": {
+                        "all": [
+                          {
+                            "eq": [
+                              {
+                                "path": "/workspace_id"
+                              },
+                              {
+                                "sel": "sel_ws/id"
+                              }
+                            ]
+                          },
+                          {
+                            "eq": [
+                              {
+                                "ref": "r_session/lifecycle_class"
+                              },
+                              {
+                                "lit": "current"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    "refs": {
+                      "r_session": {
+                        "kind": "session",
+                        "key": {
+                          "hub_id": "/hub_id",
+                          "id": "/session_id"
+                        },
+                        "absent": {
+                          "text": "Session unavailable",
+                          "tone": "warning"
+                        },
+                        "activate": {
+                          "open": "r_session"
+                        }
+                      }
+                    },
+                    "item": {
+                      "fields": [
+                        {
+                          "id": "member_title",
+                          "value": {
+                            "ref": "r_session/label"
+                          }
+                        }
+                      ],
+                      "actions": [
+                        {
+                          "id": "act_remove",
+                          "label": "Remove",
+                          "handler": "remove_session",
+                          "args": {
+                            "membership_id": {
+                              "row": "/id"
+                            }
+                          },
+                          "confirm": {
+                            "message": "Remove this session from the workspace?",
+                            "tone": "neutral"
+                          }
+                        },
+                        {
+                          "id": "act_move",
+                          "label": "Move",
+                          "handler": "move_session",
+                          "args": {
+                            "membership_id": {
+                              "row": "/id"
+                            }
+                          },
+                          "args_schema": {
+                            "type": "object",
+                            "required": [
+                              "workspace_id"
+                            ],
+                            "properties": {
+                              "workspace_id": {
+                                "type": "string",
+                                "ui": {
+                                  "options_source": {
+                                    "kind": "botster-workspaces.workspace",
+                                    "where": {
+                                      "ne": [
+                                        {
+                                          "path": "/id"
+                                        },
+                                        {
+                                          "sel": "sel_ws/id"
+                                        }
+                                      ]
+                                    },
+                                    "value_field": "/id",
+                                    "label_field": "/name",
+                                    "empty": {
+                                      "title": "No other workspace",
+                                      "body": "Create another workspace before you move a session."
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "empty": {
+                      "title": "No sessions yet"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "botster-workspaces.workspace": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "w1",
+                "name": "Alpha"
+              },
+              {
+                "id": "w2",
+                "name": "Beta"
+              }
+            ]
+          },
+          "botster-workspaces.membership": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "m1",
+                "workspace_id": "w1",
+                "session_id": "s1",
+                "hub_id": "h1"
+              },
+              {
+                "id": "m2",
+                "workspace_id": "w1",
+                "session_id": "s2",
+                "hub_id": "h1"
+              },
+              {
+                "id": "m3",
+                "workspace_id": "w2",
+                "session_id": "s1",
+                "hub_id": "h1"
+              }
+            ]
+          },
+          "session": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "s1",
+                "label": "Build",
+                "lifecycle_class": "current"
+              },
+              {
+                "id": "s2",
+                "label": "Old",
+                "lifecycle_class": "retired"
+              }
+            ]
+          }
+        },
+        "local_state": {
+          "selections": {
+            "sel_ws": "w1"
+          },
+          "overlays": [
+            {
+              "form": {
+                "button": "act_rename"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "drawn": true
+        },
+        "because": "UI UI-RZ-2c"
+      }
+    },
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v1",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "page",
+            "direction": "column",
+            "children": [
+              {
+                "type": "list",
+                "id": "l",
+                "source": {
+                  "kind": "k"
+                },
+                "item": {
+                  "fields": [
+                    {
+                      "id": "f",
+                      "path": "/n"
+                    },
+                    {
+                      "id": "m",
+                      "label": "Count",
+                      "path": "/n",
+                      "display": "metric"
+                    },
+                    {
+                      "id": "bd",
+                      "path": "/n",
+                      "display": "badge"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "table",
+                "id": "tb",
+                "source": {
+                  "kind": "k"
+                },
+                "columns": [
+                  {
+                    "id": "c1",
+                    "label": "N",
+                    "path": "/n"
+                  }
+                ]
+              },
+              {
+                "type": "detail",
+                "id": "d",
+                "source": {
+                  "kind": "k",
+                  "id": {
+                    "lit": "a"
+                  }
+                },
+                "fields": [
+                  {
+                    "id": "df",
+                    "label": "N",
+                    "path": "/n"
+                  }
+                ]
+              },
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h1_go",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "s": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "form",
+                "id": "fm",
+                "action": "go",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "s": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              {
+                "type": "status_badge",
+                "id": "sb",
+                "value": {
+                  "lit": "ok"
+                },
+                "map": {
+                  "ok": {
+                    "label": "OK",
+                    "tone": "success"
+                  }
+                }
+              },
+              {
+                "type": "inline",
+                "id": "il",
+                "children": [
+                  {
+                    "type": "text",
+                    "id": "t1",
+                    "value": "x"
+                  }
+                ]
+              },
+              {
+                "type": "panel",
+                "id": "pn",
+                "title": "P",
+                "children": []
+              },
+              {
+                "type": "section",
+                "id": "sc",
+                "heading": "S",
+                "children": []
+              },
+              {
+                "type": "toolbar",
+                "id": "tbr",
+                "items": [
+                  {
+                    "id": "go2",
+                    "label": "Go2",
+                    "handler": "h1_go2"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "id": "t",
+                "value": "x"
+              },
+              {
+                "type": "empty_state",
+                "id": "es",
+                "title": "E"
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "k": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "a",
+                "n": 1
+              }
+            ]
+          }
+        },
+        "capabilities": {
+          "ui_contract_view": [
+            "1.4"
+          ],
+          "features": [
+            "display_metric",
+            "display_badge"
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "drawn": true
+        },
+        "because": "UI UI-RZ-2c"
+      }
+    },
+    {
+      "client_load": {
+        "document": {
+          "ui_contract_view": "1.4",
+          "id": "v2",
+          "title": "T",
+          "root": {
+            "type": "stack",
+            "id": "root",
+            "direction": "column",
+            "children": [
+              {
+                "type": "actions",
+                "id": "acts",
+                "items": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h2_go",
+                    "args_schema": {
+                      "type": "object",
+                      "properties": {
+                        "a": {
+                          "type": "string",
+                          "ui": {
+                            "group": "g"
+                          }
+                        },
+                        "o": {
+                          "type": "string",
+                          "ui": {
+                            "options_source": {
+                              "kind": "k",
+                              "value_field": "/id",
+                              "label_field": "/id"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "confirm": {
+                      "message": "Sure?",
+                      "tone": "neutral"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "form",
+                "id": "f",
+                "action": "go",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "a": {
+                      "type": "string",
+                      "ui": {
+                        "group": "g"
+                      }
+                    },
+                    "o": {
+                      "type": "string",
+                      "ui": {
+                        "options_source": {
+                          "kind": "k",
+                          "value_field": "/id",
+                          "label_field": "/id"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "kind_snapshots": {
+          "k": {
+            "baseline": true,
+            "rows": [
+              {
+                "id": "a",
+                "n": 1
+              }
+            ]
+          }
+        },
+        "local_state": {
+          "overlays": [
+            {
+              "form": {
+                "button": "go"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_expect": {
+        "observation": {
+          "drawn": true
+        },
+        "because": "UI UI-RZ-2c"
+      }
+    }
+  ]
+}

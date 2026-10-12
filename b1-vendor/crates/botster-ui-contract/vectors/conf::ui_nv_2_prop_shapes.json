@@ -1,0 +1,1001 @@
+{
+  "id": "conf::ui_nv_2_prop_shapes",
+  "contract": "ui",
+  "clause": "UI-NV-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "confirm is { message, tone }",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Sure?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "go": {
+          "props": {
+            "confirm": {
+              "message": "Sure?",
+              "tone": "danger"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "activate select",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "selects": "s",
+              "activate": {
+                "select": "s"
+              }
+            }
+          ]
+        },
+        "selections": [
+          {
+            "id": "s"
+          }
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "select": "s"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "activate invoke carries the row key",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h"
+                  }
+                ]
+              },
+              "activate": {
+                "invoke": "go"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "invoke": "go",
+              "row_key": "r1"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "activate open is { kind, key }",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              },
+              "activate": {
+                "open": "r"
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        },
+        "kind": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "k2",
+              "kind": "k2",
+              "schema_version": "1.0"
+            }
+          ]
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "screens": [
+          "k2@1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "open": {
+                "kind": "k2",
+                "key": "a"
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "activate navigate is { view, select } with operands resolved",
+      "document": {
+        "ui_contract_view": "1.1",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "activate": {
+                "navigate": {
+                  "view": "pkg/other",
+                  "select": {
+                    "s": {
+                      "path": "/id"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "navigate": {
+                "view": "pkg/other",
+                "select": {
+                  "s": "r1"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    },
+    {
+      "name": "activate url is { url } with the operand resolved",
+      "document": {
+        "ui_contract_view": "1.1",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ]
+              },
+              "activate": {
+                "url": {
+                  "path": "/u"
+                }
+              }
+            }
+          ]
+        },
+        "requires": [
+          "ui_1_1"
+        ]
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "capabilities": {
+        "ui_contract_view": [
+          "1.4"
+        ],
+        "features": [
+          "ui_1_1",
+          "external_open"
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:1:l2:r1": {
+          "props": {
+            "activate": {
+              "url": "https://example.com/a"
+            }
+          }
+        }
+      },
+      "because": "UI UI-RZ-2e"
+    },
+    {
+      "name": "options are [{ value, label }]",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "pick": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/n"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "pick": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "k",
+                        "value_field": "/id",
+                        "label_field": "/n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:73:botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:pick6:widget": {
+          "type": "select",
+          "props": {
+            "options": [
+              {
+                "value": "r1",
+                "label": "a"
+              }
+            ]
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "error is { code, message? }",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "go",
+                  "label": "Go",
+                  "handler": "h",
+                  "args_schema": {
+                    "type": "object",
+                    "required": [
+                      "name"
+                    ],
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "pick": {
+                        "type": "string",
+                        "ui": {
+                          "options_source": {
+                            "kind": "k",
+                            "value_field": "/id",
+                            "label_field": "/n"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "type": "form",
+              "id": "f",
+              "action": "go",
+              "schema": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "pick": {
+                    "type": "string",
+                    "ui": {
+                      "options_source": {
+                        "kind": "k",
+                        "value_field": "/id",
+                        "label_field": "/n"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "local_state": {
+        "errors": {
+          "fields": {
+            "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name": {
+              "code": "too_short"
+            },
+            "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:pick": {
+              "code": "x",
+              "message": "Bad"
+            }
+          }
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:name": {
+          "props": {
+            "error": {
+              "code": "too_short",
+              "message": {
+                "$absent": true
+              }
+            }
+          }
+        },
+        "botster-ui-descendant-v1:39:botster-ui-descendant-v1:1:f9:container4:pick": {
+          "props": {
+            "error": {
+              "code": "x",
+              "message": "Bad"
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "absent_reason not_found",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "t",
+                    "value": {
+                      "ref": "r/name"
+                    }
+                  }
+                ]
+              },
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:t": {
+          "props": {
+            "absent_reason": "not_found"
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "absent_reason no_baseline",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "t",
+                    "value": {
+                      "ref": "r/name"
+                    }
+                  }
+                ]
+              },
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": "/n",
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": false,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:t": {
+          "props": {
+            "absent_reason": "no_baseline"
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "absent_reason remote_hub_unsupported",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "t",
+                    "value": {
+                      "ref": "r/name"
+                    }
+                  }
+                ]
+              },
+              "refs": {
+                "r": {
+                  "kind": "k2",
+                  "key": {
+                    "hub_id": "/hub",
+                    "id": "/n"
+                  },
+                  "absent": {
+                    "text": "x"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "hub": "h1"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "hub_id": "other",
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r11:t": {
+          "props": {
+            "absent_reason": "remote_hub_unsupported"
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    },
+    {
+      "name": "the action of a button is { id, payload: { target, args } }",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "list",
+              "id": "l",
+              "source": {
+                "kind": "k"
+              },
+              "item": {
+                "fields": [
+                  {
+                    "id": "f",
+                    "path": "/n"
+                  }
+                ],
+                "actions": [
+                  {
+                    "id": "go",
+                    "label": "Go",
+                    "handler": "h",
+                    "args": {
+                      "x": {
+                        "row": "/n"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "kinds": {
+        "k": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "r1",
+              "n": "a",
+              "u": "https://example.com/a"
+            }
+          ]
+        },
+        "k2": {
+          "baseline": true,
+          "rows": [
+            {
+              "id": "a",
+              "name": "N"
+            }
+          ]
+        },
+        "s2": {
+          "baseline": true,
+          "rows": []
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:32:botster-ui-descendant-v1:1:l2:r12:go": {
+          "props": {
+            "action": {
+              "id": "go",
+              "payload": {
+                "target": "r1",
+                "args": {
+                  "x": "a"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "UI UI-NV-2"
+    }
+  ]
+}

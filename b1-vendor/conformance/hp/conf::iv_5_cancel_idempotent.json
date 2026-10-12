@@ -1,0 +1,130 @@
+{
+ "id": "conf::iv_5_cancel_idempotent",
+ "contract": "hp",
+ "clause": "IV-5",
+ "subject": "plugin_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "setup": {
+  "fixture": "host_hold"
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 5,
+     "handler": "h1"
+    }
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Result"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP IV-5"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "$ref": "cancel",
+     "epoch": 7,
+     "request_id": 5
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "$ref": "cancel",
+     "epoch": 7,
+     "request_id": 5
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 6,
+     "handler": "h2"
+    }
+   }
+  },
+  {
+   "expect_eventually": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 6,
+     "result": {
+      "ok": true,
+      "value": 2
+     }
+    }
+   },
+   "ignore": [
+    {
+     "lane": "invoke",
+     "type": "Result",
+     "payload": {
+      "request_id": 5
+     }
+    }
+   ],
+   "because": "HP IV-5"
+  }
+ ]
+}

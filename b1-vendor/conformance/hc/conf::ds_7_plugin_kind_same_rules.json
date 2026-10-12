@@ -1,0 +1,155 @@
+{
+  "id": "conf::ds_7_plugin_kind_same_rules",
+  "contract": "hc",
+  "clause": "DS-7",
+  "subject": "hub",
+  "setup": {
+    "fixture": "plugin"
+  },
+  "steps": [
+    {
+      "connect": {
+        "as": "c1"
+      }
+    },
+    {
+      "send": {
+        "type": "hello",
+        "protocol": "botster-hub",
+        "versions": {
+          "min": 1,
+          "max": 2
+        },
+        "client": {
+          "name": "conf",
+          "version": "0"
+        },
+        "features": [],
+        "terminal_formats": [
+          "ghostsnp/2+raw"
+        ]
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "welcome",
+        "hub_id": {
+          "$type": "string"
+        },
+        "incarnation": {
+          "$type": "string"
+        },
+        "limits": {
+          "$type": "object"
+        }
+      },
+      "on": "c1",
+      "because": "HC HS-3"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "1",
+        "verb": "list",
+        "kind": "kind",
+        "args": {
+          "filter": {
+            "kind": "acme.note"
+          }
+        }
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "1",
+        "ok": {
+          "items": [
+            {
+              "owner": "acme",
+              "watchable": true,
+              "verbs": {
+                "get": {
+                  "effect": "read"
+                },
+                "list": {
+                  "effect": "read"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-7"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "2",
+        "verb": "get",
+        "kind": "acme.note",
+        "target": "n1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "2",
+        "ok": {
+          "id": "n1"
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-7"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "3",
+        "verb": "get",
+        "kind": "acme.note",
+        "target": "missing"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "3",
+        "err": {
+          "code": "not_found"
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-7"
+    },
+    {
+      "send": {
+        "type": "req",
+        "id": "4",
+        "verb": "invoke",
+        "kind": "acme.note",
+        "action": "boom",
+        "args": {},
+        "target": "n1"
+      },
+      "on": "c1"
+    },
+    {
+      "expect": {
+        "type": "res",
+        "id": "4",
+        "err": {
+          "code": "plugin_failed",
+          "reason": "quota"
+        }
+      },
+      "on": "c1",
+      "because": "HC DS-7"
+    }
+  ]
+}

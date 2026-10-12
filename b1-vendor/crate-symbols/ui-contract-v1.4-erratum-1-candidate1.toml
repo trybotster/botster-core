@@ -1,0 +1,26 @@
+# The crate symbols of each code span of ui-contract-v1.4-erratum-1-candidate1.md (cargo xtask crate-symbols; docs/BUILD.md "Amendments").
+# A section is a line of the file; the comments above it give the heading path and the line.
+
+# # ui-contract 1.4, erratum 1 (candidate 1): the error tone is `danger`
+[rows."1"]
+"danger" = ["ui::Tone::Danger"]
+
+# Owner: the contract steward. Reviewer: the Amendment reviewer (Sol). Date: 2026-09-30. **This is an erratum in the post-freeze amendment path.** It adds no behavior, no feature and no version: `ui_contract_view` stays `"1.4"`, and the fe...
+[rows."3"]
+"final9" = "n/a: a manifest name"
+"ui_1_4" = ["ui.feature:ui_1_4"]
+"ui_contract_view" = ["ui::Capabilities::ui_contract_view", "ui::ViewDocument::ui_contract_view"]
+
+# **Why.** UI 1.3 UI-AC-7(a) and UI 1.4 UI-NV-3 and UI-NV-5 require an "`error`-tone `text`". The backticks make `error` read as a tone value, but UI-CF-4's tone set is closed: `neutral|info|success|warning|danger`. A `tone: "error"` would...
+[rows."5"]
+"error" = "n/a: the word that the erratum removes as a tone value; Tone has no member error"
+"neutral|info|success|warning|danger" = ["ui::Tone::Neutral", "ui::Tone::Info", "ui::Tone::Success", "ui::Tone::Warning", "ui::Tone::Danger"]
+"text" = ["ui::UiNodeKind::Text"]
+"tone: \"error\"" = { symbols = ["ui.prop:text:tone"], uncovered = { error = "the tone value that the erratum removes; Tone has no member error" } }
+"unknown_tone" = ["ui::Diagnostic::code", "ui.diagnostic:unknown_tone"]
+
+# | UI-NV-8 | **The error tone is `danger`.** Wherever UI-AC-7(a), UI-NV-3 or UI-NV-5 says "`error`-tone", the realized node carries `tone: "danger"`, a member of UI-CF-4's closed set. There is no tone value `error`. `error` stays a role s...
+[rows."9"]
+"danger" = ["ui::Tone::Danger"]
+"error" = "n/a: the word that the erratum maps to Tone::Danger; Tone has no member error"
+"tone: \"danger\"" = ["ui::Tone::Danger"]

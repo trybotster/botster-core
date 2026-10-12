@@ -1,0 +1,197 @@
+{
+  "id": "conf::ui_ac_2_priority_order_and_emphasis",
+  "contract": "ui",
+  "clause": "UI-AC-2",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "two primary actions in one toolbar are refused",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admission": {},
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "because": "UI UI-AC-2"
+    },
+    {
+      "name": "one primary action",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_admitted": true,
+      "context": {
+        "kinds": {},
+        "handlers": {
+          "h": {
+            "schema": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "because": "UI UI-AC-2"
+    },
+    {
+      "name": "primary items come before secondary items, then declaration order",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h",
+                  "priority": "primary"
+                },
+                {
+                  "id": "c",
+                  "label": "C",
+                  "handler": "h",
+                  "priority": "primary"
+                }
+              ],
+              "overflow": "never"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "b"
+            },
+            {
+              "id": "c"
+            },
+            {
+              "id": "a"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-PT-4"
+    },
+    {
+      "name": "priority changes order and emphasis only",
+      "document": {
+        "ui_contract_view": "1.0",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "toolbar",
+              "id": "bar",
+              "items": [
+                {
+                  "id": "a",
+                  "label": "A",
+                  "handler": "h"
+                },
+                {
+                  "id": "b",
+                  "label": "B",
+                  "handler": "h"
+                }
+              ],
+              "overflow": "never"
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:bar9:container": {
+          "children": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b"
+            }
+          ]
+        }
+      },
+      "because": "UI UI-AC-2"
+    }
+  ]
+}

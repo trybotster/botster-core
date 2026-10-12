@@ -1,0 +1,108 @@
+{
+ "id": "conf::lh_4_globals_equal_published_set",
+ "contract": "hp",
+ "clause": "LH-4",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "readable_globals"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local published, readable = {}, {}\n      for _, n in ipairs(payload.published) do published[n] = true end\n      for _, n in ipairs(payload.readable) do readable[n] = true end\n      local unpublished_readable, published_unreadable, lookup_missing = 0, 0, 0\n      for n in pairs(readable) do if not published[n] then unpublished_readable = unpublished_readable + 1 end end\n      for n in pairs(published) do\n        if not readable[n] then published_unreadable = published_unreadable + 1 end\n        -- the real lookup of each published name, through whatever the environment does for it\n        if _ENV[n] == nil then lookup_missing = lookup_missing + 1 end\n      end\n      return { unpublished_readable = unpublished_readable, published_unreadable = published_unreadable, lookup_missing = lookup_missing }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7,
+     "host": {
+      "globals": "$g"
+     }
+    }
+   },
+   "because": "HP LH-4"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "readable_globals"
+   },
+   "bind": {
+    "$r": "/names"
+   },
+   "expect": {
+    "names": {
+     "$type": "array"
+    }
+   },
+   "because": "HP LH-4"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {
+      "published": "$g",
+      "readable": "$r"
+     },
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "unpublished_readable": 0,
+       "published_unreadable": 0,
+       "lookup_missing": 0
+      }
+     }
+    }
+   },
+   "because": "HP LH-4"
+  }
+ ]
+}

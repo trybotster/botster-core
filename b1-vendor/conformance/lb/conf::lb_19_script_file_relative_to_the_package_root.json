@@ -1,0 +1,52 @@
+{
+ "id": "conf::lb_19_script_file_relative_to_the_package_root",
+ "contract": "lb",
+ "clause": "LB-19",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "admit_package",
+   "package_session_types"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {},
+ "steps": [
+  {
+   "control": {
+    "op": "admit_package",
+    "package": {
+     "manifest": {
+      "$ref": "manifest"
+     },
+     "files": {
+      "main.lua": "botster.register{ tools = {} }\n",
+      "botster-agent.json": "{\"id\": \"coder\", \"label\": \"Coder\", \"command\": \"claude\", \"args\": [\"--fast\"], \"interaction\": \"interactive\", \"lifecycle\": \"restartable\", \"traits\": [\"agent\"], \"script_file\": \"scripts/run.sh\"}",
+      "scripts/run.sh": "echo from-file\n"
+     }
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "LB LB-19"
+  },
+  {
+   "control": {
+    "op": "package_session_types"
+   },
+   "expect": {
+    "session_types": [
+     {
+      "id": "coder",
+      "script": "echo from-file\n"
+     }
+    ]
+   },
+   "because": "LB LB-19"
+  }
+ ]
+}

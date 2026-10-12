@@ -1,0 +1,483 @@
+{
+  "id": "conf::dp_9_fairness_bound_holds_under_flood",
+  "contract": "core",
+  "clause": "DP-9",
+  "subject": "core",
+  "requires": {
+    "controls": [
+      "pty_blocked",
+      "pty_input",
+      "route_input_hold",
+      "route_stream_consumed",
+      "edges_quiet"
+    ]
+  },
+  "setup": {
+    "limits": {
+      "admission_fairness_frames": 3
+    }
+  },
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "program": [
+                {
+                  "hold": {}
+                }
+              ],
+              "fake": {
+                "writes": {
+                  "key": "6b",
+                  "paste": "70"
+                },
+                "admission": {
+                  "key": 12,
+                  "mouse": 12,
+                  "focus": 3,
+                  "paste": 64
+                }
+              }
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {}
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "attach_route": {
+        "route": "r1",
+        "session": "s1",
+        "client": "c1"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Core OU-9"
+    },
+    {
+      "attach_route": {
+        "route": "r2",
+        "session": "s1",
+        "client": "c2"
+      },
+      "because": "Core OU-1"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Core OU-9"
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": true
+      }
+    },
+    {
+      "control": {
+        "op": "route_input_hold",
+        "on": true
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "route_input_hold",
+        "on": true
+      },
+      "route": "r2"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "61"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "2",
+        "bytes": {
+          "$bytes_hex": "62"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "63"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "4",
+        "bytes": {
+          "$bytes_hex": "64"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "5",
+        "bytes": {
+          "$bytes_hex": "65"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "6",
+        "bytes": {
+          "$bytes_hex": "66"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "7",
+        "bytes": {
+          "$bytes_hex": "67"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "8",
+        "bytes": {
+          "$bytes_hex": "68"
+        }
+      }
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "7a"
+        }
+      },
+      "route": "r2"
+    },
+    {
+      "control": {
+        "op": "route_input_hold",
+        "on": false
+      },
+      "route": "r1"
+    },
+    {
+      "control": {
+        "op": "route_input_hold",
+        "on": false
+      },
+      "route": "r2"
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "control": {
+        "op": "route_stream_consumed"
+      },
+      "route": "r2",
+      "expect": {
+        "bytes": 14
+      },
+      "because": [
+        "Core DP-9",
+        "Core DP-3"
+      ]
+    },
+    {
+      "control": {
+        "op": "pty_blocked",
+        "session": "s1",
+        "on": false
+      }
+    },
+    {
+      "await_pty": {
+        "session": "s1",
+        "min_bytes": 9
+      }
+    },
+    {
+      "await_quiet": {}
+    },
+    {
+      "route_expect_pty": {
+        "one_of": [
+          [
+            {
+              "hex": "7a"
+            },
+            {
+              "hex": "61"
+            },
+            {
+              "hex": "62"
+            },
+            {
+              "hex": "63"
+            },
+            {
+              "hex": "64"
+            },
+            {
+              "hex": "65"
+            },
+            {
+              "hex": "66"
+            },
+            {
+              "hex": "67"
+            },
+            {
+              "hex": "68"
+            }
+          ],
+          [
+            {
+              "hex": "61"
+            },
+            {
+              "hex": "7a"
+            },
+            {
+              "hex": "62"
+            },
+            {
+              "hex": "63"
+            },
+            {
+              "hex": "64"
+            },
+            {
+              "hex": "65"
+            },
+            {
+              "hex": "66"
+            },
+            {
+              "hex": "67"
+            },
+            {
+              "hex": "68"
+            }
+          ],
+          [
+            {
+              "hex": "61"
+            },
+            {
+              "hex": "62"
+            },
+            {
+              "hex": "7a"
+            },
+            {
+              "hex": "63"
+            },
+            {
+              "hex": "64"
+            },
+            {
+              "hex": "65"
+            },
+            {
+              "hex": "66"
+            },
+            {
+              "hex": "67"
+            },
+            {
+              "hex": "68"
+            }
+          ],
+          [
+            {
+              "hex": "61"
+            },
+            {
+              "hex": "62"
+            },
+            {
+              "hex": "63"
+            },
+            {
+              "hex": "7a"
+            },
+            {
+              "hex": "64"
+            },
+            {
+              "hex": "65"
+            },
+            {
+              "hex": "66"
+            },
+            {
+              "hex": "67"
+            },
+            {
+              "hex": "68"
+            }
+          ]
+        ]
+      },
+      "because": [
+        "Core DP-9",
+        "Core AM-2"
+      ]
+    }
+  ],
+  "fake": "structural",
+  "ruling": "R-12"
+}

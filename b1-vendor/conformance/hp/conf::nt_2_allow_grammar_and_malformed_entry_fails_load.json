@@ -1,0 +1,406 @@
+{
+ "id": "conf::nt_2_allow_grammar_and_malformed_entry_fails_load",
+ "contract": "hp",
+ "clause": "NT-2",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "admit_manifest",
+   "invoke"
+  ]
+ },
+ "setup": {
+  "given": "complete plugin manifests differ only in one net allow entry",
+  "grants": [
+   {
+    "surface": "net",
+    "scope": "net",
+    "allow": [
+     "https://api.example"
+    ]
+   }
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      },
+      {
+       "id": "op",
+       "kind": "operation",
+       "descriptor": {}
+      },
+      {
+       "id": "he",
+       "kind": "event",
+       "descriptor": {}
+      },
+      {
+       "id": "hg",
+       "kind": "event_gap",
+       "descriptor": {}
+      }
+     ],
+     "operations": {
+      "subscribed": "op"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://api.example"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "http://api.example:8080"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://*.example.com"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://api.example/path"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://api.example?q=1"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://user@api.example"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "ftp://api.example"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "api.example"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://*.example.com/x"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "*.example.com"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "control": {
+    "op": "admit_manifest",
+    "file": "botster-plugin.json",
+    "content": {
+     "$ref": "manifest",
+     "capabilities": [
+      {
+       "surface": "net",
+       "scope": "net",
+       "allow": [
+        "https://*"
+       ]
+      }
+     ]
+    }
+   },
+   "expect": {
+    "error": {
+     "kind": "invalid_request",
+     "detail": {
+      "code": "manifest_bad_allow"
+     }
+    }
+   },
+   "because": "HP NT-2"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

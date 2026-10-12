@@ -1,0 +1,134 @@
+{
+ "id": "conf::iv_2_late_result_dropped",
+ "contract": "hp",
+ "clause": "IV-2",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "invoke",
+   "counters",
+   "completions"
+  ]
+ },
+ "setup": {
+  "limits": {
+   "dispatch_deadline": 100
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "advance_clock": {
+    "ms": 100
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Cancel",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r"
+    }
+   },
+   "because": "HP IV-3"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "counters"
+   },
+   "expect": {
+    "late_results": 1
+   },
+   "because": "HP IV-2"
+  },
+  {
+   "control": {
+    "op": "completions"
+   },
+   "expect": [
+    {
+     "ticket": "$t",
+     "answer": {
+      "ok": false,
+      "error": {
+       "kind": "timed_out"
+      }
+     }
+    }
+   ],
+   "because": "HP IV-2"
+  }
+ ]
+}

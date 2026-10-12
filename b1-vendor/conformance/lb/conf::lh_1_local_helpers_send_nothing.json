@@ -1,0 +1,102 @@
+{
+ "id": "conf::lh_1_local_helpers_send_nothing",
+ "contract": "hp",
+ "clause": "LH-1",
+ "subject": "lua_host",
+ "requires": {
+  "controls": [
+   "settle"
+  ]
+ },
+ "fake": "structural",
+ "ruling": "R-1.4",
+ "setup": {
+  "package": {
+   "manifest": {
+    "$ref": "manifest"
+   },
+   "files": {
+    "main.lua": "botster.register{\n  handlers = {{ kind = \"mcp_tool\", id = \"h_t\", name = \"t\", description = \"d\", input_schema = { type = \"object\" },\n    call = function(payload, request)\n\n      local e = botster.base64.encode{ bytes = \"x\" }\n      local d = botster.base64.decode{ text = e.value }\n      local j = botster.json.encode{ value = { a = 1 } }\n      local jd = botster.json.decode{ text = j.value }\n      local i = botster.ids.new{}\n      local now = botster.clock.now{}\n      local mono = botster.clock.monotonic{}\n      local h = botster.crypto.sha256{ bytes_b64 = e.value }\n      local m = botster.crypto.hmac_sha256{ key_b64 = e.value, bytes_b64 = e.value }\n      local r = botster.crypto.random_bytes{ n = 8 }\n      return { all_ok = e.ok and d.ok and j.ok and jd.ok and i.ok and now.ok and mono.ok and h.ok and m.ok and r.ok, returned = true }\n    end }},\n}\n"
+   }
+  }
+ },
+ "steps": [
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "$ref": "hello",
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "epoch": 7
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": 7
+    }
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "$ref": "invoke",
+     "epoch": 7,
+     "request_id": 1,
+     "handler": "h_t",
+     "kind": "mcp_tool",
+     "payload": {},
+     "origin": "mcp_tool"
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": 7,
+     "request_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "all_ok": true,
+       "returned": true
+      }
+     }
+    }
+   },
+   "because": "HP LH-1"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "call",
+    "type": "HostCall"
+   },
+   "barrier": {
+    "control": {
+     "op": "settle"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP LH-1"
+  }
+ ]
+}

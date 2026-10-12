@@ -1,0 +1,155 @@
+{
+  "id": "conf::ui_ac_3_confirm_is_presentation",
+  "contract": "ui",
+  "clause": "UI-AC-3",
+  "subject": "realizer",
+  "cases": [
+    {
+      "name": "the button carries the confirmation message and tone",
+      "because": "UI UI-AC-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect_nodes": {
+        "del": {
+          "type": "button",
+          "props": {
+            "confirm": {
+              "message": "Really?",
+              "tone": "danger"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "a pending confirmation is a dialog with the declared message and tone",
+      "because": "UI UI-AC-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "local_state": {
+        "overlays": [
+          {
+            "confirm": {
+              "button": "del"
+            }
+          }
+        ]
+      },
+      "expect": {
+        "overlays": [
+          {
+            "id": "botster-ui-descendant-v1:3:del9:container",
+            "type": "dialog"
+          }
+        ]
+      },
+      "expect_nodes": {
+        "botster-ui-descendant-v1:3:del9:container": {
+          "slots": {
+            "body": [
+              {
+                "type": "text",
+                "props": {
+                  "text": "Really?",
+                  "tone": "danger"
+                }
+              }
+            ]
+          }
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container7:confirm": {
+          "type": "button"
+        },
+        "botster-ui-descendant-v1:41:botster-ui-descendant-v1:3:del9:container6:cancel": {
+          "type": "button"
+        }
+      }
+    },
+    {
+      "name": "with no pending confirmation no dialog is shown",
+      "because": "UI UI-AC-3",
+      "document": {
+        "ui_contract_view": "1.4",
+        "id": "v",
+        "title": "T",
+        "root": {
+          "type": "stack",
+          "id": "root",
+          "direction": "column",
+          "children": [
+            {
+              "type": "actions",
+              "id": "acts",
+              "items": [
+                {
+                  "id": "del",
+                  "label": "Del",
+                  "handler": "h",
+                  "confirm": {
+                    "message": "Really?",
+                    "tone": "danger"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "overlays": {
+          "$absent": true
+        }
+      }
+    }
+  ]
+}

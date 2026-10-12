@@ -1,0 +1,497 @@
+{
+  "id": "conf::a2_1_size_range_zero_is_invalid_input",
+  "contract": "core",
+  "clause": "A2-1",
+  "subject": "core",
+  "steps": [
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "z1",
+            "request": {
+              "size": {
+                "rows": 0,
+                "cols": 80
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_z1",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "z2",
+            "request": {
+              "size": {
+                "rows": 24,
+                "cols": 0
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_z2",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "z3",
+            "request": {
+              "size": {
+                "rows": 65536,
+                "cols": 80
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_z3",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "z4",
+            "request": {
+              "size": {
+                "rows": 24,
+                "cols": 65536
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_z4",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "m1",
+            "request": {
+              "size": {
+                "rows": 65535,
+                "cols": 1
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_m1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_m1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "m1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "m2",
+            "request": {
+              "size": {
+                "rows": 1,
+                "cols": 65535
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_m2"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_m2",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "m2",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "m3",
+            "request": {
+              "size": {
+                "rows": 65535,
+                "cols": 65535
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_m3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_m3",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "m3",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "m3",
+            "size": {
+              "rows": 24,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$rm3"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm3",
+            "result": {
+              "ok": {
+                "resize": {
+                  "Applied": {
+                    "actual": {
+                      "rows": 24,
+                      "cols": 80
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core SZ-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "m1",
+            "size": {
+              "rows": 65535,
+              "cols": 65535
+            }
+          }
+        }
+      },
+      "bind": "$rm1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm1",
+            "result": {
+              "ok": {
+                "resize": {
+                  "Applied": {
+                    "actual": {
+                      "rows": 65535,
+                      "cols": 65535
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core SZ-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "m1",
+            "size": {
+              "rows": 24,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$rm1b"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$rm1b",
+            "result": {
+              "ok": {
+                "resize": {
+                  "Applied": {
+                    "actual": {
+                      "rows": 24,
+                      "cols": 80
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": [
+        "Core A2-1",
+        "Core SZ-3"
+      ]
+    },
+    {
+      "begin": {
+        "op": {
+          "Create": {
+            "session": "s1",
+            "request": {
+              "size": {
+                "rows": 24,
+                "cols": 80
+              },
+              "program": [
+                {
+                  "hold": {}
+                }
+              ]
+            }
+          }
+        }
+      },
+      "bind": "$c_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$c_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Created"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core LC-3"
+    },
+    {
+      "begin": {
+        "op": {
+          "Start": {
+            "id": "s1"
+          }
+        }
+      },
+      "bind": "$s_s1"
+    },
+    {
+      "pump_until": {
+        "event": {
+          "Completed": {
+            "op": "$s_s1",
+            "result": {
+              "ok": {
+                "record": {
+                  "id": "s1",
+                  "state": "Running"
+                }
+              }
+            }
+          }
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "s1",
+            "size": {
+              "rows": 0,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$r0",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "s1",
+            "size": {
+              "rows": 24,
+              "cols": 0
+            }
+          }
+        }
+      },
+      "bind": "$r1",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "s1",
+            "size": {
+              "rows": 65536,
+              "cols": 80
+            }
+          }
+        }
+      },
+      "bind": "$r2",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    },
+    {
+      "begin": {
+        "op": {
+          "Resize": {
+            "session": "s1",
+            "size": {
+              "rows": 24,
+              "cols": 65536
+            }
+          }
+        }
+      },
+      "bind": "$r3",
+      "expect_error": {
+        "code": {
+          "InvalidInput": {}
+        }
+      },
+      "because": "Core A2-1"
+    }
+  ]
+}

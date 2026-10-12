@@ -1,0 +1,178 @@
+{
+ "id": "conf::mp_11_checked_by_the_net_allowlist",
+ "contract": "hp",
+ "clause": "MP-11",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_mcp_server",
+   "edge_requests",
+   "mcp_server_state",
+   "script_mcp",
+   "script_resolve"
+  ]
+ },
+ "setup": {
+  "given": "the plugin's net grant allows https://mcp.example; the server's url redirects to a private address after the first request",
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy"
+     },
+     {
+      "surface": "mcp",
+      "scope": "mcp_proxy_stdio"
+     },
+     {
+      "surface": "net",
+      "scope": "net",
+      "allow": [
+       "https://mcp.example"
+      ]
+     }
+    ],
+    "mcp_servers": [
+     {
+      "id": "h",
+      "transport": "http",
+      "url": "https://mcp.example/mcp"
+     }
+    ],
+    "entry": "the plugin declares the MCP servers in its manifest (MP-1)"
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "script_resolve",
+    "host": "mcp.example",
+    "addresses": [
+     "93.184.216.34"
+    ]
+   }
+  },
+  {
+   "control": {
+    "op": "script_mcp",
+    "plugin": "demo",
+    "server": "h",
+    "transport": "http",
+    "tools": [
+     {
+      "name": "echo",
+      "description": "echo tool",
+      "inputSchema": {
+       "type": "object",
+       "properties": {
+        "n": {
+         "type": "integer"
+        }
+       }
+      },
+      "behavior": {
+       "kind": "echo"
+      }
+     }
+    ],
+    "redirect_to": "https://private.example/mcp"
+   }
+  },
+  {
+   "control": {
+    "op": "script_resolve",
+    "host": "private.example",
+    "addresses": [
+     "10.0.0.9"
+    ]
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_mcp_server",
+    "plugin": "demo",
+    "server": "h",
+    "state": "unavailable"
+   }
+  },
+  {
+   "control": {
+    "op": "mcp_server_state",
+    "plugin": "demo",
+    "server": "h"
+   },
+   "expect": {
+    "state": "unavailable",
+    "error": {
+     "kind": "capability_denied",
+     "detail": {
+      "code": "net_denied"
+     }
+    }
+   },
+   "because": "HP MP-11"
+  },
+  {
+   "control": {
+    "op": "edge_requests",
+    "edge": "connections"
+   },
+   "expect": {
+    "requests": {
+     "$array": {
+      "each": {
+       "address": {
+        "$not": "10.0.0.9"
+       },
+       "via": "io_service",
+       "operation": "mcp_stream"
+      },
+      "min": 1
+     }
+    }
+   },
+   "because": "HP MP-11"
+  }
+ ]
+}

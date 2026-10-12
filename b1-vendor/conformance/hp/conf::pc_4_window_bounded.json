@@ -1,0 +1,402 @@
+{
+ "id": "conf::pc_4_window_bounded",
+ "contract": "hp",
+ "clause": "PC-4",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_operation",
+   "invoke",
+   "load_plugin",
+   "settle"
+  ]
+ },
+ "setup": {
+  "given": "plugin_call_idempotency_window is 1000 ms; the first keyed call is done",
+  "limits": {
+   "plugin_call_idempotency_window": 1000
+  },
+  "plugins": {
+   "demo": {
+    "grants": [
+     {
+      "surface": "plugins",
+      "scope": "plugin_call:b"
+     }
+    ],
+    "requires": [
+     {
+      "interface": "x.echo",
+      "provider": "b",
+      "tools": [
+       "echo"
+      ]
+     }
+    ]
+   },
+   "b": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "b",
+    "as": "b"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_b",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ],
+     "tools": [
+      {
+       "name": "echo",
+       "description": "d",
+       "input_schema": {
+        "type": "object"
+       },
+       "handler": "h1",
+       "callable_by": [
+        "plugins"
+       ]
+      }
+     ]
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_b"
+    }
+   },
+   "on": "b",
+   "because": "HP HS-2"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 1,
+     "call": "plugins.call",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "interface": "x.echo",
+      "tool": "echo",
+      "args": {
+       "n": 11
+      },
+      "idempotency_key": "k1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "kind": "plugin_call",
+       "state": "queued",
+       "terminal": false
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP PC-1"
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e_b",
+     "request_id": "$rb",
+     "handler": "h1",
+     "caller": {
+      "kind": "plugin",
+      "plugin_key": {
+       "$type": "string"
+      },
+      "instance": {
+       "$type": "string"
+      }
+     },
+     "payload": {
+      "n": 11
+     }
+    }
+   },
+   "on": "b",
+   "because": "HP PC-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e_b",
+     "request_id": "$rb",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   },
+   "conn": "b"
+  },
+  {
+   "control": {
+    "op": "await_operation",
+    "operation_id": "$op",
+    "terminal": true
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 2,
+     "call": "plugins.call",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "interface": "x.echo",
+      "tool": "echo",
+      "args": {
+       "n": 11
+      },
+      "idempotency_key": "k1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": "$op",
+       "kind": "plugin_call"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP PC-4"
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "invoke",
+    "type": "Invoke"
+   },
+   "on": "b",
+   "barrier": {
+    "control": {
+     "op": "settle",
+     "conn": "b"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP PC-4"
+  },
+  {
+   "advance_clock": {
+    "ms": 1001
+   }
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e",
+     "call_id": 3,
+     "call": "plugins.call",
+     "context": {
+      "request": "$r"
+     },
+     "args": {
+      "interface": "x.echo",
+      "tool": "echo",
+      "args": {
+       "n": 11
+      },
+      "idempotency_key": "k1"
+     }
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e",
+     "call_id": 3,
+     "result": {
+      "ok": true,
+      "value": {
+       "operation_id": {
+        "$ne": "$op"
+       },
+       "kind": "plugin_call"
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "because": "HP PC-4"
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e_b",
+     "request_id": "$rb2",
+     "handler": "h1",
+     "caller": {
+      "kind": "plugin",
+      "plugin_key": {
+       "$type": "string"
+      },
+      "instance": {
+       "$type": "string"
+      }
+     },
+     "payload": {
+      "n": 11
+     }
+    }
+   },
+   "on": "b",
+   "because": "HP PC-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  }
+ ]
+}

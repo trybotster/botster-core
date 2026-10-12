@@ -1,0 +1,17 @@
+[package]
+name = "botster-ui-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+botster-conformance.workspace = true
+botster-ui-contract = { path = "../botster-ui-contract" }
+include_dir.workspace = true
+serde.workspace = true
+serde_json.workspace = true

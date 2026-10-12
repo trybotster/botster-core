@@ -1,0 +1,123 @@
+{
+ "id": "conf::hs_4_needs_checked_at_load",
+ "contract": "hp",
+ "clause": "HS-4",
+ "subject": "plugin_hub",
+ "requires": {
+  "controls": [
+   "status",
+   "load_plugin"
+  ]
+ },
+ "setup": {
+  "features": [
+   "f_offered"
+  ]
+ },
+ "steps": [
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e",
+     "features": [
+      "f_offered"
+     ]
+    }
+   },
+   "because": "HP HS-4"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "features": {
+      "required": [
+       "f_missing"
+      ],
+      "optional": []
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "status"
+   },
+   "expect": {
+    "state": "load_failed",
+    "code": "feature_missing",
+    "names": [
+     "f_missing"
+    ]
+   },
+   "because": [
+    "HP HS-4",
+    "HP A2-27"
+   ]
+  },
+  {
+   "control": {
+    "op": "load_plugin",
+    "plugin_key": "p2",
+    "as": "p2"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e2",
+     "plugin_key": "p2"
+    }
+   },
+   "because": "HP HS-4",
+   "on": "p2"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e2",
+     "features": {
+      "required": [
+       "f_offered"
+      ],
+      "optional": [
+       "f_missing"
+      ]
+     }
+    }
+   },
+   "conn": "p2"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e2"
+    }
+   },
+   "because": "HP HS-4",
+   "on": "p2"
+  },
+  {
+   "control": {
+    "op": "status",
+    "plugin": "p2"
+   },
+   "expect": {
+    "state": "loaded"
+   },
+   "because": "HP HS-4"
+  }
+ ]
+}

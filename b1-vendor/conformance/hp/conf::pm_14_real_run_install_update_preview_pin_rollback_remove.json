@@ -1,0 +1,1100 @@
+{
+ "id": "conf::pm_14_real_run_install_update_preview_pin_rollback_remove",
+ "contract": "hp",
+ "clause": "PM-14",
+ "subject": "plugin_hub",
+ "fake": "structural",
+ "ruling": "R-1.3",
+ "requires": {
+  "controls": [
+   "await_catalog",
+   "await_package",
+   "client_read",
+   "client_verb",
+   "invoke",
+   "local_dir",
+   "local_dir_write",
+   "package_file_write",
+   "real_catalog",
+   "real_git_source",
+   "settle"
+  ]
+ },
+ "setup": {
+  "given": "the real run: add a catalog; install a plugin from a catalog entry and a second from a git url at a tag; see the lock records; update with a preview that shows a grant change and see the old version keep running until the grant is approved; change a file and see hash_mismatch refuse the load; pin, then rollback; install a local directory and see a dev reload; remove and see the store retained",
+  "plugins": {
+   "demo": {
+    "grants": []
+   }
+  }
+ },
+ "steps": [
+  {
+   "control": {
+    "op": "real_git_source",
+    "name": "a",
+    "files_v1": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "demo",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    },
+    "files_v2": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "demo",
+       "version": "2.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       },
+       "capabilities": [
+        {
+         "surface": "assets"
+        }
+       ]
+      }
+     },
+     "main.lua": {
+      "text": "-- v2.0.0\n"
+     }
+    },
+    "tag": "v1"
+   },
+   "bind": {
+    "urla": "/url",
+    "ca1": "/commit_v1",
+    "ca2": "/commit_v2"
+   }
+  },
+  {
+   "control": {
+    "op": "real_git_source",
+    "name": "b",
+    "files_v1": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "second",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    },
+    "files_v2": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "second",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    },
+    "tag": "v1"
+   },
+   "bind": {
+    "urlb": "/url",
+    "cb1": "/commit_v1"
+   }
+  },
+  {
+   "control": {
+    "op": "real_catalog",
+    "name": "real",
+    "entries": [
+     {
+      "id": "e1",
+      "kind": "plugin",
+      "name": "demo",
+      "description": "d",
+      "source_of": "a"
+     }
+    ]
+   },
+   "bind": {
+    "curl": "/url"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "catalog",
+    "verb": "create",
+    "args": {
+     "url": "$curl"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-2"
+  },
+  {
+   "control": {
+    "op": "await_catalog",
+    "catalog": "$curl",
+    "settled": true
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "catalog",
+      "catalog_id": "$curl",
+      "entry_id": "e1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "$urlb",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_sec"
+    }
+   },
+   "on": "second",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_sec",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "second"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_sec"
+    }
+   },
+   "on": "second",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "second",
+    "settled": true
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "$ca1",
+     "version": "1.0.0",
+     "source": {
+      "kind": "git"
+     }
+    }
+   },
+   "because": "HP PM-3"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "second"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "$cb1",
+     "version": "1.0.0",
+     "source": {
+      "kind": "git",
+      "url": "$urlb",
+      "ref": "v1"
+     }
+    }
+   },
+   "because": "HP PM-3"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "preview_upgrade"
+    }
+   },
+   "expect": {
+    "result": {
+     "new_commit": "$ca2"
+    }
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "preview_upgrade"
+    }
+   },
+   "expect": {
+    "text": {
+     "grant_diff": {
+      "$contains": "assets"
+     }
+    }
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "upgrade"
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-8"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "status": "staged"
+   }
+  },
+  {
+   "expect_quiet_until": {
+    "lane": "control",
+    "type": "Hello"
+   },
+   "on": "cand",
+   "barrier": {
+    "control": {
+     "op": "settle",
+     "conn": "cand"
+    }
+   },
+   "until": {
+    "settled": true
+   },
+   "because": "HP PM-8"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "handler": "h1"
+   },
+   "bind": {
+    "t": "/ticket"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "handler": "h1"
+    }
+   },
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e",
+     "request_id": "$r",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   }
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "$ca1"
+    }
+   },
+   "because": "HP PM-8"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "approve_grants",
+     "grants": [
+      {
+       "surface": "assets"
+      }
+     ]
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-8"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_c",
+     "resumed": false
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-7"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_c",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_c"
+    }
+   },
+   "on": "cand",
+   "because": "HP PM-7"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Shutdown",
+    "payload": {
+     "epoch": "$e"
+    }
+   },
+   "because": "HP LD-3"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-7"
+  },
+  {
+   "control": {
+    "op": "package_file_write",
+    "package": "demo",
+    "file": "main.lua",
+    "text": "-- tampered\\n"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "disable"
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "enable"
+    }
+   },
+   "expect": {
+    "error": {
+     "$absent": true
+    }
+   },
+   "because": "HP PM-6"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-6"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "operation",
+    "package": "demo",
+    "latest": true
+   },
+   "expect": {
+    "state": "failed",
+    "error": {
+     "kind": "failed",
+     "detail": {
+      "code": "hash_mismatch"
+     }
+    }
+   },
+   "because": "HP PM-6"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "second",
+    "args": {
+     "action": "pin",
+     "ref": "v1"
+    }
+   },
+   "expect": {
+    "committed": true
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "second"
+   },
+   "expect": {
+    "pinned_ref": "v1"
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "plugin": "second",
+    "handler": "h1"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e_sec",
+     "request_id": "$r_second",
+     "handler": "h1"
+    }
+   },
+   "on": "second",
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_sec",
+     "call_id": 1,
+     "call": "store.put",
+     "context": {
+      "request": "$r_second"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a",
+      "doc": {
+       "v": 1
+      }
+     }
+    }
+   },
+   "conn": "second"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_sec",
+     "call_id": 1,
+     "result": {
+      "ok": true,
+      "value": {
+       "revision": {
+        "$type": "string"
+       }
+      }
+     },
+     "effect": "committed"
+    }
+   },
+   "on": "second",
+   "because": "HP PM-10"
+  },
+  {
+   "send_frame": {
+    "lane": "invoke",
+    "type": "Result",
+    "payload": {
+     "epoch": "$e_sec",
+     "request_id": "$r_second",
+     "result": {
+      "ok": true,
+      "value": {}
+     }
+    }
+   },
+   "conn": "second"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "invoke",
+    "id": "demo",
+    "args": {
+     "action": "rollback"
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "demo",
+    "settled": true
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "demo"
+   },
+   "expect": {
+    "lock": {
+     "resolved_commit": "$ca1",
+     "version": "1.0.0"
+    }
+   },
+   "because": "HP PM-9"
+  },
+  {
+   "control": {
+    "op": "local_dir",
+    "name": "d1",
+    "files": {
+     "botster-plugin.json": {
+      "json": {
+       "botster_plugin_api": 1,
+       "name": "ld",
+       "version": "1.0.0",
+       "entrypoints": {
+        "service": {
+         "lua": "main.lua"
+        }
+       }
+      }
+     },
+     "main.lua": {
+      "text": "-- v1.0.0\n"
+     }
+    }
+   },
+   "bind": {
+    "p": "/path"
+   }
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "local",
+      "path": "$p"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_ld"
+    }
+   },
+   "on": "ld",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_ld",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "ld"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_ld"
+    }
+   },
+   "on": "ld",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "ld",
+    "settled": true
+   },
+   "because": "HP PM-1"
+  },
+  {
+   "control": {
+    "op": "local_dir_write",
+    "path": "$p",
+    "file": "main.lua",
+    "text": "-- changed\\n"
+   }
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_ld2",
+     "resumed": false
+    }
+   },
+   "on": "ld_cand",
+   "because": "HP PM-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_ld2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "ld_cand"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_ld2"
+    }
+   },
+   "on": "ld_cand",
+   "because": "HP PM-1"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Shutdown",
+    "payload": {
+     "epoch": "$e_ld"
+    }
+   },
+   "on": "ld",
+   "because": "HP LD-3"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "delete",
+    "id": "second",
+    "args": {
+     "purge": false
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "second",
+    "settled": true
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_read",
+    "kind": "package",
+    "id": "second"
+   },
+   "expect": {
+    "error": {
+     "kind": "not_found"
+    }
+   },
+   "because": "HP PM-10"
+  },
+  {
+   "control": {
+    "op": "client_verb",
+    "kind": "package",
+    "verb": "create",
+    "args": {
+     "source": {
+      "kind": "git",
+      "url": "$urlb",
+      "ref": "v1"
+     },
+     "enable": true
+    }
+   },
+   "expect": {
+    "accepted": {
+     "operation_id": {
+      "$type": "string"
+     }
+    }
+   },
+   "because": "HP PM-5"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Hello",
+    "payload": {
+     "epoch": "$e_sec2"
+    }
+   },
+   "on": "second",
+   "because": "HP HS-1"
+  },
+  {
+   "send_frame": {
+    "lane": "control",
+    "type": "Ready",
+    "payload": {
+     "$ref": "ready",
+     "epoch": "$e_sec2",
+     "handlers": [
+      {
+       "id": "h1",
+       "kind": "mcp_tool",
+       "descriptor": {}
+      }
+     ]
+    }
+   },
+   "conn": "second"
+  },
+  {
+   "expect": {
+    "lane": "control",
+    "type": "Activated",
+    "payload": {
+     "epoch": "$e_sec2"
+    }
+   },
+   "on": "second",
+   "because": "HP HS-2"
+  },
+  {
+   "control": {
+    "op": "await_package",
+    "package": "second",
+    "settled": true
+   },
+   "because": "HP PM-14"
+  },
+  {
+   "control": {
+    "op": "invoke",
+    "plugin": "second",
+    "handler": "h1"
+   }
+  },
+  {
+   "expect": {
+    "lane": "invoke",
+    "type": "Invoke",
+    "payload": {
+     "epoch": "$e_sec2",
+     "request_id": "$r_second2",
+     "handler": "h1"
+    }
+   },
+   "on": "second",
+   "because": "HP IV-1"
+  },
+  {
+   "send_frame": {
+    "lane": "call",
+    "type": "HostCall",
+    "payload": {
+     "$ref": "host_call",
+     "epoch": "$e_sec2",
+     "call_id": 2,
+     "call": "store.get",
+     "context": {
+      "request": "$r_second2"
+     },
+     "args": {
+      "collection": "c",
+      "id": "a"
+     }
+    }
+   },
+   "conn": "second"
+  },
+  {
+   "expect": {
+    "lane": "call",
+    "type": "HostResult",
+    "payload": {
+     "epoch": "$e_sec2",
+     "call_id": 2,
+     "result": {
+      "ok": true,
+      "value": {
+       "doc": {
+        "v": 1
+       }
+      }
+     },
+     "effect": "none"
+    }
+   },
+   "on": "second",
+   "because": "HP PM-10"
+  }
+ ]
+}

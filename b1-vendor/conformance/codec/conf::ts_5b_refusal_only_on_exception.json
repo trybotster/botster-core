@@ -1,0 +1,680 @@
+{
+  "id": "conf::ts_5b_refusal_only_on_exception",
+  "contract": "codec",
+  "clause": "TS-5b",
+  "subject": "worker",
+  "requires": {
+    "controls": [
+      "pty_input"
+    ]
+  },
+  "setup": {
+    "worker": {
+      "max_paste_bytes": 1,
+      "script": {
+        "admission": {
+          "key": 2,
+          "mouse": 3,
+          "focus": 3
+        },
+        "writes": {
+          "key": "4b",
+          "mouse": "4d",
+          "focus_in": "49"
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": true,
+        "answers_queries": true
+      }
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r1",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r1",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_attach": {
+        "history": "screen",
+        "route_features": [],
+        "writable": false,
+        "answers_queries": true
+      },
+      "route": "r2"
+    },
+    {
+      "expect": {
+        "frame": "attached",
+        "terminal_format": {
+          "$type": "string"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-1"
+    },
+    {
+      "expect": {
+        "frame": "baseline_begin",
+        "rows": {
+          "$type": "integer"
+        },
+        "cols": {
+          "$type": "integer"
+        },
+        "modes": {
+          "$type": "object"
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect": {
+        "frame": "screen",
+        "payload": {
+          "$any": true
+        }
+      },
+      "on": "r2",
+      "because": "Codec TS-4"
+    },
+    {
+      "expect_eventually": {
+        "frame": "baseline_end",
+        "history": "not_requested"
+      },
+      "ignore": [
+        {
+          "frame": "history",
+          "payload": {
+            "$any": true
+          }
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-4"
+      ]
+    },
+    {
+      "expect": {
+        "frame": "live"
+      },
+      "on": "r2",
+      "because": "Codec TS-4b"
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "1",
+        "bytes": {
+          "$bytes_hex": "66696e65"
+        }
+      }
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "reason": {
+              "$one_of": [
+                "not_ready",
+                "not_writable",
+                "too_large",
+                "mode_precondition_failed",
+                "failed",
+                "session_ended",
+                "write_failed",
+                "already_replied",
+                "query_expired",
+                "wrong_route",
+                {
+                  "unsupported": {
+                    "what": {
+                      "$any": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "reply_terminal_query",
+          "op": "999",
+          "query_id": "none",
+          "reply": "decline"
+        }
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "999",
+        "reason": "unknown_query"
+      },
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.5"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "3",
+        "bytes": {
+          "$bytes_hex": "6e6f"
+        }
+      },
+      "route": "r2"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "not_writable",
+        "op": "3"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec TS-5b"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "resize",
+        "op": "4",
+        "rows": 20,
+        "cols": 70
+      },
+      "route": "r2"
+    },
+    {
+      "expect_quiet_until": {
+        "$one_of": [
+          {
+            "frame": "input_done"
+          },
+          {
+            "frame": "input_refused",
+            "reason": {
+              "$one_of": [
+                "not_ready",
+                "not_writable",
+                "too_large",
+                "mode_precondition_failed",
+                "failed",
+                "session_ended",
+                "write_failed",
+                "already_replied",
+                "query_expired",
+                "wrong_route",
+                {
+                  "unsupported": {
+                    "what": {
+                      "$any": true
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "barrier": {
+        "route_send": {
+          "frame": "input",
+          "kind": "reply_terminal_query",
+          "op": "999",
+          "query_id": "none",
+          "reply": "decline"
+        },
+        "route": "r2"
+      },
+      "until": {
+        "frame": "input_refused",
+        "op": "999",
+        "reason": "unknown_query"
+      },
+      "on": "r2",
+      "because": [
+        "Codec TS-1",
+        "Codec A.5"
+      ]
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "817b226f70223a2237222c226b696e64223a22686f6c6f6772616d227d"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "unsupported": {
+            "what": {
+              "$type": "string"
+            }
+          }
+        },
+        "op": "7"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.4"
+      ]
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "817b226f70223a2238222c226b696e64223a226b6579222c226b6579223a7b226e616d6564223a2262616e616e61227d2c226d6f6473223a5b5d2c226576656e74223a227072657373227d"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "unsupported": {
+            "what": {
+              "$type": "string"
+            }
+          }
+        },
+        "op": "8"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.1"
+      ]
+    },
+    {
+      "route_send_raw": {
+        "bytes_hex": "840000000000000009ff"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "unsupported": {
+            "what": "utf8"
+          }
+        },
+        "op": "9"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.1"
+      ]
+    },
+    {
+      "send_invalid": {
+        "frame": "input",
+        "kind": "key",
+        "op": "11",
+        "key": {
+          "char": "a"
+        },
+        "mods": [],
+        "event": "press",
+        "shifted_key": {
+          "char": "A"
+        }
+      },
+      "violates": "to_worker"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "$any": true
+        },
+        "op": "11"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Core IN-9"
+      ]
+    },
+    {
+      "send_invalid": {
+        "frame": "input",
+        "kind": "mouse",
+        "op": "12",
+        "action": "press",
+        "button": "wheel_up",
+        "row": 1,
+        "col": 1,
+        "mods": []
+      },
+      "violates": "to_worker"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "$any": true
+        },
+        "op": "12"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.5"
+      ]
+    },
+    {
+      "send_invalid": {
+        "frame": "input",
+        "kind": "key",
+        "op": "13",
+        "key": {
+          "char": "ab"
+        },
+        "mods": [],
+        "event": "press"
+      },
+      "violates": "to_worker"
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": {
+          "$any": true
+        },
+        "op": "13"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Codec A.5"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "bytes",
+        "op": "10",
+        "bytes": {
+          "$bytes_hex": "7374696c6c206f70656e"
+        }
+      }
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "66696e65"
+        },
+        {
+          "hex": "7374696c6c206f70656e"
+        }
+      ],
+      "because": "Codec BP-2"
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "key",
+        "op": "40",
+        "key": {
+          "char": "a"
+        },
+        "mods": [],
+        "event": "press"
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "40"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Core IN-9"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "mouse",
+        "op": "41",
+        "action": "press",
+        "button": "left",
+        "row": 0,
+        "col": 0,
+        "mods": []
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "41"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Core IN-9"
+      ]
+    },
+    {
+      "route_send": {
+        "frame": "input",
+        "kind": "focus",
+        "op": "42",
+        "focused": true
+      }
+    },
+    {
+      "expect_eventually": {
+        "frame": "input_refused",
+        "reason": "too_large",
+        "op": "42"
+      },
+      "ignore": [
+        {
+          "frame": "modes"
+        },
+        {
+          "frame": "output"
+        },
+        {
+          "frame": "output_deflate"
+        }
+      ],
+      "on": "r1",
+      "because": [
+        "Codec TS-5b",
+        "Core IN-9"
+      ]
+    },
+    {
+      "route_expect_pty": [
+        {
+          "hex": "66696e65"
+        },
+        {
+          "hex": "7374696c6c206f70656e"
+        }
+      ],
+      "because": [
+        "Codec TS-5b",
+        "Codec BP-2"
+      ]
+    }
+  ]
+}
