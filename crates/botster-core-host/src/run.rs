@@ -895,6 +895,7 @@ impl HostEngine {
             size_policy: s.request.size_policy.unwrap_or_default(),
             link_frame_bound: self.link_frame_bound(),
             limits: self.cfg.limits.clone(),
+            cursor_ordinal: s.ordinal,
         }
     }
 }

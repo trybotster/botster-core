@@ -40,6 +40,7 @@ fn spec() -> LaunchSpec {
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 16,
         limits: CoreLimits::default(),
+        cursor_ordinal: 1,
     }
 }
 

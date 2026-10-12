@@ -749,6 +749,7 @@ pub(crate) fn new_session(
         row_protocol: None,
         worker_features: None,
         token: None,
+        ordinal: 0,
         worker: no_worker(),
         terminal: None,
         silence: Default::default(),

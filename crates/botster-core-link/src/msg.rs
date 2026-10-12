@@ -43,6 +43,9 @@ pub struct LaunchSpec {
     /// (ST-7), the queries (EV-8) and the tap (TP-1). Absent: the defaults of the Core limits table.
     #[serde(default)]
     pub limits: CoreLimits,
+    /// The ordinal of this instance in the data directory, from the host registry's durable counter (steward ruling R-101
+    /// Q6): the high bits of every input cursor of `ReadFacts` (ST-7). It is required: protocol 1 is not released (R-98).
+    pub cursor_ordinal: u64,
 }
 
 /// A request of the host to a session worker.
@@ -109,6 +112,11 @@ pub enum Observation {
     ClientInput {
         route: RouteId,
         input_rev: InputRev,
+    },
+    /// The transaction of a client input of `route` ended (ST-7): the record's status update is appended. It changes no
+    /// revision; the host raises the keyed `Activity` edge again (EV-6).
+    ClientInputEnded {
+        route: RouteId,
     },
     /// The host's write was admitted (IN-10).
     HostInput {
@@ -328,6 +336,7 @@ mod tests {
                 clipboard_bytes: 77,
                 ..CoreLimits::default()
             },
+            cursor_ordinal: 9,
         }));
         let mut bytes = Vec::new();
         msg.encode(&mut bytes);
@@ -337,7 +346,7 @@ mod tests {
     /// An absent `limits` field is the defaults of the Core limits table.
     #[test]
     fn an_absent_limits_field_is_the_default_of_the_limits_table() {
-        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"cursor_ordinal":1}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(text.as_bytes()) else {
             panic!("a launch");
         };
@@ -353,7 +362,7 @@ mod tests {
     /// an older worker read it with `#[serde(default)]` as the table's default.
     #[test]
     fn the_removed_stop_grace_field_decodes_in_both_directions() {
-        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250}"#;
+        let older = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024,"stop_grace_ms":250,"cursor_ordinal":1}"#;
         let Ok(HostMsg::Launch(spec)) = HostMsg::decode(older.as_bytes()) else {
             panic!("an older host's launch decodes");
         };
@@ -363,6 +372,13 @@ mod tests {
         let text = String::from_utf8(bytes).expect("a launch is text");
         assert!(text.contains(r#""t":"launch""#), "{text}");
         assert!(!text.contains("stop_grace_ms"), "{text}");
+    }
+
+    /// The cursor ordinal is required (steward rulings R-101 Q6 and R-98): a launch without it does not decode.
+    #[test]
+    fn a_launch_without_its_cursor_ordinal_does_not_decode() {
+        let text = r#"{"t":"launch","argv":["/bin/sh"],"env":{},"cwd":"/","size":{"rows":24,"cols":80},"link_frame_bound":1024}"#;
+        assert!(HostMsg::decode(text.as_bytes()).is_err());
     }
 
     #[test]
