@@ -568,3 +568,28 @@ Request messages: `msg_plugin-w_1791820499_10986a` and `msg_plugin-w_1791820499_
 The old three findings stay closed in source. This LOW body correction and the unresolved gate acceptance condition remain.
 The formal package delta verdict and lead's gate disposition remain pending. This inspection completes no formal delta round.
 I ran no execution job.
+
+### Explicit lead completion path and partial body correction
+
+Owner ruling receipt: `msg_plugin-w_1791820521_a1349f`.
+I independently read the lead's live handoff through its 2026-10-12 02:05 PDT entry.
+That entry explicitly selects ruling (b): no re-gate of 2ed85f93; FINAL-READY on that head; train 4 imports #312's .44 pin before #307.
+The train-4 gate must supply the completed final evidence on its exact composed head.
+This is the lead's explicit completion path. It is not an inferred known-list exception or a green result on 2ed85f93.
+The failed Stage 2 baseline and current RED gate remain recorded.
+
+I read the corrected body's complete delta on unchanged head 2ed85f93.
+Raw JSON SHA256: `b902a7a73c9323d7bdc7a17a13e16da671c8da639f52773f1f33d6ec5ed8a98b`.
+Body text SHA256: `b2f9f44bafa07cc27d8483121095ace9a51043c16f965f228e7020674bbfd506`.
+The count now correctly says eleven shared paths, including two conflicts and nine automatically merged paths.
+The IN-8 outcomes now distinguish normal testkit PASS, normal real slow PASS, and failed unmutated real baseline.
+That portion of R307-SI-4 closes.
+
+The same gate paragraph still names #312 in train 3 and an active #308 known-flaky entry.
+The lead's latest handoff records #312 leaving train 3 and requires it before #307 in train 4.
+The tested 2ed85f93 known-flaky file remains empty.
+Required body correction: state the current #312/#307 order and remove the active-list claim, or identify it as historical.
+Correction messages: `msg_plugin-w_1791820664_7e6c55` and `msg_plugin-w_1791820664_935ba7`.
+R307-SI-4 remains LOW open until that final body correction is read.
+The lead disposition is now known. The corrected body and complete formal package delta verdict remain pending.
+No new source finding or execution job is introduced by this inspection.
