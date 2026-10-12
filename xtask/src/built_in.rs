@@ -163,16 +163,17 @@ fn root_test_calls(text: &str) -> bool {
 }
 
 /// The tiers that run `TEST_NAME` at the root of each package's library (or binary), by package, from the test index and
-/// tier rules of `mutants-cited`. `files` holds `(package, has a slow feature, root file relative to root, kind)`.
+/// tier rules of `mutants-cited`. `files` holds `(package, root file relative to root, kind)`. Only the default tier counts,
+/// so each package is given no slow tier.
 fn root_test_tiers(
-    files: &[(String, bool, String, String)],
+    files: &[(String, String, String)],
     read: &dyn Fn(&str) -> Option<String>,
 ) -> Result<BTreeMap<String, Vec<String>>> {
     let packages: Vec<mutants_cited::Package> = files
         .iter()
-        .map(|(name, slow, root, kind)| mutants_cited::Package {
+        .map(|(name, root, kind)| mutants_cited::Package {
             name: name.clone(),
-            slow: *slow,
+            slow: false,
             targets: vec![mutants_cited::Target {
                 kind: kind.clone(),
                 name: name.replace('-', "_"),
@@ -242,19 +243,6 @@ fn package(dir: &Path) -> Result<Package> {
     })
 }
 
-/// Whether the manifest of `dir` declares a `slow` feature.
-fn has_slow_feature(dir: &Path) -> bool {
-    std::fs::read_to_string(dir.join("Cargo.toml"))
-        .ok()
-        .and_then(|text| text.parse::<toml::Table>().ok())
-        .is_some_and(|manifest| {
-            manifest
-                .get("features")
-                .and_then(|f| f.get("slow"))
-                .is_some()
-        })
-}
-
 /// `cargo xtask built-in`: the I/O shell of [`verdict`] over `crates/*` and `xtask`.
 ///
 /// # Errors
@@ -283,7 +271,6 @@ pub fn command(root: &Path, _args: &[String]) -> Result<()> {
         };
         files.push((
             package.name.clone(),
-            has_slow_feature(&dir),
             format!("{relative}/{file}"),
             kind.to_string(),
         ));
@@ -412,7 +399,6 @@ mod tests {
         let tiers_of = |text: &str| {
             let files = vec![(
                 "x".to_string(),
-                true,
                 "crates/x/src/lib.rs".to_string(),
                 "lib".to_string(),
             )];
