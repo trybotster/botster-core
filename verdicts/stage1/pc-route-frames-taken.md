@@ -167,3 +167,179 @@ The current-base final slot, final import review, final gate, matching final rec
 This review accepts no later head, pin move, conformance removal, retry, or merge.
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, or executable base-check job.
 Wait for the correction doorbell. Never poll.
+
+## Round 2 — VERDICT: NOT CLEAN (1 open; repair and text delta)
+
+Reviewed head: `fabbf66cdaccedd942b8cedea824c763bd7bfa7a`.
+Source merge base: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `56a6056cbe91f05850e81ab724db39aed3b5992f`.
+Gated parent: `d1aa733480bbc9ee5449e70c6b34939fa18065e9`.
+Parent tree: `6b70e352c35172291a483c8445233ff96d2bc4fd`.
+Gate comparison base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Repair READY: `msg_plugin-w_1791836503_624f59`.
+Risk remains HIGH. The reviewer inspects the complete repair from the Round 1 head and the final design correction.
+
+The reviewer reads complete package Round 2 at `80d96b69804fda10d7f13eaa26f8bee4aa6ea462`.
+File: `verdicts/pc-route-frames-taken.md`. Receipt: `msg_plugin-w_1791837246_9e7ceb`.
+Both reviews retain one MEDIUM finding, CQ-RFT-5 / R319-SI-3, on the same exact head, base, and tree.
+Package commit `cf37cdc788fbaeb669d4f2d0b7d0aed2d478df5c` published premature CLEAN before this finding arrived.
+The package reviewer supersedes that CLEAN and reports that no terminal CLEAN from it reached the lead.
+
+### CQ-RFT-1 — MEDIUM, closed: both decoder harnesses now run
+
+The pure diag decoder moves to unconditional, public, doc-hidden `src/sock_diag.rs`.
+Its OS exchange stays in `real/rqueue.rs`. The Linux exchange and macOS netstat paths keep their prior behavior.
+`FrameEnds` exposes its methods for the external property binary. The Core facade does not change.
+The testkit adds the existing workspace bolero dev dependency. The lockfile adds only its dependency edge.
+The existing landing harness list registers both decoder tests. This adds no new xtask check family.
+
+Each property test caps cases at 256 and uses the existing tier seed environment.
+`frame_ends_decoder` compares chunked and whole-input results with a separate reference decoder.
+It checks last-byte boundaries and constructs up to 64 complete frames from input-derived body lengths.
+`sock_diag_decoder` accepts arbitrary bytes without a panic and checks structured peer and unread values in either attribute order.
+It rejects the wrong inode and a truncated reply. Every case retains the `i32::MIN` error reply.
+Both tests have normal default PASS records and completed landing fuzz runs in the parent gate below.
+
+The earlier repair gate on `86fdb2096e075f94a71d3d6b014710d685ffd1b9` remains RED.
+It misses the replacement of `FrameEnds::ends` with an empty vector. Fuzz does not run in that RED gate.
+The d1 repair checks `ends()` directly and adds complete generated frames to the property harness.
+The new gate catches the former survivor through the frame-boundary unit test.
+This is a changed-source gate. The review grants no same-head retry.
+
+### R319-SI-1 / CQ-RFT-2 — MEDIUM, closed: errno conversion is checked
+
+The decoder uses `checked_neg()` and requires a positive converted errno before creating the OS error.
+Invalid `i32::MIN` and zero replies return errors. A valid `-1` reply retains its expected OS error.
+The unit regression passes in normal slow tests and the unmutated Stage 2 baseline.
+The default property test and landing fuzz run retain the invalid boundary reply.
+The supplied Mac reversal removes checked conversion and fails both the property test and unit regression with exit 100.
+Another reversal admits zero and fails the unit regression with exit 100.
+The source, actual gate, and retained negative results close the invalid-input finding.
+
+### CQ-RFT-3 — LOW, closed: body reports FLAKY outcomes and correct AM-2 status
+
+Two Stage 2 trials of `conf::am_2_one_admission_point_orders_all_sources` fail, then pass on the permitted retry.
+They occur under `sock_diag.rs:64:5`, `i32_at -> Some(1)`, and `sock_diag.rs:85:32`, `>` replaced by `<`.
+Neither FLAKY trial earns catch credit.
+Both mutants instead have valid catches through `real::rqueue::slow_tests::the_diag_reply_gives_the_peer_and_the_unread_bytes`.
+Those catches have normal and unmutated baseline PASS records. The corrected body reports both outcomes and the separate catching test.
+
+The owner attributes the FLAKY trials to the existing unfenced cross-source order under R-93.
+Source inspection shows that the pinned transcript has no `route_frames_taken` fence and does not use the diag helper directly.
+This source evidence supports a separate ordering issue. It does not establish the trial failure's cause from the log alone.
+The body names PC's pending contracts fix on `stage1/pc-route-frames-taken`, reported head `bdad2be3`.
+Its reported running gate and unopened PR supply no completed evidence here.
+The body separates that work from merged R-111 contracts #100 and the later Core pin under rule 23am.
+
+Round 1 incorrectly says that both AM-2 ids remain pending. This paragraph corrects that statement without changing its history.
+`conf::am_2_one_admission_point_orders_all_sources` is absent from both pending files and remains a required test.
+`conf::am_2_fairness_bound_across_routes` remains in `core-pending.txt`.
+The repair changes no conformance file and approves no status removal.
+The reviewed head still pins contracts `.43`, commit `c69a3190b4d66e84401006e9d73788ff0e837f56`.
+
+### R319-SI-2 / CQ-RFT-4 — LOW, closed: the refusal-room premise is a reviewer check
+
+R-115 stops the proposed R-93 premise lint extension. The conditions remain reviewer checklist item 6.
+The earlier repair body and worker design paragraph incorrectly assign those conditions to the order lint.
+Commit `fabbf66c` corrects the design paragraph. The complete corrected body makes the same correction.
+Both require no route gate or accept limit from the first frame to the fence, with the default `route_queue_bytes`.
+The existing R-93 order lint stays unchanged. No new lint or check enters this repair.
+R-115 supersedes Round 1's requirement that the contracts PR add a premise check.
+
+### R319-SI-3 / CQ-RFT-5 — MEDIUM, open: the new property binary lacks the required root macro
+
+Location: `crates/botster-core-testkit/tests/props.rs`.
+The new binary contains both decoder tests, but no `botster_test_process::built_in_test!();` invocation.
+Current v1 `3e655eff46d36f8c337339a1a17d401c8c662594` enforces root-test presence in `xtask/src/slow_coverage.rs:195`.
+Both default and slow binary lists must contain the selected, unignored `this_test_binary_was_built_in_this_worktree` test.
+All five existing testkit integration files use the macro on that base.
+The new binary therefore lacks the existing B13 verification for its build root.
+This is an existing requirement. Its closure adds no xtask check and needs no R-115 check exception.
+
+Required change: add the existing `botster_test_process::built_in_test!();` macro and retain both decoder harnesses.
+Supply the corrected exact head and applicable root-test and coverage evidence.
+Do not substitute a handwritten test with the reserved name.
+
+The reviewed source base predates both the coverage enforcement and the macro API.
+A source search finds no `macro_rules! built_in_test` in the reviewed head's `botster-test-process` crate.
+The current v1 crate defines it in `src/built_in.rs:127`.
+Thus adding the invocation requires a dependency import from newer v1 before it can compile.
+The old-base parent gate cannot detect this current-base requirement.
+Owner receipt `msg_plugin-w_1791837079_696676` confirms the missing API and asks when the v1 import can occur.
+The owner cites the lead's rule against a final import before SLOT.
+Pair-common also permits an earlier import when the build needs it.
+The lead must resolve that import timing before this finding can close. This review grants neither an import nor provisional CLEAN.
+
+Source notices: owner `msg_plugin-w_1791837054_bde8c7`; package `msg_plugin-w_1791837054_078357`.
+
+### Independently audited parent gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-route-frames-taken-d1aa7334-pool-20261012-125446-96535.log`.
+Verified SHA-256: `c42efaa14229841b83d677f915c591ef7f2042c2e8d01f7491a87259cfcb0462`.
+The retained `gate-client-d1aa7334.out` is byte-identical. The canonical log has 7107 lines.
+The header identifies exact d1, MS-A1, four CPUs, both caps 4, and comparison base `2683de7c`.
+The source merge base remains `08098782`. This is repair evidence, not a final current-base receipt.
+
+All ten steps PASS. CI takes 1474.5 seconds.
+The job and wrapper exit zero after 1571 seconds. The job queues 88 seconds and runs 1483 seconds.
+Default: 1939 unique passes, 431 skipped, 11.954 seconds. The maximum test time is 1.167 seconds.
+Normal slow: 627 unique passes, 2072 skipped, 40.476 seconds.
+Unmutated Stage 2 baseline: 627 unique passes, 2832 skipped, 40.977 seconds; complete step 51.2 seconds.
+Each pass ordinal set and denominator matches. Both strict summaries report 261 passed, zero failed, and 430 ignored.
+The list report has 406 pending ids, 43 real-pending ids, 691 ledger ids, and minimum 69.
+The ignored real-pending run has 35 passes and zero failures within the retained 43 ids.
+Held-full has 96 ignored, zero failures, and takes 22.14 seconds. Its three budget ids use 32 seeds.
+
+Stage 1 has 92 unique mutants: 46 caught, 43 missed, three unviable, zero timeout, 285.0 seconds.
+Stage 2 tests exactly those 43 misses: 42 caught, one unviable, zero missed, zero timeout, 666.9 seconds.
+All 88 raw catches match unique citations with normal PASS records.
+All 42 Stage 2 citations also have unmutated baseline PASS records.
+The two FLAKY trials above earn no catch credit. The unviable replacements earn no behavioral credit.
+No other runtime FAIL, TIMEOUT, SIGSEGV, SIGABRT, or panic result appears in the gate.
+
+Both new fuzz harnesses run for a configured 60 seconds and complete after 61 seconds.
+`frame_ends_decoder` completes 3195602 runs. `sock_diag_decoder` completes 5847439 runs.
+Neither reports a crash. The complete fuzz step takes 325.6 seconds; the mutant step takes 1005.8 seconds.
+This `.43` gate executes neither the future route fence nor current v1's root-presence enforcement.
+
+### Supporting evidence, body, and delta limits
+
+The repair from ab9 to d1 changes eight paths, with 314 additions and 129 deletions.
+Full-index diff SHA-256: `172dec85cc5040b390c66e06bab70a6fb5ef0bd89b6554dc8a67c77aeaaf0f0b`.
+The d1-to-fab correction changes only the worker design paragraph.
+Diff SHA-256: `f170f60ce05909c0c081aee834f81d227e2167429ada3236241d503078661de8`.
+All conformance blobs remain unchanged from ab9 to fab.
+Code equality carries the parent gate's unchanged-code evidence. It does not claim execution on fab.
+
+The reviewer reads the complete corrected body and all body corrections.
+Body SHA-256 without an added line feed: `a0c173944b0ea479572145c236f38c3c1a0aaaf3426b3838d5f77ecaeaa9175e`.
+The body preserves RED repair history, FLAKY outcomes, and separate contracts and pin prerequisites.
+
+The retained `red-on-revert-86fdb209.log` has SHA-256 `80bcb727cb3609760bcffdec27382f288f8f47eb03e6b6b8a65a8f0ed0724227`.
+It identifies exact 86, Darwin 27.0.0, and the clean marker at `2026-10-12T18:16:46Z`.
+The baseline passes four default and twelve slow tests, with numeric exits zero.
+Fifteen Mac-applicable reversals each fail a named test with exit 100. The Linux-only peer reversal supplies no Mac negative proof.
+The script prints diff statistics and retains replacement patterns. It does not retain each complete raw patch.
+It restores source and prints clean status, exact 86, and time. It records no numeric restoration exit or restored suite.
+The Linux gate independently supplies the peer-check mutation catch.
+
+The `ends-mutant-d1aa7334.log` hash is `de9a1016972b4441ed847309d8f899b01817231ce1a8844ac95959354e85b865`.
+Its five lines show failed unit and property tests, but omit head, command, scratch source, numeric exit, and restoration.
+This owner-supplied fragment is supplementary. The exact gate supplies the accepted catch.
+
+The `rft-local-checks-d1aa7334.log` hash is `feb034eccf65f5b346041df470fcf6a407ec6734ae4d18970eb3aaef5a2a0529`.
+It identifies exact d1, Darwin, and a clean marker at `2026-10-12T19:21:00Z`.
+It reports ten xtask exits zero, both clippy exits zero, default 444/444, focused slow 13/13, and strict 261/0.
+Its producer omits numeric clean and test exits. The record supplies no complete target-writer history.
+Local Mac strict, slow, and timing results remain supplementary. Earlier probe and scratch-contracts records retain their original scopes.
+
+### Next step
+
+Four findings close. R319-SI-3 / CQ-RFT-5 remains open and prevents both integration and package CLEAN.
+The lead's import decision, corrected head, applicable evidence, and matching package delta review remain due.
+After both CLEANs, current-base compilation, final SLOT, base review, exact final gate, final receipts, and lead Q7 remain due.
+The separate contracts fence and later Core pin remain PC's work under rule 23am.
+No reviewer build, test, gate, mutation, reversal, reproduction, measurement, or executable base-check job runs.
+Wait for the decision or correction doorbell. Never poll.
+
+VERDICT: NOT CLEAN (1 open).
