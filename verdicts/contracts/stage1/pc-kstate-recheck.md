@@ -38,3 +38,13 @@ HIGH (rule 3: the shared driver). Implementer: PC (sess-…0178). Package review
 - **Main moved.** Main is now `e5709067`. Since `8aaee62d` it changed `fence_lint.rs`, `fence_lint/written.rs` (#94), `BUILD.md`, rulings and transcripts. None of these is a path of this PR. This is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head.
 
 CLEAN on `3da4b6877813e74fc368bdc58018ff353a141dbf`.
+
+## Q7 receipt: base merge 49ff52d218ea55afae1fc120ddfb928a908bac04
+
+- **The parents** are main `80f022e9` and the reviewed head `3da4b687`. Tree `806ac2ff` is equal to `git merge-tree --write-tree` of the parents.
+- **The diff from main** is `driver.rs`, `lib.rs` and `tests/driver_steps.rs` only. Its stable patch-id `d243a873` is equal to the patch-id of the reviewed head against its base `8aaee62d`.
+- **The paths are disjoint.** No path that main changed since `8aaee62d` is a path of this PR.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-detached-49ff52d2-49ff52d2-pool-20261012-130405-38759.log`, with sha256 `58f53ec4bad0fb8902009da9aca77e0cf280b03b30cba3c296ec189aecc680e8`. All ten steps PASS, with 4 of 4 mutants caught. Exit 0 after 324 s on msa1, base main `80f022e9`.
+- **Main** is still `80f022e9`, so main fast-forwards to `49ff52d2`.
+
+Q7 receipt given for `49ff52d218ea55afae1fc120ddfb928a908bac04`.
