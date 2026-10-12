@@ -8,3 +8,10 @@
 # diagnosis   the diagnosed cause
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry
+
+[[flaky]]
+binary = "botster-core::slow_conformance"
+test = "conf::ev_2_mandatory_and_keyed_never_dropped"
+diagnosis = "R-107/R107-SI-1: two causes. (1) The probe's pty_output Ack means queued, and the transcript has no written fence before the s70 Stop; fixed by the contracts patch (pty_output_written fence, owner P6). (2) The worker does not drain the PTY tail before Exited (OU-7); fixed by A31, #163 B2 (owner P3). Signature: INCONCLUSIVE seed=<any> step=71 limit=step_timeout. Removed only when both are on v1 and the id passes at seeds 0 and 25."
+owner = "P3 (A31) and P6 (contracts patch)"
+removed_by = "#163"
