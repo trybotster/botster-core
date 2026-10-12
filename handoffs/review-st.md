@@ -125,6 +125,13 @@ The reviewer verified R-104's corrected amendment reference at contracts `1b2b6f
 The source and DESIGN.md cite R-104 only. All findings and questions remain closed.
 The `5c24322b` gate was stopped and supplies no completed result. Wait for the `bf8af719` completion doorbell.
 
+#313 completed source receipt: CLEAN at `bf8af71915cbe34688489f487ea68cb988383c12`.
+PR base: #298 `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`; imported v1 and gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+ST313-R1, R2 and Q1 are closed. No finding or contract question remains open.
+The exact-head Linux gate passed all ten steps, exit 0 after 775 seconds on msa1. The PR body records that result.
+The optional tag fields remain the later pin work under R-104. Two epoch-fence ids remain the lead's separate proof item.
+The lead controls the merge slot and any later base update. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

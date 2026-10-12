@@ -1,6 +1,33 @@
 # ST stall clock: design review
 
-VERDICT: PENDING COMPLETED GATE (Core #313 at bf8af719)
+VERDICT: CLEAN (Core #313 at bf8af719)
+
+## Core #313: completed source receipt
+
+Reviewed head: `bf8af71915cbe34688489f487ea68cb988383c12`.
+Declared PR base: #298 `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Imported v1 and gate comparison base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+VERDICT: CLEAN. ST313-R1, R2 and Q1 are closed. No finding or contract question remains open.
+The source, proof and corrected R-104 records below supply each disposition.
+The reviewer ran no local build or test.
+
+Completed gate: `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-bf8af719-pool-20261012-082406-50709.log`.
+The header names this exact head and comparison base. All ten steps passed.
+The wrapper reports exit 0 after 775 seconds on msa1.
+Mutation result: 333 tested, 309 caught, 0 missed, 0 timeout and 24 unviable. Three catches came from stage 2.
+The held-full run covers six budget ids at 32 seeds, one trial per seed.
+The stopped `5c24322b` gate supplies no completed result.
+
+The earlier exact-head Mac evidence covers the unchanged worker transport and platform paths.
+The later host scheduler fixes have engine and production-driver proofs, completed gates and retained reversal logs as recorded below.
+All three removed DP-8 ids have full-seed evidence on both tiers.
+The two epoch-fence ids remain pending under the lead's separate proof item.
+The later pin PR must adapt the tag fields when it takes the optional-field amendment under R-104.
+
+The reviewer read the updated PR body at this exact head.
+It names the completed gate, imported base, R-104 disposition and stopped earlier gate.
+It retains the earlier evidence and the two pending fence ids.
+This is the package source receipt. The lead controls the merge slot and any later base update.
 
 ## Core #313: corrected R-104 citation
 
