@@ -885,14 +885,20 @@ impl HostEngine {
     /// The launch request that a worker gets (A3-1, DP-6: the policies come from the row).
     pub(crate) fn launch_spec(&self, id: &SessionId) -> LaunchSpec {
         let s = &self.sessions[id];
+        self.launch_spec_for(&s.request, s.size)
+    }
+
+    /// The launch request of `request` at `size`: the one source of the `Launch` message, for the send and for `begin`'s
+    /// frame check (steward ruling R-100).
+    pub(crate) fn launch_spec_for(&self, request: &SpawnRequest, size: Size) -> LaunchSpec {
         LaunchSpec {
-            argv: s.request.argv.clone(),
-            env: s.request.env.clone(),
-            cwd: s.request.cwd.clone(),
-            size: s.size,
-            color_profile: s.request.color_profile.clone(),
-            notification_policy: s.request.notification_policy.clone().unwrap_or_default(),
-            size_policy: s.request.size_policy.unwrap_or_default(),
+            argv: request.argv.clone(),
+            env: request.env.clone(),
+            cwd: request.cwd.clone(),
+            size,
+            color_profile: request.color_profile.clone(),
+            notification_policy: request.notification_policy.clone().unwrap_or_default(),
+            size_policy: request.size_policy.unwrap_or_default(),
             link_frame_bound: self.link_frame_bound(),
             limits: self.cfg.limits.clone(),
         }
