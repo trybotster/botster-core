@@ -167,13 +167,17 @@ impl ProcessTable {
 }
 
 impl Processes {
-    /// Ends the process `id` once and queues its exit for the host.
+    /// Ends the process `id` once and queues its exit for the host. The exit wakes that host, as a real exit does (TM-6): a
+    /// worker can end by its own deadline while the host waits (R-97).
     fn end(&mut self, id: ProcessIdentity, status: ExitStatus) {
         if let Some(cell) = self.cells.get(&id) {
             let mut cell = lock(cell);
             if !cell.ended {
                 cell.ended = true;
                 self.exits.push_back((id, status));
+                if let Some(wake) = &self.wake {
+                    wake.signal();
+                }
             }
         }
     }
@@ -401,10 +405,37 @@ fn framed(kind: FrameType, payload: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The clock of the in-process workers' own deadlines (steward ruling R-97 (b), TM-1): the worker process's monotonic clock,
+/// never the host's injected `now`. It is the real clock, or in a unit test a clock that the test sets
+/// ([`WorkerClock::manual`]). No control moves it.
+#[derive(Clone)]
+pub struct WorkerClock(Arc<dyn Fn() -> Instant + Send + Sync>);
+
+impl WorkerClock {
+    /// The real monotonic clock, as a worker process reads it.
+    pub fn real() -> WorkerClock {
+        WorkerClock(Arc::new(Instant::now))
+    }
+
+    /// A clock that reads the returned cell: a unit test moves it.
+    #[cfg(test)]
+    pub(crate) fn manual(start: Instant) -> (WorkerClock, Arc<Mutex<Instant>>) {
+        let at = Arc::new(Mutex::new(start));
+        let read = Arc::clone(&at);
+        (WorkerClock(Arc::new(move || *lock(&read))), at)
+    }
+
+    fn now(&self) -> Instant {
+        (self.0)()
+    }
+}
+
 /// The `Sim` of one harness: every in-process worker of every handle (plan 4.1: "a `Sim` owns ... every `Worker`").
 #[derive(Clone)]
 pub struct Workers {
     sim: Arc<Mutex<Sim>>,
+    /// The workers' own clock (R-97): the `Sim` runs at it.
+    clock: WorkerClock,
     pids: Arc<Mutex<Pids>>,
     run_processes: Arc<Mutex<RunProcesses>>,
     /// The starts that are held before the payload's launch (`hold_start_at`, AD-7 step 4).
@@ -432,20 +463,24 @@ impl Workers {
         self.scheduler.clone()
     }
 
-    /// The workers of a run whose seeded stream is `scheduler` (A5-2) and whose virtual clock starts at `start`.
-    pub fn new(scheduler: SchedulerHandle, start: Instant) -> Workers {
-        Self::with_read_chunk(scheduler, start, READ_CHUNK)
+    /// The workers of a run whose seeded stream is `scheduler` (A5-2) and whose deadlines run on `clock` (R-97).
+    pub fn new(scheduler: SchedulerHandle, clock: WorkerClock) -> Workers {
+        Self::with_read_chunk(scheduler, clock, READ_CHUNK)
     }
 
     /// One positive read bound applies to control bytes and program bytes.
     pub(crate) fn with_read_chunk(
         scheduler: SchedulerHandle,
-        start: Instant,
+        clock: WorkerClock,
         read_chunk: usize,
     ) -> Workers {
         assert!(read_chunk > 0, "a worker needs a positive read bound");
         Workers {
-            sim: Arc::new(Mutex::new(Sim::with_scheduler(scheduler.clone(), start))),
+            sim: Arc::new(Mutex::new(Sim::with_scheduler(
+                scheduler.clone(),
+                clock.now(),
+            ))),
+            clock,
             pids: Arc::new(Mutex::new(Pids { next: 1000 })),
             run_processes: Arc::default(),
             held_starts: Arc::default(),
@@ -458,34 +493,42 @@ impl Workers {
         }
     }
 
-    /// Runs every ready input of every worker at `now`, until none is ready.
+    /// Runs every ready input of every worker at the workers' clock (R-97), until none is ready.
     ///
     /// # Panics
     /// When the workers still have ready work after [`SIM_STEP_LIMIT`] inputs: a worker that makes work for itself without
     /// end is a defect, never a result.
-    pub fn run(&self, now: Instant) {
+    pub fn run(&self) {
         // A pump is a step of the program edge: the input cap of `pty_chunk` is available again.
         for program in self.programs() {
             program.new_step();
         }
-        {
-            let mut sim = lock(&self.sim);
-            sim.advance_to(now);
-            if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
-                panic!("the in-process workers did not settle: {livelock:?}");
-            }
-        }
+        self.run_at_clock();
         for impostor in lock(&self.impostors).values_mut() {
             impostor.step();
         }
     }
 
-    /// Runs the workers' ready work at the virtual clock, with no step of the program edge and no host pump: the route data
-    /// plane is the worker's, so a route progresses with no pump (Core TH-3, OU-9).
-    pub fn run_ready(&self) {
-        if let Err(livelock) = lock(&self.sim).run_until_idle(SIM_STEP_LIMIT) {
+    /// Moves the `Sim` to the workers' clock and runs their ready work: a deadline that is due there acts.
+    fn run_at_clock(&self) {
+        let mut sim = lock(&self.sim);
+        sim.advance_to(self.clock.now());
+        if let Err(livelock) = sim.run_until_idle(SIM_STEP_LIMIT) {
             panic!("the in-process workers did not settle: {livelock:?}");
         }
+    }
+
+    /// The time from the workers' clock to their earliest deadline: zero when it is due.
+    fn until_deadline(&self) -> Option<Duration> {
+        let due = self.next_deadline()?;
+        Some(due.saturating_duration_since(self.clock.now()))
+    }
+
+    /// Runs the workers' ready work at their clock (R-97), with no step of the program edge and no host pump: the route data
+    /// plane is the worker's, so a route progresses with no pump (Core TH-3, OU-9). A worker deadline that is due on the
+    /// workers' clock acts first, and a new input is stamped with that clock, as in a worker process.
+    pub fn run_ready(&self) {
+        self.run_at_clock();
     }
 
     /// Tests: adds `node` to the workers' simulation, so that [`Workers::run_ready`] runs it as a worker.
@@ -563,7 +606,7 @@ impl Workers {
             .collect()
     }
 
-    /// The earliest deadline of a worker.
+    /// The earliest deadline of a worker, on the workers' clock (R-97).
     pub fn next_deadline(&self) -> Option<Instant> {
         lock(&self.sim).next_deadline()
     }
@@ -1708,7 +1751,7 @@ impl CoreApi for TestkitCore {
     /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
     /// has ready work keeps `more` true and the wake set (TM-6), as a real worker's pending bytes would.
     fn pump(&mut self, now: Now) -> PumpReport {
-        self.workers.run(now.monotonic);
+        self.workers.run();
         let mut report = self.driver.pump(now);
         if self.workers.has_ready() {
             report.more = true;
@@ -1747,17 +1790,18 @@ impl CoreApi for TestkitCore {
         events
     }
 
+    /// The host's wake handle, with the workers' deadlines on their own clock (R-97, [`WorkerDeadlineWake`]).
     fn wake_handle(&self) -> Arc<dyn WakeHandle> {
-        self.driver.wake_handle()
+        Arc::new(WorkerDeadlineWake {
+            host: self.driver.wake_handle(),
+            workers: self.workers.clone(),
+        })
     }
 
-    /// The earliest deadline of the host or of a worker: a worker's deadline (its orphan or candidate-hello deadline) is
-    /// reached only when the host pumps at that time. `stop_grace` is the host's deadline, not a worker's (R-97).
+    /// The host's deadlines only (steward ruling R-97 (c), TM-3): a worker's deadline is on the worker's own clock, so the
+    /// injected clock never jumps to it.
     fn next_deadline(&self) -> Option<Instant> {
-        match (self.driver.next_deadline(), self.workers.next_deadline()) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        self.driver.next_deadline()
     }
 
     fn cancel(&mut self, op: OpId) -> CancelResult {
@@ -1879,3 +1923,38 @@ impl CoreApi for TestkitCore {
 
 #[cfg(test)]
 mod tests;
+
+/// A wait of the host that the in-process workers' deadlines can end, as a real worker's timer acts in its own process and its
+/// report (an exit, an end of file, a frame) wakes the host (R-97). The wait waits on the host's handle until the workers'
+/// earliest deadline at most, then runs the workers at their clock and waits again. It ends `Woken` only from the host's
+/// handle, so only a signal (or a spurious wake that the run allows, TH-2) ends it early. No thread: the workers run only
+/// inside this host call. The wait measures its timeout on the workers' clock, the clock of the deadlines that it compares
+/// with it (the real clock outside unit tests). A deadline at the end of the wait is left to the next pump.
+struct WorkerDeadlineWake {
+    host: Arc<dyn WakeHandle>,
+    workers: Workers,
+}
+
+impl WakeHandle for WorkerDeadlineWake {
+    fn wait(&self, timeout: Duration) -> Wake {
+        let end = self.workers.clock.now().checked_add(timeout);
+        loop {
+            let left = end.map_or(Duration::MAX, |end| {
+                end.saturating_duration_since(self.workers.clock.now())
+            });
+            match self.workers.until_deadline() {
+                Some(due) if due < left => {
+                    if matches!(self.host.wait(due), Wake::Woken) {
+                        return Wake::Woken;
+                    }
+                    self.workers.run_at_clock();
+                }
+                _ => return self.host.wait(left),
+            }
+        }
+    }
+
+    fn fd(&self) -> std::os::fd::RawFd {
+        self.host.fd()
+    }
+}
