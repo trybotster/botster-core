@@ -4263,7 +4263,7 @@ Relative to the current train base, Cargo.toml and .cargo/mutants.toml do not ch
 
 The lead's compile, ID-set, and strict-conformance pre-checks remain operator reports. This delta accepts no completed train gate or later head.
 
-All #308 delta findings, including LOW, are closed. Sol-B owns the integration delta and combined train review.
+All #308 delta findings, including LOW, are closed. Sol-B owns the #308 integration delta. Sol owns the combined train review and single final receipt.
 
 I read the current BUILD Green rule. Per `msg_plugin-w_1791832646_b23aee`, the combined reviewer sends the one final train receipt after the gate.
 
