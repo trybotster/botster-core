@@ -82,3 +82,26 @@ This verdict authorizes no retry of #306 and does not accept its failed gate.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2: train 3c source delta
+
+Exact train head: `b78df725177d1a931e1eddb9bb67023e7e0ae645`.
+Tree: `43cdf59980d93e0672423bedc0edf506405256be`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+Frozen #310 member: `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`.
+The train merges #310 first, then #312's .44 pin. It contains neither #308 nor #309.
+
+Sol-B independently compares all four own patches with the first train merge.
+Every added and deleted line matches. All four file blobs equal the accepted member blobs at the final train head.
+The .44 lock source retains the repository and package identity used by the resolver.
+The resolver follows the exact delivered lock revision. Its .43 fixture remains a synthetic input only.
+The slow canonical-path comparison remains selected. The pure packages parser and real metadata test retain their reviewed behavior.
+No default test adds a Cargo launch. No timing allowance, gate verdict, mutation exclusion, or own pending removal changes.
+
+Sol-B read exact-head package delta `28212287cb8cae87306e46f2ae58d235b113e640`, train 3c section.
+It agrees with these source checks. No #310 source delta finding remains.
+The combined source review is Round 2 in `verdicts/stage1/train-3.md` in this commit.
+The original evidence retains its original head. The final train gate and member evidence receipt remain due.
+This verdict accepts no later head or #306 retry. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; source delta only, final train evidence pending)
