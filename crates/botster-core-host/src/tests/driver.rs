@@ -1,7 +1,9 @@
 //! The driver (plan 2.1, 2.5): framing, the hello, partial writes, the wake flag and the order of a pump, over mock edges.
 
 use super::*;
-use crate::driver::{DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn};
+use crate::driver::{
+    control_bound, DescriptorSendError, HostDriver, HostEdges, HostWake, WorkerSpawn,
+};
 use botster_core_edges::edges::GroupSignal;
 use botster_core_edges::scheduler::Production;
 use botster_core_edges::{Scheduler, Wake as WakeEdge};
@@ -1265,17 +1267,21 @@ fn the_link_edge_room_bounds_the_control_queue_too() {
 }
 
 /// DESIGN.md "The control queue": the production bound is the input that one session may retain, one largest frame of the
-/// link (its 5-byte header and the frame bound) for each pending op and each input op of a session, and four cancels.
+/// link (its 5-byte header and the frame bound) for each pending op and each input op of a session, and four cancels. The
+/// inputs are public: the engine's frame bound and the encoded length of the largest `Cancel` frame (RC-R100-6).
 #[test]
 fn the_control_queue_bound_is_the_admitted_traffic_and_four_cancels() {
-    let rig = Rig::new(CoreLimits::default());
     let l = CoreLimits::default();
-    let message = rig.driver.control_message;
-    assert!(message > 0 && message < 64, "{message}");
-    let frame_bound = rig.driver.engine().link_frame_bound();
+    let frame_bound = Rig::new(l.clone()).driver.engine().link_frame_bound();
     assert_eq!(frame_bound, 97 << 20, "6 x max_snapshot_bytes + 1 MiB");
+    let mut payload = Vec::new();
+    HostMsg::Cancel { req: u64::MAX }.encode(&mut payload);
+    let mut frame = Vec::new();
+    encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame).unwrap();
+    let message = frame.len();
+    assert!(message > 0 && message < 64, "{message}");
     assert_eq!(
-        rig.driver.control_bound,
+        control_bound(&l, frame_bound, message),
         l.input_retained_bytes as usize
             + (l.pending_ops + l.input_ops_per_session) as usize * (5 + frame_bound as usize)
             + 4 * message
