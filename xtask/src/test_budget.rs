@@ -8,6 +8,7 @@
 use crate::caps;
 use crate::fsutil::{metadata, Meta};
 use anyhow::{bail, Context, Result};
+use botster_core_testkit::pending;
 use botster_test_support::census::{leftovers, ps_snapshot, update_owned, Proc};
 use regex::Regex;
 use std::collections::{BTreeMap, HashMap};
@@ -342,20 +343,8 @@ fn run_bounded(
 /// # Errors
 /// The run could not start, passed its deadline, or left processes behind.
 pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
-    caps::require()?;
-    let meta = metadata(root)?;
-    let pidfile = meta
-        .target_dir
-        .join("nextest")
-        .join("slow")
-        .join("pending-real-pids");
-    let _ = std::fs::remove_file(&pidfile);
-    if let Some(dir) = pidfile.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let mut command = Command::new("cargo");
+    let mut command = crate::tools::cargo(root);
     command
-        .current_dir(root)
         .args([
             "test",
             "-p",
@@ -373,13 +362,83 @@ pub fn pending_real(root: &Path, deadline: Duration) -> Result<(bool, String)> {
             "4",
         ])
         .envs(tier_env(true));
-    caps::apply(&mut command);
-    bounded_report(
+    bounded_conformance(
+        root,
         command,
         deadline,
-        &pidfile,
+        "pending-real-pids",
         "start the real-tier conformance binary",
     )
+}
+
+/// Runs the held-full run of the testkit conformance binary (`cargo test -p botster-core --test conformance`, the binary of
+/// the `lists` step) under the slow tier's bounds, as [`pending_real`] does: the CI seed set, the strict and the held-full
+/// variables, and no selection variable. Each `budget` held id of `conformance/core-held.txt` runs at every seed, one trial a
+/// seed on 4 threads (lead, 2026-10-11). Returns the binary's stdout, and whether it succeeded: a held id that fails at a
+/// seed fails its trial, which names the seed.
+///
+/// # Errors
+/// The run could not start, passed its deadline, or left processes behind.
+pub fn held_full(root: &Path, deadline: Duration) -> Result<(bool, String)> {
+    let mut command = crate::tools::cargo(root);
+    command
+        .args([
+            "test",
+            "-p",
+            "botster-core",
+            "--test",
+            "conformance",
+            "--locked",
+            "--",
+            "--format",
+            "terse",
+            "--test-threads",
+            "4",
+        ])
+        .envs(tier_env(false))
+        .env(pending::STRICT_ENV, "1")
+        .env(pending::HELD_FULL_ENV, "1");
+    for var in crate::ci::SELECTION_VARS {
+        command.env_remove(var);
+    }
+    bounded_conformance(
+        root,
+        command,
+        deadline,
+        "held-full-pids",
+        "start the testkit conformance binary",
+    )
+}
+
+/// The number of seeds of the CI seed set that the held-full run must report.
+pub fn ci_seed_count() -> Option<usize> {
+    seed_count(DEFAULT_SEEDS)
+}
+
+/// The number of seeds of a range `<from>-<to>`; `None` for any other text.
+fn seed_count(range: &str) -> Option<usize> {
+    let (from, to) = range.split_once('-')?;
+    let (from, to): (usize, usize) = (from.parse().ok()?, to.parse().ok()?);
+    to.checked_sub(from).map(|n| n + 1)
+}
+
+/// Runs a conformance binary's `command` (a capped `tools::cargo` command) with [`bounded_report`], with the pid file `pids`
+/// of the slow tier's directory, which it empties first.
+fn bounded_conformance(
+    root: &Path,
+    command: Command,
+    deadline: Duration,
+    pids: &str,
+    start: &'static str,
+) -> Result<(bool, String)> {
+    caps::require()?;
+    let meta = metadata(root)?;
+    let pidfile = meta.target_dir.join("nextest").join("slow").join(pids);
+    let _ = std::fs::remove_file(&pidfile);
+    if let Some(dir) = pidfile.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    bounded_report(command, deadline, &pidfile, start)
 }
 
 /// Runs `command` under the slow tier's bounds, as [`pending_real`] does: its own process group, `deadline`, the process
@@ -723,6 +782,17 @@ mod tests {
 
     fn map(rows: &[(&str, f64)]) -> BTreeMap<String, f64> {
         rows.iter().map(|(k, v)| (k.to_string(), *v)).collect()
+    }
+
+    /// The held-full run must report the 32 seeds of the CI set; a range counts both ends, and other text has no count.
+    #[test]
+    fn the_ci_seed_set_has_32_seeds() {
+        assert_eq!(ci_seed_count(), Some(32));
+        assert_eq!(seed_count("3-5"), Some(3));
+        assert_eq!(seed_count("4-4"), Some(1));
+        for text in ["5-3", "0", "a-3", "0-b", ""] {
+            assert_eq!(seed_count(text), None, "{text}");
+        }
     }
 
     /// A leftover pid is a process and `-N` is a group; any other text is no target.

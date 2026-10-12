@@ -133,7 +133,12 @@ impl HostEngine {
 
     /// The work that a `pump` could do now (plan 2.4). Index 0 is the work that the production policy runs first.
     pub fn ready(&self) -> Vec<Work> {
-        let room = self.has_room();
+        self.ready_at(self.has_room())
+    }
+
+    /// The work that a `pump` could do if the mandatory queue had room or not, as `room` says. With room, the list also
+    /// holds the work that is parked only on queue room (EV-5b, TM-6).
+    pub(crate) fn ready_at(&self, room: bool) -> Vec<Work> {
         let mut out = Vec::new();
         // A due deadline is processed in its pump, before other work (TM-3, TM-5). An effect without an event comes first
         // (E3-1 item 5); a due `Silent` follows as a carried step, before newer work (E3-1 item 3).
