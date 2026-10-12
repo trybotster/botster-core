@@ -383,3 +383,98 @@ The ONE completed exact-final-head gate, full mutation result, matching final bo
 This round accepts no final-slot gate result, later head, or different tree. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open integration delta findings; final evidence remains due) at f16a10ba028ca3ea6b0139d58aabea7cb5e051d5 against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
+
+## Round 5 — corrected profile delta after the failed final gate
+
+Head: `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Parent: `edb9de1074c2df0086f212ea2cbd9695667894ce`.
+Tree: `9423da03abc7b905308920570cf767216e0f3ee5`.
+Imported base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Prior source-delta head: `f16a10ba028ca3ea6b0139d58aabea7cb5e051d5`.
+Owner requests: `msg_plugin-w_1791779773_85a0a7` and correction `msg_plugin-w_1791779864_52aa29`.
+Complete package profile review: `e5a6ef563afc877ee95589287553bf2530901c11`.
+Complete package corrected delta: `cd036b066e4ce6c2f2e9493bc2ddb5fa5d242afc`.
+Package corrected receipt: `msg_plugin-w_1791779909_a4bb7a`.
+
+### Failed final gate — retained RED
+
+I read the completed f16a10ba gate header, default test outcome, budget failures, CI summary, and final job records.
+Log: `~/botster-sessions/gates/botster-core-stage1-rc-pin-42-f16a10ba-pool-20261011-210606-1524.log`.
+SHA256: `94745be6bae0e597019333d3bb714406716817f84c45d905e9d456b1bd252186`.
+The exact head and base match the Round 4 source review.
+The first six CI steps PASS. Test-budget FAILS; slow, mutants, and fuzz do not run.
+Nextest runs 1914 tests: 1913 PASS, one timeout, 432 skipped, 25.614 seconds.
+`conf::in_9_legacy_keys_table` times out at 2.005 seconds against the two-second limit.
+The gate reports two budget failures: nextest's failure and the duration failure for that same test.
+CI total: 386.9 seconds. Job exits 1 after 659 seconds on node linux, with 156 queued seconds and 503 run seconds.
+The wrapper exits 1 after 660 seconds.
+This gate supplies no final acceptance and no full mutation result.
+
+### Profile delta
+
+I read the complete eighteen-line Cargo.toml addition and the one-line comment correction.
+The full-index diff from f16a10ba to this head has SHA256 `7b51c82f001f5dc8e718f0c7d68951312c52afb254f2482d6f3c4e293062a364`.
+Cargo.toml is the only changed path. Every other source blob retains the Round 4 version.
+The lead's handoff approves this HIGH mitigation: optimize the two contracts conformance dependencies at level 2.
+The steward accepts the mitigation and assigns the per-step clone cost to contracts backlog B-1.
+RC retains separate Core work for `longest_key_sequence`. Those follow-ups are not accepted by this delta.
+
+The two new package overrides are `botster-core-conformance` and `botster-conformance`.
+Both set `opt-level = 2`, `debug-assertions = true`, and `overflow-checks = true`.
+No Core workspace package receives an override. Existing Core package compilation settings remain.
+The target-head manifests put these dependencies in testkit, xtask, and Core's dev dependencies.
+No product state machine, assertion, gate budget, control, status list, mutation exclusion, or coverage rule changes.
+The configuration follows the existing dependency-override pattern and the explicit lead ruling.
+
+I read the sample header and relevant clone, driver, event, input-log, matcher, and encoder stacks.
+Sample SHA256: `bb9338d8a2cce72809ae9f233f80a9d0c1761c5d829eb15e4179045aae76eb89`.
+Inclusive summary SHA256: `dc9f70cd0673150a3445a27ae2ce9a97e56d1c5ed15792178f8bb1839da45720`.
+The sample has 5919 test-thread samples. The stacks support repeated driver work and separate encoder cost.
+Inclusive stack counts overlap; I do not sum them as independent percentages.
+The owner attributes this sample to 1024 seeds, distinct from the timing comparisons at seeds 0–31.
+The owner reports Mac timing changes of 1.72 to 1.00 seconds for the id and 28.40 to 21.48 seconds for one-thread strict conformance.
+These reports do not establish a completed Linux gate or final budget acceptance.
+
+### Precision findings — CLOSED
+
+Package RC-PIN43-6 LOW identifies a sample-seed inconsistency in edb9de10: source comment 32, body 1024.
+I read the complete 77eae642 correction. It changes only that comment to the owner's 1024-seed sample description.
+The body keeps the separate timing comparisons at seeds 0–31. The profile values do not change.
+
+Package RC-PIN43-7 LOW identifies the body statement that both failed-gate durations are 660 seconds.
+I independently read the raw job 659-second and wrapper 660-second records.
+The corrected body reports those durations separately. It retains RED and the absent later steps.
+The body also names the comment-only head and retains PENDING for its final gate.
+Both LOW findings close without additional execution.
+
+I read the complete edb9de10 body, then every changed line of the corrected published body.
+Corrected raw JSON SHA256: `0abc7eaa66e1d7d9534c43e78b860468a89812d14e4c05aabf31b4320dbe32f0`.
+GitHub names this exact corrected head and imported base.
+The body keeps all earlier source, canonical-check FAIL, gate, cache, and evidence limits.
+
+### Local supplement
+
+I read the complete local-check script and statically audit the log's header, commands, exits, and summaries.
+Log: `evidence/rc-pin-42/local-final-edb9de10-20261012-042920.log`.
+SHA256: `e9084ecc30a606331c729b1be7fa4755cbd748f218d57e1a7c98934acf546d79`.
+The log names edb9de10 and base fcc09461. The later correction changes only a comment.
+All ten printed command exits are zero.
+Library results: 332 host, 426 testkit, 193 worker-core, and fourteen Core passes. Route/resume slow tests: 26 passes.
+Strict conformance at seeds 0–31: 259 PASS, zero failures, 3.18 seconds, exit zero.
+The strict check runs 321 of 339 pending ids; eighteen are real-only and four are held.
+The script sets both parallelism caps and removes the toolchain override.
+It prints the clean time but no numeric clean exit or independent raw clean output. That limit remains.
+This supplement does not replace the final gate or establish every target writer.
+
+### Disposition
+
+No integration source-delta or body finding remains, including LOW findings.
+The complete corrected package verdict agrees.
+The Round 4 import, lock composition, status-set checks, and canonical FAIL remain applicable to every unchanged path.
+This HIGH profile delta is CLEAN on the exact corrected head.
+The lead keeps this PR in its slot and requires both delta CLEANs before ONE new final gate.
+The completed exact-head gate, full mutation result, matching final body, both final evidence verdicts, and Q7 remain due.
+The earlier f16a10ba RED cannot carry acceptance to this head. No later head or final gate is accepted here.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open source-delta findings; final acceptance remains due) at 77eae642eaac0c56cde035870616d17bf2f877ba against base fcc09461cb0c0de4ef067c160f24d205f0f65c30
