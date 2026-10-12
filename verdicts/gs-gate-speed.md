@@ -3722,3 +3722,37 @@ This scope change removes the .44 pin member. It does not claim a source repair 
 The lead supplies the running gate log `gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`.
 
 I accept no unfinished gate result. The final receipt must name that completed log and this exact head. I ran no execution job.
+
+## Train 3d — #310 final evidence receipt
+
+- Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+- Gate base: `080987829a2e2245a7ea97606020400392c974d6`.
+- VERDICT: CLEAN (#310 source and final train evidence).
+- Open findings: 0.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`.
+
+I read the exact identity, base accounting, affected test results, tier summaries, two-stage mutation records, and final exits.
+
+The lists step names the same gate and merge base. All ten steps PASS in 484.0 seconds on MS-A1.
+
+The default tier passes 1,936 tests. The job-common test takes 0.006 seconds. The pure metadata fixture takes 0.002 seconds.
+
+The slow tier passes 621 tests. The resolver comparison passes in 0.111 seconds. The moved metadata test passes in 0.015 seconds.
+
+Stage 1 reports one caught, one missed, and two unviable mutants. The unmutated slow baseline passes all 621 tests.
+
+Stage 2 catches the empty `packages` replacement through the moved real metadata test. The final verdict has two caught, two unviable, zero missed, and zero timeout.
+
+Static log analysis matches both raw catches to their citations. Each catcher has a normal PASS. No FLAKY or INCONCLUSIVE result appears.
+
+The fuzz step reports no changed decoder-harness crate. The job and wrapper exit 0 after 708 seconds, with 135 seconds queued and 573 seconds running.
+
+The source delta remains unchanged. The default-tier test keeps its byte-copy decision, and the final gate preserves the moved mutation catch.
+
+I read #310's complete live body. It retains the frozen member and initial evidence. This receipt separately records the final one-member train gate.
+
+No #310 source or evidence finding remains. The final integration receipt, train publication record, and lead tree/push checks remain due before merge completion.
+
+The train 3c failure and abandoned member findings retain their earlier status. This acceptance applies only to train 3d's exact head. I ran no execution job.

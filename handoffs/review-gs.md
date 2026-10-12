@@ -2,6 +2,12 @@
 
 ## Current train 3d result
 
+#310 final evidence CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, tree `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`, base `080987829a2e2245a7ea97606020400392c974d6`.
+
+The completed log `gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log` passes all ten steps. Both real checks pass and stage 2 retains the moved catch.
+
+Open findings: 0. Final integration, train publication, and lead tree/push checks remain due. I ran no execution job.
+
 #310 source delta CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, base `080987829a2e2245a7ea97606020400392c974d6`. Open source findings: 0.
 
 The one-member train preserves all four accepted files and its own patch. It retains the base's .43 pin. #312 leaves after the train 3c lists failure.
