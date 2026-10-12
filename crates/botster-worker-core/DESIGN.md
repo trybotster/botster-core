@@ -332,6 +332,36 @@ Rejected:
 - A descriptor id in `AttachRoute`: an id alone fixes neither the order nor the cleanup. The ordered outbound path above
   fixes both with no new descriptor field.
 
+### The route's paste (RC PR A; plan 23bp; steward ruling R-75)
+
+- **One open paste per route** (Codec TS-5d), in `route.rs` `Route::paste`. A file has a separate slot (R-75; PR C). The
+  receipt decides every paste frame (DP-5: the decision is made on receipt, never when the frame is applied):
+  - `paste_begin` opens the paste, unless one is open (`refused`) or `total_bytes` is over `max_paste_bytes` (`too_large`,
+    R-9). It sends no frame.
+  - `paste_chunk` adds its bytes to the open paste of its op. The first chunk that takes the paste over `max_paste_bytes`
+    is refused `too_large`, and the paste is discarded.
+  - `paste_commit` takes the open paste of its op to the admission point as one route input; `paste_abort` discards it
+    and sends no frame.
+  - Each sequencing error (R-5: no open paste, or another op) is refused `refused` with zero effect, and the open paste
+    stays as it is.
+  - A closing route applies no input, so a paste that is open at the close writes nothing.
+- **The open paste is outside the route's input bound.** `max_paste_bytes` bounds it. Its bytes count in the read
+  allowance from the commit, when they wait at the admission point.
+- **The commit is one transaction** (AM-2, TS-5d: contiguous). A route input carries an `InputPayload`. At its start, the
+  admission point encodes it with `model::encode`, the encoder of the host's writes (IN-8: the markers come from
+  libghostty, with the mode at the start; `require_bracketed` with the mode off is `mode_precondition_failed` with zero
+  effect).
+- **The outcome** (TS-5b): `input_done{op, written_bytes}` only for `want_result: true`; `failed` and `session_ended` with
+  `written_bytes`. `written_bytes` is the PTY bytes after encoding, markers included (one unit everywhere); for `bytes`
+  and `text` it is the same count as the payload's.
+- **R-75:** a frame that breaks a 5.1A field rule (`Decoded::Invalid`, the rules of `Input::check`) is refused `refused`,
+  never `invalid_input`.
+- **Prior art:** the paste state of old Core `client_worker.rs` (`intake_terminal_command`: one assembling paste per route;
+  a continuation must match its op; the commit takes the assembled bytes), with the `Stolen-From` and `For-Clause`
+  trailers, and the three scenarios of its unit tests. Not taken: its strictly increasing op ids, its 1 MiB constant, its
+  5 s assembly timeout, its chunk index and its paste-safety rejection (the contract has none of them). Compared, not
+  used: the contracts' `botster-fake-route` paste slot.
+
 ### Changes outside worker-core (each is HIGH)
 
 - `botster-core-host`: the outbound marks and `link_send_descriptor` in place of `handoff_route` (PR1), and

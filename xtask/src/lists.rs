@@ -14,7 +14,7 @@
 //! - `minimum-core.txt` (plan section 1, revision 23q): the canonical list of the minimum Core. Each id is listed once and
 //!   is a Core ledger id; an id that the contracts withdrew fails the check by name (a withdrawn minimum id goes to the lead).
 
-use crate::fsutil::{base, git_show};
+use crate::fsutil::{base, git_show, merge_base};
 use anyhow::{bail, Context, Result};
 use botster_core_contract::prelude::Feature;
 use botster_core_testkit::{pending, status};
@@ -31,6 +31,9 @@ const DEFERRED_FILE: &str = "conformance/core-deferred.toml";
 /// The harness reads the copies; `check` fails when a copy differs from the pinned source.
 pub const CONTRACTS_DEFERRED_COPY: &str = "conformance/contracts-deferred.txt";
 pub const CONTRACTS_WITHDRAWN_COPY: &str = "conformance/contracts-withdrawn.txt";
+/// The byte copy of the contracts' shared gate job at the pinned tag (`ci/remote/job-common.sh`; steward drift ruling (b),
+/// 2026-10-11). botster-contracts owns the file; `ci/remote/job.sh` holds only Core's settings and sources the copy.
+pub const JOB_COMMON_COPY: &str = "ci/remote/job-common.sh";
 /// The real-only Core ids with their named real-process proofs (`id<TAB>proof`), derived from the pinned replacement map
 /// (`slow:*` proofs). The suite reads it to count a minimum id that left core-pending.txt by its named proof (plan 23s).
 pub const REAL_ONLY_FILE: &str = "conformance/core-real-only.txt";
@@ -500,6 +503,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let ledger = core_ids_of_ledger(&ledger_json)?;
     let ledger_all = all_ids_of_ledger(&ledger_json)?;
     let source = status_sources(&meta.contracts_root)?;
+    let job_common = pinned_job_common(&meta.contracts_root)?;
     let (contract_deferred, cases) =
         status::parse_deferred(&source.deferred).map_err(anyhow::Error::msg)?;
     let withdrawn: BTreeSet<String> = status::parse_withdrawn(&source.withdrawn)
@@ -521,6 +525,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             &read(CONTRACTS_WITHDRAWN_COPY)?,
             &source.withdrawn,
         ),
+        (JOB_COMMON_COPY, &read(JOB_COMMON_COPY)?, &job_common),
     ]);
     let ledger_file = parse_ids(&read(LEDGER_FILE)?).map_err(anyhow::Error::msg)?;
     let pending = parse_ids(&read(PENDING_FILE)?).map_err(anyhow::Error::msg)?;
@@ -545,37 +550,19 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
     let manifest = std::fs::read_to_string(meta.contracts_root.join("frozen/current/MANIFEST.md"))
         .unwrap_or_default();
 
+    // The rules that compare with the base read its files at the merge base, so they count only this branch's changes: an
+    // id that the base removed after the branch point is not an addition of this branch.
     let base_name = base(root)?;
-    let base_pending_text = git_show(root, &base_name, PENDING_FILE)?;
-    let base_deferred_text = git_show(root, &base_name, DEFERRED_FILE)?;
-    let base_ledger_text = git_show(root, &base_name, LEDGER_FILE)?;
-    let base_cargo = git_show(root, &base_name, "Cargo.toml")?;
+    let merge_base_name = merge_base(root)?;
+    println!("lists: base {base_name}, merge base {merge_base_name}");
+    let files = base_files(root, &merge_base_name)?;
     let cargo = read("Cargo.toml")?;
-    let base_pending = base_pending_text
-        .as_deref()
-        .map(parse_ids)
-        .transpose()
-        .map_err(anyhow::Error::msg)?;
-    let base_deferred: BTreeSet<String> = base_deferred_text
-        .as_deref()
-        .map(parse_deferred)
-        .transpose()?
-        .unwrap_or_default()
-        .into_iter()
-        .map(|d| d.id)
-        .collect();
-    let base_ledger = base_ledger_text
-        .as_deref()
-        .map(parse_ids)
-        .transpose()
-        .map_err(anyhow::Error::msg)?
-        .unwrap_or_default();
-    let base = base_pending.as_ref().map(|pending| Base {
+    let base = files.pending.as_ref().map(|pending| Base {
         pending,
-        deferred: &base_deferred,
-        ledger_file: &base_ledger,
+        deferred: &files.deferred,
+        ledger_file: &files.ledger_file,
     });
-    let tag_moved = pin_moved(base_cargo.as_deref(), &cargo);
+    let tag_moved = pin_moved(files.cargo.as_deref(), &cargo);
 
     problems.extend(check(&Input {
         ledger: &ledger,
@@ -593,11 +580,6 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         tag_moved,
     }));
     let real_pending = parse_ids(&read(REAL_PENDING_FILE)?).map_err(anyhow::Error::msg)?;
-    let base_real_pending = git_show(root, &base_name, REAL_PENDING_FILE)?
-        .as_deref()
-        .map(parse_ids)
-        .transpose()
-        .map_err(anyhow::Error::msg)?;
     let map = std::fs::read_to_string(meta.contracts_root.join("conformance/replacement-map.json"))
         .context("read the pinned replacement map")?;
     let no_ids = BTreeSet::new();
@@ -613,10 +595,10 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             .map(|id| id.to_string())
             .collect(),
         real_pending: &real_pending,
-        base: base_real_pending.as_ref().map(|real_pending| RealBase {
+        base: files.real_pending.as_ref().map(|real_pending| RealBase {
             real_pending,
-            pending: base_pending.as_ref().unwrap_or(&no_ids),
-            ledger_file: &base_ledger,
+            pending: files.pending.as_ref().unwrap_or(&no_ids),
+            ledger_file: &files.ledger_file,
         }),
     }));
     problems.extend(copy_problems(&[(
@@ -642,6 +624,41 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         println!("lists: not-applicable case of the active id {case}");
     }
     Ok(())
+}
+
+/// The files of the base that the rules compare with, at one commit. A file that the commit does not have is `None` (or
+/// empty, for the deferred and ledger files).
+struct BaseFiles {
+    pending: Option<BTreeSet<String>>,
+    deferred: BTreeSet<String>,
+    ledger_file: BTreeSet<String>,
+    cargo: Option<String>,
+    real_pending: Option<BTreeSet<String>>,
+}
+
+fn base_files(root: &Path, commit: &str) -> Result<BaseFiles> {
+    let ids = |path: &str| -> Result<Option<BTreeSet<String>>> {
+        git_show(root, commit, path)?
+            .as_deref()
+            .map(parse_ids)
+            .transpose()
+            .map_err(anyhow::Error::msg)
+    };
+    let deferred = git_show(root, commit, DEFERRED_FILE)?
+        .as_deref()
+        .map(parse_deferred)
+        .transpose()?
+        .unwrap_or_default()
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    Ok(BaseFiles {
+        pending: ids(PENDING_FILE)?,
+        deferred,
+        ledger_file: ids(LEDGER_FILE)?.unwrap_or_default(),
+        cargo: git_show(root, commit, "Cargo.toml")?,
+        real_pending: ids(REAL_PENDING_FILE)?,
+    })
 }
 
 /// Prints the problems and fails when there is one.
@@ -684,6 +701,12 @@ pub fn status_sources(contracts_root: &Path) -> Result<StatusSources> {
     })
 }
 
+/// The text of the contracts' shared gate job at the pinned tag.
+fn pinned_job_common(contracts_root: &Path) -> Result<String> {
+    std::fs::read_to_string(contracts_root.join(JOB_COMMON_COPY))
+        .with_context(|| format!("read the pinned {JOB_COMMON_COPY}"))
+}
+
 /// One problem for each checked-in copy that is not the pinned source: `(path, copy, source)`.
 fn copy_problems(copies: &[(&str, &str, &str)]) -> Vec<String> {
     copies
@@ -722,13 +745,14 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
         (CONTRACTS_DEFERRED_COPY, source.deferred),
         (CONTRACTS_WITHDRAWN_COPY, source.withdrawn),
         (REAL_ONLY_FILE, real_only_text(&map, &ledger)?),
+        (JOB_COMMON_COPY, pinned_job_common(&meta.contracts_root)?),
     ];
     if write {
         for (path, text) in &files {
             std::fs::write(root.join(path), text)?;
         }
         println!(
-            "ledger-ids: wrote {} ids, the two status files and the real-only ids",
+            "ledger-ids: wrote {} ids, the two status files, the real-only ids and job-common.sh",
             ledger.len()
         );
         return Ok(());
@@ -750,7 +774,7 @@ pub fn ledger_ids_command(root: &Path, args: &[String]) -> Result<()> {
     );
     anyhow::ensure!(problems.is_empty(), "{}", problems.join("\n"));
     println!(
-        "ledger-ids: {} ids, the status files and the real-only ids match the pin",
+        "ledger-ids: {} ids, the status files, the real-only ids and job-common.sh match the pin",
         ledger.len()
     );
     Ok(())
@@ -1347,5 +1371,232 @@ mod tests {
         );
         assert_eq!(real_only_text(r#"{"ids": []}"#, &ledger).unwrap(), "");
         assert!(real_only_text("{}", &ledger).is_err());
+    }
+
+    /// The pinned job-common.sh is the contracts' shared gate job at the tag that Cargo.lock pins, and Core's checked-in
+    /// copy is byte-equal to it. The checkout comes from `cargo metadata` (Cargo.lock and the Cargo home), not from git,
+    /// so the test also runs in a cargo-mutants copy, which has no `.git`.
+    #[test]
+    fn the_pinned_job_common_is_the_checked_in_copy() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let meta = crate::fsutil::metadata(root).unwrap();
+        let copy = std::fs::read_to_string(root.join(JOB_COMMON_COPY)).unwrap();
+        assert!(!copy.is_empty(), "an empty copy would hide an empty read");
+        assert_eq!(pinned_job_common(&meta.contracts_root).unwrap(), copy);
+    }
+
+    // The base files at the merge base (lists merge-base design note, 2026-10-11): the rules count only the changes of
+    // the branch, not the changes that the base made after the branch point.
+
+    /// A repository whose base moved after the branch point: the first commit has `at_fork`; the base branch then commits
+    /// `on_base`; `HEAD` is the branch `side` at the first commit. Gives the repository, the merge base and the base tip.
+    fn moved_base(
+        at_fork: &[(&str, &str)],
+        on_base: &[(&str, &str)],
+    ) -> (tempfile::TempDir, String, String) {
+        use crate::fsutil::{test_git, test_repo};
+        let dir = test_repo(at_fork);
+        let root = dir.path();
+        test_git(root, &["commit", "-q", "-m", "fork"]);
+        test_git(root, &["branch", "side"]);
+        for (path, text) in on_base {
+            std::fs::write(root.join(path), text).unwrap();
+        }
+        test_git(root, &["commit", "-q", "-a", "-m", "the base moves"]);
+        let tip = test_git(root, &["rev-parse", "HEAD"]).trim().to_string();
+        test_git(root, &["checkout", "-q", "side"]);
+        let merge_base = crate::fsutil::merge_base_of(root, "HEAD", &tip).unwrap();
+        assert_ne!(merge_base, tip);
+        (dir, merge_base, tip)
+    }
+
+    fn cargo_with_tag(tag: &str) -> String {
+        format!("[workspace.dependencies]\nbotster-core-contract = {{ git = \"g\", tag = \"{tag}\" }}\n")
+    }
+
+    fn deferred_text(ids: &[&str]) -> String {
+        let condition = |id: &str| {
+            if id == D1 {
+                "worker_protocol >= 2"
+            } else {
+                "new_worker_feature_over_previous"
+            }
+        };
+        ids.iter()
+            .map(|id| {
+                format!(
+                    "[[deferred]]\nid = \"{id}\"\nauthority = \"Core A6-2, manifest-final13\"\nstart_condition = \"{}\"\n",
+                    condition(id)
+                )
+            })
+            .collect()
+    }
+
+    /// The problems of `check` for the tree `w` (with the contracts pin `cargo`) against the base files at `commit`.
+    fn problems_at(root: &Path, commit: &str, w: &World, cargo: &str) -> Vec<String> {
+        let files = base_files(root, commit).unwrap();
+        run(w, |i| {
+            i.base = files.pending.as_ref().map(|pending| Base {
+                pending,
+                deferred: &files.deferred,
+                ledger_file: &files.ledger_file,
+            });
+            i.tag_moved = pin_moved(files.cargo.as_deref(), cargo);
+        })
+    }
+
+    /// The problems of `check_real` for the real-pending ids `real_pending` against the base files at `commit`.
+    fn real_problems_at(root: &Path, commit: &str, real_pending: &[&str]) -> Vec<String> {
+        let w = real_world();
+        let files = base_files(root, commit).unwrap();
+        let real_pending = set(real_pending);
+        let no_ids = BTreeSet::new();
+        check_real(&RealInput {
+            ledger: &w.ledger,
+            pending: &w.pending,
+            deferred: &w.deferred,
+            withdrawn: &w.withdrawn,
+            real_only: &w.real_only,
+            testkit_proven: &w.testkit_proven,
+            real_pending: &real_pending,
+            base: files.real_pending.as_ref().map(|r| RealBase {
+                real_pending: r,
+                pending: files.pending.as_ref().unwrap_or(&no_ids),
+                ledger_file: &files.ledger_file,
+            }),
+        })
+    }
+
+    fn world_files(pending: &str, deferred: &[&str], tag: &str) -> Vec<(String, String)> {
+        vec![
+            (LEDGER_FILE.into(), format!("a\nb\nc\n{D1}\n{D2}\n")),
+            (PENDING_FILE.into(), pending.into()),
+            (DEFERRED_FILE.into(), deferred_text(deferred)),
+            ("Cargo.toml".into(), cargo_with_tag(tag)),
+        ]
+    }
+
+    fn refs(files: &[(String, String)]) -> Vec<(&str, &str)> {
+        files
+            .iter()
+            .map(|(p, t)| (p.as_str(), t.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn an_id_that_the_base_removed_after_the_branch_point_is_not_new_on_the_branch() {
+        // The base removes `c` from core-pending.txt after the branch point; the branch still lists it.
+        let fork = world_files("a\nb\nc\n", &[D1, D2], "t1");
+        let (dir, merge_base, tip) = moved_base(&refs(&fork), &[(PENDING_FILE, "a\nb\n")]);
+        let root = dir.path();
+        let w = world();
+        let cargo = cargo_with_tag("t1");
+        assert_eq!(
+            problems_at(root, &merge_base, &w, &cargo),
+            Vec::<String>::new()
+        );
+        let at_tip = problems_at(root, &tip, &w, &cargo);
+        assert!(
+            at_tip.len() == 1 && at_tip[0].contains("c is new"),
+            "the base tip reads the base's removal as an addition: {at_tip:?}"
+        );
+
+        // The same for core-real-pending.txt: the base removes `b`; the branch still lists it.
+        let fork = [
+            (LEDGER_FILE, "a\nb\nc\nd\ns\nt\nx\n"),
+            (PENDING_FILE, "a\n"),
+            (REAL_PENDING_FILE, "b\n"),
+        ];
+        let (dir, merge_base, tip) = moved_base(&fork, &[(REAL_PENDING_FILE, "# none\n")]);
+        let root = dir.path();
+        assert_eq!(
+            real_problems_at(root, &merge_base, &["b"]),
+            Vec::<String>::new()
+        );
+        let at_tip = real_problems_at(root, &tip, &["b"]);
+        assert!(
+            at_tip.len() == 1 && at_tip[0].contains("b is new"),
+            "{at_tip:?}"
+        );
+    }
+
+    #[test]
+    fn an_id_that_the_branch_adds_is_still_new_at_the_merge_base() {
+        // At the branch point core-pending.txt has no `c`, and the branch adds it; the base changes another file.
+        let fork = world_files("a\nb\n", &[D1, D2], "t1");
+        let (dir, merge_base, _) = moved_base(
+            &refs(&fork),
+            &[(
+                LEDGER_FILE,
+                format!("# the base moves\na\nb\nc\n{D1}\n{D2}\n").as_str(),
+            )],
+        );
+        let root = dir.path();
+        let problems = problems_at(root, &merge_base, &world(), &cargo_with_tag("t1"));
+        assert!(
+            problems.len() == 1 && problems[0].contains("c is new"),
+            "{problems:?}"
+        );
+
+        // The branch adds `c` to core-real-pending.txt, and `c` did not leave core-pending.txt.
+        let fork = [
+            (LEDGER_FILE, "a\nb\nc\nd\ns\nt\nx\n"),
+            (PENDING_FILE, "a\n"),
+            (REAL_PENDING_FILE, "b\n"),
+        ];
+        let (dir, merge_base, _) = moved_base(&fork, &[(PENDING_FILE, "a\n# moved\n")]);
+        let problems = real_problems_at(dir.path(), &merge_base, &["b", "c"]);
+        assert!(
+            problems.len() == 1 && problems[0].contains("c is new"),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
+    fn rule_2_counts_only_a_pin_move_and_a_deferral_of_the_branch() {
+        // After the branch point the base moves the pin (t1 -> t2) and defers D2 with it.
+        let fork = world_files(&format!("a\nb\nc\n{D2}\n"), &[D1], "t1");
+        let base_cargo = cargo_with_tag("t2");
+        let base_deferred = deferred_text(&[D1, D2]);
+        let (dir, merge_base, tip) = moved_base(
+            &refs(&fork),
+            &[
+                ("Cargo.toml", base_cargo.as_str()),
+                (PENDING_FILE, "a\nb\nc\n"),
+                (DEFERRED_FILE, base_deferred.as_str()),
+            ],
+        );
+        let root = dir.path();
+        let cargo = cargo_with_tag("t1");
+
+        // A branch that defers nothing and keeps t1.
+        let mut keeps = world();
+        keeps.deferred.retain(|d| d.id == D1);
+        keeps.contract_deferred = set(&[D1]);
+        keeps.pending.insert(D2.into());
+        assert_eq!(
+            problems_at(root, &merge_base, &keeps, &cargo),
+            Vec::<String>::new()
+        );
+        let at_tip = problems_at(root, &tip, &keeps, &cargo);
+        assert!(
+            at_tip.iter().any(|p| p.contains(&format!("{D2} is new"))),
+            "the base tip reads the base's deferral as an addition of the branch: {at_tip:?}"
+        );
+
+        // A branch that defers D2 itself and does not move the pin.
+        let defers = world();
+        let problems = problems_at(root, &merge_base, &defers, &cargo);
+        assert!(
+            problems.len() == 1
+                && problems[0].contains(D2)
+                && problems[0].contains("moves the contracts pin"),
+            "{problems:?}"
+        );
+        assert_eq!(
+            problems_at(root, &tip, &defers, &cargo),
+            Vec::<String>::new(),
+            "the base tip counts the base's pin move as the branch's"
+        );
     }
 }

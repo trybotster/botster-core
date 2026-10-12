@@ -14,7 +14,14 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am and 23ar; contracts-v0.1.36 = 96f48d6: contracts-v0.1.35 + contracts
+# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd and 23bk; contracts-v0.1.39 =
+# ddce507: contracts-v0.1.38 + contracts #47, the R-68 route wait (a route read that gives nothing pumps the route's handle and waits on
+# its descriptors), + #49, the R-70 ou_9 title fences and the fence lint's attach rule, + #50, R-43(5) (no transcript requires
+# no_spurious_wakes; the driver applies it for a strict Woken wait); contracts-v0.1.38 = 5ff1b52:
+# contracts-v0.1.37 + contracts #43, ruling R-67 (the testkit oracle_resume form), + #44, the CI disk-floor fixes, + #45, job.sh split into the
+# settings and job-common.sh (drift ruling b), + #46, the route_reports control and the ev_5 close fence (R-66, and its correction), + #48,
+# the R-69 oracle_resume fences of the three st_6b ids, + rulings R-66 and R-67; contracts-v0.1.37 = 35a2d7a was not pinned: contracts-v0.1.36
+# + contracts #42, the R-57 output sweep (R-61 (a)); contracts-v0.1.36 = 96f48d6: contracts-v0.1.35 + contracts
 # #41, a fence-lint change with no transcript change, + ruling R-65 and its follow-up (the host copy closes after RouteReceived; a link
 # lost before the acknowledgement); contracts-v0.1.35 = e318065 was not pinned: contracts-v0.1.32 + contracts
 # #37, the ev_5 pump_collect fence (R-63) and the in_10 await_pty fences (R-56), + #40, the program_ready fence of the 4 echo transcripts
@@ -34,13 +41,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.36" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
 
 anyhow = "1"
 data-encoding = "2"
