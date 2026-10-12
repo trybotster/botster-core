@@ -2,6 +2,12 @@
 
 ## Current Core PR #293 result
 
+The lead directs SPLIT. PR #293 keeps the repaired B13 check and removes the coverage visitor. A new design-first item owns the coverage guarantee.
+
+The exact split head remains pending. GS-B13-R2-1 MEDIUM remains in #293: retain the two in_8 FLAKY failures and name their structural fix and owner.
+
+The retained log and seven-day artifact path are recorded in `verdicts/gs-gate-speed.md`. I found no accepted existing disposition.
+
 Current reviewed head: `fec71f93d39977cf71f7787a86b18e6e6cb2dfce`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`.
 
 NOT CLEAN (1 HIGH open). GS-B13-R1-1 and GS-B13-R1-3 are closed by the per-root build and complete compilation evidence.

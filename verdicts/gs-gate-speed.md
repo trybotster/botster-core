@@ -2676,3 +2676,35 @@ Validate the supported callee paths. An unrelated function with the same path su
 Preserve the current root-test forms. The candidate and compilation-evidence findings remain closed. The gate on this head is running; I accept no result before completion.
 
 I ran no gate, build, test, base-check script, or executable probe.
+
+### Core PR #293: lead's split decision and retained flakes
+
+The lead directs a split in message `msg_plugin-w_1791767795_5594a0`. PR #293 retains the closed B13 repair and removes the coverage visitor.
+
+The coverage guarantee transfers to a new item. That item requires a structural design note before implementation. The exact split head remains pending.
+
+This scope decision does not assert that an earlier defective visitor is safe. I will verify its removal on the submitted split head.
+
+**GS-B13-R2-1 MEDIUM: the in_8 FLAKY results lack a recorded structural-fix disposition.**
+
+The lead explicitly keeps this requirement in PR #293's scope. Sol-B tracks the same requirement as B13-I4.
+
+The retained 96c58d88 gate names two stage-2 FLAKY results at lines 6345 and 6346. Both concern `conf::in_8_mode_checked_at_write_start_by_worker`.
+
+Their mutants replace `build_worker` with `Ok(Some(("xyzzy".into(), String::new())))` and `Ok(Some(("xyzzy".into(), "xyzzy".into())))`.
+
+Both fail once and pass on their permitted retry. The gate correctly counts them as MISSED. The failed gate remains retained.
+
+BUILD.md Testing rule 9 requires every FLAKY result to open a structural fix. I found no accepted in_8 disposition in the shared handoffs or steward notes.
+
+Required change: retain the detailed failures and record the named structural fix and its owner. Record any required lead decision. Do not relabel either result as a catch.
+
+The source repair and shell exclusion do not close the test's flakiness. A later green gate alone does not supply this disposition.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-96c58d88-pool-20261011-173013-11653.log`.
+
+Its failure artifacts are `/home/structvr/testq/projects/botster-core/artifacts/jobq-botster-core-96c58d88-20261011173013-3033`, kept seven days.
+
+I sent the retained log, exact mutant names, and artifact path to GS and Sol-B. I have no local copy of the detailed mutant failures.
+
+The split head and this disposition require review before CLEAN. I ran no execution job.
