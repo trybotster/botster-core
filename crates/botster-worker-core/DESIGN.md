@@ -8,6 +8,7 @@ It is stacked on P1's head `2016886` (the control-link messages of `botster-core
 
 One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
 
+- [`design/read-facts.md`](design/read-facts.md): ReadFacts (ST-7; P5; steward rulings R-101, R-102, R-103, R-105).
 - [`design/read-reply-order.md`](design/read-reply-order.md): A read's reply follows the observations of the output
   before it (R-114).
 
@@ -432,6 +433,11 @@ Rejected:
   - Each sequencing error (R-5: no open paste, or another op) is refused `refused` with zero effect, and the open paste
     stays as it is.
   - A closing route applies no input, so a paste that is open at the close writes nothing.
+- **A paste is one client input, received at its commit** (steward ruling R-102). Only the commit advances
+  `input_rev{client}`, reports `ClientInput` and makes the input record (`receipt.rs`). `paste_begin`, `paste_chunk` and
+  `paste_abort`, applied or refused, do none of these: an aborted paste leaves no trace in the facts. A commit that is
+  refused for a sequencing error is one client input too: its record has `kind: paste`, an empty payload and
+  `not_written{refused}` at once. A file (DP-5b) follows the same rule at `file_commit`.
 - **The open paste is outside the route's input bound.** `max_paste_bytes` bounds it. Its bytes count in the read
   allowance from the commit, when they wait at the admission point.
 - **The commit is one transaction** (AM-2, TS-5d: contiguous). A route input carries an `InputPayload`. At its start, the

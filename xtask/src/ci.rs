@@ -75,12 +75,14 @@ pub fn step_names() -> impl Iterator<Item = &'static str> {
 /// The bolero harnesses of the repo: `(crate, harness name)`. Every byte decoder of the repo has one (plan section 8,
 /// step 9). A package that adds a decoder adds its harness here, and the fuzz step runs it when the diff changes its crate.
 const HARNESSES: &[(&str, &str)] = &[
+    ("botster-core-host", "ordinal_decoder"),
     ("botster-core-link", "link_decoder"),
     ("botster-core-link", "msg_decoder"),
     ("botster-core-testkit", "frame_ends_decoder"),
     ("botster-core-testkit", "sock_diag_decoder"),
     ("botster-guardian-core", "guardian_command_decoder"),
     ("botster-guardian-core", "guardian_log_decoder"),
+    ("botster-worker-core", "receipt_decoder"),
 ];
 
 /// The seconds of one fuzz run per harness.

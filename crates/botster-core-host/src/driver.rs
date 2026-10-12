@@ -237,6 +237,24 @@ fn control_room<E: HostEdges>(
     bound.saturating_sub(unsent).min(edges.link_room(link))
 }
 
+/// The next cursor ordinal of the data directory (steward ruling R-101 Q6): one above the registry's counter, or 1 when no
+/// `Start` reserved one yet. A counter that is not a number is a corrupt registry.
+fn next_ordinal<E: HostEdges>(edges: &mut E) -> Result<u64, CoreError> {
+    let rows = edges
+        .read_rows(crate::session::ORDINAL_KEY)
+        .map_err(registry_failed)?;
+    let counter = rows
+        .iter()
+        .find(|(key, _)| key == crate::session::ORDINAL_KEY)
+        .map(|(_, bytes)| bytes.as_slice());
+    crate::session::next_ordinal(counter).ok_or_else(|| {
+        CoreError::new(
+            ErrorCode::RegistryFailed { uncertain: false },
+            "the cursor ordinal row is not a number",
+        )
+    })
+}
+
 impl<E: HostEdges> HostDriver<E> {
     /// Builds the driver over `edges`. The ids of the rows that the registry holds are read here, so that `Create` refuses an
     /// id that a durable row holds before `AdoptAll` runs (ID-1, LC-3, AD-2). The driver reads no clock: the first time it
@@ -250,7 +268,8 @@ impl<E: HostEdges> HostDriver<E> {
             .into_iter()
             .filter_map(|(key, _)| key.strip_prefix(ROW_PREFIX).map(|id| SessionId(id.into())))
             .collect();
-        let engine = HostEngine::new(cfg, registry_ids);
+        let mut engine = HostEngine::new(cfg, registry_ids);
+        engine.next_ordinal = next_ordinal(&mut edges)?;
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
         let mut payload = Vec::new();

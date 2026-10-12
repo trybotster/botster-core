@@ -2,6 +2,13 @@
 
 Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, contracts `contracts-v0.1.2` (manifest final14).
 
+## Topic files
+
+One line per file in `design/`, sorted by file name (pair-common, "Design documents: one file per topic").
+
+- [`design/cursor-ordinal.md`](design/cursor-ordinal.md): The cursor ordinal (ST-7; P5; steward ruling R-101 Q6 and its
+  follow-up).
+
 ## Shape
 
 - `HostEngine` is a sans-IO machine (plan 2.1). Time enters only through `pump(now)` (TM-1): edge results are fed with no new
@@ -501,12 +508,14 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   A3-1). `attach` checks the route's `AttachRoute` after the applied limits and before `RouteLimit`. The `Launch` comes
   from one constructor, `launch_spec_for`, for the send and for the check.
 - **Worst case (lead ruling).** The check measures the message with the worst case of each value that is assigned after
-  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
-  the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
-  `Created` session can store them after the check of `Start` (RC-R100-3). A call that passes never fails at the send. The
-  cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
-  size), and for a `Launch` up to several kilobytes, because a full palette is about 6.7 KB of JSON (RC-R100-5). Assigning
-  the request number at `begin` would change the op-number order, so it is not done.
+  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also
+  has the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on
+  a `Created` session can store them after the check of `Start` (RC-R100-3). It also has the largest cursor ordinal
+  (`MAX_CURSOR_ORDINAL`): `Start` reserves the ordinal after the call (ST-7, `design/cursor-ordinal.md`). A call that
+  passes never fails at the send. The cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op`
+  or an `AttachRoute` (the numbers and the size), and for a `Launch` up to several kilobytes, because a full palette is
+  about 6.7 KB of JSON (RC-R100-5). Assigning the request number at `begin` would change the op-number order, so it is
+  not done.
 - **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
   `DEFAULT_MAX_PAYLOAD` (1 MiB), and learns `link_frame_bound` from the `Launch` itself. So a `Launch` is checked at
   `DEFAULT_MAX_PAYLOAD`, and every other message at `link_frame_bound`. A bound sent before the `Launch` would change worker
@@ -520,9 +529,18 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, which keeps no buffer of the
   encoded output. The slow path still allocates: it builds the message (a clone of the request or the op, the worst
   palette), and a serializer can allocate (`HexBytes` makes its hex string). No claim of an allocation-free check is made.
-- **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
-  `max_snapshot_bytes`) + 1 MiB, capped at `u32::MAX / 2`: a `Text` control byte is the six-byte escape `\u00XX`, so every
-  write that `max_paste_bytes` admits fits. Only where the cap binds can a write be refused `InvalidInput{payload.text}`.
+- **The bound holds the largest payload and the largest facts reply (lead ruling; #320 R320-SI-5).** The one formula is
+  `botster_core_link::msg::link_frame_bound`, which the worker's tests use too: max(6 × max(`max_paste_bytes`,
+  `max_snapshot_bytes`), `facts_reply_bound`) + 1 MiB, capped at `LINK_FRAME_CAP = u32::MAX / 2`.
+  - A `Text` control byte is the six-byte escape `\u00XX`, so every write that `max_paste_bytes` admits fits. Only where
+    the cap binds can a write be refused `InvalidInput{payload.text}`.
+  - A `ReadFacts` reply travels in one worker frame. `facts_reply_bound` is `input_events_bytes`, four protected entries
+    past it (R-116, R-117; each `PROTECTED_ENTRY_FIXED` = 1 KiB and two route tags at six bytes a byte), and the client
+    tail as hex (2 × `input_tail_bytes`). The 1 MiB holds the fixed part (revisions, modes, size, cursor, the envelope).
+    With the defaults the payload term binds (97 MiB).
+  - Above the cap a facts reply can still be larger than a frame: 9B states no ceiling for `input_tail_bytes` or
+    `input_events_bytes`. The steward's answer to R320-Q4 is ceilings in 9B through the amendment path (candidate A26);
+    until then that case is unchanged.
 
 ## The control queue (IN-6, steward ruling R-91; PC, 2026-10-11)
 
@@ -532,7 +550,8 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
   the link's frame bound `F` (`HostEngine::link_frame_bound`:
-  `min(6 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  `min(max(6 × max(L.max_paste_bytes, L.max_snapshot_bytes), facts_reply_bound(L)) + 1 MiB, LINK_FRAME_CAP)`,
+  computed with saturating arithmetic,
   where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
   - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame
