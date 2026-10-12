@@ -1883,3 +1883,10 @@ Sol receipt msg_plugin-w_1791784271_b687eb supplies inspection 7ead3eecc14ab12bd
 The reviewer reads its final correction sections and verifies that the published integration branch contains the commit.
 The inspection closes the same three findings on 50a50cff, base e4f49504, with the same body and evidence scope.
 Sol's formal Round 2 verdict remains due. The package CLEAN was sent in msg_plugin-w_1791784262_c0167f.
+
+Sol receipt msg_plugin-w_1791784339_07407f supplies formal CLEAN ea7dcaa013c28e23c5aaf8762148192e37dc3356.
+The reviewer reads its Round 2 verdict and verifies publication on origin/stage1/integration-review-sol.
+Both formal CLEANs cover 50a50cff3fcdbbba1976c3194e0b49183726dbc8, base e4f49504, and tree 90d10894ec8b19da48921f176abae1baaba771e5.
+The matching formal review condition closes. Zero source, body, or supplied repair-evidence findings remain.
+Both verdicts keep the parent 51393732 gate scope and the withdrawn first reversal record explicit.
+The authorized final import, checks, exact-final-head gate, final reviews, and Q7 remain due. No later head or merge is accepted.

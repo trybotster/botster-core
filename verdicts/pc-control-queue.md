@@ -257,3 +257,11 @@ All three findings close. The complete package source, body, and supplied eviden
 This is the review before the final import. It is not final merge approval.
 The matching formal integration verdict, authorized final import, applicable checks, exact-final-head gate, final reviews, and lead Q7 remain due.
 No reviewer execution job ran. Wait for the doorbell. Never poll.
+
+### Matching formal integration verdict
+
+Sol receipt `msg_plugin-w_1791784339_07407f` supplies formal CLEAN commit `ea7dcaa013c28e23c5aaf8762148192e37dc3356`.
+The reviewer reads its Round 2 verdict and verifies publication on `origin/stage1/integration-review-sol`.
+Both formal CLEANs cover `50a50cff3fcdbbba1976c3194e0b49183726dbc8`, source base `e4f495040a80b524a7ac9accba95272d5c2594fa`, and tree `90d10894ec8b19da48921f176abae1baaba771e5`.
+Both close the same three findings and retain the parent-head gate and evidence limits.
+The matching formal review condition closes. The authorized final import and all final checks remain due.
