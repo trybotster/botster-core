@@ -527,3 +527,12 @@ The package source, completed final evidence, and final body are CLEAN on this e
 The canonical base check remains FAIL; both required delta reviews address its shared paths and resolution.
 Sol's matching final evidence verdict and the lead's Q7 check remain due before merge.
 This verdict accepts no later head, base import, pending removal, or evidence substitution. Never poll.
+
+### Completed package manifest receipt
+
+PC receipt `msg_plugin-w_1791775243_6e9a70` adds the completed gate and final body to the package manifest.
+The reviewer reads the complete updated manifest and verifies its SHA-256: `e2a9bcba7261aacf3d039bcf0f4c2d4ad78da7fd268c5309b7e0f995c6b4b46f`.
+The previous `e9a8f860` hash remains the reviewed pre-gate snapshot.
+The new entries name the already accepted exact-head gate, both delta CLEANs, and the final body snapshot.
+The client output and canonical gate log are byte-identical by SHA-256 `df19bcedaa620616b8e508ce399a9b60d4e0704c91443914b1bc3c2b88792171`.
+This record adds no source change, test result, or replacement evidence. The final package CLEAN remains applicable.

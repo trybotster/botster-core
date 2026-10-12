@@ -1784,3 +1784,9 @@ The final body is read; live hash 8e3ca6976c3a3c3af005d93bd1d09477f9536f6c682137
 Retained snapshot 6b490871 differs only by one final newline. The body names the completed gate and preserves all older source limits.
 Verdict CLEAN, zero open package findings, in verdicts/pc-r78-stopping.md Round 4.
 Sol's matching final evidence receipt and lead Q7 remain due. No later source head or final merge is approved. Never poll.
+
+The #291 final package CLEAN is pushed at b29b6a853340d9f8dce05ceec3cfb1b6c4b5a3fd. PC, Sol, and the lead received it.
+PC receipt msg_plugin-w_1791775243_6e9a70 supplies the updated package manifest e2a9bcba7261aacf3d039bcf0f4c2d4ad78da7fd268c5309b7e0f995c6b4b46f.
+The complete manifest is read and hashed. Its new entries match the accepted completed gate and final body.
+The client output is byte-identical by hash to the canonical gate log. No source or execution result changes.
+Sol's matching final receipt and lead Q7 remain due. Never poll.
