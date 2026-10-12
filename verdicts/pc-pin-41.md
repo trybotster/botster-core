@@ -321,3 +321,48 @@ These static records do not replace the exact-final-head gate.
 The final strict result, one exact-head final gate, updated body, Sol's delta review, and Q7 remain due.
 The earlier IN-7 and EV-5 evidence limits remain binding. This source verdict approves no final merge.
 The reviewer waits for the evidence doorbell and does not poll.
+
+## Round 4: four testkit removals remain real-pending
+
+VERDICT: CLEAN for the source delta (0 open source findings). Final evidence approval remains due.
+
+Request: `msg_plugin-w_1791765735_661a09`.
+Head: `69d414995408a21a32b73d01608a798202057462`. Base remains `b0c0a419af27259006b5e06d4e5da3b3d00083e6`.
+The reviewer reads the brief first and checks the complete delta from source-reviewed 0abf666c.
+Two commits change only the two pending files. No implementation, test, pin, ledger, or held list changes.
+The first commit removes four ids from testkit pending. The second places the same four ids in real-pending with an explanation.
+The reviewer independently verifies that the removed and added sets are identical:
+
+- `conf::dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false`;
+- `conf::dp_5_input_done_only_for_want_result_true`;
+- `conf::dp_5_mode_precondition_zero_effect_reported_on_the_route`;
+- `conf::in_9_kitty_unknown_flag_bits_ignored`.
+
+The reviewer reads each exception in pinned contracts-v0.1.41.
+The three DP-5 ids lack program_ready at steps 11, 13, and 11 respectively under R-60.
+The IN-9 id lacks program_ready at step 11 and capture fences at steps 13, 19, and 25 under R-56.
+Each transfer therefore meets the real-tier entry rule in the same PR's testkit removal.
+The added block names P3 as the fence owner. No real PASS or fence completion is claimed.
+The current files contain 412 testkit-pending and 44 real-pending ids, with no duplicate transfer.
+
+The supporting strict log names 0abf666c plus the uncommitted four removals.
+It reports the same worktree and target as static-0abf666c after its recorded clean.
+Its header states `BOTSTER_PENDING_STRICT=1`, `BOTSTER_SEEDS=0-31`, and `--no-fail-fast`.
+All four named tests have normal `ok` results. All suite summaries report zero failures and total 1178 passed.
+The record ends with exit 0.
+It supports the testkit removals, but it is not an exact-head final gate on 69d41499.
+The earlier strict failure remains a failure on the still-pended merged tree; it does not establish a plain-v1 failure.
+Pending-list presence on either parent does not prove that parent's test result.
+
+Evidence files are in `~/botster-sessions/shared/core-stage1/evidence/pc-pin-41/`:
+
+- `local-check-0abf666c-unpend4.log`: `9dbf93967357c5770e6f2d6ab5e1d0ba79819b0a0c74a946ef0a8a32509c72a4`.
+- `lists-unpend4.log`: `eac2d9c7c6e7cea109bd85ba1edb35a78bd61d384b05d482971c88f5d169db52`.
+- `lists-taint-realpend4.log`: `c53e6f0068e8a9d8c88c8959ea0304abe714db616b85345af1877a4620db2868`.
+
+The last record labels the tree as 8ab0f6d5 plus the real-pending block, before its commit.
+Lists and taint exit zero. The list result names 691 ledger ids, 412 testkit-pending ids, and 44 real-pending ids.
+PC reports stopping the 8ab0f6d5 gate before execution. That report supplies no completed gate result.
+The one final gate on 69d41499 is still running. A running gate does not supply approval.
+The current body correction, completed exact-head gate, Sol's matching delta review, and Q7 remain due.
+The earlier source and evidence limits remain binding. No final merge is approved. No reviewer execution job runs. Never poll.

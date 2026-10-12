@@ -1687,3 +1687,17 @@ The reported run uses seeds 0-31. The raw record and next head remain due for re
 There is no plain-v1 result for these four ids. List presence on both parents does not prove that both parents fail.
 Sol receipt msg_plugin-w_1791765630_7887c0 identifies stale body metadata; the corrected current body remains due.
 The source-only CLEAN covers 0abf666c, not the proposed new head. Wait for the completed evidence doorbell. Never poll.
+
+## #289 four-id transfer source delta CLEAN
+
+PC receipt msg_plugin-w_1791765735_661a09 supplies head 69d414995408a21a32b73d01608a798202057462, base b0c0a419.
+The complete delta changes only two pending files. It removes the four named testkit ids and adds the same four to real-pending.
+Each pinned .41 fence exception is checked. The three DP-5 ids lack program_ready; the IN-9 id also lacks three capture fences.
+The new block names P3 as owner. A real PASS does not satisfy acceptance while those exceptions remain.
+The strict record names 0abf666c plus the four removals, seeds 0-31, no-fail-fast, and the same worktree after the static clean.
+All four tests report ok. Suite summaries total 1178 passed, zero failures, and the record ends with exit 0.
+The earlier strict run remains FAILED with four pending passes and exit 101. Neither record proves a plain-v1 result.
+The current list counts are ledger 691, testkit pending 412, real pending 44, held 3.
+Verdict CLEAN for the source delta, zero source findings, in verdicts/pc-pin-41.md Round 4.
+The updated body, completed exact-head gate, Sol's matching review, and Q7 remain due. No final merge is approved.
+The #291 current body still remains due. No reviewer execution job runs. Never poll.
