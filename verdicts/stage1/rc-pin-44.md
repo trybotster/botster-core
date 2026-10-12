@@ -103,3 +103,11 @@ The pending list, mutation configuration, process-check allowlist, and known-fla
 Zero #312 integration delta findings remain. This CLEAN accepts the source delta only. The other train reviews, final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+### Train 3c gate failure received
+
+Owner receipt `msg_plugin-w_1791820382_511ac7` supplies the completed train-3c gate. Its log is `gates/botster-core-stage1-train-3c-b78df725-pool-20261012-083917-27480.log` under the shared sessions directory.
+
+I read the exact-head header, failure, and final summary. The lists step fails because `conf::a5_2_deferred_completion_keeps_slot_until_polled` is pending and passes on the testkit. Later steps do not run. Job and wrapper exit one. Round 4 accepted source only; this gate supplies no final acceptance.
+
+The owner reports replacement member `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`, importing v1 `08098782` and removing that identifier. The replacement has no pool gate. Its source delta and same-head package verdict remain separate requirements. I ran no execution job.
