@@ -14394,3 +14394,70 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All earlier history remains preserved. Next package round: 198.
 
 VERDICT: CLEAN
+
+
+## Round 198 — #318 authorized F154 settlement, 2026-10-12
+
+Exact submitted head: `c707c4d6b89f3e96d8884713c818151a10ad6e58`.
+Previous reviewed head: `b050342648e764b12b5cc24695d6e8aad2673ae5`.
+Source base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Gate reference: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, not imported.
+READY receipt: `msg_plugin-w_1791832118_7a5661`. Tier: HIGH, unchanged.
+Previous package verdict: `0e8feb29c4954a3d41e3039d252a760436ba8dac`, Round 196 NOT CLEAN.
+Lead authorization: `msg_plugin-w_1791830912_3f4a43`, SETTLE under BUILD.md line 119.
+This is the authorized fourth package round on #318. Its scope is the F154 delta only.
+The lead requires one exact-head pool gate before READY. The supplied completed gate names that authorized head.
+Sol-C keeps this delta in its active integration Round 3, as the lead directs.
+The reviewer reads the complete one-file delta: six additions and two deletions. No production code changes.
+
+### F154 — LOW — CLOSED
+
+The test initializes local saw_pty_event to false. Only a returned PTY token sets it to true.
+The Linux assertion reads that local observed-event flag. It no longer asserts the driver's private readable field.
+The test still updates driver readiness to perform its reads. That setup does not supply the asserted event.
+The absolute deadline, exit wake, no-pre-drain Linux reads, initial-count gap, and complete-output assertions remain unchanged.
+The test therefore proves the external event without asserting private subject representation.
+The changed named driver-tail test passes in the exact-head Linux gate and its unmutated slow baseline.
+No new finding appears in the authorized delta.
+F150 through F153 retain their accepted closures from earlier complete reviews.
+The earlier Drain, driver, holder, and per-OS proof scopes remain unchanged.
+
+### Body and supplied evidence
+
+Complete current body: `/private/tmp/review-p3-pr318-c707c4d6.json`.
+The new repair section names the observed-event flag, authorized scope, exact gate, and pre-gate record.
+It retains earlier gates, Mac failures, measurement limits, F28's separate duty, and the Linux-only holder quiet-read scope.
+Pre-gate Mac record: `shared/core-stage1/evidence/p3-a31/pre-gate-c707c4d6.log`.
+It names the exact head and records target removal at 2026-10-12T18:48:56Z.
+Format, actual CI taint, and worker clippy with slow exit zero. It claims no new Mac slow or strict run.
+The lead explicitly accepts Linux-only assertion evidence through the pool gate. The reviewer requests no additional execution.
+
+Gate: `gates/botster-core-stage1-p3-a31-drain-c707c4d6-pool-20261012-115220-30004.log`.
+SHA256: `8da758f002695b5b656f17e13a3cdb22b1013e25d0fe2f1f958687463e1f06fc`.
+The headers name the authorized submitted head and the distinct gate reference above. All ten steps PASS.
+Default: 1939 passed/431 skipped/11.326 seconds. Slow: 626 passed/2070 skipped/39.910 seconds.
+Stage 1: 25 outcomes, 16 caught/five missed/four unviable/zero timeout, 17.1 seconds.
+Stage 2 catches all five misses in 232.2 seconds. The baseline passes 626 tests in 40.319 seconds; its full step takes 50.0 seconds.
+Final: 21 unique caught/four unviable/zero miss or timeout. Read-only parsing matches all raw catches and their citations.
+Every cited catcher has a normal PASS. The four unviable outcomes retain the unsupported Default/non-exhaustive match reasons.
+No FLAKY token appears in this gate. Historical FLAKY records retain their separate fence/pin structural-fix scope.
+Fuzz selects no changed decoder harness. Total steps: 441.1 seconds.
+Job and wrapper exit zero after 948 seconds on msa1, with 496 seconds queued and 452 running.
+The long elapsed time includes that recorded queue wait; it is not a test-duration claim.
+
+### Verdict and limits
+
+F154 is CLOSED. F150 through F154 are all CLOSED. No package finding remains in the submitted #318 change.
+This CLEAN accepts the previously reviewed change plus the authorized F154 delta and its exact-head gate.
+It grants no source acceptance outside the lead's stated delta scope beyond the retained earlier reviews.
+Integration acceptance at this exact head remains due. Sol-C's active Round 3 requires the matching package verdict.
+The source still imports only 838e4bb0, not the e37b91d6 gate reference.
+Final import/check, applicable train reviews, exact-final-head gate, final receipts, and equal-tree merge verification remain due.
+The separate Mac IN-6 frame failure remains P3's source/log classification duty under `msg_plugin-w_1791830721_088a93`.
+The lead says that duty does not block #318. An isolated pass supplies no diagnosis or root-cause closure.
+F28/F33/F39, F61/F62, and other Part B duties remain separate. #163 remains open.
+No future head, train, gate, merge, pin, A24 rule, or additional pending removal is accepted.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All earlier history and the explicit round-limit decision remain preserved. Next package round: 199.
+
+VERDICT: CLEAN
