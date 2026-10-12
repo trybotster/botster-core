@@ -321,3 +321,20 @@ No reviewer build, test, gate, mutation, reversal, reproduction, or executable b
 Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; complete #320 package review on aeffbde6, within the lead's R320-Q4 scope).
+
+## Matching complete integration receipt
+
+Receipt: `msg_plugin-w_1791844720_2acc57`.
+Integration verdict: `d94618f367ce487a78c0f1e510230d110c993575`, `verdicts/stage1/p5-read-facts.md`, complete Round 4.
+The reviewer reads the complete applicable integration verdict and verifies its publication on the remote integration branch.
+It is CLEAN on exact head aeffbde6, tree fc98d5af, source base 3e655eff, and gate comparison base 3e4b3ab8.
+It reads the complete matching package verdict at `04e0e8102717c022655b52b594c602e6eab457e6`.
+All six findings close, including LOW. Both reviews accept the fitting choice and corrected body hash 04ac1083.
+The gate, mutation citations, all four completed fuzz runs, local and reversal limits, and unchanged conformance scope agree.
+Both records retain the lead's R320-Q4 bound-plus-test scope. The over-cap case stays unchanged, and A26 remains separate and on hold.
+No source, body, or evidence finding remains in the reviewed package scope.
+Current-base import and applicable deltas, the exact merging train gate, final receipts, and lead Q7 remain due.
+This matching receipt grants no later head, amendment, pin, extra pending removal, retry, or completed merge.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; matching complete source reviews recorded, landing requirements remain due).

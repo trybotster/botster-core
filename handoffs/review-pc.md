@@ -2393,3 +2393,18 @@ Final body SHA-256: 04ac1083666433895015942c9ea80b8b73e02b005c1e9fd2eeabe20a3177
 Formal complete package verdict is CLEAN with zero open findings, within the lead's accepted over-cap scope.
 Matching formal integration CLEAN remains due. Current-base import/deltas, train gate, final receipts, and Q7 remain due.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Publication: complete #320 package Round 4 is pushed at 04e0e8102717c022655b52b594c602e6eab457e6.
+P5 and Sol receive VERDICT: CLEAN. The lead receives CLEAN on exact aeffbde6, within R320-Q4's stated scope.
+The worktree is clean. Matching integration and later train acceptance remain due. Wait for the doorbell. Never poll.
+
+## #320 matching complete integration receipt
+
+Sol receipt msg_plugin-w_1791844720_2acc57 supplies complete integration Round 4 at d94618f367ce487a78c0f1e510230d110c993575.
+The reviewer reads the complete applicable verdict and verifies publication on the remote integration branch.
+It matches package 04e0e810 on exact aeffbde6, tree fc98d5af, source base 3e655eff, and gate comparison base 3e4b3ab8.
+Both reviews close all six findings, LOW included, and accept the R-117 fit choice and corrected body.
+Gate, mutation, fuzz, local/reversal limits, status scope, and the explicit R320-Q4 exception agree.
+A26 stays separate and on hold. No over-cap refusal or future amendment is accepted.
+Both complete source reviews are CLEAN. Current-base import/deltas, merging train gate, final receipts, and lead Q7 remain due.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
