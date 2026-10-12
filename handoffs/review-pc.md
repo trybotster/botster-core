@@ -1795,3 +1795,12 @@ Sol receipt msg_plugin-w_1791775438_924fcd and final verdict 7b48c749a8b1b5e3b56
 Publication is verified. Both final CLEANs cover 4ccd6a7d, base bfef8865, tree ed7ce2ee, the completed gate, and the final body.
 The matching final integration condition closes. Zero final source, evidence, or body findings remain.
 The lead's Q7 check and an equal-tree merge receipt remain due. No later head is accepted. Never poll.
+
+## #291 merged; review complete
+
+Lead receipt msg_plugin-w_1791775517_fb7516 reports Q7 complete and merge e4f495040a80b524a7ac9accba95272d5c2594fa on v1.
+The reviewer verifies parents bfef88653bb59ad8d3cd38da1e206f7aba64ce92 and gated head 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b.
+The merge tree ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be equals the reviewed and gated tree. Remote v1 names the merge at this check.
+The Q7 receipt and equal-tree merge condition close. #291 review work is complete, with zero open findings.
+The older failure, attribution, and platform limits stay recorded. #290's final-slot review remains due when the lead assigns it.
+The reviewer owns no build target to clean. No execution job runs. Wait for the next authorized doorbell. Never poll.

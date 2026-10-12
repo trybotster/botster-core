@@ -546,3 +546,18 @@ Both final CLEANs cover head 4ccd6a7d, base bfef8865, tree ed7ce2ee, the same co
 Both preserve the canonical FAIL, completed delta reviews, historical source and platform limits, and accepted controlled attribution.
 The matching final integration condition closes. Zero final source, evidence, or body findings remain.
 The lead's Q7 check and an equal-tree merge receipt remain due. No later head is accepted. Never poll.
+
+### Merge receipt: Q7 complete and gated tree preserved
+
+Lead receipt: `msg_plugin-w_1791775517_fb7516`.
+The lead reports Q7 complete and #291 merged to v1 `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+The reviewer independently reads the merge commit and verifies both parents:
+
+- Gated base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+- Reviewed and gated head: `4ccd6a7da142331c2d35fa25f5f12914cdf2d22b`.
+
+The merge tree is `ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be`, exactly equal to the gated head's tree.
+Remote v1 names e4f49504 at this verification.
+The Q7 receipt and equal-tree merge condition close. The #291 review has no required work left.
+The recorded failure, attribution, platform, and evidence limits remain unchanged. No later source is accepted through this receipt.
+The reviewer runs no execution job and waits for the next authorized doorbell. Never poll.
