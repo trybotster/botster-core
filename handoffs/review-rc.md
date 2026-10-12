@@ -2582,3 +2582,42 @@ No exclusion covers the R-100 frame-fit functions, serializer counter, or new La
 Both train delta verdicts remain NOT CLEAN at this head. The separate source CLEANs do not authorize this train composition.
 A corrected head, closed composition conditions, required integration reviews, final train gate, and final receipts remain due.
 The reviewer reads no running gate output and runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — train 3c delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact train head: `b78df725177d1a931e1eddb9bb67023e7e0ae645`.
+Train base: `080987829a2e2245a7ea97606020400392c974d6`.
+Train tree: `43cdf59980d93e0672423bedc0edf506405256be`.
+Reviewed member head: `54805661b93f7acc7c548d0a429d429247c54255`.
+Lead disposition: `msg_plugin-w_1791819182_f166d0`.
+Open #312 package delta findings and conditions: 0, including LOW findings.
+
+The lead removes #308 and #309 from the train and makes no repair commit.
+The reviewer independently reads both train merges and their exact parents.
+Train 3c contains #310, then #312, on the stated base.
+All five #312 own blobs equal the source CLEAN member head.
+The pin, nine lock source records, probe report arm, route-log test, and nine real-pending removals retain their reviewed versions.
+All nine conformance line-set formulas pass against the old member base, source head, train base, and current train head.
+The real-pending list retains 34 IDs and all nine reviewed removals. No additional removal or restored ID appears.
+The CI job copy remains byte-identical. The #310 checkout resolver and .44 pin retain their previously audited interface.
+Its slow comparison against Cargo metadata remains part of the final train evidence.
+
+RC-PIN44-TRAIN-1 no longer applies in this train: #308's in_8 known-flaky entry is absent.
+The reviewer verifies its absence in the train's known-flaky file. No retention exception or waiver is used.
+The earlier condition remains recorded for the abandoned train head. This closure accepts no future #308 composition.
+The #309 stale-field finding belongs to the removed member and is absent from train 3c.
+No #309 delta CLEAN is issued by this record.
+
+The mutation configuration equals the accepted train base, including every exclusion.
+The imported two default-method exclusions and earlier line/comment updates retain the narrow reasons reviewed above.
+No exclusion covers the pin's report handling or changed route-log behavior beyond the existing test-file exclusion.
+The source body and three closed body findings remain scoped to the unchanged #312 member head.
+P3 print-history serving work remains separate. This train adds no private-state assertion or real-control model.
+
+This delta CLEAN satisfies the requested #312 package source review on this exact train head.
+Sol-C's matching delta verdict, other required train reviews, the final train gate, member receipts, and equal-tree merge verification remain due.
+The reviewer accepts no final train gate, later head, or different tree here.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
