@@ -1662,3 +1662,19 @@ This parent gate supports the source after a comment-only change. It is not an e
 Verdict CLEAN, zero open package findings, in verdicts/pc-f283-observable.md Round 2.
 Sol-B's matching integration disposition, final slot import, final delta review, exact-final-head gate, and Q7 remain due.
 No reviewer execution job runs. Never poll.
+
+## #289 final-slot source delta CLEAN
+
+PC request msg_plugin-w_1791765546_144247 supplies merge head 0abf666c001e7dcd55e3bc86f0a95e168c183f26.
+Parents are reviewed f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc and v1 b0c0a419af27259006b5e06d4e5da3b3d00083e6.
+The base-merge-check FAIL correctly requires both delta reviews.
+The reviewer checks the complete own diff, overlapping Requests import, report/request paths, and synchronous route_fill caller.
+The queued method uses the same request path and hub. Its report and acknowledgement behavior remain unchanged.
+The four independently checked id sets match both branches' additions minus both removals, without missing or extra ids.
+Counts: ledger 691, testkit pending 416, real pending 40, held 3.
+The pin, lockfile, ledger, and route-log test blobs match the reviewed parent.
+The exact-head static record includes Cargo clean, clippy zero, and ten xtask exits zero. Fmt success is owner-reported.
+Verdict CLEAN for the source delta, zero source findings, in verdicts/pc-pin-41.md Round 3.
+The strict result, exact-final-head gate, updated body, Sol's delta review, and Q7 remain due. No final merge is approved.
+The #290 verdict is pushed at f99ed57c0522ec52fd0613a4395e4d7c53fe4c4d. PC, Sol-B, and the lead received it.
+The #291 completed body remains due. No reviewer execution job runs. Never poll.

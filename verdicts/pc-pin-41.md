@@ -269,3 +269,55 @@ The record accepts no R-88 attribution, successful replacement run, or real acce
 
 Both source/evidence reviews are CLEAN. The final SLOT import/check/review, exact-head final green gate, body, and Q7 remain due.
 The parent gate remains a parent gate. No final merge approval is given. No execution job runs here. Never poll.
+
+## Round 3: final-slot source delta
+
+VERDICT: CLEAN for the source delta (0 open source findings). Final evidence approval remains due.
+
+Request: `msg_plugin-w_1791765546_144247`.
+Reviewed head: `0abf666c001e7dcd55e3bc86f0a95e168c183f26`.
+Parents: reviewed `f45794a454761c20fa2cfb9c0bd1b0f9fabecfbc` and v1 `b0c0a419af27259006b5e06d4e5da3b3d00083e6`.
+Their common ancestor is `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+The reviewer reads the brief first, the complete own diff, the overlapping import, the request callers, and both merge records.
+The prior full review covers the unchanged pin, lockfile, control implementation, tests, and retained evidence.
+The completed `base-merge-check` is FAIL and correctly requires both delta reviews.
+The reviewer runs no executable base check or other execution job.
+
+The real program module imports v1's `Requests` wrapper and shared output path.
+The new `queued` method stays in `Programs` and calls its request method, which delegates to `Requests::request`.
+It reads the report count from `self.requests.hub` after the request returns.
+The same hub holds the requests, reports, counts, wake registrations, and cleanup state.
+The probe `queued` field, Report::Queued handling, acknowledgement increment, served control, parser, and tests retain their reviewed behavior.
+The imported real `route_fill` calls the same output request synchronously. It adds no background request writer in this path.
+The merge changes no query count semantics, kernel buffering rule, worker identity check, or request deadline.
+No additional source finding arises from the overlap.
+
+The reviewer independently compares the four line-set files with the common ancestor and both parents.
+Every merged id set equals both branches' additions minus both branches' removals.
+There is no missing, extra, or re-added id.
+
+| File | Common ancestor | Reviewed parent | v1 parent | Merged |
+| --- | ---: | ---: | ---: | ---: |
+| core-ledger-ids.txt | 690 | 691 | 690 | 691 |
+| core-pending.txt | 444 | 438 | 422 | 416 |
+| core-real-pending.txt | 26 | 27 | 39 | 40 |
+| core-held.txt | 3 | 3 | 3 | 3 |
+
+The pending-file conflict removes both separately removed DP-5 ids.
+The real-pending file keeps both branches' added blocks and preserves the reviewed IN-7 restoration.
+The comment and blank-line differences explain the line-set check failures; they change no id disposition.
+Cargo.toml, Cargo.lock, the ledger, and the route-log test match the reviewed parent's blobs exactly.
+The complete own diff adds no unrelated production code, pin change, or pending removal.
+
+Base-check log: `~/botster-sessions/shared/core-stage1/evidence/pc-pin-41/base-merge-check-0abf666c.log`.
+SHA-256: `d8b9d74d2c862a58d39d63c997f8e021781a1830628fd49484cdfde8ad196041`.
+Static log: `~/botster-sessions/shared/core-stage1/evidence/pc-pin-41/static-0abf666c.log`.
+SHA-256: `e7233aafe11be1970ed0f04655253a1b91796bfba0d14513db2186577d0029ce`.
+The static header names this exact head and clean worktree, then records Cargo clean removing 3.3 GiB.
+Clippy and all ten named xtask checks report exit zero. PC reports fmt success; the retained log has no fmt result line.
+The list check names the v1 parent as its base and merge base, with 691 ledger ids and 40 real-pending ids.
+These static records do not replace the exact-final-head gate.
+
+The final strict result, one exact-head final gate, updated body, Sol's delta review, and Q7 remain due.
+The earlier IN-7 and EV-5 evidence limits remain binding. This source verdict approves no final merge.
+The reviewer waits for the evidence doorbell and does not poll.
