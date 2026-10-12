@@ -3529,3 +3529,53 @@ Both #312 source delta reviews have zero open findings, including LOW findings.
 The old train-4 gate remains RED. This record accepts no final gate, specific retry, future pin, or later train head.
 Other member reviews, required combined review, fresh train gate, final receipts, and equal-tree merge verification remain due.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — FINAL package verdict on train 4b
+
+VERDICT: CLEAN (0 open, including LOW).
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Train base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Train tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Frozen #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+Lead FINAL request: `msg_plugin-w_1791827181_470e55`.
+Source package receipt: `6fe61678c003a1205e17a1cfd27f0c9e62ccf648`.
+Source integration receipt: `b8337e7eba5b70d753f06cff203e17b60bdbfb65`.
+Matching receipt: `771dbff90f7aa19ef00cb68f7f0860f9d3fa9e01`.
+
+Final gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+The reviewer independently verifies SHA256 `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+The header names this exact head and base. The gate runs on msa1 with both parallelism caps set to four.
+All ten steps PASS. The CI steps total 962.9 seconds. Jobq and the wrapper exit zero after 1064 seconds.
+The default tier passes 1957 tests. The slow tier passes 633 tests. No FLAKY result appears.
+Lists match the .44 pin: 403 pending IDs, 34 real-pending IDs, and 69 minimum IDs.
+Strict conformance passes 264 tests and checks 316 of 333 pending transcripts; seventeen real-only transcripts do not run there.
+Four held IDs keep their held status. The held-full run checks three budget IDs at all thirty-two seeds.
+The gate checks 1083 slow-only tests and seven named real-process proofs.
+All nine #312 real removals and the a5_2 removal have normal PASS results in both tiers.
+The real-pending report records twenty-seven passes among thirty-four IDs; none counts as an accepted removal in this review.
+The default tier uses seeds 0–31. The slow tier uses seed zero. This verdict makes no full-seed real-tier claim.
+
+Mutation stage 1 tests sixty-five mutants: thirty-nine caught, fourteen missed, and twelve unviable.
+The unmutated slow baseline passes all 633 tests. Stage 2 catches exactly the fourteen misses.
+The final total is fifty-three caught, zero missed, zero timeout, and twelve unviable.
+The reviewer matches all fifty-three unique raw catches to their citations and normal PASS results.
+The twelve unviable replacements require unavailable CancelResult or InstanceId defaults, HostDriver constructors, or MutexGuard constructors.
+They establish no behavioral catch. No new mutation exclusion appears. Earlier exclusion reviews retain their scope.
+The known-flaky EV-2 test passes in the normal slow tier and unmutated slow baseline.
+Stage 2 omits that test. No EV-2 catch is credited. The entry's later-pin removal requirement remains binding.
+Both link fuzz harnesses finish their sixty-second runs: link_decoder runs 6143074 cases; msg_decoder runs 3614151 cases.
+The earlier train-4 RED remains historical. This verdict supplies no specific retry authority.
+
+The reviewer reads the complete updated #312 body and verifies that the member head remains frozen.
+Its final section names this train, tree, base, gate hash, result, ordered members, and prior source receipts.
+It retains earlier gate scopes and explicitly marks the earlier missing-gate statement as historical.
+The exact UTF-8 JSON body hash is `854215e5e3097717ae60f297747db5bfa9413f83fe8ab51fadc0b4bc99f9c0b6`.
+Body receipt `msg_plugin-w_1791827315_2780bc` used a hash with one extra trailing LF.
+Correction `msg_plugin-w_1791827363_a75393` supplies the exact body hash and closes that discrepancy.
+The implementer also identifies earlier body receipt hashes as hashes with an added LF. Their content reviews retain their scopes.
+
+This FINAL accepts #312's package source and completed evidence on this exact train head.
+The matching integration FINAL, other member FINAL receipts, required combined review, and equal-tree merge verification remain due.
+This verdict accepts no later head, future pin, #309 or #311 composition, or A31 implementation.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
