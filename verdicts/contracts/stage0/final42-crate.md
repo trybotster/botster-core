@@ -42,3 +42,5 @@ Fix: run one pool evidence job on this exact head, with no code change. The job 
 016c's package review: CLEAN on A25's source and its retained exception evidence (016c's message).
 
 My finding F1 is closed. CLEAN on `9075126660a24491624b1df33f6707b54d31e2bf`, for the staging merge under the steward's ruling.
+
+**The steward's answer (after this CLEAN).** The steward withdrew the red-gate exception, because the `ledger` job stops at its first error. #92 does not merge red. `steward/final42` fast-forwards from `8379a56` through `9075126` to `4e6f725f` in one push, on #93's fully green gate. So #92 lands through #93's history.
