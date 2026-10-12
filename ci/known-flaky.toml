@@ -8,3 +8,10 @@
 # diagnosis   the diagnosed cause
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry
+
+[[flaky]]
+binary = "botster-core::slow_conformance"
+test = "conf::in_8_mode_checked_at_write_start_by_worker"
+diagnosis = "KSTATE-1, steward ruling R-111: a latent race in the contracts driver. The await_control of step 6 (pty_queued, bytes 1..40960, after a 40 KiB WriteInput under pty_blocked kernel_bytes 1) waits only on Core edges, and pty_queued reads the Linux n_tty state after its asynchronous flush. Pre-existing on v1, not caused by the .46 pin (PC diagnosis; gate of #316 on c34bfe9f). Signature: INCONCLUSIVE seed=<any> step=6 limit=step_timeout."
+owner = "PC"
+removed_by = "#321"
