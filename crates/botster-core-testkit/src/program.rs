@@ -12,7 +12,7 @@ use crate::scheduler::SchedulerHandle;
 use botster_core_edges::edges::{ExitStatus, WindowSize};
 use botster_core_edges::Program;
 use botster_probe_script::{Script, ScriptError, Step};
-use botster_route_codec::prelude::hex_decode;
+use botster_route_codec::prelude::{hex_decode, hex_encode};
 use std::collections::VecDeque;
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -86,8 +86,20 @@ struct Controls {
     inject: VecDeque<(Vec<u8>, bool)>,
     /// Every byte of input that the program took (the log behind `pty_input`).
     input_log: Vec<u8>,
+    /// `input_log` as lowercase hex, extended with each byte that the log takes: `pty_input` answers with it, so a driver
+    /// that reads the log after each pump does not encode the whole log again each time (a 5 MiB fill, R-81, reads it about
+    /// 33 times a seed).
+    input_hex: String,
     /// Output bytes that the worker has not read: the program's queue and the injected bytes (`pty_output_unread`).
     unread: usize,
+}
+
+impl Controls {
+    /// The program took `bytes`: they join the input log and its hex text.
+    fn take_input(&mut self, bytes: &[u8]) {
+        self.input_log.extend_from_slice(bytes);
+        self.input_hex.push_str(&hex_encode(bytes));
+    }
 }
 
 /// A handle on the controls of a [`ScriptedProgram`]. It outlives the move of the program into a worker.
@@ -108,7 +120,7 @@ impl ProgramControl {
         if !on {
             controls.accept = None;
             let queued = std::mem::take(&mut controls.queued);
-            controls.input_log.extend_from_slice(&queued);
+            controls.take_input(&queued);
             controls.delivered.extend_from_slice(&queued);
         }
     }
@@ -194,6 +206,11 @@ impl ProgramControl {
     /// Every byte of input that the program took, in order.
     pub fn input_log(&self) -> Vec<u8> {
         self.lock().input_log.clone()
+    }
+
+    /// [`Self::input_log`] as lowercase hex, as `HexBytes` encodes it, without encoding the log again.
+    pub fn input_hex(&self) -> String {
+        self.lock().input_hex.clone()
     }
 
     /// `pty_output_unread`: the output bytes that the worker has not read.
@@ -521,7 +538,7 @@ impl Program for ScriptedProgram {
                 controls.queued.extend_from_slice(&bytes[..room]);
                 return Ok(room);
             }
-            controls.input_log.extend_from_slice(&bytes[..room]);
+            controls.take_input(&bytes[..room]);
             room
         };
         self.seen.extend_from_slice(&bytes[..taken]);
@@ -690,6 +707,38 @@ mod tests {
         assert_eq!(control.input_log(), b"abc");
         assert_eq!(p.write(b"de").unwrap(), 2);
         assert_eq!(control.input_log(), b"abcde");
+    }
+
+    /// `input_hex` is the input log as `HexBytes` encodes it, after each way input reaches the log: a direct write, a write
+    /// that `pty_accept` cuts, and the kernel queue that `pty_blocked` delivers on release. Bytes above 0x7f and 0x0f check
+    /// both digits of a byte.
+    #[test]
+    fn the_input_hex_is_the_hex_of_the_input_log() {
+        use botster_route_codec::prelude::HexBytes;
+        let mut p = program(json!({"program": [{"hold": {}}]}), true, 0);
+        let control = p.control();
+        let same = |control: &ProgramControl| {
+            assert_eq!(control.input_hex(), HexBytes(control.input_log()).to_hex())
+        };
+        same(&control);
+        assert_eq!(control.input_hex(), "");
+        assert_eq!(p.write(b"\x00\x0f\xf0").unwrap(), 3);
+        same(&control);
+        control.accept_at_most(2);
+        assert_eq!(p.write(b"\xffab").unwrap(), 2, "the accepted prefix");
+        same(&control);
+        control.set_blocked(false);
+        control.block_with_kernel(2);
+        assert_eq!(p.write(b"cd").unwrap(), 2);
+        same(&control);
+        assert_eq!(
+            control.input_hex(),
+            "000ff0ff61",
+            "the queue is not read yet"
+        );
+        control.set_blocked(false);
+        same(&control);
+        assert_eq!(control.input_hex(), "000ff0ff616364");
     }
 
     /// R-74: the program reads the queue only on release, so a script that waits for the bytes runs then.
