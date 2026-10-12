@@ -269,7 +269,8 @@ fn a_paste_over_max_paste_bytes_is_refused_too_large_with_zero_effect() {
 }
 
 /// Codec TS-5d, Core IN-4: an abort before the commit writes nothing and sends no frame, and the route can open its next
-/// paste. Each paste frame is client input on receipt: it advances `input_rev{client}` once.
+/// paste. A paste is one client input, received at its commit (steward ruling R-102): its begin, chunks and abort advance no
+/// `input_rev{client}`.
 #[test]
 fn an_abort_before_the_commit_writes_nothing_and_sends_no_frame() {
     let (mut w, mut client, _) = attached(limits());
@@ -277,7 +278,7 @@ fn an_abort_before_the_commit_writes_nothing_and_sends_no_frame() {
     let all = send(&mut w, &mut client, &[begin(1), chunk(1, b"x"), abort(1)]);
     assert!(writes(&all).is_empty());
     assert_eq!(client.frames.len(), frames, "no frame");
-    assert_eq!(received(&mut w, &all), 3);
+    assert_eq!(received(&mut w, &all), 0);
     let all = send(
         &mut w,
         &mut client,

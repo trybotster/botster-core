@@ -14,11 +14,13 @@
 //! libghostty), for the host's writes and for a route's input alike (`model::encode`, the one encoder). A reply of the model (a query's shadow reply, the model's own PTY writes) is a transaction of the same
 //! admission point, in arrival order, that advances no input revision and completes no operation (EV-8).
 
+use super::facts::{Content, Exhausted, RecordId};
 use super::{PayloadState, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::{Observation, WorkerMsg};
 use botster_route_codec::prelude::{Op, RefusalReason};
 use std::collections::VecDeque;
+use std::time::Instant;
 
 /// The PTY write errors that mean the program's side of the PTY is gone (steward ruling R-82, by R-50). Such a write ends as
 /// the payload's end ends it (`session_ended` on a route), whatever its order against `PayloadExited`. Any other errno is an
@@ -38,6 +40,8 @@ pub(super) struct HostWrite {
     req: u64,
     payload: InputPayload,
     guard: Option<Guard>,
+    /// Its input record (ST-7), made at receipt.
+    record: Option<RecordId>,
 }
 
 /// What waits at the admission point, in arrival order.
@@ -66,6 +70,8 @@ pub(super) struct RouteInput {
     payload: InputPayload,
     /// `paste_commit{want_result: true}`: a written paste is answered with `input_done` (Codec TS-5b).
     want_result: bool,
+    /// Its input record (ST-7), made at receipt.
+    record: Option<RecordId>,
 }
 
 /// The caller's bytes of a payload: the unit of a route's held input (DP-5, the read allowance).
@@ -105,6 +111,8 @@ pub(super) struct Active {
     cancelled: bool,
     /// An adoption fenced its host: the transaction runs to its end (AM-2: contiguous) and reports nothing.
     retired: bool,
+    /// The input record of a host write or a client's input (ST-7); a reply has none.
+    record: Option<RecordId>,
 }
 
 impl Active {
@@ -198,12 +206,40 @@ fn not_written(reason: NotWrittenReason, detail: &str) -> InputResult {
 }
 
 impl Worker {
-    /// IN-1: a host write joins the host's FIFO; it starts at its turn.
-    pub(super) fn on_write_input(&mut self, req: u64, payload: InputPayload, guard: Option<Guard>) {
+    /// IN-1: a host write joins the host's FIFO; it starts at its turn. Its record is made now, at receipt (ST-7). When the
+    /// instance has no sequence number left for a record, the write is refused with exact zero, and no record is made
+    /// (steward ruling R-101, follow-up).
+    pub(super) fn on_write_input(
+        &mut self,
+        now: Instant,
+        req: u64,
+        payload: InputPayload,
+        guard: Option<Guard>,
+    ) {
+        let record = match self
+            .facts
+            .as_mut()
+            .map(|f| f.received(now, InputSource::Host, Content::Payload(&payload)))
+        {
+            Some(Err(Exhausted)) => {
+                self.complete_write(
+                    req,
+                    None,
+                    not_written(
+                        NotWrittenReason::Refused,
+                        "the input records of this instance are used up",
+                    ),
+                );
+                return;
+            }
+            Some(Ok(record)) => Some(record),
+            None => None,
+        };
         self.input.queue.push_back(Pending::Host(HostWrite {
             req,
             payload,
             guard,
+            record,
         }));
         self.try_start();
     }
@@ -224,12 +260,14 @@ impl Worker {
         op: Option<Op>,
         payload: InputPayload,
         want_result: bool,
+        record: Option<RecordId>,
     ) {
         self.input.queue.push_back(Pending::Route(RouteInput {
             route,
             op,
             payload,
             want_result,
+            record,
         }));
         self.try_start();
     }
@@ -243,9 +281,13 @@ impl Worker {
             .iter()
             .position(|p| matches!(p, Pending::Host(w) if w.req == req))
         {
-            self.input.queue.remove(at);
+            let record = match self.input.queue.remove(at) {
+                Some(Pending::Host(write)) => write.record,
+                _ => None,
+            };
             self.complete_write(
                 req,
+                record,
                 InputResult {
                     outcome: WriteOutcome::Cancelled,
                     payload_bytes_written: 0,
@@ -285,7 +327,7 @@ impl Worker {
                     // A reply goes only to a live payload. It advances no revision and completes no operation (EV-8).
                     if self.admission(Source::Reply).is_ok() && !bytes.is_empty() {
                         let len = bytes.len();
-                        self.start_unowned(Owner::Reply, (bytes, 0, len));
+                        self.start_unowned(Owner::Reply, None, (bytes, 0, len));
                     }
                     continue;
                 }
@@ -296,7 +338,7 @@ impl Worker {
                 Pending::Host(write) => write,
             };
             if let Err(result) = self.start_checks(&write) {
-                self.complete_write(write.req, result);
+                self.complete_write(write.req, write.record, result);
                 continue;
             }
             let (bytes, payload_start, payload_len) = match self.encoded(&write.payload) {
@@ -304,18 +346,23 @@ impl Worker {
                 Err(reason) => {
                     self.complete_write(
                         write.req,
+                        write.record,
                         not_written(reason, "the event has no write with the modes at its start"),
                     );
                     continue;
                 }
+                // IN-2 (steward ruling R-101 Q3): a kind that this worker cannot write is a certain zero, not an error.
                 Ok(None) => {
-                    self.report(&WorkerMsg::Done {
-                        req: write.req,
-                        result: OpResult::Err(CoreError::new(
-                            ErrorCode::Internal,
+                    self.complete_write(
+                        write.req,
+                        write.record,
+                        not_written(
+                            NotWrittenReason::Unsupported {
+                                what: UnsupportedWhat::Other,
+                            },
                             "this worker cannot write this payload kind",
-                        )),
-                    });
+                        ),
+                    );
                     continue;
                 }
             };
@@ -335,6 +382,7 @@ impl Worker {
                 in_flight: false,
                 cancelled: false,
                 retired: false,
+                record: write.record,
             });
             if empty {
                 self.finish_active(WriteOutcome::Written, "");
@@ -399,34 +447,58 @@ impl Worker {
             op,
             payload,
             want_result,
+            record,
         } = input;
-        if self.admission(Source::Route).is_err() {
+        if let Err(reason) = self.admission(Source::Route) {
+            // The wire merges the reasons; the record keeps the IN-2 reason (steward ruling R-101 Q2).
             self.refuse(route, op, RefusalReason::SessionEnded, None);
+            self.end_client_record(route, record, WriteOutcome::NotWritten(reason), 0);
             return;
         }
-        let refusal = match self.encoded(&payload) {
+        let (refusal, reason) = match self.encoded(&payload) {
             Ok(Some(encoded)) if encoded.0.is_empty() => {
                 if want_result {
                     self.input_done(route, op, 0);
                 }
+                self.end_client_record(route, record, WriteOutcome::Written, 0);
                 return;
             }
             Ok(Some(encoded)) => {
-                self.start_unowned(Owner::Route(route, op, want_result), encoded);
+                self.start_unowned(Owner::Route(route, op, want_result), record, encoded);
                 return;
             }
-            Err(NotWrittenReason::ModePreconditionFailed) => RefusalReason::ModePreconditionFailed,
+            Err(NotWrittenReason::ModePreconditionFailed) => (
+                RefusalReason::ModePreconditionFailed,
+                NotWrittenReason::ModePreconditionFailed,
+            ),
             // A route's input is `bytes`, `text` or a paste, and their encoding has no other certain zero. The keys and the
             // mouse, whose encoding can be `Unsupported{what}`, are later P4a work.
-            Err(_) | Ok(None) => RefusalReason::Unsupported {
-                what: "input".into(),
-            },
+            Err(reason) => (
+                RefusalReason::Unsupported {
+                    what: "input".into(),
+                },
+                reason,
+            ),
+            Ok(None) => (
+                RefusalReason::Unsupported {
+                    what: "input".into(),
+                },
+                NotWrittenReason::Unsupported {
+                    what: UnsupportedWhat::Other,
+                },
+            ),
         };
         self.refuse(route, op, refusal, None);
+        self.end_client_record(route, record, WriteOutcome::NotWritten(reason), 0);
     }
 
     /// Starts a transaction that no host request owns: a reply, or a client's input.
-    fn start_unowned(&mut self, owner: Owner, (bytes, payload_start, payload_len): Encoded) {
+    fn start_unowned(
+        &mut self,
+        owner: Owner,
+        record: Option<RecordId>,
+        (bytes, payload_start, payload_len): Encoded,
+    ) {
         self.input.active = Some(Active {
             owner,
             bytes,
@@ -436,6 +508,7 @@ impl Worker {
             in_flight: false,
             cancelled: false,
             retired: false,
+            record,
         });
         self.write_more();
     }
@@ -504,7 +577,12 @@ impl Worker {
         active.in_flight = false;
         match result {
             Ok(n) => {
+                let from = active.written;
                 active.written = (active.written + n).min(active.bytes.len());
+                // ST-7: the client tail keeps the PTY bytes that client input wrote.
+                if let (Owner::Route(..), Some(facts)) = (active.owner, self.facts.as_mut()) {
+                    facts.client_wrote(&active.bytes[from..active.written]);
+                }
                 let done = active.written == active.bytes.len();
                 let cancelled = active.cancelled;
                 if n == 0 {
@@ -561,11 +639,14 @@ impl Worker {
             other => other,
         };
         match active.owner {
-            // A retired write belongs to the host before the fence: it reports nothing (DESIGN.md 3.4).
-            Owner::Host(_) if active.retired => {}
+            // A retired write belongs to the host before the fence: it reports nothing (DESIGN.md 3.4). Its record ends
+            // with what it wrote (ST-7).
+            Owner::Host(_) if active.retired => {
+                self.end_record(active.record, outcome, active.written as u64);
+            }
             Owner::Host(req) => {
                 let result = active.result(outcome, detail);
-                self.complete_write(req, result);
+                self.complete_write(req, active.record, result);
             }
             Owner::Reply => {}
             // DP-5: a client's input that is not written as sent is refused on its route, with the bytes written when
@@ -585,6 +666,7 @@ impl Worker {
                     None if want_result => self.input_done(route, op, written),
                     None => {}
                 }
+                self.end_client_record(route, active.record, outcome, written);
                 // The route holds one input less: its reserved refusal room is free (DP-5).
                 self.settle_routes();
             }
@@ -597,7 +679,15 @@ impl Worker {
     /// reports nothing. The routes and their input do not depend on the host (DP-8): a client's input and a model reply keep
     /// their places at the admission point.
     pub(super) fn input_fence(&mut self) {
-        self.input.queue.retain(|p| !matches!(p, Pending::Host(_)));
+        let (dropped, kept) = std::mem::take(&mut self.input.queue)
+            .into_iter()
+            .partition(|p| matches!(p, Pending::Host(_)));
+        self.input.queue = kept;
+        for pending in dropped {
+            if let Pending::Host(write) = pending {
+                self.end_record(write.record, fenced_outcome(), 0);
+            }
+        }
         if let Some(active) = self
             .input
             .active
@@ -608,10 +698,68 @@ impl Worker {
         }
     }
 
-    fn complete_write(&mut self, req: u64, result: InputResult) {
+    /// The host write `req` ends: its `Done`, and the status update of its record.
+    fn complete_write(&mut self, req: u64, record: Option<RecordId>, result: InputResult) {
+        self.end_record(record, result.outcome, result.pty_bytes_written);
         self.report(&WorkerMsg::Done {
             req,
             result: OpResult::Ok(OpOutput::Input(result)),
         });
     }
+
+    /// The end of an input's transaction (ST-7): its record's status update, from the IN-2 outcome and its PTY bytes.
+    pub(super) fn end_record(
+        &mut self,
+        record: Option<RecordId>,
+        outcome: WriteOutcome,
+        pty_bytes: u64,
+    ) {
+        if let (Some(record), Some(facts)) = (record, self.facts.as_mut()) {
+            let (state, pty_bytes) = record_end(outcome, pty_bytes);
+            facts.ended(record, state, pty_bytes);
+        }
+    }
+
+    /// The end of a client input's transaction: its record's status update, and the keyed `Activity` edge again (ST-7,
+    /// EV-6).
+    pub(super) fn end_client_record(
+        &mut self,
+        route: RouteId,
+        record: Option<RecordId>,
+        outcome: WriteOutcome,
+        pty_bytes: u64,
+    ) {
+        if record.is_none() {
+            return;
+        }
+        self.end_record(record, outcome, pty_bytes);
+        self.report(&WorkerMsg::Observed {
+            observation: Observation::ClientInputEnded { route },
+        });
+    }
+}
+
+/// A record's end state from its IN-2 outcome (ST-7, steward ruling R-101 Q1 and Q3), with `pty_bytes` exact for every
+/// outcome except `Unknown`:
+/// - `Written` -> `written`; `Cancelled` -> `cancelled`; `NotWritten(reason)` -> `not_written{reason}` (exact zero).
+/// - `Partial` and `Failed` -> `partial` (Q1: a failed write is certain, and the rest is never written), even at 0 bytes.
+/// - `Unknown` -> `unknown`, `pty_bytes` null (Q3: Core never claims zero).
+fn record_end(outcome: WriteOutcome, pty_bytes: u64) -> (InputRecordState, Option<u64>) {
+    match outcome {
+        WriteOutcome::Written => (InputRecordState::Written, Some(pty_bytes)),
+        WriteOutcome::Partial | WriteOutcome::Failed => {
+            (InputRecordState::Partial, Some(pty_bytes))
+        }
+        WriteOutcome::Cancelled => (InputRecordState::Cancelled, Some(pty_bytes)),
+        WriteOutcome::NotWritten(reason) => (InputRecordState::NotWritten { reason }, Some(0)),
+        WriteOutcome::Unknown { .. } => (InputRecordState::Unknown, None),
+        // A later outcome of the non-exhaustive enum: this worker cannot tell its count, so it claims none.
+        _ => (InputRecordState::Unknown, None),
+    }
+}
+
+/// The outcome of a host write that the adoption fence dropped before it started (DESIGN.md 3.4): nothing was written, and no
+/// host learns its end (P5's mapping (3), at the steward).
+fn fenced_outcome() -> WriteOutcome {
+    WriteOutcome::Cancelled
 }

@@ -678,9 +678,9 @@ fn an_operation_of_a_later_milestone_is_answered_internal() {
     let mut w = World::running();
     let actions = w.send(&HostMsg::Op {
         req: 2,
-        op: Op::ReadFacts {
+        op: Op::SetOutputTap {
             session: SessionId("s".into()),
-            after: None,
+            enabled: true,
         },
     });
     let reports = w.reports(&actions);
@@ -692,7 +692,7 @@ fn an_operation_of_a_later_milestone_is_answered_internal() {
         panic!("{reports:?}");
     };
     assert_eq!(error.code, ErrorCode::Internal);
-    assert!(error.detail.contains("ReadFacts"), "{}", error.detail);
+    assert!(error.detail.contains("SetOutputTap"), "{}", error.detail);
 }
 
 /// LC-7 step 3, A6-3: `Remove` of a running payload kills the group, reaps the leader once it ended, sends the complete

@@ -38,6 +38,8 @@
 //! `HandoffFailed` with no frame (steward ruling R-44; the host's floor check, A19-1, keeps this from happening). So is a
 //! route with no common terminal format (the host refuses it first, OU-1).
 
+use super::facts::{Content, Exhausted, RecordId};
+use super::receipt::{self, Kept, Receipt};
 use super::{model, Action, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::Observation;
@@ -49,6 +51,7 @@ use botster_route_codec::prelude::{
     StreamReader, ToClient, ToWorker,
 };
 use std::collections::{BTreeMap, VecDeque};
+use std::time::Instant;
 
 /// A descriptor that the control link delivered. The driver keeps the object; the machine has the id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -79,6 +82,8 @@ pub(super) struct Routes {
 struct Route {
     limits: AppliedRouteLimits,
     route_tag: Option<String>,
+    /// The client's owner (`AttachOptions.owner`): its input records name it (ST-7).
+    owner: Option<String>,
     /// Stream-delimited frames in order; `written` bytes of the first one are on the transport.
     queue: VecDeque<Vec<u8>>,
     written: usize,
@@ -120,12 +125,22 @@ struct OpenPaste {
 /// the frame is received, never when it is applied, so a frame received before `live` stays `NotReady` (PR3 F107).
 #[derive(Debug)]
 enum Received {
-    /// Client input that goes to the admission point, with its op, and true when a written paste is answered `input_done`.
-    Input(Option<Op>, InputPayload, bool),
+    /// Client input that goes to the admission point, with its op, true when a written paste is answered `input_done`, and
+    /// its input record (ST-7).
+    Input(Option<Op>, InputPayload, bool, Option<RecordId>),
     /// Client input that is refused with this op and reason.
     Refused(Option<Op>, RefusalReason),
     /// A frame that cannot be decoded: the route closes with this reason (OU-5), after the frames before it.
     Bad(RouteCloseReason),
+}
+
+impl Received {
+    fn op(&self) -> Option<Op> {
+        match self {
+            Received::Input(op, ..) | Received::Refused(op, _) => *op,
+            Received::Bad(_) => None,
+        }
+    }
 }
 
 impl Route {
@@ -155,7 +170,7 @@ impl Route {
             // DP-5: no input before `live` is written.
             return Some(Received::Refused(op, RefusalReason::NotReady));
         }
-        let input = |payload| Some(Received::Input(op, payload, false));
+        let input = |payload| Some(Received::Input(op, payload, false, None));
         match frame {
             ToWorker::Bytes { bytes, .. } => input(InputPayload::Bytes {
                 bytes: HexBytes(bytes.0.to_vec()),
@@ -176,6 +191,7 @@ impl Route {
                             require_bracketed: paste.require_bracketed,
                         },
                         want_result.unwrap_or(false),
+                        None,
                     ),
                     // Codec TS-5d (R-5): a commit with no open paste, or with another op. The open paste stays open.
                     None => Received::Refused(Some(op), RefusalReason::Refused),
@@ -352,6 +368,7 @@ impl Worker {
         let mut entry = Route {
             limits,
             route_tag: options.route_tag.clone(),
+            owner: options.owner.clone(),
             queue: VecDeque::new(),
             written: 0,
             queued: 0,
@@ -570,9 +587,10 @@ impl Worker {
     /// is delivered or it fails or stalls (OU-7): the host waits for it, and posts it with the exit and the cause that the
     /// host decides (LC-5).
     pub(super) fn end_route(&mut self, id: RouteId, reason: RouteCloseReason) {
-        let Some(route) = self.routes.routes.remove(&id) else {
+        let Some(mut route) = self.routes.routes.remove(&id) else {
             return;
         };
+        self.discard_received(id, std::mem::take(&mut route.received));
         self.actions.push_back(Action::RouteClose { route: id });
         self.report(&WorkerMsg::RouteClosed {
             route: id,
@@ -594,7 +612,11 @@ impl Worker {
         }
         route.closing = Some(reason);
         // A closing route applies no more input: the frames that wait are discarded (plan 23ad).
-        route.received.clear();
+        let discarded = std::mem::take(&mut route.received);
+        self.discard_received(id, discarded);
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
         let frame = ToClient::RouteClosed(
             route_closed_frame(reason).expect("a healthy reason has its frame"),
         )
@@ -652,7 +674,7 @@ impl Worker {
     /// The client's bytes on a route (DP-5, TS-3). Each complete frame is client input: it is tagged with its route and
     /// advances `input_rev{client}` on receipt (IN-4). `bytes` and `text` go to the admission point in their receive order
     /// (AM-2). A frame that cannot be decoded closes the route `BadFrame` with its code (OU-5: only that route).
-    pub(super) fn on_route_read(&mut self, id: RouteId, bytes: &[u8]) {
+    pub(super) fn on_route_read(&mut self, now: Instant, id: RouteId, bytes: &[u8]) {
         let Some(route) = self.routes.routes.get_mut(&id) else {
             return;
         };
@@ -663,7 +685,7 @@ impl Worker {
         // A closing route applies no more input: its bytes are discarded, so they are not held (DP-5, OU-2b).
         if route.closing.is_none() {
             route.reader.push(bytes);
-            self.receive_route(id);
+            self.receive_route(now, id);
         }
         // The decoded input may reserve the room of its refusal: the PTY budget and the allowances follow.
         self.settle_routes();
@@ -672,7 +694,7 @@ impl Worker {
     /// Receives every complete frame of the route's reader, in order (TS-3): each input frame, applied or refused, advances
     /// `input_rev{client}` now, on receipt, whatever room the route has (IN-4, IN-10). The frames wait in `received` for
     /// `apply_route`. A frame that cannot be decoded ends the receipt: nothing after it is a frame.
-    fn receive_route(&mut self, id: RouteId) {
+    fn receive_route(&mut self, now: Instant, id: RouteId) {
         loop {
             let Some(route) = self.routes.routes.get_mut(&id) else {
                 return;
@@ -681,10 +703,15 @@ impl Worker {
                 return;
             }
             let bounds = frame_bounds(&route.limits);
-            let decoded = match route.reader.next_frame(&bounds) {
+            let (decoded, raw) = match route.reader.next_frame(&bounds) {
                 Ok(None) => return,
-                Ok(Some(frame)) => ToWorker::decode(&frame, &bounds),
-                Err(error) => Err(error),
+                Ok(Some(frame)) => (ToWorker::decode(&frame, &bounds), frame),
+                Err(error) => (Err(error), Default::default()),
+            };
+            let receipt = match &decoded {
+                Ok(Decoded::Frame(frame)) => receipt::of_frame(frame),
+                Ok(Decoded::Unsupported { .. } | Decoded::Invalid { .. }) => receipt::of_raw(&raw),
+                Ok(Decoded::Ignored { .. }) | Err(_) => Receipt::Part,
             };
             let received = match decoded {
                 Ok(Decoded::Frame(frame)) => route.decide(frame),
@@ -703,10 +730,71 @@ impl Worker {
                     code: error.code,
                 })),
             };
-            let input = !matches!(received, Some(Received::Bad(_)));
-            route.received.extend(received);
-            if input {
-                self.client_received(id);
+            let received = match (receipt, received) {
+                (Receipt::Input(kept), Some(received)) if !matches!(received, Received::Bad(_)) => {
+                    self.client_input(now, id, &kept, received)
+                }
+                (_, received) => received,
+            };
+            if let Some(route) = self.routes.routes.get_mut(&id) {
+                route.received.extend(received);
+            }
+        }
+    }
+
+    /// The receipt of one client input (IN-4, ST-7, steward ruling R-102): `input_rev{client}` advances and its record is
+    /// made, both now. A refused input's record ends at once, `not_written` with its IN-2 reason (R-101 Q2). When the
+    /// instance has no sequence number left for a record, the input is refused `refused`, and the revision does not advance
+    /// (R-101, follow-up).
+    fn client_input(
+        &mut self,
+        now: Instant,
+        id: RouteId,
+        kept: &Kept,
+        received: Received,
+    ) -> Option<Received> {
+        let source = self
+            .routes
+            .routes
+            .get(&id)
+            .map(|route| InputSource::Client {
+                route_tag: route.route_tag.clone(),
+                owner: route.owner.clone(),
+            })?;
+        let record = match &mut self.facts {
+            Some(facts) => {
+                let content = match &received {
+                    Received::Input(_, payload, ..) => Content::Payload(payload),
+                    _ => kept.content(),
+                };
+                match facts.received(now, source, content) {
+                    Ok(record) => Some(record),
+                    Err(Exhausted) => {
+                        return Some(Received::Refused(received.op(), RefusalReason::Refused))
+                    }
+                }
+            }
+            None => None,
+        };
+        self.client_received(id);
+        Some(match received {
+            Received::Input(op, payload, want_result, _) => {
+                Received::Input(op, payload, want_result, record)
+            }
+            Received::Refused(op, reason) => {
+                let outcome = WriteOutcome::NotWritten(receipt::refused(&reason));
+                self.end_client_record(id, record, outcome, 0);
+                Received::Refused(op, reason)
+            }
+            bad @ Received::Bad(_) => bad,
+        })
+    }
+
+    /// The records of the received inputs that a closing route discards (ST-7): nothing of them is written.
+    fn discard_received(&mut self, id: RouteId, received: VecDeque<Received>) {
+        for input in received {
+            if let Received::Input(.., record) = input {
+                self.end_client_record(id, record, receipt::discarded(), 0);
             }
         }
     }
@@ -727,8 +815,8 @@ impl Worker {
                 return;
             };
             match received {
-                Received::Input(op, payload, want_result) => {
-                    self.enqueue_route_input(id, op, payload, want_result)
+                Received::Input(op, payload, want_result, record) => {
+                    self.enqueue_route_input(id, op, payload, want_result, record)
                 }
                 Received::Refused(op, reason) => self.refuse(id, op, reason, None),
                 Received::Bad(reason) => {
@@ -921,6 +1009,7 @@ mod tests {
                 route_input_queue_bytes: 0,
             },
             route_tag: None,
+            owner: None,
             queue: VecDeque::new(),
             written: 0,
             queued,

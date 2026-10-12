@@ -1090,17 +1090,19 @@ fn client_input_after_live_reaches_the_pty_in_order_and_is_tagged() {
         .into_iter()
         .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
         .collect();
-    assert_eq!(
-        tags,
-        [1, 2]
-            .map(|rev| WorkerMsg::Observed {
-                observation: Observation::ClientInput {
-                    route: RouteId(1),
-                    input_rev: InputRev(rev),
-                },
-            })
-            .to_vec()
-    );
+    let mut expected: Vec<WorkerMsg> = [1, 2]
+        .map(|rev| WorkerMsg::Observed {
+            observation: Observation::ClientInput {
+                route: RouteId(1),
+                input_rev: InputRev(rev),
+            },
+        })
+        .to_vec();
+    // ST-7: the end of the first input's transaction raises the activity edge again; the second is still written.
+    expected.push(WorkerMsg::Observed {
+        observation: Observation::ClientInputEnded { route: RouteId(1) },
+    });
+    assert_eq!(tags, expected);
 }
 
 fn refusals(client: &Client) -> Vec<(Option<Op>, RefusalReason)> {
@@ -1260,16 +1262,27 @@ fn a_refused_complete_input_frame_advances_the_client_revision_once() {
         .into_iter()
         .filter(|m| matches!(m, WorkerMsg::Observed { .. }))
         .collect();
+    let received = |rev| WorkerMsg::Observed {
+        observation: Observation::ClientInput {
+            route: RouteId(1),
+            input_rev: InputRev(rev),
+        },
+    };
+    // ST-7 (steward ruling R-101 Q2): a refused input's record ends at receipt, so its activity edge comes again at once.
+    let ended = WorkerMsg::Observed {
+        observation: Observation::ClientInputEnded { route: RouteId(1) },
+    };
     assert_eq!(
         tags,
-        [1, 2, 3, 4]
-            .map(|rev| WorkerMsg::Observed {
-                observation: Observation::ClientInput {
-                    route: RouteId(1),
-                    input_rev: InputRev(rev),
-                },
-            })
-            .to_vec()
+        [
+            received(1),
+            ended.clone(),
+            received(2),
+            ended.clone(),
+            received(3),
+            ended,
+            received(4)
+        ]
     );
 }
 

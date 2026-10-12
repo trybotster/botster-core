@@ -44,7 +44,11 @@ fn a_record_is_pending_at_receipt_and_its_end_is_an_appended_update() {
     let t0 = Instant::now();
     let mut facts = Facts::new(7, &CoreLimits::default(), t0);
     let id = facts
-        .received(t0 + Duration::from_millis(5), client(), &bytes(b"hi"))
+        .received(
+            t0 + Duration::from_millis(5),
+            client(),
+            Content::Payload(&bytes(b"hi")),
+        )
         .unwrap();
     let first = facts.read(t0, None);
     assert_eq!(first.records.len(), 1);
@@ -82,7 +86,9 @@ fn retention_by_count_drops_the_oldest_and_reports_the_gap() {
     let mut facts = Facts::new(1, &limits(3, u64::MAX), t0);
     let mut cursors = Vec::new();
     for b in [b"a", b"b", b"c", b"d"] {
-        let id = facts.received(t0, client(), &bytes(b)).unwrap();
+        let id = facts
+            .received(t0, client(), Content::Payload(&bytes(b)))
+            .unwrap();
         cursors.push(facts.read(t0, None).next_cursor);
         facts.ended(id, InputRecordState::Written, Some(1));
     }
@@ -105,7 +111,9 @@ fn retention_by_bytes_keeps_the_list_within_its_bound_and_the_newest_pair() {
     let bound = 1200;
     let mut facts = Facts::new(1, &limits(1000, bound), t0);
     for i in 0..40u8 {
-        let id = facts.received(t0, client(), &bytes(&[i; 40])).unwrap();
+        let id = facts
+            .received(t0, client(), Content::Payload(&bytes(&[i; 40])))
+            .unwrap();
         facts.ended(id, InputRecordState::Written, Some(40));
         let read = facts.read(t0, None);
         let len = serde_json::to_vec(&read.records).unwrap().len() as u64;
@@ -134,12 +142,20 @@ fn an_oversize_newest_record_is_truncated_then_minimal() {
     let t0 = Instant::now();
     let probe = Facts::new(1, &CoreLimits::default(), t0);
     // The shortest record with a payload: an empty one, cut.
-    let mut cut = record_of(probe.cursor(1), client(), 0, &bytes(b""), usize::MAX);
+    let mut cut = record_of(
+        probe.cursor(1),
+        client(),
+        0,
+        Content::Payload(&bytes(b"")),
+        usize::MAX,
+    );
     cut.payload_truncated = true;
     let empty = json_len(&InputRecordEntry::Record(cut));
     let bound = 3 + probe.status_room + empty + 20;
     let mut facts = Facts::new(1, &limits(64, bound), t0);
-    let id = facts.received(t0, client(), &bytes(&[0xab; 100])).unwrap();
+    let id = facts
+        .received(t0, client(), Content::Payload(&bytes(&[0xab; 100])))
+        .unwrap();
     facts.ended(id, InputRecordState::Written, Some(100));
     let read = facts.read(t0, None);
     let r = record(&read.records[0]);
@@ -153,7 +169,9 @@ fn an_oversize_newest_record_is_truncated_then_minimal() {
     assert!(json_len(&InputRecordEntry::Record(longer)) > bound - 3 - probe.status_room);
 
     let mut tight = Facts::new(1, &limits(64, 3 + probe.status_room + empty - 1), t0);
-    tight.received(t0, client(), &bytes(b"x")).unwrap();
+    tight
+        .received(t0, client(), Content::Payload(&bytes(b"x")))
+        .unwrap();
     let r = tight.read(t0, None).records[0].clone();
     assert_eq!(record(&r).payload, None);
     assert!(record(&r).payload_truncated);
@@ -165,7 +183,9 @@ fn an_oversize_newest_record_is_truncated_then_minimal() {
 fn a_cursor_of_another_ordinal_is_a_gap() {
     let t0 = Instant::now();
     let mut facts = Facts::new(2, &CoreLimits::default(), t0);
-    facts.received(t0, InputSource::Host, &bytes(b"x")).unwrap();
+    facts
+        .received(t0, InputSource::Host, Content::Payload(&bytes(b"x")))
+        .unwrap();
     let read = facts.read(t0, Some(InputCursor(1 << SEQ_BITS | 1)));
     assert!(read.gap);
     assert_eq!(read.records.len(), 1);
@@ -178,14 +198,21 @@ fn sequence_exhaustion_refuses_a_record_and_every_open_record_still_ends() {
     let t0 = Instant::now();
     let mut facts = Facts::new(3, &CoreLimits::default(), t0);
     facts.last_seq = MAX_SEQ - 5;
-    let a = facts.received(t0, client(), &bytes(b"a")).unwrap();
-    let b = facts.received(t0, client(), &bytes(b"b")).unwrap();
+    let a = facts
+        .received(t0, client(), Content::Payload(&bytes(b"a")))
+        .unwrap();
+    let b = facts
+        .received(t0, client(), Content::Payload(&bytes(b"b")))
+        .unwrap();
     assert!(!facts.can_receive(), "3 left, 2 reserved");
-    assert_eq!(facts.received(t0, client(), &bytes(b"c")), Err(Exhausted));
+    assert_eq!(
+        facts.received(t0, client(), Content::Payload(&bytes(b"c"))),
+        Err(Exhausted)
+    );
     facts.ended(a, InputRecordState::Written, Some(1));
     facts.ended(b, InputRecordState::Written, Some(1));
     assert_eq!(facts.last_seq, MAX_SEQ - 1);
-    let c = facts.received(t0, InputSource::Host, &bytes(b"c"));
+    let c = facts.received(t0, InputSource::Host, Content::Payload(&bytes(b"c")));
     assert_eq!(c, Err(Exhausted), "2 needed, 1 left");
     let read = facts.read(t0, None);
     assert_eq!(read.next_cursor, InputCursor(3 << SEQ_BITS | (MAX_SEQ - 1)));
@@ -199,9 +226,15 @@ fn age_counts_from_the_last_client_input_on_the_workers_clock() {
     let ms = Duration::from_millis;
     let mut facts = Facts::new(1, &CoreLimits::default(), t0);
     assert_eq!(facts.read(t0 + ms(30), None).age_ms, 30);
-    facts.received(t0 + ms(40), client(), &bytes(b"x")).unwrap();
     facts
-        .received(t0 + ms(50), InputSource::Host, &bytes(b"y"))
+        .received(t0 + ms(40), client(), Content::Payload(&bytes(b"x")))
+        .unwrap();
+    facts
+        .received(
+            t0 + ms(50),
+            InputSource::Host,
+            Content::Payload(&bytes(b"y")),
+        )
         .unwrap();
     assert_eq!(facts.read(t0 + ms(70), None).age_ms, 30);
 }
