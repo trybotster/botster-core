@@ -3654,3 +3654,31 @@ Sol-B independently reports the same interaction as T3-I2 MEDIUM. I classify it 
 Both reviews require the same closure. I sent the finding to GS and Sol-B and asked the lead for the concrete frozen-train repair.
 
 No train gate result is accepted. I ran no build, test, gate, diagnostic, mutation job, or executable base check.
+
+## Train 3c — #310 source delta
+
+- Exact head: `b78df725177d1a931e1eddb9bb67023e7e0ae645`.
+- Tree: `43cdf59980d93e0672423bedc0edf506405256be`.
+- Current v1 base: `080987829a2e2245a7ea97606020400392c974d6`.
+- VERDICT: CLEAN (#310 source delta only; train gate pending).
+- Open #310 delta findings: 0.
+
+The lead abandons train 3 and train 3b in `msg_plugin-w_1791819182_b03965`. The rebuilt train contains #310 and #312 only.
+
+I inspected the new exact head, parents, tree, and relevant file delta. Its tree equals `d1571ce467a1c54b1763c206cea301f5895d365f`.
+
+That earlier prefix contains the same two members and merge order. It precedes #308 and #309 in the reviewed train.
+
+The four #310 files remain unchanged from the accepted member. The earlier shared-helper review applies to this identical two-member tree.
+
+The .44 pin retains the same contracts package and source layout. The dynamic resolver and its real slow comparison remain selected.
+
+Removing #308 restores the base's empty known-flaky list and earlier parser. It does not remove or change a #310 helper or test.
+
+GS-FS-T3-1 is absent from this delivered scope because #308 leaves the train. This is not a source repair or CLEAN for #308.
+
+The original #308 train finding remains in its history. Its future imported head must resolve the obsolete entry before acceptance.
+
+The lead reports a local compile check. I retain that result as a lead report and accept no completed train gate yet.
+
+Sol-B owns the combined train review. The single frozen-head gate and final evidence receipts remain due. I ran no execution job.

@@ -1,5 +1,15 @@
 # GS reviewer handoff
 
+## Current train 3c result
+
+#310 source delta CLEAN at `b78df725177d1a931e1eddb9bb67023e7e0ae645`, base `080987829a2e2245a7ea97606020400392c974d6`.
+
+The tree equals the previously reviewed #310+#312 prefix. The four #310 files remain unchanged. Open #310 delta findings: 0.
+
+#308 and #309 leave the train. The #308 finding remains in its history; no source repair or #308 CLEAN is claimed.
+
+The combined review, train gate, and final evidence receipts remain due. I ran no execution job.
+
 ## Current train 3 results
 
 Exact head: `3435a6d2ce981ec5c06a888ba907667938f50137`. Base: `080987829a2e2245a7ea97606020400392c974d6`.
