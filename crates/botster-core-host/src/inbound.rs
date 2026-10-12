@@ -310,13 +310,13 @@ impl HostEngine {
                 }
             }
             WorkerMsg::RouteStalled { route, mark } => {
-                if self.route_stalled(id, route, mark) {
-                    self.route_event(route, true);
+                if self.route_stalled(id, route) {
+                    self.route_event(ParkedRoute::Stalled(route, mark));
                 }
             }
             WorkerMsg::RouteResumed { route, .. } => {
                 if self.route_resumed(id, route) {
-                    self.route_event(route, false);
+                    self.route_event(ParkedRoute::Resumed(route));
                 }
             }
             WorkerMsg::RouteProgress {
@@ -353,24 +353,32 @@ impl HostEngine {
         }
     }
 
-    fn route_event(&mut self, route: RouteId, stalled: bool) {
+    /// `event` is `RouteStalled` or `RouteResumed`.
+    fn route_event(&mut self, event: ParkedRoute) {
         // An event waits behind the ones parked before it, so the worker's order holds (EV-6).
-        if !self.parked.is_empty() || !self.post_route_progress(route, stalled) {
-            self.parked.push_back(ParkedRoute::Progress(route, stalled));
+        if !self.parked.is_empty() || !self.post_route_progress(&event) {
+            self.parked.push_back(event);
         }
     }
 
-    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room.
-    fn post_route_progress(&mut self, route: RouteId, stalled: bool) -> bool {
+    /// Posts `RouteStalled` or `RouteResumed` of a route that still exists. False when the queue has no room. A posted
+    /// `RouteStalled` arms the route's close deadline from this pump (`route_stall_posted`).
+    fn post_route_progress(&mut self, event: &ParkedRoute) -> bool {
+        let route = event.route();
         if !self.routes.contains_key(&route) {
             return true;
         }
-        let event = if stalled {
-            Event::RouteStalled { route }
-        } else {
-            Event::RouteResumed { route }
+        let posted = match *event {
+            ParkedRoute::Stalled(..) => Event::RouteStalled { route },
+            _ => Event::RouteResumed { route },
         };
-        self.queue.post_mandatory(event).is_ok()
+        if self.queue.post_mandatory(posted).is_err() {
+            return false;
+        }
+        if let ParkedRoute::Stalled(_, mark) = *event {
+            self.route_stall_posted(route, mark);
+        }
+        true
     }
 
     fn on_done(&mut self, id: &SessionId, req: u64, result: OpResult) {
@@ -780,7 +788,7 @@ impl HostEngine {
             ParkedRoute::Close(route, reason) => {
                 !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
-            ParkedRoute::Progress(route, stalled) => self.post_route_progress(route, stalled),
+            ParkedRoute::Stalled(..) | ParkedRoute::Resumed(_) => self.post_route_progress(&next),
         };
         if !posted {
             self.parked.push_front(next);
