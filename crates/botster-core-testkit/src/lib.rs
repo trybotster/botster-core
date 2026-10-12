@@ -31,6 +31,7 @@ pub mod queue_controls;
 #[cfg(feature = "slow")]
 pub mod real;
 pub mod refusal;
+pub mod report_holds;
 pub mod resume_controls;
 pub mod route_client;
 pub mod route_controls;
