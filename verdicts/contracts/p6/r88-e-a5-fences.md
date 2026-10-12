@@ -81,3 +81,5 @@ Next: P6 merges main `8ce40a0d`. That merge is not disjoint: #74 changed `docs/c
 ### Round limit: the steward DECIDED (round 4, no split)
 
 After three NOT CLEAN rounds (BUILD round limit), the steward decided as 016c and I recommended. #75 gets round 4 and is not split. The requirement (R-80 condition 3): the requested title's sequence must be the LAST bytes of the program's final print. Any title or other bytes after it make it no fence. P6 adds the red case. Then come the main merge, my Q7 delta review (`docs/core-testkit-controls.md` is shared with #74), and ONE exact-head gate.
+
+The lead's decision (the same day) agrees: settle the point, no split, no replan; P6 fixes, merges main once, runs ONE gate, then round 4. If the ruling is a general rule, it also goes into P3's R-88 lint (#73), so that it cannot recur. #73 and #75 both change `fence_lint.rs`, so the second of them to merge carries the rule in both places. I check that at the second merge's delta review.
