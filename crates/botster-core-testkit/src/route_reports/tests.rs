@@ -235,3 +235,16 @@ fn progressed_needs_a_mark_before_the_accept() {
     reports.call(LINK);
     assert!(!progressed(&reports));
 }
+
+/// The base of a route's accept holds only that route's marks: a higher mark of another route, received and not consumed at
+/// the accept, is not in it.
+#[test]
+fn the_base_holds_only_the_routes_own_marks() {
+    let mut reports = RouteReports::default();
+    calls(&mut reports, &[hello(), progress(R2, 4, true)]);
+    calls(&mut reports, &[progress(RouteId(3), 9, true)]);
+    reports.accepted(R2);
+    calls(&mut reports, &[progress(R2, 5, true)]);
+    reports.call(LINK);
+    assert!(progressed(&reports), "mark 5 is above the route's mark 4");
+}
