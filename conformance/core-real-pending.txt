@@ -27,7 +27,6 @@
 # a2_2_missing_op passes on the wrapped composition at contracts-v0.1.39, but on a plain Core::open (the pass-through run)
 # it is INCONCLUSIVE at seed 0 step 18 (step_timeout; the .39 pin PR's N-run, Linux, 0 of 5).
 conf::a2_2_missing_op_is_bad_frame_not_refused
-conf::ou_5_peer_fault_closes_only_that_route
 
 # the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (with ids from P4a PR3: pty_output, pty_input, pty_blocked).
 conf::a2_2_cancel_race_reports_the_real_outcome
@@ -39,7 +38,6 @@ conf::in_2_link_loss_is_unknown_not_zero
 conf::in_2_partial_is_certain
 conf::in_6_cancel_reports_progress
 conf::in_7_lost_worker_ends_pending
-conf::ou_12_output_bytes_are_unmodified_and_in_order
 
 # needs wait_worker_exit for a non-spawned worker (R-46 follow-up 5651aec): its Remove of a stray worker learns of the end only
 # at the stop_grace re-check, P5.
@@ -50,6 +48,8 @@ conf::a2_3_close_first_reason_wins_with_new_reasons
 conf::a2_3_write_failed_closes_with_write_failed
 
 # R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6.
+# #287 gives the real route_fill; the id stays: the pinned core-fence-exceptions.txt lists step 19 as unfenced (no await_title,
+# R-57), so a real-tier pass is not evidence (lead, #287).
 conf::ou_3_progressing_reader_lossless
 
 # R-43(5): no_spurious_wakes (contracts-v0.1.39, #50; lead, plan 23aw); it passes on the testkit since the TM-6 wake fix. On the
@@ -59,6 +59,8 @@ conf::tm_6_begin_and_attach_signal_wake
 
 # The testkit route end answers pty_input since the testkit PR of plans 23aw/23bd; route_stream_holders has no real form (lead,
 # plans 23be and 23bh). P6, with the other R-47 real route controls.
+# #287 gives the real route controls; the ids stay: the pinned core-fence-exceptions.txt lists step 9 of each as unfenced (no
+# program_ready, R-60), so a real-tier pass is not evidence (lead, #287).
 conf::ou_1_attach_hands_transport_to_worker
 conf::ou_11_transport_ownership_is_defined
 
