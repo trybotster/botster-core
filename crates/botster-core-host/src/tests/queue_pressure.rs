@@ -947,6 +947,8 @@ fn a_parked_route_event_is_parked_work_of_the_routes_session() {
     w.autopilot = Autopilot::Silent;
     w.running("s1");
     let route = super::losses::attach(&mut w);
+    // The host takes the route's reports after its `RouteReceived` (R-90, ID-2).
+    w.worker_says("s1", WorkerMsg::RouteReceived { route });
     w.engine.poll_events(64);
     // One mandatory event fills the queue.
     w.engine.begin(create("s2")).unwrap();
@@ -955,7 +957,7 @@ fn a_parked_route_event_is_parked_work_of_the_routes_session() {
         w.engine.parked_on_room([]).is_empty(),
         "the create's event filled the queue, and nothing waits yet"
     );
-    w.worker_says("s1", WorkerMsg::RouteStalled { route });
+    w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 0 });
     assert_eq!(
         w.engine.parked_on_room([]),
         BTreeSet::from([sid("s1")]),

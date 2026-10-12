@@ -52,6 +52,14 @@ fn close(route: RouteId) -> Vec<u8> {
     })
 }
 
+fn progress(route: RouteId, mark: u64, waiting: bool) -> Vec<u8> {
+    worker(&WorkerMsg::RouteProgress {
+        route,
+        mark,
+        waiting,
+    })
+}
+
 fn other() -> Vec<u8> {
     worker(&WorkerMsg::RouteReceived { route: R2 })
 }
@@ -67,10 +75,12 @@ fn calls(reports: &mut RouteReports, chunks: &[Vec<u8>]) {
 const NONE: Seen = Seen {
     activity_before_close: false,
     closed: false,
+    progressed: false,
 };
 const BOTH: Seen = Seen {
     activity_before_close: true,
     closed: true,
+    progressed: false,
 };
 
 /// The control's answer, and its wakes: one for each answer while a received report waits.
@@ -108,7 +118,8 @@ fn only_an_activity_consumed_before_the_close_counts() {
         reports.seen(&instance(), R2),
         Seen {
             activity_before_close: false,
-            closed: true
+            closed: true,
+            progressed: false,
         }
     );
     let mut reports = RouteReports::default();
@@ -118,7 +129,8 @@ fn only_an_activity_consumed_before_the_close_counts() {
         reports.seen(&instance(), R2),
         Seen {
             activity_before_close: true,
-            closed: false
+            closed: false,
+            progressed: false,
         }
     );
     assert_eq!(reports.seen(&instance(), RouteId(3)), NONE);
@@ -171,4 +183,68 @@ fn a_closed_link_consumes_nothing() {
     assert!(!reports.waits());
     reports.call(LINK);
     assert_eq!(reports.seen(&instance(), R2), NONE);
+}
+
+fn progressed(reports: &RouteReports) -> bool {
+    reports.seen(&instance(), R2).progressed
+}
+
+/// R-90 follow-up, Q2: `progressed` is a consumed progress report with a mark above every mark that the record received
+/// before the route's latest `route_accept`. A report of the same mark (the route still waits, or newly waits) is not
+/// progress; a mark that was received but not consumed at the accept is in the base.
+#[test]
+fn progressed_is_a_consumed_mark_above_the_marks_before_the_accept() {
+    let mut reports = RouteReports::default();
+    calls(&mut reports, &[hello(), progress(R2, 4, true)]);
+    reports.call(LINK);
+    assert!(!progressed(&reports), "no accept yet");
+    // A received report that waits for the next call at the accept is in the base.
+    calls(&mut reports, &[progress(R2, 5, true)]);
+    reports.accepted(R2);
+    reports.call(LINK);
+    assert!(!progressed(&reports), "mark 5 came before the accept");
+    calls(
+        &mut reports,
+        &[progress(R2, 5, false), progress(R2, 5, true)],
+    );
+    reports.call(LINK);
+    assert!(!progressed(&reports), "the same mark is no progress");
+    calls(&mut reports, &[progress(R2, 6, true)]);
+    assert!(!progressed(&reports), "received, not consumed");
+    reports.call(LINK);
+    assert!(progressed(&reports));
+    // A new accept starts again from the highest mark.
+    reports.accepted(R2);
+    assert!(!progressed(&reports));
+    calls(
+        &mut reports,
+        &[worker(&WorkerMsg::RouteResumed { route: R2, mark: 7 })],
+    );
+    reports.call(LINK);
+    assert!(progressed(&reports), "a resume reports progress");
+    assert!(!reports.seen(&instance(), RouteId(3)).progressed);
+}
+
+/// With no mark of the route before the accept, no report proves progress after it.
+#[test]
+fn progressed_needs_a_mark_before_the_accept() {
+    let mut reports = RouteReports::default();
+    calls(&mut reports, &[hello()]);
+    reports.accepted(R2);
+    calls(&mut reports, &[progress(R2, 9, true)]);
+    reports.call(LINK);
+    assert!(!progressed(&reports));
+}
+
+/// The base of a route's accept holds only that route's marks: a higher mark of another route, received and not consumed at
+/// the accept, is not in it.
+#[test]
+fn the_base_holds_only_the_routes_own_marks() {
+    let mut reports = RouteReports::default();
+    calls(&mut reports, &[hello(), progress(R2, 4, true)]);
+    calls(&mut reports, &[progress(RouteId(3), 9, true)]);
+    reports.accepted(R2);
+    calls(&mut reports, &[progress(R2, 5, true)]);
+    reports.call(LINK);
+    assert!(progressed(&reports), "mark 5 is above the route's mark 4");
 }

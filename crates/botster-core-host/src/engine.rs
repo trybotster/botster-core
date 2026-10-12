@@ -132,14 +132,27 @@ pub(crate) struct RouteEntry {
     pub session: SessionId,
     pub instance: InstanceId,
     pub route_tag: Option<String>,
+    /// The route's stall clock, with its applied limits (R-90, OU-1).
+    pub clock: crate::stall::RouteClock,
 }
 
 /// A route event that waits for mandatory room (EV-5b).
 #[derive(Debug)]
 pub(crate) enum ParkedRoute {
     Close(RouteId, RouteCloseReason),
-    /// `RouteStalled` (true) or `RouteResumed` (false).
-    Progress(RouteId, bool),
+    /// `RouteStalled` at the worker's mark: the close deadline runs from the pump that posts it (R-90; 0181's ST298-R5).
+    Stalled(RouteId, u64),
+    Resumed(RouteId),
+}
+
+impl ParkedRoute {
+    pub(crate) fn route(&self) -> RouteId {
+        match *self {
+            ParkedRoute::Close(route, _)
+            | ParkedRoute::Stalled(route, _)
+            | ParkedRoute::Resumed(route) => route,
+        }
+    }
 }
 
 /// Who a ticket belongs to.
@@ -282,18 +295,11 @@ impl HostEngine {
     fn accepts_at(&self, input: &Input, room: bool) -> bool {
         use botster_core_link::msg::WorkerMsg;
         match input {
-            Input::LinkMsg {
-                msg:
-                    WorkerMsg::RouteClosed { .. }
-                    | WorkerMsg::RouteStalled { .. }
-                    | WorkerMsg::RouteResumed { .. }
-                    // The frames that cause a state transition stay unread until their event fits (EV-5b).
-                    | WorkerMsg::Exited { .. }
-                    | WorkerMsg::Launched { .. }
-                    | WorkerMsg::LaunchFailed { .. }
-                    | WorkerMsg::Adopted { .. },
-                ..
-            } => room,
+            // While a due step of the link holds a slot (R-90, E3-1 item 4), the step's answer takes it, and a frame ahead of
+            // the answer on the same link takes it over (`take_over_slot`).
+            Input::LinkMsg { link, msg } if needs_room(msg) => {
+                room || self.slot_of_link(*link).is_some()
+            }
             // The events of the model belong to the running session: an observation stays unread on its link while the
             // session's start or adoption is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5).
             // The link keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
@@ -307,6 +313,13 @@ impl HostEngine {
             }),
             _ => true,
         }
+    }
+
+    /// True for the answer of a due step that still holds its slot: the route's `RouteStalled` or `RouteClosed`.
+    pub(crate) fn answer_has_slot(&self, msg: &botster_core_link::msg::WorkerMsg) -> bool {
+        use botster_core_link::msg::WorkerMsg;
+        matches!(msg, WorkerMsg::RouteClosed { route, .. } | WorkerMsg::RouteStalled { route, .. }
+            if self.route_holds_slot(*route))
     }
 
     pub(crate) fn mono(&self) -> Option<Instant> {
@@ -713,13 +726,27 @@ impl HostEngine {
                 Work::Session(id) => {
                     out.insert(id);
                 }
-                Work::Parked => out.extend(self.parked.iter().filter_map(|p| {
-                    let (ParkedRoute::Close(route, _) | ParkedRoute::Progress(route, _)) = p;
-                    self.routes.get(route).map(|r| r.session.clone())
-                })),
+                Work::Parked => out.extend(
+                    self.parked
+                        .iter()
+                        .filter_map(|p| self.routes.get(&p.route()).map(|r| r.session.clone())),
+                ),
                 _ => {}
             }
         }
+        // A route's due stall step that ran and found no room (R-90; E3-1 item 4). It is listed here, not through
+        // `Work::DueStep`, which also stands for a due `Silent` and so cannot tell which session waits.
+        out.extend(
+            self.routes
+                .values()
+                .filter(|r| {
+                    r.clock.parked()
+                        && r.clock
+                            .deadline()
+                            .is_some_and(|(at, _)| self.now.is_some_and(|now| at <= now))
+                })
+                .map(|r| r.session.clone()),
+        );
         for input in held {
             if let Input::LinkMsg { link, .. } = input {
                 if !self.accepts_at(input, false) && self.accepts_at(input, true) {
@@ -833,4 +860,19 @@ pub(crate) fn new_session(
         pending_end: None,
         adopting: None,
     }
+}
+
+/// The worker frames that cause a state transition: they stay unread until their mandatory event fits (EV-5b).
+pub(crate) fn needs_room(msg: &botster_core_link::msg::WorkerMsg) -> bool {
+    use botster_core_link::msg::WorkerMsg;
+    matches!(
+        msg,
+        WorkerMsg::RouteClosed { .. }
+            | WorkerMsg::RouteStalled { .. }
+            | WorkerMsg::RouteResumed { .. }
+            | WorkerMsg::Exited { .. }
+            | WorkerMsg::Launched { .. }
+            | WorkerMsg::LaunchFailed { .. }
+            | WorkerMsg::Adopted { .. }
+    )
 }

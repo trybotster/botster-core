@@ -430,7 +430,13 @@ fn a_drain_blocked_on_mandatory_room_waits_for_the_poll() {
     }));
     // `Created`, `Starting`, `Running` fill the queue of three; the route event behind them needs room.
     super::start_session(&mut rig, "s1", LinkId(1));
-    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteStalled {
+            route: RouteId(1),
+            mark: 0,
+        },
+    );
     rig.worker_says(LinkId(1), exited(3));
     worker_exits(&rig, 3);
     let report = rig.pump();

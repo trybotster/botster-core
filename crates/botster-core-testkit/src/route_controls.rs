@@ -50,8 +50,8 @@ struct OfRoute {
     route: RouteId,
 }
 
-/// Steward ruling R-66: `{activity_before_close, closed}`, what the host of `handle` consumed of the worker's reports of
-/// `route` in `session`. It reads the edge's record and never waits (R-14.3); a report that waits for the driver's next call
+/// Steward ruling R-66 and the R-90 follow-up (Q2): `{activity_before_close, closed, progressed}`, what the host of `handle`
+/// consumed of the worker's reports of `route` in `session`. It reads the edge's record and never waits (R-14.3); a report that waits for the driver's next call
 /// signals the host's wake, so that the next pump consumes it.
 fn route_reports(
     harness: &mut TestkitHarness,
@@ -64,7 +64,11 @@ fn route_reports(
         .reports_of(handle)
         .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
     let seen = lock(&reports).answer(&row.instance, route, || wake.signal());
-    Ok(json!({ "activity_before_close": seen.activity_before_close, "closed": seen.closed }))
+    Ok(json!({
+        "activity_before_close": seen.activity_before_close,
+        "closed": seen.closed,
+        "progressed": seen.progressed,
+    }))
 }
 
 /// The faults of the host of `handle`.
@@ -224,7 +228,7 @@ mod tests {
             .instance;
         let answer =
             |harness: &mut TestkitHarness| run(harness, "route_reports", args.clone()).unwrap();
-        let none = json!({"activity_before_close": false, "closed": false});
+        let none = json!({"activity_before_close": false, "closed": false, "progressed": false});
         assert_eq!(answer(&mut harness), none);
         // A link of another instance, then one of the session's instance, each with r2's close.
         let frame = |kind: FrameType, payload: &[u8]| {
@@ -264,7 +268,7 @@ mod tests {
         lock(&reports).call(own);
         assert_eq!(
             answer(&mut harness),
-            json!({"activity_before_close": false, "closed": true})
+            json!({"activity_before_close": false, "closed": true, "progressed": false})
         );
         assert!(
             bad(run(&mut harness, "route_reports", json!({"session": "s1"}))).contains("arguments")

@@ -20,6 +20,7 @@ mod handoff;
 mod holds;
 mod observations;
 mod seeded_trace;
+mod stall;
 
 #[derive(Default)]
 struct TestWake {
@@ -685,7 +686,13 @@ fn parked_work_alone_does_not_signal_the_wake() {
     let mut rig = Rig::new(limits(|l| l.mandatory_events = 3));
     start_session(&mut rig, "s1", LinkId(1));
     // `Created`, `Starting`, `Running` fill the queue of three; the route event waits for room on its link.
-    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+    rig.worker_says(
+        LinkId(1),
+        WorkerMsg::RouteStalled {
+            route: RouteId(1),
+            mark: 0,
+        },
+    );
     let report = rig.pump();
     assert!(!report.more, "parked work does not set more");
     assert!(!rig.wake_set());
@@ -846,7 +853,13 @@ fn a_blocked_frame_stays_unread_and_the_poll_restores_the_link() {
     start_session(&mut rig, "s1", LinkId(1));
     // `Created`, `Starting`, `Running` fill the queue of three.
     for _ in 0..5 {
-        rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route: RouteId(1) });
+        rig.worker_says(
+            LinkId(1),
+            WorkerMsg::RouteStalled {
+                route: RouteId(1),
+                mark: 0,
+            },
+        );
     }
     rig.pump();
     {

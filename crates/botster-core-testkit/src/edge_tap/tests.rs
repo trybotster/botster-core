@@ -1688,6 +1688,36 @@ fn the_driver_consumes_a_route_report_at_its_next_call_in_every_branch() {
     assert_eq!(reports_of(&rig, r2), (false, false));
 }
 
+/// R-90 follow-up, Q2: the tap's `route_accepted` sets the base of `progressed` in the record that `route_reports` answers
+/// from: a mark above the base, consumed after the accept, is progress.
+#[test]
+fn the_taps_accept_sets_the_base_of_progressed() {
+    let r2 = RouteId(2);
+    let progress = |mark| {
+        worker_frame(&WorkerMsg::RouteProgress {
+            route: r2,
+            mark,
+            waiting: true,
+        })
+    };
+    let first = [hello_frame("1-1"), progress(3)].concat();
+    let second = progress(4);
+    let mut rig = rig(fake_with_link(vec![
+        Read::Data(first.clone()),
+        Read::Data(second.clone()),
+    ]));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert_eq!(rig.recv(A, first.len()).unwrap(), first);
+    rig.with(|t| t.route_accepted(r2));
+    assert_eq!(rig.recv(A, second.len()).unwrap(), second);
+    assert_eq!(
+        rig.recv(A, 16).unwrap_err().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    let seen = rig.with(|t| t.route_reports(&InstanceId("1-1".into()), r2));
+    assert!(seen.progressed, "mark 4 is above the base 3");
+}
+
 fn rig_with_inner_read(bytes: Vec<u8>) -> Rig {
     let mut rig = rig(fake_with_link(vec![Read::Data(bytes)]));
     assert_eq!(rig.edges.accept_link(), Some(A));

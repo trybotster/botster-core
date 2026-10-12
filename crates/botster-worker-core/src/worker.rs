@@ -478,6 +478,8 @@ impl Worker {
         if self.output_unsent {
             self.report_output();
         }
+        // The flush rule of the stall clock (R-90): a route's waiting progress report goes before every later report.
+        self.flush_route_progress();
         self.send_report(msg);
     }
 
@@ -514,9 +516,11 @@ impl Worker {
         }
     }
 
-    /// Sends the `Output` report of the latest revision.
+    /// Sends the `Output` report of the latest revision, after the routes' waiting progress reports (the flush rule of the
+    /// stall clock, R-90; 0181's ST298-R4).
     fn report_output(&mut self) {
         self.output_unsent = false;
+        self.flush_route_progress();
         self.send_report(&WorkerMsg::Observed {
             observation: Observation::Output {
                 model_rev: self.model_rev,
@@ -650,6 +654,8 @@ impl Worker {
                 limits,
             } => self.on_attach_route(route, options, limits),
             HostMsg::Detach { route, reason } => self.on_detach(route, reason),
+            HostMsg::RouteStallDue { route, mark } => self.on_route_stall_due(route, mark),
+            HostMsg::RouteCloseDue { route, mark } => self.on_route_close_due(route, mark),
             // A later variant of the enum is a later host's.
             _ => {}
         }
@@ -1267,11 +1273,15 @@ impl Worker {
             out.req = None;
         }
         self.send_hello();
+        // The routes' progress reports of the old link are not on the new one: they start again after `Adopted` (R-90).
+        self.routes_relinked();
         let report = self.adoption_report();
         self.report(&report);
         // The old link's reads that were not checked close on the new link, after its hello and `Adopted` (F120): a route
         // that took a descriptor of one ends `HandoffFailed`, and the new host is told after the hello.
         self.close_unchecked();
+        // The routes that stay report their state on the new link (R-90 Q3).
+        self.report_route_progress();
         // Bytes that came after the hello in the same read belong to the new link.
         self.on_link_bytes(now, rest, Vec::new());
     }
@@ -1357,6 +1367,7 @@ impl Machine for Worker {
                 {
                     self.report_output();
                 }
+                self.route_progress_written();
                 self.finish_close();
             }
             Input::Spawned(result) => self.on_spawned(result),

@@ -765,14 +765,18 @@ impl RealCoreHarness {
         Ok(json!({ "held": held }))
     }
 
-    /// Steward ruling R-66: `{activity_before_close, closed}`, what Core consumed of the worker's reports of `route` in
-    /// `session` ([`Tap::route_reports`]). It reads the tap and never waits (R-14.3); a report that waits for the driver's
+    /// Steward ruling R-66 and the R-90 follow-up (Q2): `{activity_before_close, closed, progressed}`, what Core consumed of
+    /// the worker's reports of `route` in `session` ([`Tap::route_reports`]). It reads the tap and never waits (R-14.3); a report that waits for the driver's
     /// next call wakes the host, so that the next pump consumes it.
     fn route_reports(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let OfRoute { session, route } = parse(args)?;
         let (tap, row) = self.stored(handle, &session)?;
         let seen = lock(&tap).route_reports(&row.instance, route);
-        Ok(json!({ "activity_before_close": seen.activity_before_close, "closed": seen.closed }))
+        Ok(json!({
+            "activity_before_close": seen.activity_before_close,
+            "closed": seen.closed,
+            "progressed": seen.progressed,
+        }))
     }
 
     /// Core DP-2: the next hand-over of a route's stream endpoint fails, once, at the tap ([`Tap::fail_next_handoff`]).
@@ -1445,6 +1449,17 @@ impl CoreHarness for RealCoreHarness {
             max_frame_bytes,
             socket,
         );
+        let route = match self.tap(handle).ok().filter(|_| self.tapped) {
+            Some(tap) => {
+                let (tap, id) = (Arc::downgrade(&tap), result.route);
+                route.with_accepted(Box::new(move || {
+                    let tap = tap.upgrade().ok_or("the route's handle is closed")?;
+                    lock(&tap).route_accepted(id);
+                    Ok(())
+                }))
+            }
+            None => route,
+        };
         Ok((result, Box::new(route)))
     }
 }
@@ -2180,7 +2195,7 @@ mod slow_controls {
         // R-66: no route of s1 has a report yet; an unknown session has no row.
         assert_eq!(
             control("route_reports", json!({"session": "s1", "route": 2})),
-            Ok(json!({"activity_before_close": false, "closed": false}))
+            Ok(json!({"activity_before_close": false, "closed": false, "progressed": false}))
         );
         assert!(bad(control(
             "route_reports",
