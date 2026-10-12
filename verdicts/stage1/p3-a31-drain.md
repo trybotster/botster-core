@@ -272,3 +272,48 @@ I read the complete F160 supplement to package Round 204 at `0d1847317a23317f5af
 It retains F159 MEDIUM and F160 LOW on withdrawn train 4d7c547a. Its source premises match integration Round 5.
 Package message `msg_plugin-w_1791840496_174b44` confirms that the reviewer read complete integration Round 5 at `d76d87f3982c87a03a96bb15ace15f456532cc8a`.
 No new review round or repair acceptance follows. #318 remains outside train 9b.
+
+
+### Second import and repair inspection: package verdict pending
+
+- Head: `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+- Tree: `b01738869303a3d6e5d4eae1d385b69134b714c0`.
+- Imported v1: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Previous reviewed member: `acd6ced03f7306cbf250f25d668b239ef7d70b33`.
+- Owner READY: `msg_plugin-w_1791840693_b80efe`.
+
+Merge 12b2418a has the previous member and imported v1 as its parents. Its commit records no textual conflict and rerere off.
+Seven previous own patches preserve every added and deleted line. The eighth changes only the F159 exit arm.
+The ninth own path changes only the F160 action comment. The final own diff has nine files, 630 additions, and 144 deletions.
+All ten conformance blobs equal imported v1. The changed import lists satisfy the three-way ID formula: held 4, ledger 692, pending 385.
+No new pin, list removal, exception, public signature, or shared helper change follows from these two repairs.
+
+F159's repair requires Ok(Ok(status)) before the tail test starts its drain. Ok(Err(failed)) fails the test immediately.
+The outer receive error keeps the wait active. The driver retains the sender; the existing absolute deadline bounds that wait.
+The actual poll event, Linux unread tail and count gap, Mac readiness reads, full byte equality, and cleanup remain unchanged.
+Production still converts the watched inner error into Input::ExitWatchFailed. The test no longer treats that error as a successful exit.
+F160's repair describes repeated counted reads and flushing reads, quiet-read or EIO/EOF termination, and no byte bound.
+It retains the continuous-writer A24 gap. Earlier F150–F154 closures and the lead's F154 SETTLE retain their scopes.
+
+I read the complete current PR body. Its UTF-8 SHA256 is `e98d05d204a37e86d0e9eb65d7b30471c45fec1179a1bc3f23b0c698af1ef7ca`.
+The second-import section separates inherited list changes from the own diff and describes both repairs and evidence limits.
+The owner reports the lead's ruling: no separate member gate; the train-10 gate covers this member.
+No train-10 source or gate acceptance follows from this inspection. The complete same-head package verdict remains due before integration CLEAN.
+
+Local evidence directory: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/p3-a31/`.
+I read the recorded results without running their commands:
+
+- `local-check-2bb84650.log`: SHA256 `37fd3a78cbb9a696fe72043809952f0e63cef89f54b35ce0c5966ff2e35dcc23`.
+  It names the repair head and records removal of 8326 files, 2.3 GiB, after the worktree switch.
+  It reports fmt, CI taint, xtask checks, lists, clippy, default 1127, worker slow 148, and strict 579 with exits zero.
+  The owner's body identifies strict seeds 0–31. The record gives no independent history of other target writers.
+- `f160-check.log`: SHA256 `6a2fd420a8d718b4f9a05b3f734fc1bad55ae8ee5d5c6c8dca3476ce96618512`.
+  It reports fmt, doc, and clippy exits zero. The first taint command fails because NEXTEST_TEST_THREADS is absent.
+  The capped taint command then passes. Both results remain evidence; the later pass does not erase the first failure.
+- `workspace-check-836d3395.log`: SHA256 `9517385b079f3cdb040966f976dc3cba9c51ed32fb606bfa8b1c4fa5ab3aa3f7`.
+  It names the current head and imported base. It reports cargo check --locked --workspace --tests exit zero, with warnings retained.
+
+The doc log does not contain its own head header. The owner identifies its head and broken-intra-doc-link denial in the body.
+These are local producer records. They do not replace the later exact train gate or establish a completed merge.
+F28 and the earlier Mac IN-6 diagnosis remain separate duties. I ran no execution job.
+No formal verdict or new NOT CLEAN round follows from this pending inspection.
