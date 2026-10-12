@@ -2935,3 +2935,18 @@ This source delta CLEAN satisfies the requested #312 package base-change review.
 Matching integration delta, required combined review, other member reviews, final gate, member receipts, and equal-tree merge verification remain due.
 This verdict accepts no later head, different tree, specific retry, or final train result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — matching train 4b integration delta
+
+Integration message: `msg_plugin-w_1791825962_0f07aa`.
+Integration receipt: `b8337e7eba5b70d753f06cff203e17b60bdbfb65`, Round 7 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+It is CLEAN for the source delta at `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+The base is `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`; the tree is `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+The ordered merges, unchanged #312 blobs, nine conformance files, and accepted #317 base difference match package receipt `6fe61678c003a1205e17a1cfd27f0c9e62ccf648`.
+The applicable EV-2 entry, mutation-only selection scope, separate A31 scope, and future removal requirement also match.
+Both #312 source delta reviews have zero open findings, including LOW findings.
+The old train-4 gate remains RED. This record accepts no final gate, specific retry, future pin, or later train head.
+Other member reviews, required combined review, fresh train gate, final receipts, and equal-tree merge verification remain due.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
