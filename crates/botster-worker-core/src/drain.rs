@@ -8,7 +8,7 @@
 /// The count of the PTY (`FIONREAD`) can leave out output that the terminal has not moved to its read buffer yet: on Linux
 /// it counts only the line discipline's read buffer (at most 4096 bytes), and more output waits in the flip buffers. A
 /// nonblocking read moves that output before it reports that no byte is left. So the drain repeats a counted part and then
-/// a flushing read, and it ends only when a read finds nothing or the output ends (`EIO` on Linux, EOF on macOS). A count is
+/// a flushing read, and it ends only when a read finds nothing or the output ends (`EIO` or EOF, on either OS: R-108-E1). A count is
 /// only the size of the next reads, never a reason to stop: the drain has no byte bound (R-108 (1), (2)).
 ///
 /// A process that holds the PTY and keeps writing after the payload's exit keeps the drain going. The contract does not say

@@ -604,26 +604,47 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
         );
     }
     h.driver.payload.as_ref().unwrap().signal_group(9);
-    // On macOS a dying leader can wait for its terminal to drain, so the driver reads while the test waits for the exit, as
-    // its loop does.
+    // The test waits on the driver's own poll for the production exit wake (`EXIT`), under one deadline. On macOS a dying
+    // leader waits for its terminal to drain (R-108-E1), so there the driver reads at each PTY readiness while the test waits,
+    // as its loop does. On Linux the exit comes without reads, so nothing is read before `DrainPty`, and the drain must read
+    // the whole tail, also the part that the count left out.
+    let read_while_waiting = !cfg!(target_os = "linux");
     let mut output = Vec::new();
-    let mut waited = Duration::ZERO;
-    let slice = Duration::from_millis(50);
-    loop {
-        // timer: deadline — one slice of the bounded wait for the production exit watch after the group kill.
-        if h.driver.exits.1.recv_timeout(slice).is_ok() {
-            break;
+    let mut events = Events::with_capacity(16);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut exited = false;
+    while !exited {
+        let left = deadline
+            .checked_duration_since(Instant::now())
+            .expect("no exit after the kill");
+        // timer: deadline — the one bounded wait for the production exit wake after the group kill.
+        if io_decisions::poll_interrupted(h.driver.poll.poll(&mut events, Some(left))).unwrap() {
+            continue;
         }
-        waited += slice;
-        assert!(waited < Duration::from_secs(10), "no exit after the kill");
-        h.driver.pty_readable = true;
-        h.driver.read_pty_chunk().unwrap();
-        while let Some(input) = h.driver.inputs.pop_front() {
-            match input {
-                Input::PtyOutput(bytes) => output.extend(bytes),
-                other => panic!("{other:?}"),
+        for event in &events {
+            match event.token() {
+                EXIT => exited |= h.driver.exits.1.try_recv().is_ok(),
+                PTY => h.driver.pty_readable = true,
+                _ => {}
             }
         }
+        if read_while_waiting && !exited {
+            while h.driver.pty_readable && h.driver.pty_registered {
+                h.driver.read_pty_chunk().unwrap();
+            }
+            while let Some(input) = h.driver.inputs.pop_front() {
+                match input {
+                    Input::PtyOutput(bytes) => output.extend(bytes),
+                    other => panic!("{other:?}"),
+                }
+            }
+        }
+    }
+    if !read_while_waiting {
+        assert!(
+            h.driver.pty_readable,
+            "the PTY's readiness came before the exit"
+        );
     }
     h.driver.perform(Action::DrainPty).unwrap();
     let mut reads = 0;

@@ -528,9 +528,10 @@ impl Driver {
         }
     }
 
-    /// At most one chunk of the PTY. During a drain each read follows `Drain` (A31, OU-7): the count taken when the drain
-    /// was asked, then one flushing read, which moves output that the count left out, then at most the count measured once
-    /// after it. `PtyDrained` follows once the drain is complete (or the output ended).
+    /// At most one chunk of the PTY. During a drain each read follows `Drain` (A31, OU-7, R-108): the drain repeats a counted
+    /// part and then a flushing read, which moves output that the count left out. A flushing read that finds bytes leads to
+    /// a counted part of the count measured after it. A read that finds nothing, or the end of the output (`EIO` or EOF),
+    /// completes the drain; the drain has no byte bound. `PtyDrained` follows once the drain is complete.
     ///
     /// # Errors
     /// The count of the PTY after a flushing read that found bytes failed.
