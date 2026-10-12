@@ -510,3 +510,53 @@ The complete new package verdict and final acceptance remain due.
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
 
 VERDICT: NOT CLEAN (1 MEDIUM evidence finding: R291-SI-4; 0 open source findings) at 8ac717c7d94560bf1f82a5975bb45162ba0b88da against source base f6025aed4cdf7da836e835e0040fc128b7e8f32f
+
+### Round 8 supplement — IN9 controlled attribution accepted by Sol and the lead
+
+PC supplies the proof in `msg_plugin-w_1791764613_d099fd`.
+Sol reads the complete log, scratch diff, pinned transcript, runner, probe gate, output acknowledgement, worker loop, and focus encoding.
+The proof starts from plain v1 `f6025aed4cdf7da836e835e0040fc128b7e8f32f` without #291.
+The only scratch path is `crates/botster-core-testkit/src/real/program.rs`.
+The scratch file is `~/botster-sessions/gates/pc-in9-repro-scratch-f6025aed.diff`.
+Its SHA-256 is `0151f1ecce86b2fb27ea9fb2c7456f143da417a2473beba29fc0941c593aed01`.
+It delays only CSI ?1004h delivery by 300 milliseconds in a thread. The thread later calls the unchanged output request.
+The diagnostic is never committed and changes no result predicate, Core code, or input encoding.
+
+Log: `~/botster-sessions/shared/core-stage1/evidence/pc-r78/in9-repro-f6025aed.log`.
+SHA-256: `6d52750fe109e57c4e7d13d75f237875eda1e274dfc5b6c63984dbf4b003bad3`.
+Sol decodes both embedded patches without executing either. Both match the complete supplied diff byte for byte.
+The log records exact checkout f6025aed, contracts ddce507e, patch application, and that sole modified path.
+The pool job runs on msa1 with four CPUs and writes the candidate manifest before the real-tier test.
+The test has one failure and 689 filtered identifiers, in 10.37 seconds.
+It records INCONCLUSIVE for in_9_modes_read_at_write_start at seed 0, step 8, limit step_timeout.
+That is the A5-4 identifier, step, and symptom; the A5-4 failure uses seed 4.
+The job and wrapper exit zero after 29 and 30 seconds because the command filters output and finishes with an echo.
+Those exits do not change the raw failure to PASS. The log supplies no numeric underlying test exit.
+
+The plain host `begin` queues the operation and synchronizes the wake; only pump makes progress.
+The output control waits for the probe acknowledgement. That acknowledgement does not fence the worker's PTY read.
+The worker serves its control link and settles its requests before it reads a PTY chunk in the same turn.
+Thus plain code can process the focus request before the mode bytes, even when the probe acknowledged those bytes first.
+The delayed diagnostic makes that existing order easier to reach during step 6's pump.
+With focus reporting off, encode_focus returns None, and model::encode returns NotWrittenReason::NotReported.
+The worker can therefore emit Completed with NotWritten(NotReported) before ModesChanged.
+The runner's pump_until discards events that do not match. Step 6 can discard that Completed while it awaits ModesChanged.
+Step 8 then waits for the already-consumed completion and reaches its deadline.
+The probe's blocked flag stops stdin reads. It does not itself make this real-tier focus request WouldBlock.
+PC corrects the earlier inconsistent diagnosis in `msg_plugin-w_1791764787_827f62`; Sol reads the complete corrected record.
+
+Sol confirms source non-interference for the same transcript prefix as Round 8.
+No Stop, exit, failed send, or lost link occurs before the failure. The new R-78 flags and branches remain inactive.
+The worker loop, focus encoder, runner, and output-control implementation remain unchanged by #291.
+The diagnostic supplies no missing behavior. It widens an existing timing window.
+The retained log has no event-order trace. The mechanism is inferred from source and the retained result.
+Sol claims no controlled seed-4 run, original A5-4 trace, or uninstrumented-v1 failure witness.
+
+Lead receipt `msg_plugin-w_1791764762_92795e` explicitly accepts this case under 23bl(A), including those limits.
+The lead assigns the removing contracts PR to PC: the R-88 held-write PR under the steward's R-74 form on both tiers.
+That PR also covers tm_6_begin steps 21/22 and in_6_refused_full step 9. It can enter .42 if final in time.
+Sol accepts this controlled attribution. R291-SI-4 now awaits only the required independent package acceptance.
+The complete repaired-head package verdict, final body, and final-slot acceptance remain due.
+This supplement accepts no final merge or new execution. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN for Sol's IN9 controlled attribution; overall #291 acceptance remains NOT CLEAN pending package acceptance and final-slot evidence

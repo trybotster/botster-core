@@ -118,3 +118,52 @@ This source and evidence CLEAN accepts no later head, import, pending removal, o
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable probe. Never poll.
 
 VERDICT: CLEAN (0 open; source and evidence before final SLOT) at 34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4 against base 926dfb62f3f7168990b2a48741946932d84b2fbb
+
+## Round 3 — final-slot source import
+
+Exact head: `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`.
+Reviewed base: `9053b1df868bbec2d62977660f44907e73323c55`.
+Tree: `98bb9f0393e4b63201927920a55d5d32c9cbdcd4`.
+Sol verifies both parents: reviewed head 34b47734 and imported base 9053b1df.
+GS supplies the SLOT import in `msg_plugin-w_1791764321_65b7c5`.
+
+Sol reads the complete retained canonical check.
+Path: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-ac457ca6-base-merge-check.log`.
+SHA-256: `f861baf8a063ac95c234651635355d179b65f9b8bdf85504e135021aa469102a`.
+The ancestry checks PASS. Conditions 1, 2, and 3 FAIL on conformance/core-held.txt.
+Both pending-file condition-4 checks PASS. This result requires both reviewers' explicit delta reviews.
+Sol runs no executable base check and does not convert that retained FAIL to PASS.
+
+Sol independently compares all five other own patches after removing only blob-index and hunk-location metadata.
+Every patch matches the reviewed patch byte for byte.
+Sol independently verifies that every imported non-own blob matches the imported base.
+The pending, real-pending, ledger, and real-only files match that base byte for byte.
+The only changed own content is the held-file resolution. Sol reads it completely against all three inputs.
+
+The old base and reviewed head each contain ev_8/budget and a20_1/unproven.
+The imported base adds dp_5/budget. The merged head contains exactly those three entries with those classes.
+The merged set equals the imported base set. GS adds no identifier or class through the resolution.
+The a20_1 entry remains unchanged.
+The ev_8 entry preserves the base's updated authority and its step-14 real_wait cause.
+The dp_5 entry preserves the base's owner, authority, and step-18 real_wait cause.
+Both missing-proof sentences become the held-full proof location at seeds 0–31, one trial per seed.
+The header retains the reviewed strict-first-seed and slow-full-seed rules.
+
+Sol reads the current generic budget filter, trial construction, and report check in their imported context.
+The unchanged filter selects both budget entries. The loop constructs 64 identifier/seed trials with their actual seed values.
+The unchanged decision checks success and a report naming two budget identifiers at 32 seeds.
+A failed trial, absent report, malformed report, or narrowed selection still fails the step.
+No bound, deadline, selection, mutation stage, or exclusion changes in this import.
+The earlier seed-1 negative proof retains its exact old-head scope. It does not become new execution evidence.
+
+Sol reads the complete current body and verifies the exact GitHub head and base.
+Body SHA-256: `3f40b65fec07cb9b43dd84058a5da66164a9195c35b7076ba4ff91843b48b0ef`.
+The final-head section names both budget identifiers, the conflict resolution, and the complete three-way sets.
+It ties all earlier one-identifier evidence to 34b47734 and marks the final gate running.
+The complete package delta and body correction at `e66e905202242b49d7f9920d3576134ff46320d6` agree with these source findings.
+Its LOW body finding closes. Both source delta reviews now have zero open findings.
+GS reports a local clean and a 64-trial held-full PASS. Sol does not independently validate that local run here.
+The completed exact-head final gate, final body, and final package acceptance remain due.
+Sol reads no running gate output and runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open source delta findings; final gate remains due) at ac457ca6a83731e68e4fc44ad3551b8ec39e3612 against base 9053b1df868bbec2d62977660f44907e73323c55
