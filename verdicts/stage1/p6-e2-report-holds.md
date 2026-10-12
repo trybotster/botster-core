@@ -127,3 +127,73 @@ P6 reports local fixes and a running gate. Sol-B accepts no unfinished result an
 Sol-B ran no execution job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2: report-hold repair and completed evidence
+
+Exact head: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Tree: `e48333e160ae048a5b7e1b0f59e0b7246d41022b`.
+Parent: reviewed input `cac85963de8f02a9751f94714248d957c082a497`.
+Source merge base remains `080987829a2e2245a7ea97606020400392c974d6`.
+Gate comparison base remains `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Sol-B reads the complete five-file delta, relevant fixture and adapter context, full body, and corrected design section 10.
+No base import occurs. Round 1's unchanged source, contract, process ownership, and Prior-art checks retain their scope.
+
+**B315-I1 is CLOSED.** Tap::quiet skips an inner link read when ReportHolds::withholds identifies a held frame.
+The probe can no longer take EOF again behind that hold.
+ReportHolds::gives includes an end with no hold before it. Released ends remain deliverable work.
+Other links retain the bounded quiet probe. The existing process-exit path remains unchanged.
+The tap acquires the holder lock in the existing tap-to-holder order. No reverse acquisition appears in the delta.
+
+The new controlled tap test uses an inner closed state that returns EOF on every read.
+It checks WouldBlock and quiet twice before release, with zero wake signals.
+After release, it checks non-quiet, report delivery, non-quiet for the end, and EOF delivery.
+It checks quiet after the driver closes the link.
+The component end test separately checks withholds during the hold and gives for the released end.
+The existing exit tests separately cover deferred exits and release.
+The new tap test isolates the repeated-EOF defect; it does not claim a new composed real-process exit test.
+Both changed tests PASS. The new tap test catches the withholds-to-false and gives-to-false mutants.
+
+**B315-I2 is CLOSED.** The completion helper checks expiration after each pump that does not complete the requested operation.
+The check applies when more is true and when more is false. The idle path retains its public wake wait.
+No additional sleep, reap call, or derived wait appears.
+
+**B315-I3 remains CLOSED.** The corrected design distinguishes an ordered EOF or read error from an explicit break.
+The implementation, unit test, and design now agree on the held-end order.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-e2-report-holds-29dc0efe-pool-20261012-095714-12815.log`.
+SHA256: `2ccaf806491ddf58159b70ab4183dd4c7c6b1cf02276701275a161117346a46b`.
+Sol-B reads its exact identity, base accounting, affected tests, raw mutation outcomes, citations, summaries, and exits.
+The log retains the correct comparison and merge bases. All ten steps PASS in 873.8 seconds.
+Default passes 1,960 tests; slow passes 622 tests. Strict conformance passes 261 with zero failure.
+The new quiet proof, changed component proof, and all three real report-control proofs PASS.
+Pending remains 406; real-pending remains 43. The repair changes no conformance file, pin, or mutation exclusion.
+This review accepts no status removal suggested by pending-test output.
+
+Stage 1 tests 159 mutants: 136 caught, ten missed, 13 unviable, and zero timeout.
+The unmutated slow baseline passes 622 tests. Stage 2 catches the ten exact stage 1 misses.
+Sol-B independently compares those missed and caught identity sets; they match.
+The final result has 146 caught, 13 unviable, zero missed, and zero timeout.
+All 146 unique raw catches match citations. Every catcher has a normal PASS.
+No FLAKY or INCONCLUSIVE record appears. Unviable results supply no catch evidence.
+Fuzz reports no changed decoder-harness crate.
+The job and wrapper exit 0 after 882 seconds on msa1, with one second queued and 881 seconds running.
+
+Earlier local-head log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-e2-report-holds-8d605032-pool-20261012-095336-3367.log`.
+SHA256: `495460070fbecbb5d291e8b066c2eab39c0a33744ae718bcf83fe71a03db5b34`.
+Sol-B reads the failure, byte assertion, summary, and exits. The 64-byte test read cannot contain the complete hello.
+Default reports one failure. Slow, mutants, and fuzz do not run.
+The job and wrapper exit 1 after 174 seconds. That gate remains failed.
+Sol-B compares the local head with this READY head. Only four test read sizes change from 64 to 4096.
+The expected frames, quiet assertions, and source repair remain unchanged. This structural fixture correction accounts for the failure.
+It supplies no same-source retry claim.
+
+Sol-B reads exact-head package verdict `cc1c7595740500c1b7c4f873ba4516782e0cff95`, its complete Round 2.
+Both reviews close all three findings and agree on the completed gate and evidence scope.
+The full body states the repair, corrected design, failed local gate, source and comparison bases, and completed current gate.
+No source, body, or supplied-evidence finding remains on this exact head.
+The Linux evidence covers the new controls through their current real adapter. This receipt claims no new Mac execution.
+The current-base import or train, its applicable delta, final exact-head gate, and lead merge verification remain due.
+This receipt accepts no later head, pin, status removal, or retry.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; exact repaired source and completed initial evidence)
