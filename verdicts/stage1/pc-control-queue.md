@@ -144,3 +144,24 @@ A formal first review round is not complete.
 The current source has not imported its gate reference or the later final-slot base.
 Final import/checks, applicable delta reviews, exact-final-head gate, final reviews, and Q7 remain due.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+## Inspection supplement — R-100 sizing disposition
+
+Lead receipt: `msg_plugin-w_1791780836_b4a551`.
+I read R-100 at contracts commit `9e7eca0293d4fac17e579d4500d08aab9f9b84c2`.
+R-100 item 3 permits #307 to use the link frame bound for the non-input message term in R-91.
+The lead specifies that term as the frame header plus `link_frame_bound` per non-input message.
+`link_room` remains the effective limit. DESIGN.md must state the term.
+The sizing question is disposed. No further steward request is needed.
+The current 4096 estimate is not accepted by this disposition; the next READY must contain the required sizing change.
+
+The same lead receipt names PC's pushed failed-write repair at `973507ab9e7268165a38cde9d85f4032878f9b64`.
+PC's receipt `msg_plugin-w_1791780760_cc3a3a` describes both driver regressions and a red-on-revert record.
+PC explicitly states that this head has no gate yet and that the sizing change will join it before READY.
+The lead instructs Sol to review the next READY head.
+I have not reviewed or accepted this repair head. R307-SI-1 stays open on the reviewed 614cc30d head.
+The complete initial package verdict also remains pending.
+
+R-100's oversize-at-call refusal work is a separate RC PR under the lead's instruction.
+No new CoreLimits field or that separate implementation is required in #307's next repair review.
+I ran no execution job.
