@@ -177,7 +177,7 @@ fn a_failed_row_delete_leaves_the_session_and_the_remove_can_be_tried_again() {
             }
             _ => {
                 w.running("s1");
-                w.exited("s1");
+                w.worker_ends("s1");
                 w.pump();
             }
         }
@@ -821,10 +821,13 @@ fn a_row_write_admitted_after_a_failed_create_leaves_no_row() {
     }
 }
 
-/// Core LC-5, AD-6: with the link gone, a stop signals only the verified worker (pid and start time), never a bare
-/// payload group; the session ends `Lost`.
+/// Core LC-5, AD-6, steward ruling R-97 (follow-up): with the link gone, a stop signals only the verified worker (pid and
+/// start time), never a bare payload group, and never kills the worker. At the stop it asks the worker to end the payload
+/// (`EndPayload`). `stop_grace` is Core's own deadline on the injected clock: the kill order (`KillPayload`) goes once, at
+/// the due pump and not before. The session ends `Lost`.
 #[test]
 fn a_broken_link_stop_signals_the_verified_worker_only() {
+    use GroupSignal::{EndPayload, KillPayload};
     let mut w = World::new(limits(|l| l.stop_grace = Duration::from_millis(100)));
     w.autopilot = Autopilot::Silent;
     w.running("s1");
@@ -833,17 +836,31 @@ fn a_broken_link_stop_signals_the_verified_worker_only() {
     w.feed(Input::LinkClosed { link });
     let op = w.engine.begin(Op::Stop { id: sid("s1") }).unwrap();
     w.pump();
-    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
-    w.advance(Duration::from_millis(100));
-    w.pump();
-    assert!(w.signals.contains(&(worker, GroupSignal::EndPayload)));
-    assert!(
-        w.signals.iter().all(|(_, s)| *s == GroupSignal::EndPayload),
-        "the worker is never killed: it keeps the final model (LC-5)"
+    assert_eq!(
+        w.signals,
+        vec![(worker, EndPayload)],
+        "the stop asks; it does not kill"
     );
-    assert!(
-        w.signals.iter().all(|(id, _)| *id == worker),
-        "no process but the verified worker is signalled"
+    w.advance(Duration::from_millis(99));
+    w.pump();
+    assert_eq!(
+        w.signals,
+        vec![(worker, EndPayload)],
+        "no kill before stop_grace"
+    );
+    w.advance(Duration::from_millis(1));
+    w.pump();
+    assert_eq!(
+        w.signals,
+        vec![(worker, EndPayload), (worker, KillPayload)],
+        "the kill order goes to the verified worker at the due pump"
+    );
+    w.advance(Duration::from_millis(500));
+    w.pump();
+    assert_eq!(
+        w.signals,
+        vec![(worker, EndPayload), (worker, KillPayload)],
+        "the kill order goes once"
     );
     assert!(matches!(
         w.complete(op),

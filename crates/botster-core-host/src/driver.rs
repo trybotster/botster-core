@@ -18,7 +18,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
-use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, HEADER_LEN};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, WorkerMsg};
 use botster_core_link::proof::TOKEN_LEN;
@@ -89,6 +89,11 @@ pub trait HostEdges: Send {
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
+    /// The bytes that the link's control stream may still take, beyond the driver's own count (IN-6, steward ruling R-91).
+    /// The production edge sets no bound of its own: the driver's bound decides. The testkit's `control_queue` answers 0.
+    fn link_room(&self, _link: LinkId) -> usize {
+        usize::MAX
+    }
     fn link_close(&mut self, link: LinkId);
     /// Write interest follows the outbound buffer (plan 2.5): on while bytes wait, off when none do.
     fn set_write_interest(&mut self, link: LinkId, on: bool);
@@ -157,6 +162,12 @@ struct LinkState {
     /// R-65): its `RouteReceived`, or a `RouteClosed` of the route, closes the copy. A copy in flight is not the worker's
     /// own: a socket in flight with no other reference can lose its receive side (macOS).
     sent: BTreeMap<RouteId, StreamEndpoint>,
+    /// A send failed: nothing more is written, and the link is read to its end of file (R-78 item 4). The worker's frames
+    /// that wait in the socket are still handled.
+    write_closed: bool,
+    /// The worker process ended (R-78 item 4, `Action::LinkPeerEnded`): the link is read without waiting, and the first
+    /// would-block closes it. No end of file is awaited.
+    peer_ended: bool,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -184,6 +195,42 @@ pub struct HostDriver<E: HostEdges> {
     /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
     /// closes the link for it, after the frames that came before it (9B, TM-6).
     link_ends: BTreeMap<LinkId, String>,
+    /// The bound of each link's control stream, its unsent bytes (IN-6, steward ruling R-91; DESIGN.md "The control
+    /// queue").
+    pub(crate) control_bound: usize,
+    /// One control message: the size of the largest `Cancel` frame (SV-3: the refused cost).
+    pub(crate) control_message: usize,
+}
+
+/// The largest frame that a link takes: its header and the link's frame bound (`HostEngine::link_frame_bound`). It is the
+/// control queue's term for one host message with no input payload (steward rulings R-91 and R-100; DESIGN.md "The control
+/// queue"). It is a true bound: `encode_frame` refuses a larger payload, so no host message is queued larger. Some of those
+/// messages carry strings that no `CoreLimits` value bounds (R-100), so the frame bound is the only bound for them.
+pub(crate) fn largest_frame(frame_bound: u32) -> usize {
+    HEADER_LEN + frame_bound as usize
+}
+
+/// The bound of a link's control stream (DESIGN.md "The control queue"): the input that one session may retain (IN-5), one
+/// largest frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four cancels.
+/// With the default limits it is far above what a link holds in practice: the link edge's room (`HostEdges::link_room`) is
+/// the limit that binds.
+fn control_bound(limits: &CoreLimits, frame_bound: u32, control_message: usize) -> usize {
+    let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
+    usize::try_from(limits.input_retained_bytes)
+        .unwrap_or(usize::MAX)
+        .saturating_add(ops.saturating_mul(largest_frame(frame_bound)))
+        .saturating_add(4 * control_message)
+}
+
+/// The room of a link's control stream: the bound less its unsent bytes, and never more than the link edge allows.
+fn control_room<E: HostEdges>(
+    links: &BTreeMap<LinkId, LinkState>,
+    edges: &E,
+    bound: usize,
+    link: LinkId,
+) -> usize {
+    let unsent = links.get(&link).map_or(0, |s| s.out.len());
+    bound.saturating_sub(unsent).min(edges.link_room(link))
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -202,6 +249,13 @@ impl<E: HostEdges> HostDriver<E> {
         let engine = HostEngine::new(cfg, registry_ids);
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
+        let mut payload = Vec::new();
+        HostMsg::Cancel { req: u64::MAX }.encode(&mut payload);
+        let mut frame = Vec::new();
+        encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame)
+            .expect("a cancel frame is within every frame bound");
+        let control_message = frame.len();
+        let control_bound = control_bound(&engine.limits(), frame_bound, control_message);
         Ok(HostDriver {
             engine,
             edges,
@@ -211,6 +265,8 @@ impl<E: HostEdges> HostDriver<E> {
             failed_handoffs: std::collections::VecDeque::new(),
             next_exit: None,
             link_ends: BTreeMap::new(),
+            control_bound,
+            control_message,
         })
     }
 
@@ -225,10 +281,31 @@ impl<E: HostEdges> HostDriver<E> {
     /// TM-6: a call that leaves work for `pump` signals the wake before it returns. Work is a runnable step, or an action that
     /// the call queued and only `pump` performs (an `attach` queues its handoff, a `cancel` its message). Parked work is
     /// neither, so it does not signal (EV-5b).
-    fn sync_wake(&self) {
-        if self.engine.runnable() || self.engine.has_actions() {
+    fn sync_wake(&mut self) {
+        if self.runnable() || self.engine.has_actions() {
             self.wake.signal();
         }
+    }
+
+    /// Whether the engine has ready work that the scheduler does not hold (TM-6: `more` means that runnable work remains). A
+    /// held step is not runnable: it waits for the scheduler to let it go, which signals the wake (`Scheduler::held`, steward
+    /// ruling R-88 group E).
+    fn runnable(&mut self) -> bool {
+        let ready = self.engine.ready();
+        ready.iter().any(|work| !self.held(work))
+    }
+
+    /// TM-6: `PumpReport.more`: runnable work remains, or a link has input that the bound of this pump left unread.
+    fn more(&mut self, budget: &Budget) -> bool {
+        self.runnable() || budget.more_input
+    }
+
+    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a `Silent`, and a step whose timing a
+    /// clause fixes (R-20) are never held.
+    fn held(&mut self, work: &Work) -> bool {
+        !matches!(work, Work::Deadline | Work::Silent)
+            && !self.engine.never_deferred(work)
+            && self.edges.scheduler().held(&self.engine.ops_of(work))
     }
 
     // ---- actions ----
@@ -355,6 +432,11 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::LinkPeerEnded { link } => {
+                if let Some(state) = self.links.get_mut(&link) {
+                    state.peer_ended = true;
+                }
+            }
             Action::ConnectWorker { ticket, instance } => {
                 let link = self.edges.connect_worker(&instance);
                 if let Some(link) = link {
@@ -403,7 +485,7 @@ impl<E: HostEdges> HostDriver<E> {
             limits,
         }
         .encode(&mut payload);
-        let Some(state) = self.links.get_mut(&link) else {
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             self.failed_handoffs
                 .push_back(Input::HandoffFailed { route });
             return;
@@ -433,7 +515,8 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn send_frame(&mut self, link: LinkId, kind: FrameType, payload: &[u8]) {
-        let Some(state) = self.links.get_mut(&link) else {
+        // A link whose write side failed queues nothing (R-78 item 4).
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             return;
         };
         if let Err(error) = encode_frame(kind, payload, self.frame_bound, &mut state.out) {
@@ -485,7 +568,7 @@ impl<E: HostEdges> HostDriver<E> {
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => {
-                        self.close_link_because(link, &error);
+                        self.close_write(link, &error);
                         return;
                     }
                 }
@@ -499,12 +582,33 @@ impl<E: HostEdges> HostDriver<E> {
         self.edges.set_write_interest(link, wanted);
     }
 
-    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics).
+    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics). A link whose write side failed keeps
+    /// that first reason.
     fn close_link_because(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
-        if self.links.contains_key(&link) {
+        if self.links.get(&link).is_some_and(|s| !s.write_closed) {
             self.engine.record_link_close(link, why);
         }
         self.close_link(link);
+    }
+
+    /// Closes the write side of a link whose send failed, and records why (R-78 item 4). The link is read on, so the frames
+    /// that the worker wrote before it ended are still handled; its end of file or a read error closes it (`close_link`).
+    /// The streams in the outbound bytes never left: their routes close `HandoffLost` now. The streams that left stay with
+    /// the link until their `RouteReceived` or its close.
+    fn close_write(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        let Some(state) = self.links.get_mut(&link) else {
+            return;
+        };
+        state.write_closed = true;
+        state.out.clear();
+        let marks = std::mem::take(&mut state.marks);
+        self.engine.record_link_close(link, why);
+        for mark in marks {
+            self.failed_handoffs
+                .push_back(Input::HandoffLost { route: mark.route });
+        }
+        self.edges.set_write_interest(link, false);
+        self.feed(Input::LinkWriteFailed { link });
     }
 
     fn close_link(&mut self, link: LinkId) {
@@ -539,6 +643,8 @@ impl<E: HostEdges> HostDriver<E> {
                 pending: Vec::new(),
                 held: None,
                 sent: BTreeMap::new(),
+                write_closed: false,
+                peer_ended: false,
             },
         );
     }
@@ -553,9 +659,39 @@ impl<E: HostEdges> HostDriver<E> {
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
+            self.control_room(link, budget);
             self.retry_held(link, budget);
             self.read_link(link, budget);
         }
+    }
+
+    /// After a flush: a control stream with room for one control message lets a session whose `cancel` was refused `Full`
+    /// post `SessionWritable` (IN-6, SV-3). The event counts against the pump (9B); with no budget left it waits for the
+    /// next pump, which the pump reports as `more`. A link with no refused cancel has no waiting work, so its room is never
+    /// `more` (TM-6).
+    fn control_room(&mut self, link: LinkId, budget: &mut Budget) {
+        if !self.engine.waits_for_room(link)
+            || control_room(&self.links, &self.edges, self.control_bound, link)
+                < self.control_message
+        {
+            return;
+        }
+        if budget.exhausted() {
+            budget.more_input = true;
+            return;
+        }
+        self.engine.control_room(link);
+        budget.account(&mut self.engine);
+    }
+
+    /// An open link of an ended worker with no held frame is runnable work (R-78 item 4, TM-6: `more` only for input that is
+    /// known to wait). Its drain has not read since the end, or it stopped at the pump's budget; every other read either
+    /// closes the link or holds a frame. A held frame waits for mandatory room and is not runnable work: the poll that frees
+    /// room restores the link (EV-5d).
+    fn draining(&self) -> bool {
+        self.links
+            .values()
+            .any(|s| s.peer_ended && s.held.is_none())
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
@@ -672,7 +808,19 @@ impl<E: HostEdges> HostDriver<E> {
                     return;
                 }
                 Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // The worker process ended, so nothing more comes: the drain ends here, and a partial frame is a
+                    // truncated link (R-78 item 4, steward follow-up: never wait for the end of file). Closing it posts
+                    // events, so a pump with no budget left keeps the end for the next pump (9B, TM-6: `end_link`).
+                    if self.links.get(&link).is_some_and(|s| s.peer_ended) {
+                        self.end_link(
+                            link,
+                            "the worker process ended: its link is drained".to_string(),
+                            budget,
+                        );
+                    }
+                    return;
+                }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => {
                     self.end_link(link, error.to_string(), budget);
@@ -793,6 +941,8 @@ impl Budget {
 impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
         let id = self.engine.begin(op)?;
+        let fixed_timing = self.engine.fixed_timing(id);
+        self.edges.scheduler().admitted(id.0, fixed_timing);
         self.sync_wake();
         Ok(id)
     }
@@ -826,6 +976,9 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             budget.account(&mut self.engine);
         }
         self.take_exits(&mut budget);
+        // An exit's actions run before the links are read: a link of an ended worker is marked for its drain
+        // (`LinkPeerEnded`, R-78 item 4), so this pump's read ends the drain and the work loop below classifies the session.
+        self.perform_counted(&mut budget);
         // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
@@ -839,6 +992,8 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 .filter(|w| !deferred.contains(w))
                 .filter(|w| !budget.exhausted() || *w == Work::Deadline)
                 .collect();
+            // A held step is not runnable work: it does not run, and no other choice point is asked about it.
+            let ready: Vec<Work> = ready.into_iter().filter(|w| !self.held(w)).collect();
             if ready.is_empty() {
                 break;
             }
@@ -865,7 +1020,8 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
         }
-        let mut more = self.engine.runnable() || budget.more_input;
+        // An ended link that waits for its drain needs no term here: the settle below reads every link.
+        let mut more = self.more(&budget);
         if !more {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
@@ -873,7 +1029,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
-            more = self.engine.runnable() || budget.more_input;
+            more = self.more(&budget) || self.draining();
         }
         if more {
             // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).
@@ -907,9 +1063,17 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     }
 
     /// The cancel's message to the worker is queued, and the next `pump` sends it (OR-1, TM-6, IN-6: `Admitted` is "admitted to
-    /// the worker stream").
+    /// the worker stream"). A control stream with no room for one control message refuses it `Full` (IN-6, R-91).
     fn cancel(&mut self, op: OpId) -> CancelResult {
-        let result = self.engine.cancel(op);
+        let (links, edges, bound, need) = (
+            &self.links,
+            &self.edges,
+            self.control_bound,
+            self.control_message,
+        );
+        let result = self
+            .engine
+            .cancel_with_room(op, |link| control_room(links, edges, bound, link) >= need);
         self.sync_wake();
         result
     }

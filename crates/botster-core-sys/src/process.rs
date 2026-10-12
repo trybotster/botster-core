@@ -24,6 +24,11 @@ pub fn start_time(pid: u32) -> Option<u64> {
         use libproc::bsd_info::BSDInfo;
         use libproc::proc_pid::pidinfo;
         let info = pidinfo::<BSDInfo>(i32::try_from(pid).ok()?, 0).ok()?;
+        // A zombie has no start time that lives. macOS (checked on Darwin 27) refuses the information of a zombie (bug
+        // catalog B9), so a zombie takes the refusal above; this check is for a kernel that answers for one (as `live_of`).
+        if info.pbi_status == libc::SZOMB {
+            return None;
+        }
         Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
     }
     #[cfg(target_os = "linux")]
@@ -41,8 +46,27 @@ pub fn start_time(pid: u32) -> Option<u64> {
     }
 }
 
-/// What a pid names now, compared with an identity (AD-6).
+/// Whether `pid` has ended and is not reaped yet: a zombie (`Z`) or a dying process (`X`) in the state field of
+/// `/proc/<pid>/stat`. On macOS `start_time` is `None` for a zombie: the kernel refuses its information (bug catalog B9), or
+/// it answers with the zombie state.
+#[cfg(target_os = "linux")]
+fn ended(pid: u32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/stat"))
+        .ok()
+        .and_then(|stat| {
+            let after = stat.rsplit_once(") ")?.1.to_string();
+            after.chars().next()
+        })
+        .is_some_and(|state| state == 'Z' || state == 'X')
+}
+
+/// What a pid names now, compared with an identity (AD-6). A process that ended and is not reaped yet is `Absent` on every
+/// platform: it is gone, and it can never act on a signal (steward ruling R-78 item 3).
 pub fn identity_state(identity: ProcessIdentity) -> IdentityState {
+    #[cfg(target_os = "linux")]
+    if ended(identity.pid) {
+        return IdentityState::Absent;
+    }
     match start_time(identity.pid) {
         None => IdentityState::Absent,
         Some(t) if t == identity.start_time => IdentityState::Matches,
@@ -203,9 +227,10 @@ impl Children {
         let _ = match signal {
             GroupSignal::Term => signal_group(pid, Signal::TERM),
             GroupSignal::Kill => signal_group(pid, Signal::KILL),
-            // The worker-control signal goes to the worker process alone: its group holds no payload, and a default
-            // `SIGUSR1` would end a descendant of the worker (LC-5).
+            // The worker-control signals go to the worker process alone: its group holds no payload, and a default
+            // `SIGUSR1` or `SIGUSR2` would end a descendant of the worker (LC-5).
             GroupSignal::EndPayload => signal_process(pid, Signal::USR1),
+            GroupSignal::KillPayload => signal_process(pid, Signal::USR2),
         };
     }
 }
@@ -275,25 +300,27 @@ mod tests {
     }
 
     /// AD-6: a signal goes only to the process that the identity names: a reused pid is never signalled (the test would end
-    /// with `SIGUSR1` otherwise).
+    /// with `SIGUSR1` or `SIGUSR2` otherwise).
     #[test]
     fn a_reused_identity_is_never_signalled() {
         let me = std::process::id();
         let children = Children::new();
-        children.signal_group(
-            ProcessIdentity {
-                pid: me,
-                start_time: start_time(me).unwrap() + 1,
-            },
-            GroupSignal::EndPayload,
-        );
-        children.signal_group(
-            ProcessIdentity {
-                pid: u32::MAX - 1,
-                start_time: 1,
-            },
-            GroupSignal::EndPayload,
-        );
+        for signal in [GroupSignal::EndPayload, GroupSignal::KillPayload] {
+            children.signal_group(
+                ProcessIdentity {
+                    pid: me,
+                    start_time: start_time(me).unwrap() + 1,
+                },
+                signal,
+            );
+            children.signal_group(
+                ProcessIdentity {
+                    pid: u32::MAX - 1,
+                    start_time: 1,
+                },
+                signal,
+            );
+        }
     }
 
     /// The notifier is kept by `with_notify` and not by `new`.

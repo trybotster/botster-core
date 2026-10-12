@@ -11,9 +11,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod api;
+mod control_term;
 mod deadlines;
+mod drain;
 mod handoff;
+mod holds;
 mod observations;
+mod seeded_trace;
 
 #[derive(Default)]
 struct TestWake {
@@ -64,6 +68,8 @@ struct MockLink {
     descriptors: Vec<(usize, StreamEndpoint)>,
     /// Errors that the next descriptor sends return, last first.
     fail_descriptor: Vec<DescriptorSendError>,
+    /// The room that the link edge reports for the control stream (`HostEdges::link_room`); `None` sets no bound.
+    link_room: Option<usize>,
 }
 
 struct Mock {
@@ -232,6 +238,16 @@ impl HostEdges for Edges {
         buf[..n].copy_from_slice(&l.to_host[..n]);
         l.to_host.drain(..n);
         Ok(n)
+    }
+
+    fn link_room(&self, link: LinkId) -> usize {
+        self.0
+            .lock()
+            .unwrap()
+            .links
+            .get(&link)
+            .and_then(|l| l.link_room)
+            .unwrap_or(usize::MAX)
     }
 
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize> {
@@ -1106,4 +1122,162 @@ fn an_end_read_with_the_retry_report_follows_running() {
         e,
         Event::Completed { op, result: OpResult::Ok(OpOutput::Record(_)) } if *op == retry
     )));
+}
+
+/// A text write of session `s1`.
+fn text_write(rig: &mut Rig, text: &str) -> OpId {
+    rig.driver
+        .begin(Op::WriteInput {
+            session: sid("s1"),
+            payload: InputPayload::Text { text: text.into() },
+            guard: None,
+        })
+        .unwrap()
+}
+
+fn writable(events: &[Event]) -> usize {
+    events
+        .iter()
+        .filter(|e| matches!(e, Event::SessionWritable { id, .. } if *id == sid("s1")))
+        .count()
+}
+
+/// IN-6, SV-3, steward ruling R-91: the control queue is the link's unsent bytes. With a real stream that takes nothing
+/// (`WouldBlock`), Core's own count of the unsent bytes leaves no room for one control message, so `cancel` is refused
+/// `Full` with no event and no change. The drain gives the room back: one `SessionWritable`, coalesced over two refusals,
+/// and the cancel is admitted.
+#[test]
+fn a_full_control_stream_refuses_cancel_full_and_its_drain_posts_one_session_writable() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    // The bound is one control message: an empty stream has room, and one unsent byte takes it.
+    rig.driver.control_bound = rig.driver.control_message;
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = Some(0);
+    let first = text_write(&mut rig, "a");
+    rig.pump();
+    let second = text_write(&mut rig, "b");
+    assert_eq!(
+        rig.driver.cancel(second),
+        CancelResult::Refused(CancelRefusal::Full),
+        "the first write's frame is unsent"
+    );
+    assert_eq!(
+        rig.driver.cancel(second),
+        CancelResult::Refused(CancelRefusal::Full),
+        "nothing changed: the op is still cancellable"
+    );
+    assert_eq!(
+        rig.drain_events(),
+        vec![],
+        "a sync refusal posts no event (AM-4)"
+    );
+    rig.pump();
+    assert_eq!(
+        writable(&rig.drain_events()),
+        0,
+        "no room while the link takes nothing"
+    );
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = None;
+    rig.pump();
+    let events = rig.drain_events();
+    assert_eq!(
+        writable(&events),
+        1,
+        "one wake for two refusals: {events:?}"
+    );
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 0, "the mark is cleared");
+    assert_eq!(rig.driver.cancel(second), CancelResult::Admitted);
+    let _ = first;
+}
+
+/// IN-6: `SessionWritable` follows only a refusal. A stream that drains with no refused cancel posts none.
+#[test]
+fn a_drain_with_no_refused_cancel_posts_no_session_writable() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = Some(0);
+    text_write(&mut rig, "a");
+    rig.pump();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .send_budget = None;
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 0);
+}
+
+/// IN-6, R-91: the link edge can report no room (the testkit's `control_queue`) while Core's own count has room; the room
+/// is the smaller of the two, and the edge's room coming back wakes the host's next pump into the same `SessionWritable`.
+#[test]
+fn the_link_edge_room_bounds_the_control_queue_too() {
+    let mut rig = Rig::new(CoreLimits::default());
+    start_session(&mut rig, "s1", LinkId(1));
+    rig.settle();
+    rig.drain_events();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .link_room = Some(0);
+    let write = text_write(&mut rig, "a");
+    assert_eq!(
+        rig.driver.cancel(write),
+        CancelResult::Refused(CancelRefusal::Full)
+    );
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .link_room = None;
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 1);
+    assert_eq!(rig.driver.cancel(write), CancelResult::Admitted);
+}
+
+/// DESIGN.md "The control queue": the production bound is the input that one session may retain, one largest frame of the
+/// link (its 5-byte header and the frame bound) for each pending op and each input op of a session, and four cancels.
+#[test]
+fn the_control_queue_bound_is_the_admitted_traffic_and_four_cancels() {
+    let rig = Rig::new(CoreLimits::default());
+    let l = CoreLimits::default();
+    let message = rig.driver.control_message;
+    assert!(message > 0 && message < 64, "{message}");
+    let frame_bound = rig.driver.engine().link_frame_bound();
+    assert_eq!(frame_bound, 65 << 20, "4 x max_snapshot_bytes + 1 MiB");
+    assert_eq!(
+        rig.driver.control_bound,
+        l.input_retained_bytes as usize
+            + (l.pending_ops + l.input_ops_per_session) as usize * (5 + frame_bound as usize)
+            + 4 * message
+    );
 }
