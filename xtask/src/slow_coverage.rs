@@ -722,6 +722,42 @@ mod slow_tests {
         let pending = ids(&["conf::pending_id"]);
         let unrun = "botster-core tests::runs_only_under_slow: only the slow features build it, and the slow filter \
                      does not select it, so no tier runs it";
+        // The fixture's binaries have no build-root test: the presence check names each binary of each tier.
+        let found = check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap();
+        let starts: Vec<&str> = found
+            .iter()
+            .map(|line| line.split(" the build-root").next().unwrap())
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                unrun,
+                "default tier: botster-core does not list",
+                "slow tier: botster-core does not list",
+                "slow tier: botster-core::slow_conformance does not list",
+            ]
+        );
+        // The root test of each binary, as the macros make it. The copies get it at run time: the fixture's tracked
+        // sources may not contain the name (`cargo xtask built-in`).
+        {
+            use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
+            let lib = dir.path().join("src/lib.rs");
+            let mut source = std::fs::read_to_string(&lib).unwrap();
+            source.push_str(&format!("\n#[test]\nfn {TEST_NAME}() {{}}\n"));
+            std::fs::write(&lib, source).unwrap();
+            let harness = dir.path().join("tests/slow_conformance.rs");
+            let source = std::fs::read_to_string(&harness).unwrap();
+            let selected = "println!(\"selected: test\");";
+            assert_eq!(source.matches(selected).count(), 1);
+            std::fs::write(
+                &harness,
+                source.replace(
+                    selected,
+                    &format!("{selected} println!(\"{TEST_NAME}: test\");"),
+                ),
+            )
+            .unwrap();
+        }
         assert_eq!(
             check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap(),
             [unrun]
