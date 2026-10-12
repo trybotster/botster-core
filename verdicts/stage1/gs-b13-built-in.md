@@ -57,3 +57,62 @@ Required closure: narrow the evidence label and PR body claim to the measured pa
 This supplement records the package verdict on the same head. It corrects the earlier compilation-count description. It starts no new source-review round.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Round 2
+
+Exact head: `d4758482eb0aaabe6a6053573e797d81343cddfb`. Imported base: `3aacc58d086e55a6b186165ccf9001e2618e2869`. Gate comparison base: `f7eeced64e652700f2f78fc063e4896832134233`. These bases differ.
+
+Sol-B reviewed the coverage and candidate-build repairs, the mutation exclusion, the overlapping testkit paths, the named evidence, and the complete updated PR body.
+
+### B13-I1 — CLOSED
+
+`candidate_build_dir` derives a directory from the canonical runtime root. Both the worker and anchor build there through an explicit `--target-dir`. A plain build in another worktree uses different artifacts. Prebuild writes the root record after all binary installations. It performs no automatic clean.
+
+Evidence: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-58544635-pool-20261011-163216-95056.log`.
+
+The job builds the worker in A without prebuild. B then uses the same target directory. On the old head, prebuild exits 0 and labels the candidate B, but the worker contains A's path twice and B's path zero times. On the repaired head, the worker compiles from B. Its binary contains B's path twice and A's path zero times. This establishes the bootstrap repair and the valid first candidate build.
+
+The later merge and final repair retain this candidate-build implementation. The lead approved this design subject to the Mac slot and disk checks.
+
+The Mac jobs `...-2c0488b8-pool-20261011-162513-28603.log` and `...-58544635-pool-20261011-164100-59441.log` use slot-2. The second log places the target inside the slot, retains the same source root, and reports prebuild exit 0. The shared disk rule now includes each local candidate-build directory in the 8 GiB bound.
+
+### B13-I2 — HIGH — OPEN: a path is still accepted as a call
+
+The test index repair rejects missing test attributes, comments, ignored tests, excluded configurations, and tests below the root. It requires both default tiers. These parts close the original registration gap.
+
+However, `root_test_calls` at `xtask/src/built_in.rs:147` visits every `syn::Path`. It does not require a call expression. This registered test satisfies the check without executing the build-root check:
+
+```rust
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    let _ = botster_test_process::built_in::assert_built_here;
+}
+```
+
+The visitor also enters an uncalled nested function. A call inside that function satisfies the check while the root test performs no check. The current negative fixtures cover comments and another top-level function, but neither of these forms.
+
+Required change: accept a supported executed call form in the root test. Reject unsupported forms. Add negative fixtures for a function reference and an uncalled nested function. A direct call in a supported valid root test must continue to pass.
+
+Sol-B sent this finding to GS and 017c. No local execution was required to identify the visitor's behavior.
+
+### B13-I3 — CLOSED
+
+The retained evidence above counts `Compiling` lines by the worktree path, across all workspace package names. A compiles nine linked workspace crates. B on A's target compiles zero and gives the incorrect conformance pass on old v1. B with its own target compiles nine and fails the newly active case with exit 101. At the repaired head, B reuses the binary but the root check refuses it with exit 101.
+
+The body replaces the earlier incomplete count with this complete record. It preserves the earlier evidence and states its limit.
+
+### Base merge and gate
+
+Merge `96c58d88cd5eb9a87d69eb12fff69596129a926f` has parents `585446350666dbca433c008a69a9cde4d76cbc55` and `3aacc58d086e55a6b186165ccf9001e2618e2869`. The canonical check reports FAIL for conditions 2 and 3 because the testkit manifest and library root overlap. This round supplies the required integration delta review.
+
+Sol-B read both overlapping changes. The imported `rustix` net feature and `stream_holders` module remain. The PR retains the unconditional test-process dependency, build-root re-export, constant, and root test. The changes occupy separate lines. The inherited pending files equal the imported base. No conformance status change belongs to this PR.
+
+The final repair changes only `xtask/src/built_in.rs` and `.cargo/mutants.toml`. It removes the unused slow-feature decision. The new exclusion covers only whole-body replacements of the worker build shell. Its reason cites the existing worker-presence decision and the new candidate-directory decision. The focused bootstrap evidence executes the real worker build path.
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-d4758482-pool-20261011-175859-18261.log`. All ten steps PASS. Default: 1,835 passed. Slow: 597 passed. Mutants: 61 total, 58 caught, 0 missed, 0 timeout, 3 unviable. No second mutation stage is required. The job exits 0 after 516 seconds; the wrapper exits 0 after 518 seconds.
+
+The lists step names comparison base `f7eeced6` and merge base `3aacc58d`. This gate does not establish import of the later base. The final-slot merge, required base review, and exact-head final gate remain due.
+
+The same-head package verdict remains pending. Sol-B requested it from 017c. Sol-B ran no local build, test, gate, mutation job, or reversal.
+
+VERDICT: NOT CLEAN (1 open)
