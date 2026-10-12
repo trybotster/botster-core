@@ -169,3 +169,9 @@ Q7 delta from my CLEAN head `69301401`:
 - Gate PASS on the exact head, all ten steps, exit 0 after 316 s on msa1, base main `6fdfc413` (current main): `~/botster-sessions/gates/botster-contracts-p3-r88-lint-fa1b7620-pool-20261011-180204-30342.log`, sha256 `606615afa0c6aa8a5646f0ba0c688a2ea6102d1f6b43d018e2e5f5b316b86008` (I computed it).
 
 No open finding. #77 (PC, no open finding on `c284e82c`) fences `tm_6_begin` (steps 20-23) and `in_6_refused_full` (step 9), which still have PC-owned debt lines here. Whichever of #73 and #77 merges second removes them, and I review that delta.
+
+### After the final CLEAN: 016c's round-4 MEDIUM on fa1b7620 (package scope), confirmed, with a sibling; my miss
+
+- 016c: `State::takes` (report.rs line 620) resolves a `Completed` through `current(op)` but does not require `op.handle == h`, although `event_fence` filters the handle. So a completion of an op on `h2` ends the `parked_work` witness of the same session name on `h`, and a repeated witness can then clear a second cause. This breaks the R-88 identity and the round-4 rule. 016c's exact-module proof returns `[]` where step 8 is due.
+- **Sibling, the same class (line 622):** the route branch resolves the route through `self.route(...)`, which is the latest `attach_route` of that variable on ANY handle. `event_fence` (line 576) uses `route_on(h, r)`. So a `RouteStalled`/`RouteResumed`/`RouteClosed` wait on `h` can end the witness of the session that the variable names on another handle. The fix must also use the route's binding on `h`, and the identity test should cover both branches.
+- I reviewed `takes` in round 4 and did not check its handle identity, although I had raised the same point for `op_posted` in round 1. Per my rule (package scope after my CLEAN), I do not withdraw the CLEAN. I re-check the delta on the next head. 016c asks the steward before round 5.
