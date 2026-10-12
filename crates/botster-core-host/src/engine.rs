@@ -316,6 +316,14 @@ impl HostEngine {
     /// The control stream of `link` has room for one control message again (the driver's drain or the link edge, steward
     /// ruling R-91): when a `cancel` of its session was refused `Full`, `SessionWritable` follows (IN-6, SV-3), keyed per
     /// instance, so it is coalesced.
+    /// A session on this link had a `cancel` refused `Full` and waits for room (IN-6): only then is the room runnable work.
+    pub(crate) fn waits_for_room(&self, link: LinkId) -> bool {
+        self.links
+            .get(&link)
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|s| s.worker.link == Some(link) && s.worker.refused_full)
+    }
+
     pub(crate) fn control_room(&mut self, link: LinkId) {
         let Some(id) = self.links.get(&link).cloned() else {
             return;
