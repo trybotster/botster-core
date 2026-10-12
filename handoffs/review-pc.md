@@ -2358,3 +2358,38 @@ A26 will add ceilings: input_tail_bytes 64MiB, input_events_bytes 256MiB, max_ro
 P5 drafts it after the #320 READY; Sol reviews it. #320 leaves the over-cap case unchanged until A26.
 RF-PC-5 can close on the derived max-bound repair plus a test. Corrected READY remains due.
 The reviewer records the decision without accepting any unreviewed correction or new configuration refusal.
+
+Publication: b62dce5ec9aefd9f27ba9baf64092467aea9ad03 is pushed on stage1/review-pc; the worktree is clean.
+P5 and Sol receive NOT CLEAN with five known MEDIUM findings on db97736b.
+No new inspection or local correction is accepted after the lead hold. Wait for the combined READY doorbell. Never poll.
+
+## #320 combined Round 4 package CLEAN
+
+READY msg_plugin-w_1791844299_6d3616 ends the lead's hold with one complete head.
+Head: aeffbde6b393eb583f4363bd812fb2d64af0a057. Tree: fc98d5af776d3aca16f7e912c033500b1ddbf7f6.
+Source base: 3e655eff46d36f8c337339a1a17d401c8c662594. Gate comparison base: 3e4b3ab8172f1a04467a7969833708606a0f8580.
+The reviewer reads all nineteen correction paths, complete tests, body, original source, and merge preservation records.
+Full-index correction SHA-256: dc2829a07b7c3120e5e2abf323c28999f7a46a625e3a35ccc52bbef489baee1c.
+RF-PC-1 LOW remains closed. RF-PC-2..6 MEDIUM all close through the inspected fixes and evidence.
+The reviewer accepts fitting each new host record beside the unchanged client pair under R-117.
+The protected pair reservations, byte/count gap, current-client identity, and immutable record behavior satisfy that ruling.
+The Activity guards apply to both completion and receipt, while the client revision and worker status update retain their behavior.
+Both new decoders have real stable/fuzz harnesses and root macros. No new xtask check is added.
+The shared facts frame formula covers records, escaped sources, and tail within the existing cap.
+The large-tail test sees the actual Done and whole tail. Over-cap remains unchanged under the explicit lead R320-Q4 decision.
+A26 remains separate and on hold. No new configuration refusal is accepted.
+
+Gate SHA-256: 77701cf04ba815c7846b472fe87f6c0c8bf09ee4be466404a1d499c73dfb4d59.
+All ten steps PASS; total 787.7s; job/wrapper 0 after 798s, queued 1s. Default 2167/0, slow 694/0, strict 299/0.
+Mutants 239: 200 caught, 39 unviable, 0 missed, 0 timeout. All 200 raw catches match 200 citations and ordinary PASS names.
+All five prior client_pair_len misses are caught after the committed exact-room test. Baseline passes; no FLAKY line occurs.
+Fuzz cases: ordinal 40198484, link 6567243, msg 3884506, receipt 4933741; each run 61s without a reported crash.
+All 18 own removals pass testkit; 17 pass real. No extra removal follows from 30 unrelated passing pending-real ids.
+All ten conformance blobs, exclusions, and known-flaky data remain unchanged.
+Local clean/check exits and both reversal patches/results are audited. They stay supplementary; the exact pool gate is positive evidence.
+
+P5 corrects the body memory sentence in msg_plugin-w_1791844445_eb00ab. Source and evidence scopes remain unchanged.
+Final body SHA-256: 04ac1083666433895015942c9ea80b8b73e02b005c1e9fd2eeabe20a3177403e.
+Formal complete package verdict is CLEAN with zero open findings, within the lead's accepted over-cap scope.
+Matching formal integration CLEAN remains due. Current-base import/deltas, train gate, final receipts, and Q7 remain due.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
