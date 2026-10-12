@@ -187,3 +187,36 @@ The complete package verdict on this corrected READY remains due. This inspectio
 The current-base final slot, applicable import review, final evidence, final receipts, and Q7 remain required.
 This review accepts no future re-entry, serving control, pin, removal, or merge.
 The reviewer runs no execution job. Wait for the package verdict doorbell. Never poll.
+
+## Round 1 — corrected complete READY CLEAN
+
+Head: `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`.
+Source and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `d5271969e76e68e6b795101f793c759cebd3be56`.
+The complete corrected inspection at `4b8de4aea59ecc7f6d5bcffa9a74c4008703a47a` remains applicable.
+No source or body changes after that inspection.
+
+The reviewer reads the complete applicable package section, `Core #323 — corrected complete package verdict`, at `f0a5525aefc42ee0ae38232fc7d63833c53cd280`.
+Package file: `verdicts/gs-gate-speed.md`.
+Receipt: `msg_plugin-w_1791832558_8068c8`.
+The package verdict is CLEAN on the same exact head, source base, gate base, and tree.
+Its complete source review, body corrections, local classification, gate audit, and original evidence limits agree with this inspection.
+
+R323-SI-1 / GS-RP-R1-1 LOW is closed.
+The explicit empty-fix test, accurate body, withdrawal of unretained claims, and completed corrected gate satisfy the remaining conditions.
+No integration source, body, or evidence finding remains open.
+All thirty raw catches match citations and normal PASS. Both unviable replacements supply no behavioral catch.
+The original local failures and reversals retain their original scopes and limits.
+The local Mac timeouts remain unclassified under the binding rule; no timing finding is opened.
+
+The lead's third entry path is implemented without changing the other readers or eligibility restrictions.
+The parser checks authority syntax and field presence. Each future re-entry still requires review of its actual authority, diagnosed cause, and fix owner.
+This rule supplies no passing proof for a transcript. No identifier enters or leaves any list in this PR.
+#298's entry, R-109's fence, its serving Core control, and later removal remain separate work.
+
+Both corrected-head reviews are CLEAN.
+The current-base final slot, applicable import review, final evidence, matching final receipts, and Q7 remain due.
+This verdict accepts no later source, pin, list change, retry, or merge.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; corrected initial READY, final delivery checks remain due)
