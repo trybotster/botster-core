@@ -1825,3 +1825,19 @@ This CLEAN covers the exact source head above. The integration reviewer must pub
 After both source CLEANs, the lead's final slot still requires one current-v1 import, applicable canonical check and delta reviews, one final exact-head gate, and final body.
 This source gate does not replace that final-slot gate. This verdict accepts no later head or different source tree.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — completed integration source verdict
+
+Integration message: `msg_plugin-w_1791776273_bdd95d`.
+Integration verdict: `da93779f1c464adede51934458b796b9d01873a7`, Round 3 in `verdicts/stage1/rc-pin-43.md`.
+The reviewer reads the completed round.
+It is CLEAN with zero open findings at `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Its imported source base is `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+The gate reference remains `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`, which is not imported.
+These scopes match package CLEAN `f7e9923c6d11a89f26d500180fc3a512009b54ec`.
+The integration reviewer verifies all 26 catches and citations, exact twelve second-stage identities, normal and baseline PASS records, and the final body correction.
+Both current source reviews now have zero open findings. All 35 observed real-pending passes retain their pending status.
+The earlier red gates, synthetic proof, local reversals, partial-write limit, A5-4 limits, and separate wake-removal proof remain explicit.
+Final-slot current-v1 import, applicable checks and reviews, exact-final-head gate, and both final verdicts remain due before merge.
+The reviewer runs no test, build, gate, or diagnostic.
