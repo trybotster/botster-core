@@ -142,3 +142,6 @@ fn a_noncanonical_message_survives_a_round_trip() {
     msg.encode(&mut again);
     assert_eq!(WorkerMsg::decode(&again), Ok(msg));
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();
