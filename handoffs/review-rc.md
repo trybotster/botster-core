@@ -2621,3 +2621,46 @@ This delta CLEAN satisfies the requested #312 package source review on this exac
 Sol-C's matching delta verdict, other required train reviews, the final train gate, member receipts, and equal-tree merge verification remain due.
 The reviewer accepts no final train gate, later head, or different tree here.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — matching train 3c integration delta receipt
+
+Integration message: `msg_plugin-w_1791819362_992f0a`.
+Integration verdict: `ce37c0839d112d0a2dc8c25afde8cf0991abd36d`, Round 4 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+It is CLEAN for the source delta at `b78df725177d1a931e1eddb9bb67023e7e0ae645`, base `080987829a2e2245a7ea97606020400392c974d6`, tree `43cdf59980d93e0672423bedc0edf506405256be`.
+Its composition and retirement-condition scope match package delta receipt `8afd00632950c0e2607e5e2dbc22c76f29ed48f4`.
+Both #312 delta reviews have zero open findings. Final train gate and member receipts remain due.
+
+
+### Core #309 — replacement member delta review
+
+REVIEW STATUS: source repair verified; body and local-evidence record pending.
+Exact replacement head: `f41b7e82ba98e76f2487185eba0af2a3a0de8918`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+Source tree: `9d8580367fe0852fc82b4847880a8738fa75c1d0`.
+READY message: `msg_plugin-w_1791819350_230d57`.
+The lead removes and unfreezes #309 after the train composition defect.
+The implementer merges the imported base once, then removes the obsolete test initializer.
+The reviewer verifies merge `b77fe261f5e77b387320c07ed20f439523c64b53` and its exact b920da76/08098782 parents.
+The following repair changes one line in link msg.rs: the stale stop_grace_ms initializer is removed.
+All nine remaining LaunchSpec fields stay explicit in the fixture. The encoded-length behavior test remains.
+RC-R100-TRAIN-1 is closed in this replacement source. The combined T3-I1 identifies the same repaired defect.
+
+Every own change line against the imported base equals the previously reviewed own delta, except that one test line.
+The shared production Launch constructor matches the composed LaunchSpec, with no stop-grace field.
+The sizing check uses that same constructor. The removed field reduces its serialization length.
+The modifier, initial-decoder-bound, pending-setter, refusal-order, and public-observation repairs retain their reviewed versions.
+The imported scheduler and stop-grace code retains the composition already reviewed above.
+All nine conformance files equal the imported base. No pending status changes.
+The mutation file equals the imported base. Its narrow equivalent exclusions retain the reviewed reasons.
+No new private-state assertion, control model, pin change, or exclusion enters this repair.
+
+The implementer reports fmt, 55 link-test passes, and nineteen frame-fit passes after a local clean.
+The reviewer requests the retained evidence path and a body section that identifies this import and repair.
+The current body has only earlier gate records and no current-head repair or train-4 evidence status.
+The reviewer asks for that record before issuing the exact-head delta verdict. No new reviewer execution is requested.
+The implementer states the lead's order: compile and link tests, delta reviews, then FINAL-READY for train 4.
+No full pool gate is requested here. The final composed train gate remains due under that order.
+The reviewer accepts no older gate as completed evidence for this replacement head.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
