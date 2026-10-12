@@ -534,7 +534,7 @@ fn sz_1_resize_sets_the_real_pty_size() {
         go = go.display()
     );
     let mut s = Session::launch(root.path(), &script, 5000);
-    let (mut reader, line) = first_line(&out);
+    let (reader, line) = first_line(&out);
     assert_eq!(line, "24 80\n", "the launch size");
     let size = Size {
         rows: 30,
@@ -565,9 +565,16 @@ fn sz_1_resize_sets_the_real_pty_size() {
     assert_eq!(s.link.report(), applied(2), "SZ-2: no size report");
     // The payload waits on the FIFO: the test lets it read its size again only after the `Done`.
     std::fs::write(&go, b"go\n").unwrap();
-    let mut line = String::new();
-    reader.read_line(&mut line).unwrap();
-    assert_eq!(line, "30 100\n", "the PTY has the new size");
+    // The payload wrote nothing after its first line until `go`, so the buffer holds no byte that `into_inner` drops.
+    assert!(reader.buffer().is_empty());
+    assert_eq!(
+        Bounded::new(reader.into_inner())
+            .line(Deadline::cleanup())
+            .unwrap()
+            .as_deref(),
+        Some("30 100\n"),
+        "the PTY has the new size"
+    );
     assert_eq!(s.link.report(), exited(Some(0), None));
     s.remove();
 }
