@@ -221,13 +221,16 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
   once. Test: `progress_changes_alone_queue_one_unwritten_report`.
 - **`RouteStallDue{route, mark}`.** The worker stalls the route only if it waits and its mark is `mark`; otherwise it
   declines: nothing changes and nothing is sent, and its newer report (already sent or marked) releases the host's slot.
-  At the stall, a frame with a write out, or with bytes written, is started and completed (OU-4). The droppable frames
-  after it are dropped, and a `resync{stalled}` entry goes right after the started frame, before the kept frames. The
-  route leaves the PTY read budget (OU-3b), takes no output while `Stalled` (OU-7), and the worker sends
-  `RouteStalled{route, mark}`.
+  At the stall, a frame with a write out, or with bytes written, is started and completed (OU-4). With no byte of the
+  route accepted yet (mark 0), the front frame is `attached`, which opens the stream, and it counts as started. The
+  droppable frames after it are dropped, and a `resync{stalled}` entry goes right after the started frame, before the
+  kept frames. The route leaves the PTY read budget (OU-3b), takes no output while `Stalled` (OU-7), and the worker
+  sends `RouteStalled{route, mark}`.
 - **The resume.** At the first progress of a `Stalled` route, the worker builds the baseline sequence and the output
-  after its point `R` (`unfed` included) and inserts them after the `resync` entry, which becomes kept. A sequence that
-  cannot be formed closes the route `SnapshotTooLarge` (healthy close, OU-9). The worker sends `RouteResumed{route, mark}`.
+  after its point `R` (`unfed` included) and inserts them after the `resync` entry, which becomes droppable with them: a
+  second stall before a byte of it is written drops it with its baseline, and its own `resync` replaces both. A sequence
+  that cannot be formed, or a frame of it over its bound on the route (a `baseline_begin` grows with the modes), closes
+  the route `SnapshotTooLarge` (healthy close, OU-9). The worker sends `RouteResumed{route, mark}`.
 - **`RouteCloseDue{route, mark}`.** At the stall's mark, the route closes with its first reason, or `StallTimeout`. At
   another mark (the route resumed, and maybe stalled again) it changes nothing.
 - **Adoption (R-90 Q3).** No stall deadline runs while no host is connected. At the adoption, the worker forgets what it

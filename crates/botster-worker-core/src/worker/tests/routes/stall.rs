@@ -340,6 +340,22 @@ fn a_stall_before_the_first_accepted_byte_keeps_attached_first() {
         Some(false),
         "every queued byte is written"
     );
+    // The dropped baseline frames leave the exempt bytes (R-45): until the queue is written, only the refusal counts
+    // against the PTY read budget.
+    let refusal = client
+        .frames
+        .iter()
+        .find(|f| matches!(f, ToClient::InputRefused(_)))
+        .map(|f| botster_route_codec::prelude::stream_wrap(&f.encode()).len())
+        .unwrap();
+    let budgets = budgets(&all);
+    let full = budgets.last().copied().flatten().unwrap();
+    assert!(
+        budgets[1..budgets.len() - 1]
+            .iter()
+            .all(|b| *b == Some(full - refusal)),
+        "{budgets:?}"
+    );
     let late = w.feed(Input::RouteRead {
         route: RouteId(1),
         bytes: client_frame(&bytes_frame(6, b"y")),
@@ -485,4 +501,79 @@ fn an_adoption_reports_a_waiting_route_again_after_adopted() {
             waiting: true
         }]
     );
+}
+
+/// OU-2, DP-3: a resume whose `baseline_begin` is over the route's `max_frame_bytes` closes the route `SnapshotTooLarge`. The
+/// modes that the output set while the route was `Stalled` make the frame larger than at the attach.
+#[test]
+fn a_resume_whose_baseline_begin_is_over_the_frame_bound_closes_the_route() {
+    let (_, client, _) = attached(limits());
+    let begin = client
+        .frames
+        .iter()
+        .find(|f| matches!(f, ToClient::BaselineBegin(_)))
+        .expect("the baseline_begin of the attach")
+        .encode()
+        .len();
+    let mut tight = limits();
+    tight.max_frame_bytes = begin.try_into().unwrap();
+    let (mut w, mut client, write, mark) = waiting_route_with(tight, 10);
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    w.feed(Input::PtyOutput(b"\x1b[?1003h\x1b[?1006h".to_vec()));
+    client.reader.push(&write);
+    let actions = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(write.len()),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    let reports = w.reports(&all);
+    assert!(
+        reports.contains(&WorkerMsg::RouteClosed {
+            route: RouteId(1),
+            reason: RouteCloseReason::SnapshotTooLarge,
+            route_tag: None,
+        }),
+        "{reports:?}"
+    );
+    assert!(!reports
+        .iter()
+        .any(|r| matches!(r, WorkerMsg::RouteResumed { .. })));
+}
+
+/// OU-2, OU-9: a second stall before the first resync is written drops that resync with its baseline: the client reads one
+/// resync and one baseline, from the second stall.
+#[test]
+fn a_second_stall_before_the_resync_is_written_drops_the_first_resync() {
+    let (mut w, mut client, write, mark) = waiting_route(3 * FRAME as usize);
+    let before = client.frames.len();
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    // One byte of the started frame resumes the route; the write of its rest is out.
+    client.reader.push(&write[..1]);
+    let mut actions = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    assert!(w.reports(&actions).contains(&WorkerMsg::RouteResumed {
+        route: RouteId(1),
+        mark: mark + 1
+    }));
+    let second = w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark: mark + 1,
+    });
+    assert!(w.reports(&second).contains(&WorkerMsg::RouteStalled {
+        route: RouteId(1),
+        mark: mark + 1
+    }));
+    actions.extend(second);
+    client.take_all(&mut w, RouteId(1), actions);
+    let mut expected = vec!["output"];
+    expected.extend(RESUMED);
+    assert_eq!(kinds(&client.frames[before..]), expected);
 }

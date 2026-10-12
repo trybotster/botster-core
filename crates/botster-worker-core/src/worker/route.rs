@@ -94,7 +94,8 @@ enum Kind {
     Droppable,
     /// `attached`, `input_refused`, `input_done` and `route_closed`: a stall never drops it.
     Kept,
-    /// The `resync` of a stall (OU-2): kept, and the new baseline goes right behind it when the route resumes.
+    /// The `resync` of a stall (OU-2): kept while the route is `Stalled`. The new baseline goes right behind it when the route
+    /// resumes, and the `resync` becomes `Droppable` with it.
     Resync,
 }
 

@@ -176,8 +176,10 @@ impl Worker {
         for (i, entry) in entries.into_iter().enumerate() {
             route.queue.insert(at + i, entry);
         }
+        // After the resume, the `resync` begins a baseline sequence like any other: a later stall drops it with its baseline
+        // when no byte of it is written, and its own `resync` replaces both.
         if let Some(resync) = route.queue.iter_mut().find(|f| f.kind == Kind::Resync) {
-            resync.kind = Kind::Kept;
+            resync.kind = Kind::Droppable;
         }
         let mark = route.stall.mark;
         self.report(&WorkerMsg::RouteResumed { route: id, mark });
