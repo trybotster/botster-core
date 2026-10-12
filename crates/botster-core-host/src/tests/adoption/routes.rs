@@ -363,3 +363,81 @@ fn a_link_that_ends_before_every_route_live_ends_the_wait_for_them() {
     }
     assert!(completed(&events), "{events:?}");
 }
+
+/// The events of `route` among `events`, in order: "adopted" and "closed".
+fn route_order(events: &[Event], route: RouteId) -> Vec<&'static str> {
+    events
+        .iter()
+        .filter_map(|e| match e {
+            Event::RouteAdopted { route: r, .. } if *r == route => Some("adopted"),
+            Event::RouteClosed { route: r, .. } if *r == route => Some("closed"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// DP-8 phase 3, EV-6 (0181, #313): the session ends, and the worker reports the route's delivered close, before the
+/// route's `RouteAdopted` posts. The stop flow closes the session's routes directly, so it waits for that post: the
+/// caller sees the route before its close.
+#[test]
+fn a_session_end_before_the_route_adopted_post_closes_the_route_after_it() {
+    let mut w = adopting_routes(running_payload(), vec![live(1, true, None)], 1);
+    until_state_posted(&mut w);
+    let route = route_ids(&w)[0].1;
+    w.worker_says(
+        "s",
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    w.worker_says(
+        "s",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SessionEnded {
+                exit: Exit {
+                    code: Some(0),
+                    signal: None,
+                    cause: ExitCause::Other,
+                },
+            },
+            route_tag: Some("t1".into()),
+        },
+    );
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        events.extend(poll_then_pump(&mut w));
+    }
+    assert_eq!(
+        route_order(&events, route),
+        ["adopted", "closed"],
+        "{events:?}"
+    );
+}
+
+/// DP-8 phase 3, EV-6: a `Detach` of a route whose link is gone closes it locally. That close waits for the route's
+/// `RouteAdopted` post.
+#[test]
+fn a_local_detach_before_the_route_adopted_post_closes_the_route_after_it() {
+    let mut w = adopting_routes(running_payload(), vec![live(1, true, None)], 1);
+    until_state_posted(&mut w);
+    let route = route_ids(&w)[0].1;
+    let link = w.link_of("s");
+    w.feed(Input::LinkClosed { link });
+    w.engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Detached,
+        })
+        .expect("Detach is admitted");
+    let mut events = Vec::new();
+    for _ in 0..10 {
+        events.extend(poll_then_pump(&mut w));
+    }
+    assert_eq!(
+        route_order(&events, route),
+        ["adopted", "closed"],
+        "{events:?}"
+    );
+}

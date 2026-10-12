@@ -135,6 +135,17 @@ impl HostEngine {
         }
     }
 
+    /// A `Detach` whose route an adoption registered and whose `RouteAdopted` has not posted (DP-8): its local close waits.
+    fn detach_waits_for_adoption(&self, p: &crate::engine::PendingOp) -> bool {
+        let Op::Detach { route, .. } = &p.op else {
+            return false;
+        };
+        self.routes
+            .get(route)
+            .and_then(|entry| self.sessions.get(&entry.session))
+            .is_some_and(|s| s.route_unposted(route))
+    }
+
     fn flow_waiting(&self, session: &crate::session::Session) -> bool {
         match &session.flow {
             Flow::Idle => true,
@@ -202,6 +213,9 @@ impl HostEngine {
                     // The row's session is being created by this handle: its state is posted when its `Created` is
                     // (LC-11: AdoptAll's state of every row comes before its completion).
                 }
+                (Step::Ready(Next::DetachLocal), _) if self.detach_waits_for_adoption(p) => {
+                    // DP-8 phase 3: the local close of the route posts after its `RouteAdopted`.
+                }
                 (Step::Ready(next), _) => {
                     if !self.step_needs_room(next) || room {
                         out.push(Work::Op(*id));
@@ -222,6 +236,14 @@ impl HostEngine {
                 continue;
             }
             if s.ticket.is_some() || self.flow_waiting(s) {
+                continue;
+            }
+            // DP-8 phase 3: a flow of an adopted session runs after each registered route's `RouteAdopted` posted
+            // (`Work::Parked`). A stop or a removal closes the session's routes directly, and a close never comes first.
+            if s.adopted_routes
+                .as_ref()
+                .is_some_and(|r| !r.unposted.is_empty())
+            {
                 continue;
             }
             // `Remove` does not begin its teardown before an `UpdateMetadata` admitted ahead of it has written its row.

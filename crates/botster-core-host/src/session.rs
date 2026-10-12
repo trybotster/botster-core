@@ -336,6 +336,14 @@ impl AdoptedRoutes {
 }
 
 impl Session {
+    /// A registered route of this session's adoption whose `RouteAdopted` has not posted (DP-8, phase 3). Its close waits
+    /// for that post: a close never names a route that the caller was not shown (EV-6).
+    pub fn route_unposted(&self, route: &RouteId) -> bool {
+        self.adopted_routes
+            .as_ref()
+            .is_some_and(|r| r.unposted.contains(route))
+    }
+
     /// The `SessionRecord` that `get` returns, from the shown state.
     pub fn record(&self) -> Option<SessionRecord> {
         let state = self.shown?;
