@@ -295,3 +295,16 @@ Any later source, base import, pin, pending removal, or different merge tree nee
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open) at 3693a2e370f9ab820bc6f05f159e079e9650a6b9 against base 20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5
+
+### Round 2 supplement — merge receipt
+
+RC's #299 READY names v1 b3cdfffb as its last import.
+Sol independently reads merge object `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Its parents are reviewed base `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`
+and accepted final head `3693a2e370f9ab820bc6f05f159e079e9650a6b9`.
+Its tree equals accepted gated tree `c83156285a094638acf2097912ce31c62f94c53c`.
+The merge adds no source delta to the final acceptance above.
+Future pin/fence work and all earlier evidence limits retain their scopes.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open; merge retains the accepted tree) at b3cdfffbba353bf9cfc34f7d7f9b8daccc753035

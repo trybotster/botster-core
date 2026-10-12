@@ -578,3 +578,160 @@ The final slot still requires the ST-first import, applicable checks and delta r
 Sol accepts no later source head or final merge. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open integration source or evidence findings; body, formal package verdict, and final-slot acceptance remain due) at 8ac717c7d94560bf1f82a5975bb45162ba0b88da against source base f6025aed4cdf7da836e835e0040fc128b7e8f32f
+
+## Round 9 — final-slot #295 import and ordering resolution
+
+Exact head: `4ccd6a7da142331c2d35fa25f5f12914cdf2d22b`.
+Imported base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Tree: `ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be`.
+Delta request: `msg_plugin-w_1791772688_eb1ff6`.
+Merge `b8fee77332770736f43886b35c387eef3fc996c4` has parents reviewed head
+`8ac717c7d94560bf1f82a5975bb45162ba0b88da` and the imported base above.
+Its tree is `24a5e7ca76413872eec0dc25867261b237884bf2`.
+Resolution 4ccd6a7d is one commit on that merge, with ten additions and seven deletions in driver.rs and driver/drain.rs.
+The actual new merge base equals bfef8865. The old common base remains f6025aed.
+
+Sol applies the existing orchestrate-delivery lifecycle review to the change in every exit's action ordering.
+The acceptance scope is R-78 item 3 classification and item 4's nonblocking drain with ST's #295 budget rules.
+HostDriver owns exit delivery, action execution, stream reads, and retained budget work.
+HostEngine owns the session end and completion classification. PC owns this repair and its final gate.
+Complete frames must reach the engine before the drain's close chooses a loss;
+an already chosen end stays chosen, held frames wait for mandatory room, and bounded work retains its wake.
+No new timer, limit, production test branch, or pending removal is in scope.
+
+### Independent import check and complete source delta
+
+Sol independently checks every non-own final blob against the imported base; all match.
+The own diff retains the same 27 paths and adds no own path or list change.
+The five shared paths are driver.rs, engine.rs, run.rs, driver/deadlines.rs, and testkit real.rs.
+Every old own changed-line sequence is preserved in the plain merge.
+After removing index and hunk offsets, all old own patches match except driver.rs.
+Its remaining differences are surrounding #295 context: link_ends removal, the kept-exit documentation,
+and the read-error call to end_link. Sol reads those complete shared paths and the full resolution.
+The resolution intentionally changes the ended-peer WouldBlock call, initial action pass, and empty-drain test.
+All nine conformance blobs exactly equal bfef8865, including both pending files, held, ledger, proofs, and minimum.
+Thus no v1 identifier is re-added, no current status is discarded, and #291 changes no pin.
+The imported real.rs record/control and zombie changes compose without an additional source delta to their accepted behavior.
+
+Sol reads take_exits, perform/perform_counted, every action arm, service_links, retry_held,
+the complete decoder/read/end_link path, the whole pump loop, settle, and budget accounting.
+Sol also reads on_process_exited/on_link_closed, chosen-end guards, and the identity-probe drain path.
+The new initial perform_counted runs the whole queued action list before the first link read.
+It is not an exit-only pass. Sol reads cancel, attach, flush_handoffs, and their driver wrappers.
+Queued Cancel and HandoffRoute actions remain FIFO and execute in their next pump, with the existing failure handling.
+The existing counted pass accounts for posted events and budgets failed-handoff inputs.
+
+For Idle/Stop, the early action installs peer_ended before service_links.
+The read handles every complete frame before closing at EOF, a read error, or the first WouldBlock.
+The normal work loop can then classify an empty drained session in the exit's pump.
+Start and Adopt retain their existing failed-start/adoption policies; their queued close executes before the read.
+Remove AwaitTeardown retains its result/EOF path; other Remove phases retain the known-gone rule.
+The change adds no reap or descriptor ownership mechanism.
+
+An ended-peer WouldBlock now calls the existing end_link with this pump's budget.
+With no event allowance it retains the reason in link_ends and sets more_input.
+The next service handles a held frame first, then the retained end; final close removes the retained reason.
+The first more expression is `runnable || more_input`.
+After settle it is `runnable || more_input || draining()`.
+A settle-time exit still gets its action after that read and leaves an unperformed drain with the wake set.
+A frame blocked on mandatory room remains parked, because draining requires no held frame.
+A budget-held frame remains runnable through more_input; its poll and wake rules remain intact.
+
+Sol reads all eleven drain tests, both branches of the exit/send-failure order test,
+all named handoff and deadline exit sites, and the queued cancel/attach tests.
+The changed empty-drain test preserves the WorkerGone invariant and now requires it in the exit's pump.
+The other tests retain Done/Exited/RouteClosed order, chosen-end delivery, grace priority,
+partial-frame rejection, mandatory backpressure, bounded drains, settle-time wakes,
+and one descriptor/route close after the session end.
+No integration source finding is open.
+
+### Canonical check and retained evidence
+
+Completed records arrive in `msg_plugin-w_1791773040_8ebd48`.
+Canonical log: `~/botster-sessions/gates/botster-core-pc-base-merge-check-8ac717c7-4ccd6a7d-20261012.log`.
+SHA-256: `02c50f1f1c26a5d10d14dca9da93f866a87bc7bc331d77147b8119dcb9db2ab4`.
+Sol reads it in full. Ancestry, condition 1, and both pending-file condition-4 checks PASS.
+Conditions 2 and 3 FAIL for the shared paths and changed own diff.
+The retained result stays FAIL and requires both delta rounds; Sol does not execute the checker.
+
+Sol reads the retained interdiff and independently matches these complete artifacts to their named Git source pairs:
+old own diff `0d20434952183cd6dba4f3b8ff37ffdf5b8501b9d53ef6d9c63420e4ab0823b2`;
+new own diff `75c18d7683e555cf26548c4b0989d891a3888b8ee3c3da0d80bd48121bc0a2be`;
+resolution diff `f9dc7ddf26a2ac92d25e3cfaf35da1869ec09eb6166b4aff0cb8d1070c3dd1c3`.
+The interdiff hash is `28ecf75c2d0b19cf28ab6c61eb221346792f44eff84d39aafe5be39aac386c4d`.
+
+Static log: evidence/pc-r78/xtask-static-4ccd6a7d.log in the shared directory.
+SHA-256: `166df8757594e12d7b6ab5298f90de4e7783894e37fbb6120f4d8861ff4e5953`.
+Sol reads the full log. Fmt and clippy with -D warnings exit zero.
+Ten distinct xtask checks pass: nine on the first run;
+public-api first refuses the absent cap with exit one, then its capped rerun exits zero.
+These are eleven attempts, not eleven exit-zero checks. Both records remain distinct.
+Lists retain 691 ledger identifiers, 410 testkit pending, and 44 real pending at this base.
+The local slow-coverage check examines 1070 slow-only tests; it is not a slow-tier execution claim.
+
+Strict log: evidence/pc-r78/local-check-4ccd6a7d.log.
+SHA-256: `d39235a05ed9bc9ed4e46f1145c975a17cb02b2a15b6264f87559d8c087c55b3`.
+The header names the exact head, BOTSTER_PENDING_STRICT=1, and seeds 0–31.
+Sol independently totals all completed summaries: 1221 PASS, zero failures, and a final numeric exit zero.
+Host has 331/331 PASS. All eleven drain, nineteen handoff, and twenty-one deadline tests have normal ok records.
+The queued cancel and attach tests also PASS. Conformance has 258 PASS and 433 ignored in this local record.
+These supporting results do not replace the exact-head final gate or its mutation evidence.
+
+The earlier clean record is `~/botster-sessions/shared/core-stage1/evidence/pc-r78-merge-bfef8865.log`.
+SHA-256: `91c6f6238bc60d0f0e355a089651f2e835bceb07337ecccc9648d1f92ff5ce58`.
+Its header is b8fee773 plus the then uncommitted drain-end fix, not an untouched merge.
+It records clean removal of 15520 files and 4.1 GiB at 02:30:45 UTC.
+It has 330 PASS and one kept-exit assertion FAIL: Running instead of Lost(WorkerGone).
+It supplies no numeric underlying test exit. An unretained untouched-merge failure remains only PC's report.
+Static source supports the ordering diagnosis: the drain-end fix cannot act before peer_ended is installed.
+PC confirms that the same worktree alone built targets/pc from that recorded clean through the new checks.
+This owner statement supplies the cache condition; Sol performs no independent build.
+
+Historical r78-final-local.sh is retained as run, hash `3a091797a46287fc9ccd2fedc398946cf0907246307b5048c3976c36db1dac51`.
+It does not set both required cap variables. The public-api refusal confirms that launch defect.
+The future copy r78-final-local-capped.sh exports both variables at four;
+Sol reads it, hash `494039e7f285d17848a42e27b647db33cb7078273d5f950827b91578fff568cf`.
+No new execution is inferred from the corrected script, and no repeat run is requested.
+
+### LOW body corrections and matching complete package verdict
+
+Sol reads the whole initial body, hash `0123446019f39ad65b480c3b272bcad1240c29cc681fa2d3764544f49c92661a`.
+It lacks the current import/resolution, says the empty drain ends in a later pump, and leaves IN9 acceptance pending.
+PC adds the current slot section, action ordering, two more expressions, and accepted attribution.
+Sol reads the full delta, hash `ecf28a3eeb2a210cf2b083ffb7cd1f3b211e4170e789ce5a56e5ff8d620c2a93`.
+
+Sol identifies the eleven-check overstatement in `msg_plugin-w_1791773113_cc930e` and `_c87772`.
+Package receipt `msg_plugin-w_1791773150_c73ade` also requires withdrawal of the old held-PTY IN9 diagnosis
+and a capped future script. Sol agrees with those conditions.
+Sol then identifies the scratch-source scope of the failed merge run in `msg_plugin-w_1791773267_cabf46` and `_4942d4`.
+These are LOW precision conditions; none requires a product change or new execution.
+
+PC supplies all corrections in `msg_plugin-w_1791773308_972f34`.
+Sol reads each complete body delta and the updated evidence manifest.
+Final live raw body SHA-256: `da2fa54e4a1df2f2ef7c68f473fa41460c25579500b19939390f4cdf91ce8c32`.
+Retained body snapshot SHA-256: `3aaf938eadf9c3423462a394d5884a28f5be9d52f6442fb21453e0906d002638`.
+They match except for the retained file's extra final newline.
+The body withdraws the held-write diagnosis and states NotWritten(NotReported) before ModesChanged,
+the already-consumed completion, accepted controlled-v1 attribution, and the absent event-order trace.
+It names ten distinct checks and both public-api outcomes, both script scopes,
+and the failed run's actual merge-plus-fix source. All LOW conditions close.
+Old gates, A5-4 tables, replacement reversals, Mac proof, and unvalidated historical records retain their exact source scopes.
+The two pinned failing prefixes have no cancel or attach before their named failures;
+the additional pre-read action pass supplies no new action on those prefixes.
+Their accepted attribution remains source reasoning and the earlier controlled proof, not a new-head A5-4 run.
+
+Complete evidence manifest SHA-256: `e9a8f860cd021c9ef8e44e28cd79d7c8d5fef4fd47b7b7f8f4b9c56360da927e`.
+Sol independently matches every listed artifact hash to its retained file.
+This manifest is PC's evidence package, not the reviewer's verdict.
+Sol reads complete package Round 2, supplements, and Round 3 at
+`6c4d51321b7e352a6c0f377d996dc7bd9cd84729`, verdicts/pc-r78-stopping.md.
+It closes the earlier source/evidence findings, independently accepts IN9 with its limits,
+and supplies matching delta CLEAN at this exact head and base, including all LOW closures.
+Package receipt `msg_plugin-w_1791773510_e52955` confirms this is pre-gate delta approval.
+
+Both delta reviews now have zero open source or body findings. The canonical FAIL requires these reviews and stays FAIL.
+ONE completed exact-head final gate, its mutation audit, final body/evidence reviews, and lead Q7 remain due before merge.
+This verdict accepts no final gate result, later import, different tree, new pin, or status removal.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open integration delta findings; exact-head final gate remains due) at 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b against base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
