@@ -45,8 +45,8 @@ use botster_core_link::msg::WorkerMsg;
 use botster_core_link::route::{frame_bounds, frame_fits, route_closed_frame};
 use botster_route_codec::prelude::{
     stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HexBytes, HistoryState,
-    HistoryUnavailable, Input, InputDone, InputRefused, Op, RefusalReason, RouteLimits,
-    StreamReader, ToClient, ToWorker,
+    HistoryUnavailable, Input, InputDone, InputRefused, Modes, Op, RefusalReason, RouteLimits,
+    StreamReader, ToClient, ToWorker, TYPE_MODES,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -73,6 +73,10 @@ pub(super) struct Routes {
     settling: bool,
     /// A change came during a pass of `settle_routes`: it makes one more pass.
     unsettled: bool,
+    /// The receive order of the last client input frame of any route (DP-6 activity).
+    activity: u64,
+    /// The last size that the size policy gave (DP-6).
+    computed: Option<(u32, u32)>,
 }
 
 #[derive(Debug)]
@@ -103,6 +107,36 @@ struct Route {
     allowance: Option<usize>,
     /// The open paste (Codec TS-5d): at most one per route. A file has a slot of its own (steward ruling R-75).
     paste: Option<OpenPaste>,
+    /// The last size that the route reported with a `resize` input, as rows and columns (DP-6).
+    size: Option<(u32, u32)>,
+    /// The route reported a size that the size policy has not read yet (DP-6).
+    reported: bool,
+    /// The receive order of the route's last input frame of any kind (DP-6 activity); 0 before its first.
+    activity: u64,
+}
+
+impl Routes {
+    /// DP-6 `Latest`: the last size of the open route with the most recent activity, among the routes that reported a size
+    /// (the receive order has no ties). It is `Some` when it differs from the last size that the policy gave, or when a
+    /// route reported a size since the last call: that report is newer than any host `Resize`. With no such route the
+    /// size stays (`None`). A closing route applies no more input, so it is not a candidate.
+    pub(super) fn policy(&mut self) -> Option<(u32, u32)> {
+        let reported = self.routes.values_mut().fold(false, |any, route| {
+            std::mem::take(&mut route.reported) | any
+        });
+        let latest = self
+            .routes
+            .values()
+            .filter(|route| route.closing.is_none())
+            .filter_map(|route| route.size.map(|size| (route.activity, size)))
+            .max_by_key(|&(activity, _)| activity)
+            .map(|(_, size)| size)?;
+        if !reported && self.computed == Some(latest) {
+            return None;
+        }
+        self.computed = Some(latest);
+        Some(latest)
+    }
 }
 
 /// A paste between its `paste_begin` and its `paste_commit` or `paste_abort` (Codec TS-5d). Its chunks are assembled here,
@@ -140,9 +174,24 @@ impl Route {
         self.queue.push_back(bytes);
     }
 
+    /// DP-5: `modes` coalesces to one latest unstarted frame per route. An unstarted `modes` frame leaves the queue, and the
+    /// new one goes at the end. A frame that has started (the front one, while a write of it is out or part of it is
+    /// written) completes. So `modes` adds at most one frame to the route's queue, and a frame never in the baseline
+    /// sequence, which has no `modes` frame.
+    fn push_modes(&mut self, frame: &[u8]) {
+        let started = usize::from(self.writing || self.written > 0);
+        let unstarted = (started..self.queue.len())
+            .find(|&i| self.queue[i].get(STREAM_PREFIX) == Some(&TYPE_MODES));
+        if let Some(i) = unstarted {
+            let old = self.queue.remove(i).expect("found above");
+            self.queued -= old.len();
+        }
+        self.push_encoded(frame);
+    }
+
     /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt. `None` is a
-    /// frame that has its whole effect now and sends no frame: a paste's chunk, its `paste_begin`, and its abort before the
-    /// commit (Codec TS-5d). `wire` is the frame's size on the stream, and `key_text_bound` is
+    /// frame that has its whole effect now and sends no frame: a paste's chunk, its `paste_begin`, its abort before the
+    /// commit (Codec TS-5d), and a `resize` (DP-6: the route's size, read by the size policy after the read). `wire` is the frame's size on the stream, and `key_text_bound` is
     /// `CoreLimits.max_key_text_bytes` (A15-1).
     fn decide(&mut self, frame: ToWorker, wire: usize, key_text_bound: usize) -> Option<Received> {
         let op = match &frame {
@@ -239,8 +288,16 @@ impl Route {
                 notches,
             })),
             ToWorker::Input(Input::Focus { focused, .. }) => input(InputPayload::Focus { focused }),
-            // A resize (DP-6, a later PR), files and query replies are later P4a work (DP-5): they are refused with their op
-            // (TS-5b), and the route stays open.
+            // DP-6: a resize reports the route's size and has no answer; the effective size arrives in `modes`. Its
+            // activity is its receipt, as for every input frame, so its size counts from the same point. The codec
+            // refuses a zero size (`Input::check`).
+            ToWorker::Input(Input::Resize { rows, cols, .. }) => {
+                self.size = Some((rows, cols));
+                self.reported = true;
+                None
+            }
+            // Files and query replies are later P4a work (DP-5): they are refused with their op (TS-5b), and the route stays
+            // open.
             other => {
                 let what = match other {
                     ToWorker::FileChunk { .. } => "file_chunk",
@@ -413,6 +470,9 @@ impl Worker {
             input: options.input,
             allowance: None,
             paste: None,
+            size: None,
+            reported: false,
+            activity: 0,
         };
         match self.baseline(&entry, &options) {
             Ok((frames, sequence)) => {
@@ -629,6 +689,8 @@ impl Worker {
             reason,
             route_tag: route.route_tag,
         });
+        // DP-6: the next most recently active route's size applies.
+        self.size_policy();
         self.settle_routes();
     }
 
@@ -645,6 +707,11 @@ impl Worker {
         route.closing = Some(reason);
         // A closing route applies no more input: the frames that wait are discarded (plan 23ad).
         route.received.clear();
+        // DP-6: the closing route is no longer a candidate; the next most recently active route's size applies.
+        self.size_policy();
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
         let frame = ToClient::RouteClosed(
             route_closed_frame(reason).expect("a healthy reason has its frame"),
         )
@@ -714,6 +781,8 @@ impl Worker {
         if route.closing.is_none() {
             route.reader.push(bytes);
             self.receive_route(id);
+            // DP-6: the read's inputs changed the route's activity, and a resize its size.
+            self.size_policy();
         }
         // The decoded input may reserve the room of its refusal: the PTY budget and the allowances follow.
         self.settle_routes();
@@ -839,6 +908,11 @@ impl Worker {
     /// The receipt of one complete client input frame, applied or refused: `input_rev{client}` advances, and the activity
     /// carries its route (IN-4). An ignored extension frame is not input.
     fn client_received(&mut self, id: RouteId) {
+        // DP-6: the route's activity is the receive order of its last input frame of any kind.
+        self.routes.activity += 1;
+        if let Some(route) = self.routes.routes.get_mut(&id) {
+            route.activity = self.routes.activity;
+        }
         let input_rev = self.input.client_received();
         self.report(&WorkerMsg::Observed {
             observation: Observation::ClientInput {
@@ -901,6 +975,30 @@ impl Worker {
         debug_assert!(stream_wrap(&frame.encode()).len() <= refusal_bound());
         route.push(&frame);
         self.pump_route(id);
+        self.settle_routes();
+    }
+
+    /// DP-6: the size that the session took goes to every route that is not closing, in `modes` with the model's modes
+    /// (coalesced, [`Route::push_modes`]). A route whose bound cannot carry the frame gets none.
+    pub(super) fn routes_size(&mut self, size: Size) {
+        let Some(model) = self.model.as_ref() else {
+            return;
+        };
+        let frame = ToClient::Modes(Modes {
+            modes: model.modes(),
+            rows: size.rows,
+            cols: size.cols,
+        })
+        .encode();
+        let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
+        for id in ids {
+            let route = self.routes.routes.get_mut(&id).expect("listed");
+            if route.closing.is_some() || !route.fits(&frame) {
+                continue;
+            }
+            route.push_modes(&frame);
+            self.pump_route(id);
+        }
         self.settle_routes();
     }
 
@@ -988,6 +1086,9 @@ mod tests {
             closing: None,
             allowance: None,
             paste: None,
+            size: None,
+            reported: false,
+            activity: 0,
         }
     }
 

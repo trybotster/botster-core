@@ -206,8 +206,6 @@ conf::dp_3_output_deflate_frames_share_no_state
 conf::dp_3_output_deflate_inflated_payload_is_at_most_the_frame_bound_minus_the_type_byte
 conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
-# DP-6 resize (PR B): the s16 route resize is refused (input_refused unsupported "input"), so s23 fails on both tiers.
-conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
 conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
@@ -217,7 +215,6 @@ conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
 conf::dp_5_no_input_has_a_success_acknowledgement
 conf::dp_5_op_is_optional_except_on_a_paste
 conf::dp_5_refusals_survive_a_resync
-conf::dp_5_resize_has_no_answer_size_arrives_in_modes
 # After the contracts-v0.1.39 merge: the testkit fails it at seed 10 step 15 (gate dfc38b47, seeds 0-31: route_closed session_ended
 # before input_refused session_ended), and the real tier at seed 0 step 15. Not diagnosed. Owner: RC.
 conf::dp_5_session_ended_is_a_reason_with_written_bytes_after_a_partial_paste
@@ -241,10 +238,7 @@ conf::dp_5b_post_creation_refusal_carries_the_retained_path
 conf::dp_5b_second_file_begin_is_refused
 conf::dp_5b_written_bytes_and_the_precreation_bound_include_the_space
 conf::dp_5b_written_bytes_are_encoded_pty_bytes_with_markers
-conf::dp_6_close_falls_back_zero_routes_keeps_size
-conf::dp_6_host_resize_and_policy_latest_wins
-conf::dp_6_latest_most_recent_activity_wins
-conf::dp_6_resize_has_no_answer_size_arrives_in_modes
+# DP-6: the pinned contracts-v0.1.41 has no transcript of this id, so no tier runs it.
 conf::dp_6_tie_by_receive_order
 conf::dp_7_detach_completes_after_transport_closed
 conf::dp_8_adopted_route_keeps_route_tag_owner_and_client_tags
@@ -414,10 +408,8 @@ conf::sv_9_final_frames_readable_until_remove
 conf::sv_9_log_tail_bounded
 conf::sv_9_sigterm_then_group_kill
 conf::sv_9_start_rollback
-conf::sz_1_resize_without_route
-conf::sz_2_same_size_is_noop
+# SZ-3: host resize coalescing, Superseded{by}: Core applies every Resize (s6 fails on the testkit, step_timeout on the real tier).
 conf::sz_3_coalesced_resize_is_superseded
-conf::sz_3_every_resize_completes
 conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
