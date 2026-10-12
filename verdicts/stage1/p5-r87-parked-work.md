@@ -267,3 +267,19 @@ The final body, both final evidence receipts, and lead's Q7 check before merge a
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open source delta or body findings; package delta and final evidence remain due) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
+
+### Round 4 supplement — R292-SI-4 LOW reopens for metadata precision
+
+Package receipt `msg_plugin-w_1791767787_6b89f6` identifies one remaining precision issue in the corrected body.
+The body says that condition 3 differs only at the real.rs index line.
+That is the canonical check's first difference. Ten hunk headers also change their line offsets.
+Sol independently verifies all ten changed headers and unchanged content after removal of both metadata types.
+The source CLEAN remains valid. The statement about the only raw difference is false.
+Sol's earlier body check missed that distinction; the earlier zero-body-finding conclusion is superseded here.
+R292-SI-4 reopens only for this LOW precision issue, matching package R292-D1.
+Required correction: name the index line as the first difference and name the remaining changed hunk offsets.
+Retain the unchanged patch-content comparison and the canonical FAIL. No source change or new execution is required.
+The current body correction, complete package delta verdict, and final evidence remain due.
+Sol runs no execution job. Never poll.
+
+VERDICT: NOT CLEAN (1 LOW body issue; 0 source delta findings) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
