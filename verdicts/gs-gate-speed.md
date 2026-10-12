@@ -4098,3 +4098,19 @@ The timeout names `base_merge::tests::an_unreviewed_change_after_the_merge_still
 At the last complete body read, the earlier unsupported claims remain. The corrected body and completed replacement gate remain due.
 
 I accept no running gate. I ran no execution job.
+
+### Sol initial re-entry inspection receipt
+
+I read the complete integration artifact at `4daad3901f569abb2cf351f915214e4c7c43f359`, file `verdicts/stage1/st-real-pending-reentry.md`.
+
+Sol confirms the written authority, preserved eligibility checks, unchanged readers, and initial gate. Sol accepts no completed replacement-head evidence or CLEAN round.
+
+Both reviews close the explicit empty-fix coverage gap in the replacement source. The corrected body and completed replacement gate remain due.
+
+Under pair-common lines 113–117, local Mac timeouts are `local, unclassified`. I open no timing finding on these results.
+
+Sol records the owner's withdrawal of the unretained initial clippy and isolated-pass claims. The final body must preserve that withdrawal and timeout classification.
+
+The reversal script invokes restoration, but its logs retain no numeric restoration exit or restored-suite PASS. The earlier clean statement is an owner report.
+
+This receipt records the initial inspection. It does not complete a matching CLEAN round. I ran no execution job.
