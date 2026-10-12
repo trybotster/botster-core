@@ -14042,3 +14042,96 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 All earlier verdict history remains preserved. The next package round is 194.
 
 VERDICT: NOT CLEAN
+
+
+## Round 194 — #318 first repair, 2026-10-12
+
+Exact submitted head: `d19cc1a6203e15f2e861c21cbbce0720a204db6d`.
+Previous reviewed head: `7010f7556b2c18c6f43d2166769d580d53c123dd`.
+Source base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Gate reference: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`, not imported.
+Owner READY: `msg_plugin-w_1791829030_2bb803`. Tier: HIGH, unchanged.
+Previous verdict: `fe92a9618a2e3e3938d92dfd4df94571b2889df1`, Round 193 NOT CLEAN.
+This is package round two on #318. The reviewer reads the complete four-file delta: 75 additions and 27 deletions.
+The production delta changes documentation only. The previous whole-drain review remains applicable.
+
+### Closed findings
+
+**F150 LOW — CLOSED.** Both changed comments describe repeated counted and flushing parts without a byte bound.
+The Drain comment now permits EIO or EOF on either OS, as R-108-E1 requires.
+
+**F151 MEDIUM — CLOSED.** The driver test removes all 50 ms slices and its elapsed-slice counter.
+It waits on the driver's own poll for PTY readiness and the production EXIT wake, under one absolute ten-second deadline.
+Interrupted waits use the remaining deadline. On macOS, actual readiness lets the driver read before the leader becomes waitable.
+Linux preserves unread output until DrainPty and retains counted < expected.len(). The drain must return all 4103 written bytes.
+The test retains process ownership and bounded cleanup. It adds no sleep or periodic timer.
+The repaired test passes in the current Linux gate and the exact-head Mac local run.
+F154 below concerns a separate new readiness assertion, not the corrected wait structure.
+
+**F152 LOW, including R318-I1 — CLOSED.** The complete body explicitly retains F28 as a separate Part B duty.
+It states that the measurement contains no native mutation outcomes. It uses a seven-byte title and totals 4103/1007.
+It preserves historical gates and logs at their actual heads. No F28 closure follows from this correction.
+
+### F153 — MEDIUM — Partly repaired; the leader exit still races the holder's protection
+
+Status: OPEN.
+Evidence: `crates/botster-worker/tests/common/session.rs:1527-1541`.
+The holder now installs trap '' HUP, sends its own held marker, and waits for the test's release byte.
+The second marker after that release proves that the holder survived through Exited in a successful run.
+The Linux tty result supplies the live-PTY proof. The body correctly limits the quiet-read proof to Linux.
+The Mac none result proves a surviving process, without claiming a terminal that the OS no longer retains.
+
+However, the parent starts the holder asynchronously, writes up, and exits without waiting for the holder's trap or readiness.
+The test's later held read cannot order that earlier leader exit. A permitted schedule lets the parent exit before the child installs its trap.
+SIGHUP can then end the holder before either marker, and the correct drain test fails at the held deadline.
+This is a fixture race, not a demonstrated failure in the drain.
+Required change: establish the HUP disposition before the fork so the child inherits it, or hold the leader until a real readiness handshake completes.
+Preserve the holder's post-Exited release and second marker, the accurate per-OS scope, and bounded group cleanup.
+Do not add sleeps, periodic retries, or a test hook to order the fixture.
+Authority: BUILD.md testing rules 3, 5, 9, and 10; R-108's silent-holder proof.
+
+### F154 — LOW — The new readiness assertion does not prove a PTY event
+
+Status: OPEN.
+Evidence: `crates/botster-worker/tests/common/driver_edges.rs:643-646`; `crates/botster-worker/src/main.rs`, Driver::spawn.
+The test asserts pty_readable and states that PTY readiness came before the exit.
+Driver::spawn already sets that flag to true. The Linux wait path does not clear it before the assertion.
+Therefore the assertion succeeds even if the poll returns only EXIT and no PTY event.
+The body repeats the unsupported readiness claim.
+Required change: verify an actual event from a cleared initial state, or remove the redundant assertion and its body claim.
+The counted-gap and complete-output assertions remain the required tail proof. No new helper-internal test is requested.
+
+### Current evidence
+
+Complete body snapshot: `/private/tmp/review-p3-pr318-d19cc1a6.json`.
+The exact-head Mac local log names d19cc1a6 and the unchanged-worktree cache claim after the previously recorded full clean.
+It reports numeric zero exits for format, actual CI taint, the named checks, clippy, prebuild, and the three test tiers.
+Default: 1007 passed/one skipped/4.595 seconds. Worker slow: 143 passed/14.825 seconds.
+Strict seeds 0-31: 580 passed/111 skipped/31.572 seconds. These passes do not remove F153's permitted failing schedule.
+Historical measurement, reversal, earlier red gates, and earlier local limitations retain their Round 193 scope.
+No new pin, pending-list, timeout, mutation exclusion, production test hook, or process allowance changes.
+
+Gate: `gates/botster-core-stage1-p3-a31-drain-d19cc1a6-pool-20261012-110920-28759.log`.
+SHA256: `9ff99f68b79506f1fca3929ec044633a22912db44c7964adbaf1c6d14416d0cd`.
+The headers name the exact source head and the distinct gate reference above. All ten steps PASS.
+Default: 1939 passed/431 skipped/10.657 seconds. Slow: 626 passed/2070 skipped/38.802 seconds.
+Both silent-holder forms, both twenty-run session mirrors, and the changed driver-tail test have normal PASS.
+Stage 1: 25 outcomes, 16 caught/five missed/four unviable/zero timeout, 13.9 seconds.
+Stage 2 catches all five misses in 226.0 seconds. The baseline passes 626 tests in 38.762 seconds; its full step takes 45.8 seconds.
+Final: 21 unique catches/four unviable/zero miss or timeout. All raw catches match citations; every catcher has a normal PASS.
+The four unviable outcomes retain the unsupported Default/non-exhaustive match reasons. No FLAKY line appears in this gate.
+The earlier ev_2 FLAKY record retains its historical scope; this green gate does not close the separate structural fix.
+Fuzz selects no changed decoder harness. Total steps: 417.4 seconds. Job exits zero after 426 seconds; wrapper exits zero after 427 seconds on msa1.
+Minimum testkit remains 67/69. No additional pending removal is accepted.
+
+### Verdict and scope
+
+F150, F151, and F152 are CLOSED at this exact head. F153 MEDIUM and F154 LOW remain OPEN.
+The production drain retains the reviewed behavior. The green gate does not override the fixture race or the unsupported assertion.
+F28, F33, F39, and the other Part B duties retain their separate recorded scopes. #163 remains open.
+Final import/check, applicable train reviews, exact-final-head gate, receipts, and equal-tree merge verification remain due.
+No future head, import, train, gate, merge, pin, or pending removal is accepted.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs. The reviewer changes no product code.
+All prior history remains preserved. Next package round: 195.
+
+VERDICT: NOT CLEAN
