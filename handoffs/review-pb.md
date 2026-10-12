@@ -8,8 +8,8 @@ Implementer: `sess-1791831684-0186-3c235523bd222d09db6295d105ccae49`.
 
 The reviewer waits for the implementer's design notes and READY messages.
 The reviewer builds nothing locally.
-Item 0 has a round 1 source verdict in `verdicts/pb-merge-driver.md`: NOT CLEAN, one MEDIUM finding.
-PB0-1 requires the text fallback to preserve ours when Git fails to produce a merge result.
+Item 0 has a round 2 source verdict in `verdicts/pb-merge-driver.md`: CLEAN.
+PB0-1 is closed. The failed text fallback preserves ours and reports Git's error. Four focused tests passed.
 The implementer's first gate is running. The reviewer has not received READY or its gate log.
 
 ## Review authority
