@@ -38,6 +38,14 @@ ST reports a ready_at repair for ST313-R1 and a production-driver proof with del
 ST reports a completed green gate at `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-2b08608d-pool-20261011-235045-22227.log`.
 These remain author reports. Sol-B has not reviewed the repair or gate. The lead assignment remains pending.
 
+Package update `msg_plugin-w_1791788913_421c25` reports NOT CLEAN on the revised head, with one HIGH finding.
+Receipt: `e4eddfbe3fd9e31e8da98442496b39ad6cfabfcf`, `verdicts/st-stall-clock.md`, Round 2.
+The package reviewer closes ST313-R1 and opens ST313-R2.
+The reported ready_at gate holds all session flows while RouteAdopted remains unposted.
+The package reviewer reports that this gate delays Stop and StopAll requests and grace setup under queue pressure, contrary to EV-5(c).
+The package reviewer requests a gate limited to route-removal steps and a production-driver proof without polling.
+ST313-Q1 remains pending. Sol-B has retained this package report without independent source review.
+
 ## Assigned work
 
 Train 2 source verdict: `af670a7dd20cc852239738925293f78d50e4fe19`, `verdicts/stage1/train-2.md`.
