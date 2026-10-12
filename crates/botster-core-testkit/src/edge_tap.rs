@@ -37,6 +37,7 @@
 //!   reordered, dropped or changed. Core's write interest on the held link does not reach the inner edge, so no readiness
 //!   wakes the host for it. The release gives the inner edge that interest, and Core's next flush sends the bytes.
 
+use crate::op_holds::SharedHolds;
 use crate::route_reports::{RouteReports, Seen};
 use crate::stand_in::StandIn;
 use crate::stream_holders::{socket_id, SocketId};
@@ -281,6 +282,9 @@ pub struct Tap<E> {
     /// The worker's route reports that the driver consumed (`route_reports`, R-66): only the driver's own `link_recv` calls
     /// and the bytes that they gave count, never the tap's take-ahead.
     reports: RouteReports,
+    /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted (Core A5-2, R-88 group E). The tap's
+    /// scheduler answers `Scheduler::held` from it.
+    op_holds: SharedHolds,
 }
 
 impl<E: HostEdges> Tap<E> {
@@ -447,6 +451,17 @@ impl<E: HostEdges> Tap<E> {
         self.sort_unnamed();
         self.inner.wake().signal();
         true
+    }
+
+    /// The holds of `scheduler_hold` on this host (Core A5-2, R-88 group E). The layer in front of the driver records the ops
+    /// that Core admits in it.
+    pub fn op_holds(&self) -> SharedHolds {
+        Arc::clone(&self.op_holds)
+    }
+
+    /// `scheduler_release`: the held step is runnable again, so the wake edge signals and the host pumps (TM-6).
+    pub fn signal_wake(&self) {
+        self.inner.wake().signal();
     }
 
     /// What the driver consumed of the reports of `route` from the worker of `instance` (`route_reports`, R-66). While a report
@@ -718,6 +733,12 @@ impl<E: HostEdges> Scheduler for SchedulerTap<E> {
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         lock(&self.tap).inner.scheduler().bound(point, max)
     }
+
+    /// The tap's holds first (`scheduler_hold`), then the inner scheduler's own answer.
+    fn held(&mut self, ops: &[u64]) -> bool {
+        let mut tap = lock(&self.tap);
+        crate::op_holds::lock(&tap.op_holds).holds_any(ops) || tap.inner.scheduler().held(ops)
+    }
 }
 
 impl<E: HostEdges> EdgeTap<E> {
@@ -741,6 +762,7 @@ impl<E: HostEdges> EdgeTap<E> {
             handoff: HandoffHold::Off,
             stream_bytes: BTreeMap::new(),
             reports: RouteReports::default(),
+            op_holds: SharedHolds::default(),
         }));
         let weak = Arc::downgrade(&tap);
         let scheduler = SchedulerTap {

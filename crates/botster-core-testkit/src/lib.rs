@@ -17,6 +17,7 @@ pub mod entropy;
 pub mod every_cut;
 pub mod harness;
 pub mod net;
+pub mod op_holds;
 pub mod oracle;
 pub mod oracle_compare;
 pub mod oracle_controls;

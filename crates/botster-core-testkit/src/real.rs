@@ -127,6 +127,7 @@ use std::time::Duration;
 mod route;
 mod row_file;
 mod snapshot;
+mod timed;
 
 /// The binary that a wrapper execs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1104,6 +1105,12 @@ impl CoreHarness for RealCoreHarness {
                 }
             }
             let driver = HostDriver::open(cfg, edges)?;
+            // The ops that Core admits go to the tap's holds, which its scheduler answers from (`scheduler_hold`).
+            let holds = tap
+                .upgrade()
+                .map(|tap| lock(&tap).op_holds())
+                .unwrap_or_default();
+            let driver = timed::Timed::new(driver, holds);
             // The crash slot holds the capture layer, so a `host_crash` drops the layer with the driver.
             let (layer, resume) = crate::capture_layer::CaptureLayer::new(Box::new(driver), {
                 let marks = self.programs.marks();
@@ -1205,6 +1212,8 @@ impl CoreHarness for RealCoreHarness {
                     | "release_start_at"
                     | "start_held"
                     | "route_reports"
+                    | "scheduler_hold"
+                    | "scheduler_release"
                     | "fail_next"
                     | "fail_handoff"
                     | "hold_handoff"
@@ -1245,6 +1254,15 @@ impl CoreHarness for RealCoreHarness {
             "release_start_at" if self.tapped => self.release_start_at(handle, args),
             "start_held" if self.tapped => self.start_held(handle, args),
             "route_reports" if self.tapped => self.route_reports(handle, args),
+            "scheduler_hold" if self.tapped => {
+                let holds = lock(&self.tap(handle)?).op_holds();
+                crate::op_holds::hold(&holds, args)
+            }
+            "scheduler_release" if self.tapped => {
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
+                crate::op_holds::release(&holds, args, || lock(&tap).signal_wake())
+            }
             "fail_next" if self.tapped => self.fail_next(handle, args),
             "fail_handoff" if self.tapped => self.fail_handoff(handle, args),
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
