@@ -3651,3 +3651,45 @@ Both reviews retain RC-R100-6, MEDIUM, open. Both require removal of private dri
 The composition assessment, retained source closures, local evidence limits, and final-gate requirement match.
 These two receipts name one finding. They do not create a second finding or a second review round.
 No later head or train is accepted. The reviewer runs no execution check.
+
+
+### Core #309 — RC-R100-6 repair delta, round 2
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact head: `cfcc438d8eac85108d64237bdc11fa215dc85104`.
+Tree: `d4c777abd1140d37ce0b59530f10e976a8035fd6`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Parent: `7a2d53d999800afa266e3a10f025ee24e288a0ca`.
+READY message: `msg_plugin-w_1791829061_74ec6d`.
+Open package findings: 0, including LOW findings.
+
+RC-R100-6 — MEDIUM — closed.
+The changed queue-bound test no longer reads or asserts the driver's control_message or control_bound fields.
+It obtains the frame bound through the existing public HostDriver::engine and HostEngine::link_frame_bound methods.
+It encodes HostMsg::Cancel with the largest request number through the message and frame boundary to obtain the cancel length.
+It checks the pure control_bound function's returned value from explicit limits, frame bound, and encoded cancel length.
+The multiplier check and four-cancel queue formula remain covered. No subject getter is added.
+The helper's visibility becomes pub(crate); its body and product behavior are unchanged.
+The complete source delta contains only that helper declaration and the test import, comment, and repair.
+All earlier R-100 source closures and the reviewed queue composition retain their scopes.
+No mutation configuration, exclusion, contract pin, conformance file, terminal expectation, or control model changes.
+The separate imported test that sets a driver bound is outside this repair; this closure grants it no new acceptance.
+
+The reviewer reads the local script and retained log without executing them.
+Log: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-r100/local-cfcc438d-20261012-181459.log`.
+The header names the exact head and tree and records clean tracked status.
+Cargo clean removes 4030 files totaling 857.1 MiB. The log retains no separate numeric clean exit.
+The script unsets RUSTUP_TOOLCHAIN and sets both parallelism caps to four. Fmt exits zero.
+Host and link tests pass 430 cases and exit zero.
+The scratch 65 MiB expectation fails with actual 101711872 and expected 68157440.
+The scratch three-cancel helper fails with actual 29295117866 and expected 29295117912.
+Both reversals exit 100. The script restores both files and records clean tracked status afterward.
+These records support the repaired coverage and supply no final gate or other target-writer history.
+
+The reviewer reads the complete PR body and verifies the exact member head and base.
+The exact UTF-8 JSON body SHA256 is `42b762e87e972f6770e7b48633f9ef9a48dcedfcf2bf6a5c97c2dd847f6335a3`.
+The body records this repair and local proof, retains earlier gate scopes, and names the future train-6 gate for this head.
+A matching integration source delta, applicable train and combined reviews, final gate, final receipts, and equal-tree merge verification remain due.
+This source CLEAN accepts no later head, future train composition, specific retry, or final gate result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
