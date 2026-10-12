@@ -284,3 +284,48 @@ This verdict accepts no later head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 6 — 2026-10-11: #300 source delta on train 2
+
+Exact train head: `080987829a2e2245a7ea97606020400392c974d6`.
+Train tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+Train base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Reviewed #300 input: `484912ac58743b899c7856e87bdcad0f2b398300`.
+Lead request: `msg_plugin-w_1791783838_e37537`. This round reviews #300's delta on the complete train head before its gate.
+
+I inspect both train merge objects and their first-parent chain.
+The #300 merge is `872c7eeb66ca0cbe174b619014fc64100953a6f9`, with parents the exact train base and #300 input above.
+The final train head has parents that merge and #305 input `655bb3ab16d34f1bc14991aed6c1a41fbb785dc3`.
+The train base contains the #301 and #304 merges. This review does not treat the final head as a single #300 merge.
+
+The base changes 12 paths from #300's imported base ae49bbec. Four overlap #300's 17 owned paths.
+Those paths are core-pending.txt and the three testkit files core.rs, core/tests.rs, and harness.rs.
+I read the complete changes in those three files against the reviewed #300 input and the effective #300 patch against the train base.
+The #301 start holds retain their Faults storage, spawn/accept behavior, and public link tests.
+The #300 HandleScheduler retains its own SharedHolds object and its held/admitted methods.
+Directories::open creates that object once and shares it between the scheduler, Opened, and the handle's controls.
+The tests' constructor retains the second HandleScheduler argument. The harness retains holds_of and stores the same object for the handle.
+The imported harness test changes its unsupported-control probe from hold_start to host_crash. It does not remove an E1 assertion.
+The start-hold storage and operation-hold storage remain separate. The auto-merges add no new scheduler draw or E1 policy change.
+
+I independently compare all 15 owned source/test patches, excluding the two set files.
+Their added and deleted lines exactly match the reviewed #300 patches. Hunk locations and blob metadata can differ.
+Every non-owned entry at the #300 merge equals the train base. The subsequent #305 merge changes no owned source/test entry.
+Its only changed owned file is mutants.toml, where it changes an imported worker-signal comment, not an exclusion entry.
+The final driver retains both held-aware more calls and the drain term at the settle site only.
+
+I independently compare the three-way sets on the final train head.
+Mutation exclusions, core-pending, core-held, and core-real-pending exactly retain the base additions and the reviewed #300 changes.
+There is no unexpected identifier or exclusion. Core-pending has 406 identifiers.
+The #301 attach-state removal and #304 stream-handoff removal remain present as removals from the train base.
+#300 still removes only a5_2_reads_match_atomic_transitions. Deferred-completion remains pending with its reason.
+The two equivalent default-body exclusions and the moved capacity exclusion retain their reviewed scope.
+
+No #300 package source finding remains on this exact train head. The earlier findings stay closed with their recorded scope.
+This is manual source-delta review. It claims no canonical PASS, train compilation result, or completed train gate.
+The earlier source and focused-evidence records retain their original-head scope.
+The completed exact-head train gate and final evidence body remain due. The lead controls the one train gate.
+This verdict accepts no later train head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
