@@ -460,6 +460,7 @@ mod tests {
                 size_policy: SizePolicy::Latest,
                 link_frame_bound: 1 << 20,
                 limits: CoreLimits::default(),
+                cursor_ordinal: MAX_CURSOR_ORDINAL,
             })),
         ];
         for msg in msgs {

@@ -4,7 +4,8 @@
 //!
 //! The check measures the message that the host sends later, with the worst case of each value that is assigned after the
 //! call: the request number `u64::MAX`, the route id `u64::MAX`, and the largest `Size` (DESIGN.md, "R-100"). A `Launch` also
-//! has the largest color profile and size policy, because a setter on a `Created` session can change them after the check
+//! has the largest cursor ordinal (`Start` reserves it after the call; ST-7), and the largest color profile and size policy,
+//! because a setter on a `Created` session can change them after the check
 //! of `Start` (RC-R100-3). So a call that passes the check never fails at the send. The cost is a refusal under the bound:
 //! up to about 40 bytes for an `Op` or an `AttachRoute`, and for a `Launch` up to several kilobytes (a full palette is about
 //! 6.7 KB of JSON) (RC-R100-5).
@@ -20,7 +21,7 @@
 use crate::engine::HostEngine;
 use botster_core_contract::prelude::*;
 use botster_core_link::frame::DEFAULT_MAX_PAYLOAD;
-use botster_core_link::msg::{json_len, HostMsg};
+use botster_core_link::msg::{json_len, HostMsg, MAX_CURSOR_ORDINAL};
 use botster_route_codec::prelude::{HexBytes, Key, Modifier};
 
 /// An upper bound of a message's encoded length without its fields (see the module note; the tests measure it).
@@ -230,7 +231,11 @@ impl HostEngine {
             &launch_fields(request, policy),
             || {
                 let worst = worst_launch_request(request);
-                HostMsg::Launch(Box::new(self.launch_spec_for(&worst, WORST_SIZE)))
+                HostMsg::Launch(Box::new(self.launch_spec_for(
+                    &worst,
+                    WORST_SIZE,
+                    MAX_CURSOR_ORDINAL,
+                )))
             },
         )
     }
