@@ -56,6 +56,9 @@ pub struct Faults {
     pub fail_handoff: bool,
     /// The hand-over that the edge holds until `release_handoff` (`hold_handoff`, Core OU-9).
     pub handoff_hold: HandoffHold,
+    /// The worker instances whose control link takes no more control bytes (`control_queue`, Core IN-6): the link edge
+    /// reports no room for them.
+    pub control_full: std::collections::BTreeSet<InstanceId>,
     /// The starts whose worker control link the edge holds from the host's accept until `release_start` (`hold_start`, Core
     /// LC-4, A2-1; steward ruling R-71), by instance: `None` while the hold is armed, and the link once the worker connects.
     pub start_holds: BTreeMap<InstanceId, Option<HeldLink>>,
@@ -374,6 +377,19 @@ impl HostEdges for SimEdges {
         match self.links.get_mut(&link) {
             Some(end) => end.send(bytes),
             None => Err(io::ErrorKind::BrokenPipe.into()),
+        }
+    }
+
+    /// `control_queue` (Core IN-6): no room on the link of a held instance; else the driver's own bound decides.
+    fn link_room(&self, link: LinkId) -> usize {
+        let reports = lock(&self.reports);
+        let full = reports
+            .instance_of(link)
+            .is_some_and(|instance| lock(&self.faults).control_full.contains(instance));
+        if full {
+            0
+        } else {
+            usize::MAX
         }
     }
 
