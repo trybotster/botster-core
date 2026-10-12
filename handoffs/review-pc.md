@@ -1790,3 +1790,8 @@ PC receipt msg_plugin-w_1791775243_6e9a70 supplies the updated package manifest 
 The complete manifest is read and hashed. Its new entries match the accepted completed gate and final body.
 The client output is byte-identical by hash to the canonical gate log. No source or execution result changes.
 Sol's matching final receipt and lead Q7 remain due. Never poll.
+
+Sol receipt msg_plugin-w_1791775438_924fcd and final verdict 7b48c749a8b1b5e3b562b6e5baaa00f02b6fb657 Round 10 are read.
+Publication is verified. Both final CLEANs cover 4ccd6a7d, base bfef8865, tree ed7ce2ee, the completed gate, and the final body.
+The matching final integration condition closes. Zero final source, evidence, or body findings remain.
+The lead's Q7 check and an equal-tree merge receipt remain due. No later head is accepted. Never poll.

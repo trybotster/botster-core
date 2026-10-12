@@ -536,3 +536,13 @@ The previous `e9a8f860` hash remains the reviewed pre-gate snapshot.
 The new entries name the already accepted exact-head gate, both delta CLEANs, and the final body snapshot.
 The client output and canonical gate log are byte-identical by SHA-256 `df19bcedaa620616b8e508ce399a9b60d4e0704c91443914b1bc3c2b88792171`.
 This record adds no source change, test result, or replacement evidence. The final package CLEAN remains applicable.
+
+### Matching final integration receipt
+
+Receipt: `msg_plugin-w_1791775438_924fcd`.
+Sol's final verdict: `7b48c749a8b1b5e3b562b6e5baaa00f02b6fb657`, `verdicts/stage1/pc-r78-stopping.md`, Round 10.
+The reviewer reads the complete final round and verifies publication on `origin/stage1/integration-review-sol`.
+Both final CLEANs cover head 4ccd6a7d, base bfef8865, tree ed7ce2ee, the same completed gate, and the same final body.
+Both preserve the canonical FAIL, completed delta reviews, historical source and platform limits, and accepted controlled attribution.
+The matching final integration condition closes. Zero final source, evidence, or body findings remain.
+The lead's Q7 check and an equal-tree merge receipt remain due. No later head is accepted. Never poll.
