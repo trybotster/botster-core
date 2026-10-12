@@ -250,10 +250,10 @@ impl<E: HostEdges> HostDriver<E> {
         self.runnable() || budget.more_input
     }
 
-    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a `Silent`, and a step whose timing a
-    /// clause fixes (R-20) are never held.
+    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a due step (a `Silent` or a route's
+    /// stall step, R-90), and a step whose timing a clause fixes (R-20) are never held.
     fn held(&mut self, work: &Work) -> bool {
-        !matches!(work, Work::Deadline | Work::Silent)
+        !matches!(work, Work::Deadline | Work::DueStep)
             && !self.engine.never_deferred(work)
             && self.edges.scheduler().held(&self.engine.ops_of(work))
     }
