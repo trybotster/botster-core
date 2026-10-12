@@ -67,3 +67,39 @@ Any later slot or train composition retains its separate review and gate require
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-12: #314 delta on train 4
+
+Exact train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Train base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Reviewed #314 input: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead request: `msg_plugin-w_1791821464_80b187`.
+
+I inspect the three merge objects and their ordered first-parent chain.
+The first merge, `b3f7f39b72bc2a985634240573b2d08660b162c6`, has parents the exact train base and #314 input above.
+The second merge, `13fc69a0a196f75a6aaa1662c1deac1817e5dd88`, adds #312 input `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+The final merge adds #307 input `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+The first merge changes only seeded_trace.rs. The subsequent merges do not change that file.
+The final file is byte-identical to the reviewed #314 input, blob `0239e231ffea4525211d28bc753931e130506988`.
+File SHA256: `a5fa1504ab5ea12099d3be93f3a9f7d31ba1a7256f636e4eaf73682ef630da38`.
+
+I read the complete shared driver-fixture delta and relevant driver/deadline context introduced by #307.
+The imported control-room edge returns unlimited room by default. The trace workload does not set a room limit or refuse a cancel.
+The new room-processing path runs only for a session that waits for room after a refused cancel.
+The trace still constructs a fresh policy, recorder, and Rig for each run, then creates, starts, and stops its two sessions.
+The Rig constructor and to_launch helper retain their setup. The pump and settle helpers retain their finite step bounds.
+The new control-room tests add no shared global recorder or random source to the trace fixture.
+The recorder still observes the same public Scheduler interface. Its full-trace repeatability, non-empty, and seed-variation assertions remain unchanged.
+The train base itself changes no host fixture or scheduler source from #314's original base.
+
+No #314 source finding remains on this exact train head. The patch introduces no status removal or exclusion on the train.
+This manual delta review covers #314's preserved test and its composition with the shared fixture changes.
+It does not replace the other members' package reviews or the combined integration review.
+The earlier mutation evidence and full gate retain their original-head source scope; neither is a train-4 execution.
+The lead reports pre-check passes. This receipt accepts no completed train gate from those reports.
+The exact train gate and final #314 evidence body/receipts remain due.
+This verdict accepts no later train head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
