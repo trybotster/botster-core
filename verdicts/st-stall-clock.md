@@ -1,6 +1,55 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (1 open; Core #313)
+VERDICT: PENDING CONTRACT DISPOSITION (ST313-Q1; Core #313)
+
+## Core #313: round 3 source review
+
+Reviewed head: `5015b0120d7e4c9ad205e8fadf34fb5e6b97070a`.
+Reviewed delta: `2b08608d27b2ac15daf7c0cc1e0283c663f5518b` to this head.
+PR base remains `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Imported v1 and gate comparison base remain `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Risk tier: HIGH. The reviewer ran no local build or test.
+
+ST313-R2: CLOSED. `ready_at` applies the session adoption gate only when `flow_needs_room` identifies an event-producing flow step.
+The stop's row write and stop request remain runnable while the adoption event waits for a poll.
+The local-detach gate remains in place.
+The engine stop test and production-driver Stop and StopAll tests verify that the worker receives one stop request without polling.
+The removal test verifies adoption before close for a draining route of an adopted Exited session.
+The original session-end tests still pass. ST313-R1 remains closed.
+The reviewer found no new source defect in the four-file delta.
+No source finding remains open.
+
+ST313-Q1 remains unanswered: the expected RouteAdopted value for absent attach tags needs a contract disposition.
+The source still maps absent tags to empty strings, and the PR retains the open question.
+This record does not assume that value is approved. The final CLEAN verdict waits for that answer.
+No additional source change or execution is requested by this review.
+The lead's unavailable inbox does not change the contract requirement; the lead can read this file.
+
+### Completed evidence
+
+Linux gate: `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-5015b012-pool-20261012-001052-1684.log`.
+The header names this exact head and comparison base `be95ef13`.
+All ten steps pass. The wrapper reports exit 0 after 864 seconds on msa1.
+Mutation result: 333 tested, 309 caught, 0 missed, 0 timeout and 24 unviable. Three catches came from stage 2.
+The held-full run covers six budget ids at 32 seeds, one trial per seed.
+The new Stop, StopAll and removal tests pass in this gate.
+
+Local source checks: `~/botster-sessions/gates/st-dp8-local-4e585f76.log`, at the preceding fix commit.
+Exact-head host checks: `~/botster-sessions/gates/st-dp8-local-5015b012-host.log`.
+The exact-head log names this head and passes fmt, host clippy and 369/369 host tests.
+The final commit adds driver tests and extracts their setup helper; the completed exact-head gate covers the resulting tree.
+The earlier focused Mac evidence remains applicable to the unchanged worker transport and platform paths.
+
+Reversal logs: `gates/st-dp8-reversals/r15-broad-session-gate-5015b012.log`, `r16-no-session-gate-5015b012.log`, and `r17-no-detach-gate-5015b012.log`.
+All three name this exact head and the supplied target clean at `2026-10-12T06:30:06Z`.
+The reviewer inspected the scratch changes, assertions and summaries.
+R15 restores the broad gate and fails all three stop tests: 53/56 pass.
+R16 removes the session gate and fails removal and both session-end tests: 53/56 pass.
+R17 removes the local-detach gate and fails that test: 55/56 pass.
+The reviewer did not run these reversals or independently check cleanup.
+
+The PR body names the narrow gate, new proofs, exact-head gate and retained earlier evidence.
+The final receipt remains pending only for ST313-Q1.
 
 ## Core #313: round 2
 

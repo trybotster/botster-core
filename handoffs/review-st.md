@@ -103,6 +103,14 @@ The exact-head Linux gate passed all ten steps. The local selected packages and 
 The absent-tag question remains pending. Send this receipt again after the lead restores inbox access.
 This is the second NOT CLEAN implementation round for #313. Wait for the next revised-head doorbell.
 
+#313 round 3 source review: `5015b0120d7e4c9ad205e8fadf34fb5e6b97070a`.
+ST313-R1 and R2 are closed. No source finding remains open.
+The production-driver Stop and StopAll proofs pass, and the session-end, removal and local-detach order remains correct.
+The exact-head Linux gate passes all ten steps, exit 0 after 864 seconds on msa1.
+Verdict: PENDING CONTRACT DISPOSITION for ST313-Q1 only. The reviewer does not assume that absent tags map to empty strings.
+No further source change or execution is requested by this review. Wait for the ruling doorbell.
+Send the important receipt again when the lead restores inbox access.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
