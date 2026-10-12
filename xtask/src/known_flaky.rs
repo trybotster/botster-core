@@ -9,8 +9,10 @@
 //! item 7).
 //!
 //! The `signature` is what a failure must match before a red gate may run once more (BUILD.md Testing rule 9, second
-//! exception, contracts main b6c7ea9d): comma-separated clauses of the step, the limit and the symptom, for example
-//! `seed any, step 8, step_timeout`. The seed is not part of it (plan 23bl(A)): a `seed` clause may only be `seed any`.
+//! exception, contracts main b6c7ea9d). It has named fields, so a match can be checked mechanically (Core lead,
+//! 2026-10-12): `signature = { step = "<gate step>", symptom = "<symptom>", seed = "any" | <n>, text = "<literal>" }`.
+//! `step` is one of the gate's step names (`cargo xtask ci --list`); `symptom` is one of [`SYMPTOMS`]; `seed` is `"any"`
+//! or a seed number; `text`, optional, is a literal substring of the failing test's output and is not empty.
 //!
 //! A test can run in both stages (a library's unit test is in both builds), or in stage 2 only (a test that only the slow
 //! features build, also in a binary that both builds have). So each stage lists its own tests (`cargo nextest list` with
@@ -33,7 +35,7 @@ pub struct Entry {
     pub binary: String,
     pub test: String,
     pub diagnosis: String,
-    pub signature: String,
+    pub signature: Signature,
     pub owner: String,
     pub removed_by: String,
 }
@@ -47,18 +49,107 @@ const FIELDS: [&str; 6] = [
     "removed_by",
 ];
 
-/// Why `signature` is not a failure signature of the module documentation's form, or `None`.
-fn signature_error(signature: &str) -> Option<String> {
-    let clauses: Vec<&str> = signature.split(',').map(str::trim).collect();
-    if clauses.len() < 2 || clauses.iter().any(|clause| clause.is_empty()) {
-        return Some(format!(
-            "`signature` {signature:?} is not comma-separated clauses of the step, the limit and the symptom"
+/// The symptoms of a failure signature.
+pub const SYMPTOMS: [&str; 5] = [
+    "step_timeout",
+    "test_timeout",
+    "assertion",
+    "signal",
+    "exit_code",
+];
+
+/// The seed of a failure signature: any seed, or one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seed {
+    Any,
+    Number(u64),
+}
+
+/// The recorded failure signature of a known-flaky test (module documentation).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Signature {
+    /// A step name of the gate.
+    pub step: String,
+    /// One of [`SYMPTOMS`].
+    pub symptom: String,
+    pub seed: Seed,
+    /// A literal substring of the failing test's output.
+    pub text: Option<String>,
+}
+
+impl std::fmt::Display for Signature {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "step {}, {}, seed ", self.step, self.symptom)?;
+        match self.seed {
+            Seed::Any => write!(f, "any")?,
+            Seed::Number(seed) => write!(f, "{seed}")?,
+        }
+        match &self.text {
+            Some(text) => write!(f, ", text {text:?}"),
+            None => Ok(()),
+        }
+    }
+}
+
+const SIGNATURE_FIELDS: [&str; 4] = ["step", "symptom", "seed", "text"];
+
+/// The signature of an entry from its `signature` value; `at` names the entry in an error.
+fn signature(value: Option<&toml::Value>, at: &str) -> Result<Signature, String> {
+    let table = value
+        .ok_or_else(|| format!("{at}: no `signature` table"))?
+        .as_table()
+        .ok_or_else(|| format!("{at}: `signature` is not a table"))?;
+    if let Some(key) = table
+        .keys()
+        .find(|key| !SIGNATURE_FIELDS.contains(&key.as_str()))
+    {
+        return Err(format!("{at}: unknown `signature` field `{key}`"));
+    }
+    let string = |name: &str| -> Result<Option<String>, String> {
+        table
+            .get(name)
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_string)
+                    .ok_or_else(|| format!("{at}: `signature.{name}` is not a string"))
+            })
+            .transpose()
+    };
+    let step = string("step")?.ok_or_else(|| format!("{at}: no `signature.step`"))?;
+    if !crate::ci::step_names().any(|name| name == step) {
+        return Err(format!(
+            "{at}: `signature.step` {step:?} is not a gate step ({})",
+            crate::ci::step_names().collect::<Vec<_>>().join(", ")
         ));
     }
-    clauses
-        .iter()
-        .find(|clause| clause.split_whitespace().next() == Some("seed") && **clause != "seed any")
-        .map(|clause| format!("`signature` {signature:?} names a seed ({clause:?}); the seed is not part of it (seed any)"))
+    let symptom = string("symptom")?.ok_or_else(|| format!("{at}: no `signature.symptom`"))?;
+    if !SYMPTOMS.contains(&symptom.as_str()) {
+        return Err(format!(
+            "{at}: `signature.symptom` {symptom:?} is not one of {}",
+            SYMPTOMS.join(", ")
+        ));
+    }
+    let seed = match table.get("seed") {
+        None => return Err(format!("{at}: no `signature.seed`")),
+        Some(toml::Value::String(any)) if any == "any" => Seed::Any,
+        Some(toml::Value::Integer(seed)) if *seed >= 0 => Seed::Number(*seed as u64),
+        Some(other) => {
+            return Err(format!(
+                "{at}: `signature.seed` {other} is not \"any\" or a seed number"
+            ))
+        }
+    };
+    let text = string("text")?;
+    if text.as_deref().is_some_and(|text| text.trim().is_empty()) {
+        return Err(format!("{at}: `signature.text` is empty"));
+    }
+    Ok(Signature {
+        step,
+        symptom,
+        seed,
+        text,
+    })
 }
 
 /// A name that a filterset `=` matcher takes as it is: not empty, only `[A-Za-z0-9_:/-]`.
@@ -123,10 +214,7 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
                 "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>`"
             ));
         }
-        let signature = field("signature")?;
-        if let Some(error) = signature_error(&signature) {
-            return Err(format!("{at}: {error}"));
-        }
+        let signature = signature(entry.get("signature"), &at)?;
         if !seen.insert((binary.clone(), test.clone())) {
             return Err(format!("{at}: {binary} {test} is listed twice"));
         }
@@ -205,12 +293,15 @@ pub fn absent(entries: &[Entry], default: &Tests, slow: &Tests) -> Vec<String> {
 mod tests {
     use super::*;
 
+    const SIGNATURE: &str =
+        r#"signature = { step = "slow", symptom = "test_timeout", seed = "any" }"#;
+
     const ENTRY: &str = r##"
 [[flaky]]
 binary = "botster-core::slow_conformance"
 test = "conf::ev_5_x"
 diagnosis = "R-63"
-signature = "seed any, step 8, step_timeout"
+signature = { step = "slow", symptom = "test_timeout", seed = "any" }
 owner = "P3"
 removed_by = "#243"
 "##;
@@ -220,7 +311,12 @@ removed_by = "#243"
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
-            signature: "s, t".into(),
+            signature: Signature {
+                step: "slow".into(),
+                symptom: "assertion".into(),
+                seed: Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         }
@@ -240,19 +336,38 @@ removed_by = "#243"
                 binary: "botster-core::slow_conformance".into(),
                 test: "conf::ev_5_x".into(),
                 diagnosis: "R-63".into(),
-                signature: "seed any, step 8, step_timeout".into(),
+                signature: Signature {
+                    step: "slow".into(),
+                    symptom: "test_timeout".into(),
+                    seed: Seed::Any,
+                    text: None,
+                },
                 owner: "P3".into(),
                 removed_by: "#243".into(),
             }])
         );
         assert_eq!(parse("# none\n"), Ok(vec![]));
+        // A seed number and a text.
+        let one = ENTRY.replace(
+            "seed = \"any\" }",
+            "seed = 10, text = \"step 8: step_timeout\" }",
+        );
+        let signature = &parse(&one).unwrap()[0].signature;
+        assert_eq!(
+            (signature.seed, signature.text.as_deref()),
+            (Seed::Number(10), Some("step 8: step_timeout"))
+        );
+        assert_eq!(
+            signature.to_string(),
+            "step slow, test_timeout, seed 10, text \"step 8: step_timeout\""
+        );
     }
 
     /// Each field must be there and not empty; each rule of the module documentation refuses its entry. A `tier` field
     /// (the first form of this list) is an unknown field.
     #[test]
     fn an_entry_that_breaks_a_rule_is_refused() {
-        for field in FIELDS {
+        for field in FIELDS.into_iter().filter(|field| *field != "signature") {
             let without: String = ENTRY
                 .lines()
                 .filter(|line| !line.starts_with(&format!("{field} =")))
@@ -280,21 +395,52 @@ removed_by = "#243"
                 "unknown field `fixed_by`",
             ),
             (format!("{ENTRY}tier = \"slow\"\n"), "unknown field `tier`"),
-            // The failure signature (BUILD.md Testing rule 9, second exception): clauses, and no seed.
+            // The failure signature (BUILD.md Testing rule 9, second exception; Core lead, 2026-10-12): named fields that a
+            // match can check.
+            (ENTRY.replace(SIGNATURE, ""), "no `signature` table"),
             (
-                ENTRY.replace("seed any, step 8, step_timeout", "step_timeout"),
-                "`signature` \"step_timeout\" is not comma-separated clauses",
+                ENTRY.replace(SIGNATURE, "signature = \"slow, test_timeout\""),
+                "`signature` is not a table",
             ),
             (
-                ENTRY.replace("seed any, step 8, step_timeout", "step 8,, step_timeout"),
-                "`signature` \"step 8,, step_timeout\" is not comma-separated clauses",
+                ENTRY.replace("step = \"slow\"", "step = \"slowest\""),
+                "`signature.step` \"slowest\" is not a gate step (fmt, clippy,",
             ),
             (
-                ENTRY.replace(
-                    "seed any, step 8, step_timeout",
-                    "seed 10, step 8, step_timeout",
-                ),
-                "`signature` \"seed 10, step 8, step_timeout\" names a seed (\"seed 10\")",
+                ENTRY.replace("step = \"slow\", ", ""),
+                "no `signature.step`",
+            ),
+            (
+                ENTRY.replace("step = \"slow\"", "step = 8"),
+                "`signature.step` is not a string",
+            ),
+            (
+                ENTRY.replace("\"test_timeout\"", "\"hang\""),
+                "`signature.symptom` \"hang\" is not one of step_timeout, test_timeout, assertion, signal, exit_code",
+            ),
+            (
+                ENTRY.replace("symptom = \"test_timeout\", ", ""),
+                "no `signature.symptom`",
+            ),
+            (
+                ENTRY.replace(", seed = \"any\"", ""),
+                "no `signature.seed`",
+            ),
+            (
+                ENTRY.replace("seed = \"any\"", "seed = \"10\""),
+                "`signature.seed` \"10\" is not \"any\" or a seed number",
+            ),
+            (
+                ENTRY.replace("seed = \"any\"", "seed = -1"),
+                "`signature.seed` -1 is not \"any\" or a seed number",
+            ),
+            (
+                ENTRY.replace("seed = \"any\" }", "seed = \"any\", text = \" \" }"),
+                "`signature.text` is empty",
+            ),
+            (
+                ENTRY.replace("seed = \"any\" }", "seed = \"any\", limit = \"2 s\" }"),
+                "unknown `signature` field `limit`",
             ),
             (format!("{ENTRY}\n[other]\n"), "unknown key `other`"),
             (ENTRY.replace("\"#243\"", "\"243\""), "`removed_by` \"243\""),
@@ -371,7 +517,7 @@ removed_by = "#243"
         assert_eq!(stage_filter(&[], &stage2, Some("f")), Some("f".to_string()));
         assert_eq!(
             report(&entries, &stage1),
-            ["known flaky, not run: lib slow_both (d; signature s, t; owner o; removed by #1)"]
+            ["known flaky, not run: lib slow_both (d; signature step slow, assertion, seed any; owner o; removed by #1)"]
         );
         assert_eq!(report(&entries, &stage2).len(), 3);
     }
@@ -460,7 +606,12 @@ mod slow_tests {
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
-            signature: "s, t".into(),
+            signature: Signature {
+                step: "slow".into(),
+                symptom: "assertion".into(),
+                seed: Seed::Any,
+                text: None,
+            },
             owner: "o".into(),
             removed_by: "#1".into(),
         };
