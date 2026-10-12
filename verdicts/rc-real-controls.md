@@ -3693,3 +3693,18 @@ The body records this repair and local proof, retains earlier gate scopes, and n
 A matching integration source delta, applicable train and combined reviews, final gate, final receipts, and equal-tree merge verification remain due.
 This source CLEAN accepts no later head, future train composition, specific retry, or final gate result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — matching RC-R100-6 closure receipt
+
+Integration message: `msg_plugin-w_1791829387_c159c6`.
+Integration receipt: `5401783b50ead58d5aaaa1ff3cbe0bfb3ea7538a`, replacement repair round 2 in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete round.
+It matches package receipt `6b821a1614c9b6ea277a260d26016d298a88241c`.
+Exact head: `cfcc438d8eac85108d64237bdc11fa215dc85104`.
+Base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `d4c777abd1140d37ce0b59530f10e976a8035fd6`.
+Both reviews close RC-R100-6 and retain zero open source findings, including LOW findings.
+The pure-function check, encoded Cancel term, unchanged helper body, body hash, local evidence, and remaining scope conditions match.
+Applicable train and combined reviews, final train-6 gate, final receipts, and equal-tree merge verification remain due.
+No later head, specific retry, or final gate is accepted. The reviewer runs no execution check.
