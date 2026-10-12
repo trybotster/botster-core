@@ -93,6 +93,8 @@ pub(crate) struct Endpoint {
     pub protocol: u8,
     /// The payload state of the report that follows the worker's hello. `None`: the worker answers no hello.
     pub payload: Option<AdoptedPayload>,
+    /// The live routes that the worker reports after its report, one `RouteLive` each (DP-8).
+    pub routes: Vec<botster_core_link::msg::RouteLive>,
 }
 
 /// What a scripted worker does when the engine speaks to it.
@@ -434,7 +436,7 @@ impl World {
             link,
             msg: WorkerMsg::Adopted {
                 report: Box::new(AdoptReport {
-                    routes: 0,
+                    routes: endpoint.routes.len().try_into().unwrap(),
                     payload,
                     features: BTreeSet::from([Feature::FocusReport]),
                     terminal: launched.then(terminal_state),
@@ -442,6 +444,12 @@ impl World {
                 }),
             },
         });
+        for live in endpoint.routes {
+            self.inject.push(Input::LinkMsg {
+                link,
+                msg: WorkerMsg::RouteLive(Box::new(live)),
+            });
+        }
     }
 
     fn hello_input(

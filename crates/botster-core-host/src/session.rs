@@ -301,6 +301,32 @@ pub struct Session {
     pub pending_end: Option<End>,
     /// The `AdoptAll` or `Adopt` op that waits for this session's state (LC-11).
     pub adopting: Option<OpId>,
+    /// The routes of this session's adoption (DP-8), from its `Adopted` report until each reported route's `RouteAdopted`
+    /// posted. The `adopting` op counts the row as done only after them (LC-11; design note section 6).
+    pub adopted_routes: Option<AdoptedRoutes>,
+}
+
+/// The routes that a worker reports at adoption (DP-8; DP-8 design note section 6): the phases of the row.
+#[derive(Debug, Default)]
+pub struct AdoptedRoutes {
+    /// `AdoptReport.routes`: the `RouteLive` frames that follow the report on the link. When the link ends, no more come,
+    /// and this is the number consumed.
+    pub expected: u32,
+    /// The `RouteLive` frames consumed.
+    pub received: u32,
+    /// The records consumed before the session's state posted: each is registered at that post (phase 2).
+    pub kept: Vec<botster_core_link::msg::RouteLive>,
+    /// The session's state posted: a record consumed from now on is registered when it is consumed.
+    pub state_posted: bool,
+    /// The registered routes whose `RouteAdopted` has not posted (phase 3).
+    pub unposted: BTreeSet<RouteId>,
+}
+
+impl AdoptedRoutes {
+    /// Phase 4: the state posted, every reported record was consumed, and each registered route's `RouteAdopted` posted.
+    pub fn done(&self) -> bool {
+        self.state_posted && self.received >= self.expected && self.unposted.is_empty()
+    }
 }
 
 impl Session {

@@ -75,6 +75,15 @@ impl RouteClock {
     }
 
     /// The route's armed due step and its instant. None while a due step waits for its answer.
+    /// The clock of a route that an adoption registered (DP-8): the worker names it only after this host's `RouteId`, so
+    /// every report with its id is its own, and the clock takes them from the start.
+    pub(crate) fn adopted(limits: &AppliedRouteLimits) -> RouteClock {
+        RouteClock {
+            received: true,
+            ..RouteClock::new(limits)
+        }
+    }
+
     pub(crate) fn deadline(&self) -> Option<(Instant, Due)> {
         if self.asked.is_some() {
             return None;

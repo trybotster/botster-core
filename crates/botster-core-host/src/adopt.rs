@@ -13,7 +13,7 @@ use crate::session::Admit;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{IdentityState, ProcessIdentity};
 use botster_core_link::hello::Hello;
-use botster_core_link::msg::{AdoptReport, AdoptedPayload};
+use botster_core_link::msg::{AdoptReport, AdoptedPayload, HostMsg, RouteLive};
 use botster_core_link::proof::{host_proof, token_proof};
 
 /// The exit of a payload that never ran: no code and no signal.
@@ -233,6 +233,11 @@ impl HostEngine {
             return;
         }
         let s = self.sessions.get_mut(id).expect("a flow has a session");
+        // Phase 1 (DP-8): the `RouteLive` frames that follow are kept until the state posts.
+        s.adopted_routes = Some(crate::session::AdoptedRoutes {
+            expected: report.routes,
+            ..Default::default()
+        });
         s.worker_features = Some(report.features);
         s.formats = report.formats;
         if report.terminal.is_some() {
@@ -438,8 +443,146 @@ impl HostEngine {
         }
     }
 
-    /// The row's state is posted: an `Adopt` op completes with the record, and an `AdoptAll` op counts the row as done.
+    /// `RouteLive` (DP-8, phase 1): one live route of the adopted worker. Before the session's state posts, the record is
+    /// kept; after it, the route is registered when the record is consumed. A record past the reported count is ignored.
+    pub(crate) fn route_live(&mut self, id: &SessionId, live: RouteLive) {
+        let Some(r) = self
+            .sessions
+            .get_mut(id)
+            .and_then(|s| s.adopted_routes.as_mut())
+        else {
+            return;
+        };
+        if r.received >= r.expected {
+            return;
+        }
+        r.received += 1;
+        if r.state_posted {
+            self.register_adopted_route(id, live);
+        } else {
+            r.kept.push(live);
+        }
+        self.adoption_done(id);
+    }
+
+    /// Phase 2 (DP-8): a new `RouteId` of this handle for the worker's route (ID-2), its entry with the clock of its limits,
+    /// its `RouteId` to the worker, and its `RouteAdopted` behind the parked route events (EV-6).
+    fn register_adopted_route(&mut self, id: &SessionId, live: RouteLive) {
+        let Some(s) = self.sessions.get(id) else {
+            return;
+        };
+        let route = RouteId(self.next_route);
+        self.next_route += 1;
+        let instance = s.instance.clone();
+        self.routes.insert(
+            route,
+            crate::engine::RouteEntry {
+                session: id.clone(),
+                instance,
+                route_tag: live.route_tag,
+                clock: crate::stall::RouteClock::adopted(&live.limits),
+            },
+        );
+        let s = self.sessions.get_mut(id).expect("read above");
+        s.routes.insert(route);
+        if let Some(r) = s.adopted_routes.as_mut() {
+            r.unposted.insert(route);
+        }
+        self.send_msg(
+            id,
+            HostMsg::RouteId {
+                key: live.key,
+                route,
+            },
+        );
+        self.parked
+            .push_back(crate::engine::ParkedRoute::Adopted(Box::new(
+                crate::engine::AdoptedRoute {
+                    session: id.clone(),
+                    route,
+                    stalled: live.stalled,
+                    owner: live.owner,
+                    client: live.client,
+                },
+            )));
+    }
+
+    /// Phase 3 (DP-8): `RouteAdopted` of `route` posted, or the route is gone and posts none.
+    pub(crate) fn route_adopted_posted(&mut self, id: &SessionId, route: RouteId) {
+        if let Some(r) = self
+            .sessions
+            .get_mut(id)
+            .and_then(|s| s.adopted_routes.as_mut())
+        {
+            r.unposted.remove(&route);
+        }
+        self.adoption_done(id);
+    }
+
+    /// The link of an adopted session ended (DP-8): no more `RouteLive` comes, so the row does not wait for one.
+    pub(crate) fn adopted_routes_link_gone(&mut self, id: &SessionId) {
+        if let Some(r) = self
+            .sessions
+            .get_mut(id)
+            .and_then(|s| s.adopted_routes.as_mut())
+        {
+            r.expected = r.received;
+        }
+        self.adoption_done(id);
+    }
+
+    /// The row's state is posted. Phase 2 (DP-8): the kept routes are registered now, except for a `Lost` row, whose link
+    /// is gone (the worker keeps its routes for a later adoption). The row is done when its routes are (`adoption_done`).
     pub(crate) fn adoption_posted(&mut self, id: &SessionId) {
+        let lost = matches!(
+            self.sessions.get(id).and_then(|s| s.shown),
+            Some(SessionState::Lost(_))
+        );
+        let kept = match self
+            .sessions
+            .get_mut(id)
+            .and_then(|s| s.adopted_routes.as_mut())
+        {
+            Some(r) => {
+                r.state_posted = true;
+                if lost {
+                    r.expected = r.received;
+                    r.kept.clear();
+                }
+                std::mem::take(&mut r.kept)
+            }
+            None => Vec::new(),
+        };
+        for live in kept {
+            self.register_adopted_route(id, live);
+        }
+        // A row whose worker sent no report (its adoption ended before it) has no routes to wait for.
+        if self
+            .sessions
+            .get(id)
+            .is_some_and(|s| s.adopted_routes.is_none())
+        {
+            self.adoption_complete(id);
+        } else {
+            self.adoption_done(id);
+        }
+    }
+
+    /// Phase 4 (DP-8): the row is done when its state posted, every reported record was consumed, and each `RouteAdopted`
+    /// of its routes posted.
+    fn adoption_done(&mut self, id: &SessionId) {
+        let Some(s) = self.sessions.get_mut(id) else {
+            return;
+        };
+        if !s.adopted_routes.as_ref().is_some_and(|r| r.done()) {
+            return;
+        }
+        s.adopted_routes = None;
+        self.adoption_complete(id);
+    }
+
+    /// The row is done (LC-11): an `Adopt` op completes with the record, and an `AdoptAll` op counts the row as done.
+    fn adoption_complete(&mut self, id: &SessionId) {
         let Some(op) = self.sessions.get_mut(id).and_then(|s| s.adopting.take()) else {
             return;
         };

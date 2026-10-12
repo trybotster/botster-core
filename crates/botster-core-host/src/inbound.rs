@@ -305,7 +305,9 @@ impl HostEngine {
                 match reason {
                     // OU-7: an ended session's route closes after its queue is delivered. The host posts the close in
                     // `StopPhase::Finish`, after the session's state and with its own exit (A2-3, LC-5).
-                    RouteCloseReason::SessionEnded { .. } => self.route_delivered(id, route),
+                    RouteCloseReason::SessionEnded { .. } => {
+                        self.route_ended_with_session(id, route)
+                    }
                     _ => self.route_close(route, reason),
                 }
             }
@@ -329,8 +331,27 @@ impl HostEngine {
             WorkerMsg::RouteReceived { route } => self.route_received(id, route),
             WorkerMsg::RemoveResult { uploads } => self.flow_remove_result(id, uploads),
             WorkerMsg::Adopted { report } => self.adopt_report(id, *report),
+            WorkerMsg::RouteLive(live) => self.route_live(id, *live),
             // The enum is non-exhaustive: a report that a later worker adds is ignored by this host.
             _ => {}
+        }
+    }
+
+    /// OU-7: the worker delivered the queue of a route of an ended session. A session whose `Exited` state is posted with no
+    /// stop flow to close its routes (an adoption that found the payload exited, DP-8; steward ruling R-99) posts the close
+    /// now, with the session's exit (LC-5). Otherwise `StopPhase::Finish` posts it.
+    fn route_ended_with_session(&mut self, id: &SessionId, route: RouteId) {
+        let exit = self
+            .sessions
+            .get(id)
+            .and_then(|s| match (&s.flow, s.shown) {
+                (Flow::Stop(_), _) => None,
+                (_, Some(SessionState::Exited(exit))) => Some(exit),
+                _ => None,
+            });
+        match exit {
+            Some(exit) => self.route_close(route, RouteCloseReason::SessionEnded { exit }),
+            None => self.route_delivered(id, route),
         }
     }
 
@@ -378,6 +399,33 @@ impl HostEngine {
         if let ParkedRoute::Stalled(_, mark) = *event {
             self.route_stall_posted(route, mark);
         }
+        true
+    }
+
+    /// Posts `RouteAdopted` of a route that an adoption registered (DP-8, phase 3). False when the queue has no room. A
+    /// `Stalled` route arms its close deadline from this pump (add at post), unless a later event of the route waits
+    /// (`route_stall_posted`). An absent tag is the empty string in the event.
+    fn post_route_adopted(&mut self, adopted: &crate::engine::AdoptedRoute) -> bool {
+        let route = adopted.route;
+        let Some(entry) = self.routes.get(&route) else {
+            self.route_adopted_posted(&adopted.session, route);
+            return true;
+        };
+        let event = Event::RouteAdopted {
+            session: entry.session.clone(),
+            instance: entry.instance.clone(),
+            route,
+            route_tag: entry.route_tag.clone().unwrap_or_default(),
+            owner: adopted.owner.clone().unwrap_or_default(),
+            client: adopted.client.clone(),
+        };
+        if self.queue.post_mandatory(event).is_err() {
+            return false;
+        }
+        if let Some(mark) = adopted.stalled {
+            self.route_stall_posted(route, mark);
+        }
+        self.route_adopted_posted(&adopted.session, route);
         true
     }
 
@@ -668,6 +716,11 @@ impl HostEngine {
         };
         s.worker.link = None;
         s.worker.link_failed = true;
+        // DP-8: no more `RouteLive` comes for an adoption that waits for one.
+        self.adopted_routes_link_gone(&id);
+        let Some(s) = self.sessions.get_mut(&id) else {
+            return;
+        };
         match s.flow.clone() {
             // The start of an adoption: the worker may have accepted the `Launch` before the link ended, so the session is
             // indeterminate, and `Adopt(id)` may retry it (AD-2; steward ruling R-36).
@@ -790,6 +843,7 @@ impl HostEngine {
                 !self.routes.contains_key(&route) || self.close_route(route, reason)
             }
             ParkedRoute::Stalled(..) | ParkedRoute::Resumed(_) => self.post_route_progress(&next),
+            ParkedRoute::Adopted(ref adopted) => self.post_route_adopted(adopted),
         };
         if !posted {
             self.parked.push_front(next);

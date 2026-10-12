@@ -143,14 +143,29 @@ pub(crate) enum ParkedRoute {
     /// `RouteStalled` at the worker's mark: the close deadline runs from the pump that posts it (R-90; 0181's ST298-R5).
     Stalled(RouteId, u64),
     Resumed(RouteId),
+    /// `RouteAdopted` of a route that an adoption registered (DP-8). A route that is `Stalled` arms its close deadline
+    /// from the pump that posts it, as a posted `RouteStalled` does.
+    Adopted(Box<AdoptedRoute>),
+}
+
+/// A route of an adoption whose `RouteAdopted` waits (DP-8): what the event carries besides the route's entry.
+#[derive(Debug)]
+pub(crate) struct AdoptedRoute {
+    pub(crate) session: SessionId,
+    pub(crate) route: RouteId,
+    /// `Some(mark)` when the worker reported the route `Stalled` at `mark` (`RouteLive.stalled`).
+    pub(crate) stalled: Option<u64>,
+    pub(crate) owner: Option<String>,
+    pub(crate) client: ClientId,
 }
 
 impl ParkedRoute {
     pub(crate) fn route(&self) -> RouteId {
-        match *self {
+        match self {
             ParkedRoute::Close(route, _)
             | ParkedRoute::Stalled(route, _)
-            | ParkedRoute::Resumed(route) => route,
+            | ParkedRoute::Resumed(route) => *route,
+            ParkedRoute::Adopted(adopted) => adopted.route,
         }
     }
 }
@@ -787,6 +802,7 @@ pub(crate) fn new_session(
         payload: None,
         pending_end: None,
         adopting: None,
+        adopted_routes: None,
     }
 }
 

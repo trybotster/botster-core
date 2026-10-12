@@ -51,6 +51,7 @@ fn with_endpoint(first: &World, name: &str, payload: Option<AdoptedPayload>) -> 
             token: first.token_of(name),
             protocol: HELLO_PROTOCOL,
             payload,
+            routes: Vec::new(),
         },
     );
     again
@@ -939,6 +940,7 @@ fn endpoint_here(w: &mut World, name: &str, payload: AdoptedPayload) {
             token,
             protocol: HELLO_PROTOCOL,
             payload: Some(payload),
+            routes: Vec::new(),
         },
     );
 }
@@ -1370,3 +1372,5 @@ fn only_an_adopted_failed_start_is_silent_a_threshold_after_its_adoption() {
     ));
     silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
 }
+
+mod routes;

@@ -101,6 +101,9 @@ ids stay pending until the real harness of P6 (`botster-test-process`, #171) can
   Neither side can then replay what it received. The start handshake uses the same two roles, so there is one rule for
   both handshakes.
 - No released worker exists (protocol 1 is not released), so the change breaks no adoptable worker (AD-4).
+- **Protocol 1 (steward ruling R-98).** DP-8's fields (`AttachRoute.client`, `AdoptReport.routes`, `RouteLive`, `RouteId`)
+  are part of protocol 1, with no serde default. Protocol 1 is fixed at the first release. After it, a link change that a
+  released peer cannot handle steps the protocol (AD-4).
 - **Rule (integration D4):** the five hello fields (`magic`, `protocol`, `instance`, `proof`, `host_epoch`) and the proof
   rule (the domain, the role byte, the order of the hashed fields) **never change between protocol numbers**. Otherwise a
   worker of protocol N - 1 could not answer a host of protocol N, and it would be `Lost(WorkerUnreachable)` instead of
@@ -164,7 +167,8 @@ old daemon's lesson; vault: evidence comes from protocol primitives, not default
 - its features (AD-4: `worker_features` of an N - 1 worker);
 - the input revisions (host and client) and the model revision (IN-10, ST-1), so that the new host can form a guard that
   the worker accepts (P3's review);
-- its routes (DP-8 `RouteAdopted`): P4a; until then the worker reports none, and the route ids stay pending with that reason.
+- `routes`: the number of `RouteLive` frames that follow the report, one per live route (DP-8; "Route adoption (DP-8)"
+  below).
 
 The report never carries `last_output_at` (Core Amendment 18, contracts-v0.1.21). The worker has no clock to stamp it
 (TM-1), and A18-1 makes it the host's own observation: "After adoption, it is `None` until the adopting host observes
@@ -478,12 +482,25 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   and this host numbers its routes from 1, so before the receipt a report with the new route's id can be the old route's.
   The worker sends `RouteReceived` before any report of the route that it binds, and the link is in order. Without this
   rule a stale waiting report armed the new route's clock, the worker declined the due step with no newer report, and the
-  slot was never released. Test: `a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing`.
-- **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: a route that survives a host restart
-  is unknown to the new host, which drops its reports (`route_progress` and the other route reports find no entry). So
-  that route has no stall clock, and its stuck reader holds PTY output (OU-3d) until it closes for another reason. The DP-8
-  PR (ST's next) adds the route's stall state to the per-route adoption record and the restore rule: `RouteAdopted` only,
-  and the stall step or the close step armed from the pump that consumes the record (the worker's `DESIGN.md`).
+  slot was never released. Test: `a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing`. Since DP-8 the
+  worker names a route on a new link only after this host's `RouteId`, so the rule is defence; an adopted route's clock
+  starts received (`RouteClock::adopted`).
+- **Route adoption (DP-8; design note `st-dp8-route-adoption-design.md`, revision 5).** The phases of a row:
+  1. `adopt_report` notes `routes`; each `RouteLive` that follows is consumed and kept (`AdoptedRoutes`). No route is
+     registered and no id is sent yet.
+  2. When the row's state posts (`adoption_posted`, every path), each kept record is registered: a new `RouteId` of this
+     handle (ID-2), a `RouteEntry` with `RouteClock::adopted` (the clock takes the route's reports from the start: the
+     worker names it only after `RouteId`), the session's `routes`, `HostMsg::RouteId{key, route}`, and
+     `ParkedRoute::Adopted` behind the parked route events. A record consumed after the post is registered at once. A
+     `Lost` row registers none.
+  3. `RouteAdopted{session, instance, route, route_tag, owner, client}` posts from the parked queue (EV-5b, EV-6). An
+     absent tag is the empty string. A route that was `Stalled` arms its close step at this post (add at post), unless a
+     later event of the route waits (`route_stall_posted`).
+  4. The row is done (`adoption_done`: the `Adopt` op completes, or `AdoptAll` counts the row) after its state posted, all
+     `routes` records were consumed (or the link ended), and each `RouteAdopted` posted.
+  The worker sends a route's reports only after its `RouteId`, which follows the state, so every report of the route parks
+  behind its `RouteAdopted`. An adopted `Exited` session has no stop flow: the delivered close of a draining route
+  (`RouteClosed{SessionEnded}`, steward ruling R-99) posts at once with the session's exit (`route_ended_with_session`).
 - **A new step is not parked.** A report that replaces the armed step (a new waiting mark, the end of waiting, a stall or
   a resume) clears the parked flag: only a step that ran can be parked (0181's ST298-R3). Test:
   `new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked`.
