@@ -216,3 +216,31 @@ fn a_queued_write_that_the_fence_drops_ends_not_written_refused() {
         "{ends:?}"
     );
 }
+
+/// #320 R320-SI-5 (Sol's case, valid limits): with `input_tail_bytes` at 4 MiB and the other payload limits at their
+/// defaults, a full client tail is 8 MiB of hex, more than six times the largest payload. The link's frame bound under
+/// the limits (`link_frame_bound`, the host's own formula) holds the whole reply, so `ReadFacts` gets its `Done`. The
+/// test puts the PTY bytes into the facts directly: the route path that writes them is tested elsewhere.
+#[test]
+fn a_facts_reply_with_a_full_large_tail_fits_the_links_frame_bound() {
+    let limits = CoreLimits {
+        max_snapshot_bytes: 1024,
+        input_tail_bytes: 4 << 20,
+        ..CoreLimits::default()
+    };
+    limits.validate().expect("valid limits");
+    let bound = botster_core_link::msg::link_frame_bound(&limits);
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(LaunchSpec {
+        link_frame_bound: bound,
+        limits,
+        ..spec()
+    })));
+    w.feed(Input::Spawned(Ok(PAYLOAD)));
+    w.decoder = FrameDecoder::new(bound);
+    let tail = vec![0x1f; 4 << 20];
+    w.worker.facts.as_mut().unwrap().client_wrote(&tail);
+    let facts = read_facts(&mut w, None);
+    assert!(facts.input.tail_complete);
+    assert_eq!(facts.input.client_tail.0, tail);
+}

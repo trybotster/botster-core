@@ -710,3 +710,49 @@ fn a_newest_host_record_leaves_room_for_the_protected_client_pair() {
     assert!(len <= bound, "{len} > {bound}");
     assert!(!read.gap);
 }
+
+/// #320 R320-SI-5: each protected entry past `input_events_bytes` is at most `PROTECTED_ENTRY_FIXED` and its two route
+/// tags at six bytes a byte (`facts_reply_bound`): the largest minimal record, with tags of control bytes at
+/// `max_route_tag_bytes`, the largest numbers and the longest kind and state, and the largest status update.
+#[test]
+fn a_protected_entry_is_within_its_share_of_the_facts_reply_bound() {
+    use botster_core_link::msg::PROTECTED_ENTRY_FIXED;
+    let tag_bytes = CoreLimits::default().max_route_tag_bytes;
+    let tag = "\u{1}".repeat(tag_bytes as usize);
+    let source = InputSource::Client {
+        route_tag: Some(tag.clone()),
+        owner: Some(tag),
+    };
+    let payload = bytes(&[1; 64]);
+    let mut record = record_of(
+        InputCursor(LARGEST_CURSOR),
+        source,
+        u64::MAX,
+        Content::Payload(&payload),
+        8,
+    );
+    record.state = InputRecordState::NotWritten {
+        reason: NotWrittenReason::Unsupported {
+            what: UnsupportedWhat::PixelPosition,
+        },
+    };
+    record.pty_bytes = Some(u64::MAX);
+    let mut longest = 0;
+    for kind in [
+        InputKind::Bytes,
+        InputKind::Text,
+        InputKind::Paste,
+        InputKind::Key,
+        InputKind::Mouse,
+        InputKind::Focus,
+    ] {
+        record.kind = kind;
+        let cut = minimal(record.clone());
+        assert!(cut.payload_truncated);
+        longest = longest.max(json_len(&InputRecordEntry::Record(cut)));
+    }
+    let share = PROTECTED_ENTRY_FIXED + 12 * u64::from(tag_bytes);
+    assert!(longest <= share, "{longest} > {share}");
+    assert!(longest > 12 * u64::from(tag_bytes), "the tags are escaped");
+    assert!(largest_status_update() <= PROTECTED_ENTRY_FIXED);
+}
