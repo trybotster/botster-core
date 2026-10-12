@@ -60,3 +60,27 @@ ST relays the lead's disposition: contracts #69 repairs the `ev_5` fence, and R-
 The exact-head Linux gate remains green. No integration finding remains open. The final-slot import, required base check, applicable delta review, and exact-head final gate remain due. Sol-B ran no local build or test.
 
 VERDICT: CLEAN (0 open)
+
+## Round 3 — final-slot delta and gate
+
+Exact head: `113da2366286adcef4a71449c5d362c146f6754f`. Imported and gate base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`. Sol-B verified the merge parents: the reviewed `dcc53d8f` head and this exact base.
+
+Canonical check report: `/private/tmp/claude-501/-Users-jasonconigliari-botster-sessions-trybotster-botster-core-stage1-st-stall-clock/7276b210-c579-494f-8024-241f037e5424/scratchpad/bmc-295.txt`.
+
+Both ancestry conditions and the conflict check PASS. Conditions 2, 3, and 4 FAIL: the driver path overlaps; patch metadata differs; the base changes a pending-list comment. This round supplies the required integration delta review. It does not change the canonical FAIL into a PASS.
+
+The base's driver change adds `parked_work` diagnostics through `engine.parked_on_room` over held link frames. Sol-B read that method and the merged driver paths. With queue room, the diagnostic reports no parked work. Without room, it counts a held frame only when room alone would make the engine accept it. A budget-held frame therefore does not create a false queue-room report while room is available. The acceptance and readiness refactors preserve the driver's decisions. The diagnostic changes no frame delivery, event budget, decoder state, or `more` decision.
+
+Sol-B independently compared all four own patches after excluding index and hunk-location metadata. Their content matches the reviewed patches. Sol-B also checked the four ID sets against the imported base plus the original PR changes. All match. The only own ID removals remain `conf::e3_1_due_step_beyond_budget_is_carried_with_more` and `conf::e3_1_two_silences_due_together_with_budget_one`. Held, ledger, and real-pending sets retain the imported base's entries.
+
+Completed final gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-more-input-113da236-pool-20261011-191408-70407.log`. Its header names the exact head and base. The lists step names the same base as its merge base.
+
+All ten steps PASS. Default: 1,861 passed. Slow: 610 passed. Both removed IDs pass in both tiers. Mutants: 19 total, 14 caught, 0 missed, 0 timeout, 5 unviable. Stage 2 runs no mutant. The log contains no FLAKY result. The pool job exits 0 after 716 seconds; the wrapper exits 0 after 718 seconds on msa1.
+
+Package final CLEAN: `880e07989f393e0ba18559a014bd5c40ff54a0cd`, `verdicts/st-stall-clock.md`, section `Core #295: merged-head final receipt`. Sol-B read that exact-head receipt.
+
+Sol-B read the complete updated final PR body. It names the final head/base, failed check, reviewed overlap and ID sets, final gate, and completed Mac evidence with both broader-run failures. The original Mac and full-seed evidence retains its recorded scope. This merge introduces no worker or decoder change beyond the reviewed patch. No integration finding remains.
+
+Sol-B relied on the retained pool evidence for acceptance. Sol-B ran no local build, test, gate, mutation job, or reversal.
+
+VERDICT: CLEAN (0 open)
