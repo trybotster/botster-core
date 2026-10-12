@@ -970,6 +970,54 @@ fn a_parked_route_event_is_parked_work_of_the_routes_session() {
     );
 }
 
+/// Steward ruling R-88 (B), `op_posted`: the diagnostics name the minted ops (`next_op`) and those whose terminal
+/// `Completed` is not posted yet (`unposted_ops`). A start that waits for the worker's launch is unposted; once its
+/// `Completed` is posted it is not, before any poll takes the event.
+#[test]
+fn the_diagnostics_name_the_ops_whose_completion_is_not_posted() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let unposted = |w: &World| -> Vec<u64> {
+        serde_json::from_value(w.engine.diagnostics()["unposted_ops"].clone()).unwrap()
+    };
+    assert_eq!(w.engine.diagnostics()["next_op"], start.0 + 1);
+    assert_eq!(
+        unposted(&w),
+        vec![start.0],
+        "the start waits for the launch"
+    );
+    let link = w.link_of_after_hello("s1");
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    for _ in 0..10 {
+        w.pump();
+    }
+    assert!(
+        unposted(&w).is_empty(),
+        "the start's Completed is posted, and no poll has taken it"
+    );
+    let events = w.engine.poll_events(64);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == start)),
+        "{events:?}"
+    );
+}
+
 /// Core EV-5b, LC-11, TM-6 (steward ruling R-87, `parked_work`; R292-SI1): an `AdoptAll` names no session, and its row step
 /// needs room. While the queue is full, the row at the front is parked work of its session, here a session that this handle
 /// holds and has shown, whose row posts its state again.

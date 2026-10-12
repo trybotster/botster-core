@@ -7,7 +7,7 @@
 
 use crate::controls::ControlRegistry;
 use crate::core::{core_features, Directories, RunInputs};
-use crate::refusal::{ParkedWork, RefusalHandle, RefusalLayer};
+use crate::refusal::{CoreRecord, RefusalHandle, RefusalLayer};
 use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
 use crate::worker::{ProcessTable, TestkitCore, Workers};
@@ -32,8 +32,8 @@ pub struct TestkitHarness {
     /// The scripted synchronous refusals of each handle (plan 4.2a). The harness arms them; the layer in front of the handle's
     /// Core consumes them.
     refusals: BTreeMap<String, RefusalHandle>,
-    /// The parked work of each handle's Core, as the layer in front of it records it (`parked_work`, R-87).
-    parked: BTreeMap<String, ParkedWork>,
+    /// What each handle's Core reported in its diagnostics, as the layer in front of it records it (`parked_work`, `op_posted`).
+    records: BTreeMap<String, CoreRecord>,
     /// The data directory and the process table of each handle that `open` built, for the controls.
     handles: BTreeMap<String, HandleEdges>,
     /// Core TH-1 for the facade's `Core` type, as the runner checked it at compile time (`with_core_type`).
@@ -83,7 +83,7 @@ impl TestkitHarness {
             directories: Directories::default(),
             workers: Workers::new(SchedulerHandle::with_seed(seed), start),
             refusals: BTreeMap::new(),
-            parked: BTreeMap::new(),
+            records: BTreeMap::new(),
             handles: BTreeMap::new(),
             core_send_not_sync: None,
         }
@@ -105,14 +105,14 @@ impl TestkitHarness {
     /// that a transcript sees can be scripted (Core A5-3 timing 1).
     pub fn with_refusals(&mut self, handle: &str, core: Box<dyn CoreApi>) -> Box<dyn CoreApi> {
         let script = self.refusals.entry(handle.to_string()).or_default().clone();
-        let parked = ParkedWork::default();
-        self.parked.insert(handle.to_string(), parked.clone());
-        Box::new(RefusalLayer::new(core, script, parked))
+        let record = CoreRecord::default();
+        self.records.insert(handle.to_string(), record.clone());
+        Box::new(RefusalLayer::new(core, script, record))
     }
 
-    /// The parked work of the Core of `handle`, once `open` built it (`parked_work`, R-87).
-    pub(crate) fn parked_of(&self, handle: &str) -> Option<&ParkedWork> {
-        self.parked.get(handle)
+    /// The record of the Core of `handle`, once `open` built it (`parked_work`, `op_posted`).
+    pub(crate) fn record_of(&self, handle: &str) -> Option<&CoreRecord> {
+        self.records.get(handle)
     }
 
     /// Returns the refusal script for a handle. The refusal module arms this script.
@@ -250,9 +250,11 @@ impl CoreHarness for TestkitHarness {
     }
 
     /// The runner dropped the handle's Core (LC-12: its workers and its rows stay). The handle is gone, so a control that
-    /// names it is `Bad`; a later `open` of the same directory, under any handle, reaches the rows and the workers again.
+    /// names it is `Bad`, the record of its Core included (`parked_work`, `op_posted`; R297-F1); a later `open` of the same
+    /// directory, under any handle, reaches the rows and the workers again.
     fn drop_handle(&mut self, handle: &str) {
         self.handles.remove(handle);
+        self.records.remove(handle);
     }
 
     /// The controls that the testkit builds (design 6.3, `docs/core-testkit-controls.md`). The others come with the machines
@@ -358,18 +360,19 @@ mod tests {
     use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
 
-    /// R-87: `parked_of` gives the record that the handle's refusal layer keeps, so the `parked_work` control reads what
+    /// R-87, R-88: `record_of` gives the record that the handle's refusal layer keeps, so the `parked_work` and `op_posted`
+    /// controls read what
     /// the Core behind that layer reported.
     #[test]
-    fn parked_of_is_the_record_of_the_handles_layer() {
+    fn record_of_is_the_record_of_the_handles_layer() {
         let mut harness = TestkitHarness::new(0);
-        assert!(harness.parked_of("a").is_none(), "no layer yet");
+        assert!(harness.record_of("a").is_none(), "no layer yet");
         let (behind, _reached) = crate::refusal::tests::behind();
         let diagnostics = behind.diagnostics_slot();
         let mut core = harness.with_refusals("a", Box::new(behind));
         let s1 = SessionId("s1".into());
         assert!(!harness
-            .parked_of("a")
+            .record_of("a")
             .expect("the layer's record")
             .parked(&s1));
         *diagnostics.lock().unwrap() = json!({"parked_work": ["s1"]});
@@ -378,9 +381,12 @@ mod tests {
             unix: 0,
         });
         assert!(harness
-            .parked_of("a")
+            .record_of("a")
             .expect("the layer's record")
             .parked(&s1));
+        // R297-F1: the record goes with the handle.
+        harness.drop_handle("a");
+        assert!(harness.record_of("a").is_none(), "a dropped handle");
     }
 
     fn spec() -> OpenSpec {

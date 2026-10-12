@@ -264,7 +264,8 @@ fn io_errors_are_told_apart_by_their_kind() {
         );
         assert!(!link.write_interest, "and nothing waits now");
     }
-    // Any other send error ends the link.
+    // Any other send error ends the link's write side: nothing more is sent, and the link is read to its end of file, which
+    // closes it (R-78 item 4).
     let mut rig = Rig::new(CoreLimits::default());
     start_session(&mut rig, "s1", LinkId(1));
     rig.drain_events();
@@ -276,10 +277,26 @@ fn io_errors_are_told_apart_by_their_kind() {
         .unwrap()
         .fail_send
         .push(io::ErrorKind::BrokenPipe);
+    let sent_before = rig.mock.lock().unwrap().links[&LinkId(1)].from_host.len();
     rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
     for _ in 0..4 {
         rig.pump();
     }
+    {
+        let mock = rig.mock.lock().unwrap();
+        let link = &mock.links[&LinkId(1)];
+        assert!(!link.closed_by_host, "the link is read on");
+        assert_eq!(link.from_host.len(), sent_before, "nothing more is sent");
+        assert!(!link.write_interest, "and nothing waits to be sent");
+    }
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .peer_closed = true;
+    rig.pump();
     assert!(rig.mock.lock().unwrap().links[&LinkId(1)].closed_by_host);
     // Receive: interrupted is retried, and the frame is read.
     let mut rig = Rig::new(CoreLimits::default());

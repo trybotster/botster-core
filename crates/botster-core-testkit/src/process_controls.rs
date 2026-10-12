@@ -7,7 +7,7 @@
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::SessionId;
+use botster_core_contract::prelude::{OpId, SessionId};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -34,6 +34,7 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("lose_worker", lose_worker);
     registry.register("worker_alive", worker_alive);
     registry.register("parked_work", parked_work);
+    registry.register("op_posted", op_posted);
     for &(name, _waits_for) in UNSUPPORTED {
         registry.register(name, unsupported);
     }
@@ -153,7 +154,7 @@ fn worker_alive(
 }
 
 /// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
-/// diagnostics reported after its last call (`crate::refusal::ParkedWork`). A read that sends no signal: the fence before a
+/// diagnostics reported after its last call (`crate::refusal::CoreRecord`). A read that sends no signal: the fence before a
 /// poll that must free room for parked work. A session with no row is `Bad`.
 fn parked_work(
     harness: &mut TestkitHarness,
@@ -163,10 +164,33 @@ fn parked_work(
     let OfSession { session } = parse(args)?;
     session_row(harness, handle, &session)?;
     let parked = harness
-        .parked_of(handle)
+        .record_of(handle)
         .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
         .parked(&session);
     Ok(json!({ "parked": parked }))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfOp {
+    /// Not `op`: that key of a control object names the control. `for_op`, as the scheduler controls name an op.
+    for_op: OpId,
+}
+
+/// `{posted}`: Core has posted the op's terminal `Completed` to the event queue, polled or not (steward ruling R-88 (B)), as
+/// Core's diagnostics reported after its last call (`crate::refusal::CoreRecord`). A read that sends no signal: the fence
+/// that the completion is posted, before a step that reads it. An op that Core never minted is not posted.
+fn op_posted(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let OfOp { for_op } = parse(args)?;
+    let posted = harness
+        .record_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?
+        .op_posted(for_op);
+    Ok(json!({ "posted": posted }))
 }
 
 #[cfg(test)]

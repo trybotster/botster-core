@@ -15,7 +15,15 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd, 23bk, 23bu and 23cm;
-# contracts-v0.1.41 = 2fcd773: contracts-v0.1.40 + contracts #56, manifest final40 (Core erratum 6: a query reply from the wrong route is
+# contracts-v0.1.43 = c69a319: contracts-v0.1.42 + contracts #73, the fence lint's R-88 report-fence rule and the R-80 list growth,
+# + #76, R-88 (D) title-sentinel fences, + #77, R-88 held-write fences for in_9, tm_6_begin and in_6_refused_full (no new control);
+# contracts-v0.1.42 = ec7075a was not pinned: contracts-v0.1.41 + contracts #54, R-77 + R-80 (output fences before model reads, the output-fence lint
+# rule), + #60, the R-84 oracle_encode row and oracle_state's title and cwd, + #61, R-85 (no input-log assertion compares a 0d byte),
+# + #62 and #64, the R-56 burn-downs (ad_3, in_9_legacy_keys_table, in_9_non_us_layout and the six in_9_kitty ids fence every capture),
+# + #63 and #65, the CI job's network split (ci/remote/job-common.sh; Core copies its bytes, and keeps its own fetch-public.sh), + #66,
+# R-86 (RouteClient::progress in every wait loop) and R-81 (dp_5), + #67, fence-lint self-tests, + #68, R-87 (parked_work), + #69, the
+# ev_5_route_closed R-66 fence, + #70, the BUILD.md rulings-only rule, + #71, R-88 (A), + #72, the ad_3 R-80 title sentinel, + #74,
+# R-88 (B) (op_posted), + #75, R-88 (E) (the a5 fences), + rulings R-85 to R-89 as text; contracts-v0.1.41 = 2fcd773: contracts-v0.1.40 + contracts #56, manifest final40 (Core erratum 6: a query reply from the wrong route is
 # wrong_route; conf::e6_1), + #57, R-83 (await_pty fences before every route_expect_pty, the lint rule, ou_10 step 25), + #58, the R-71 (a)
 # hold_start control (the worker's control link is held at accept), + #59, the R-71 follow-up (a2_1_no_deadline startup 30000; ad_7 drops
 # its hold_start section), + rulings R-76 to R-84 and the R-28, R-73, R-74 and R-75 follow-ups as text; contracts-v0.1.40 = d939569 was not
@@ -48,13 +56,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.43" }
 
 anyhow = "1"
 data-encoding = "2"
@@ -138,5 +146,23 @@ overflow-checks = true
 # overflow checks kept, and no Core workspace crate. sha2 is also a production dependency (botster-core-link proof.rs).
 [profile.dev.package.sha2]
 opt-level = 3
+debug-assertions = true
+overflow-checks = true
+
+# The contracts' conformance driver and step runner execute every step of every conformance transcript. A profile of
+# `conf::in_9_legacy_keys_table` (contracts-v0.1.43: 311 steps; sampled at 1024 seeds, debug build) put about half of its time in these two
+# crates: the generic code that they build (a BTreeMap<String, Value> clone per step, next_event, input_log_track, the matcher)
+# ran at the dev opt-level, and the id went over its 2 s budget (gate on f16a10ba, node linux: 2.005 s; RC evidence
+# in9-profile-f16a10ba-*). Both are dependencies of the testkit, the xtask and botster-core's tests only. They are optimized in dev and
+# test builds (lead ruling, 2026-10-12), under the conditions of the overrides above: the opt-level only, debug assertions
+# and overflow checks kept, and no Core workspace crate. Measured (Mac, BOTSTER_SEEDS=0-31): the id 1.72 s → 1.00 s; the
+# strict conformance run, one thread, 28.40 s → 21.48 s.
+[profile.dev.package.botster-core-conformance]
+opt-level = 2
+debug-assertions = true
+overflow-checks = true
+
+[profile.dev.package.botster-conformance]
+opt-level = 2
 debug-assertions = true
 overflow-checks = true
