@@ -366,3 +366,66 @@ Findings 2 through 5, 7, and 8 close. Findings 1 and 6 remain open. No new findi
 The reviewer ran no build, test, gate, or reproduction. This is a design verdict only.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 4: SETTLE correction review — CLEAN
+
+Lead ruling: `msg_plugin-w_1791849094_b6a3af`, SETTLE with no split.
+The lead limits this round to findings 1 and 6. Findings 2 through 5, 7, and 8 stay closed.
+Matching owner receipt: `msg_plugin-w_1791849107_f474a2`.
+Exact reviewed document SHA-256: `0d39345fa29f9a449f0d20131716d40e00ab017f5a4135c2877f5609a8270c6d`.
+
+The reviewer saves the source and verifies its hash.
+The complete diff from Round 3 changes only the capacity-wake handshake and store close/failure-state rules.
+The reviewer reads every changed paragraph within the lead's assigned scope.
+This round does not reopen the closed scope or issue a separate protocol review.
+
+### S2-HD-1 — MEDIUM — CLOSED
+
+The owner now arms `wants_room` before it checks `frames` again.
+All access to the two atomics uses SeqCst ordering.
+If the second check sees room, the owner clears the flag and continues without marking the baseline blocked.
+IO reduces the frame count before it checks the flag.
+When the count reaches the stated threshold, IO clears the armed flag and wakes the owner.
+
+The ordered handshake closes the Round 3 check-before-arm race.
+An IO drain before the arm appears in the owner's second level check.
+A threshold drain after the arm produces the wake. A spurious wake is permitted.
+A blocked baseline still does not force an immediate loop while capacity is absent.
+The partial event-drainage and runnable-baseline rules from earlier rounds remain intact.
+
+Implementation evidence must exercise both orders, including a wake while the owner is still processing its turn.
+This closure accepts the design rule, not a tested implementation or a timing claim.
+
+### S2-HD-6 — MEDIUM — CLOSED
+
+The owner now closes the store queue by dropping its sole job sender.
+That close uses no queue slot and cannot be refused.
+Normal stop first sends retained terminal updates as capacity becomes free, then drops the sender.
+The store finishes its admitted queue, sends bounded completions, observes channel closure, and ends.
+The owner joins the store before OwnerDone and before main releases the singleton lock.
+
+The store-fault path drops the sender immediately and sends no additional job.
+A live store drains its admitted queue and ends. A store that already sent StoreGone has already ended.
+The owner joins either path without waiting for an additional request or nonexistent completion.
+
+The revision also removes the false claim that an uncertain terminal write always leaves `starting` on disk.
+Recovery loads the surviving old or new record. It reconciles a surviving `starting` record through R-121.
+A terminal record remains terminal. An uncertain retention delete can leave the record present or absent.
+The Hub claims no particular post-failure disk state.
+
+The reserved completion capacity and one retained terminal slot per record remain the Round 3 rules.
+Implementation evidence must cover normal stop, write error, store panic, and owner panic without writes after lock release.
+This closure accepts the lifecycle design only.
+
+### Final design scope
+
+All eight findings are closed, including every partial path retained in earlier rounds.
+The final review accepts only the daemon design at the exact hash above.
+The lead's SETTLE ruling authorizes this focused round; it grants no implementation or gate acceptance.
+GS bootstrap, the required Core A26 pin for recovery, and applicable draft-contract freeze prerequisites remain due.
+Caller-known operation ids remain deferred. The approved minimum remains 127 ids, as read in Round 2.
+Sol-B owns the PC protocol delta. This record does not substitute for that review.
+
+The reviewer ran no build, test, gate, or reproduction.
+
+VERDICT: CLEAN (0 open)
