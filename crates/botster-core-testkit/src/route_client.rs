@@ -519,7 +519,7 @@ mod tests {
         );
         ends.push(&c[5..]);
         let (a, b, c) = (a.len() as u64, b.len() as u64, c.len() as u64);
-        assert_eq!(ends.ends, vec![a, a + b, a + b + c]);
+        assert_eq!(ends.ends(), [a, a + b, a + b + c]);
         assert_eq!(ends.taken(0), 0);
         assert_eq!(ends.taken(a - 1), 0, "one byte short of the first frame");
         assert_eq!(ends.taken(a), 1);
@@ -529,7 +529,7 @@ mod tests {
         // An empty frame that is the last bytes of a write ends with its prefix, before any later write.
         let mut alone = FrameEnds::default();
         alone.push(&frame(b""));
-        assert_eq!(alone.ends, vec![b]);
+        assert_eq!(alone.ends(), [b]);
     }
 
     /// `route_frames_taken` on the testkit: the count follows the worker end's reads of the client's frames at the stream
