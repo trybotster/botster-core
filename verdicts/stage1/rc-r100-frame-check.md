@@ -205,3 +205,33 @@ The lead's repair order requires compile/tests, delta reviews, then FINAL-READY 
 Zero integration delta findings remain. This CLEAN accepts source only at the stated head. FINAL-READY can follow the matching source delta receipts. Applicable train delta and combined reviews, final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+## Train 5 replacement delta: round 1
+
+- Head: `7a2d53d999800afa266e3a10f025ee24e288a0ca`.
+- Tree: `9bca0030a0c72beca8ff59b2574527064ccdc9e7`.
+- Imported base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Previous source head: `f41b7e82ba98e76f2487185eba0af2a3a0de8918`.
+- Reviewed delta: the train-4b import, DESIGN resolution, and R-100/control-queue composition correction.
+- Package verdict: `7fcfb9ef3cda43dcec21f0d72139a8ae30c5cfbb`, file `verdicts/rc-real-controls.md`, complete train 5 replacement section.
+- READY receipt: `msg_plugin-w_1791828562_a7ead4`.
+
+I read the complete same-head package verdict. It identifies one MEDIUM finding in the touched queue-bound test. I independently read that test and retain its finding identity below.
+
+Merge `10697895448f9b76aa9ea6fde80818f019986cd7` has the prior source head and imported base as its parents. The R-100 design section remains byte-identical. The control-queue section remains, with its multiplier and default values updated by the next commit. No accepted R-100 behavior is removed.
+
+The engine's six-times frame bound also sizes the queue's largest-frame term. With default limits the frame bound is 97 MiB, and the queue threshold is approximately 27 GiB. The driver computes that threshold with saturating arithmetic and allocates no buffer for the threshold. The effective room remains the minimum of retained-byte room and edge room. Refusal precedence, failed-write retirement, budgeted writable events, and both edge controls retain #307's accepted implementation.
+
+All eight non-design R-100 own change sets match the earlier accepted member. The frame-fit implementation, boundary tests, and shared Launch constructor retain their accepted blobs. All nine conformance files, pin files, mutation configuration, known-flaky file, and process allowance equal the imported base. No extra removal or exclusion appears.
+
+**RC-R100-6 — MEDIUM — open.** The changed `the_control_queue_bound_is_the_admitted_traffic_and_four_cancels` reads `driver.control_message` and asserts `driver.control_bound`. The user forbids private-state assertions. Test the pure queue-bound decision through inputs and its returned value, or test public boundary behavior. Derive the Cancel frame length through message/frame encoding. Preserve the multiplier and queue-formula coverage. A getter added only for this assertion does not close the finding. Prior acceptance of #307 does not exempt the touched test.
+
+Local evidence: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-r100/local-7a2d53d9-20261012-180552.log`.
+
+I read its script, exact-head/tree header, statuses, and results. It records removal of 5638 files totaling 1.1 GiB, but no separate numeric clean exit. Fmt exits zero. Host and link tests pass 430 cases and exit zero. Restoring the old 65 MiB expectation fails with actual 101711872 and expected 68157440. The script restores the test afterward. This supports the multiplier correction; it closes no private-state finding and proves no final pool gate.
+
+I read the complete updated body. It identifies the imported base, conflict resolution, queue-term increase, local proof, and deferred train-5 gate. Older gates retain their heads and bases. The final composed train gate remains due under the lead's repair order.
+
+One integration finding remains. A repaired exact head, matching package closure, applicable train reviews, final gate, final receipts, and equal-tree merge verification remain due. No later head or train is accepted. I ran no build, test, gate, or pool job.
+
+VERDICT: NOT CLEAN (1 open)

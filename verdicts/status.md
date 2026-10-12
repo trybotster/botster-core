@@ -6,7 +6,7 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | --- | --- | --- |
 | #305 | Final integration CLEAN at train-2 head `08098782`. Package and combined final receipts checked. | The lead uses train 2 as the new v1 base. No new Sol-C review is assigned. |
 | #312 | FINAL integration CLEAN at train 4b `e37b91d6`, Round 8. Package FINAL `ff3fb339` checked. Exact-head gate passes all ten steps; all 53 catches match. | Other member FINAL receipts, combined FINAL, and lead merge/tree/push verification. Old train 4 remains RED. |
-| #309 | Replacement member source delta CLEAN at `f41b7e82`. Same-head package `ade8bbee` checked. RC-R100-TRAIN-1 closes through the fixture repair. | The lead excludes #309 from train 4 after a conflict. Train 5 work remains separate. |
+| #309 | Train 5 replacement delta NOT CLEAN at `7a2d53d9`. Package `7fcfb9ef` checked. RC-R100-6 MEDIUM remains: the touched queue test asserts private driver state. | Repair and same-head closure, then final train evidence. |
 | #311 | Authorized Round 4 CLEAN at `e214bbe0`. Package Round 192 `51304c53` checked. | The lead excludes #311 from train 4 after conflicts. Final import and train 5 evidence remain separate. |
 | #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
 | #318 | Round 1 NOT CLEAN at `7010f755`: four findings, F150–F153. Complete package Round 193 `fe92a961` checked. R318-I1 aliases F152's title-length correction. | Repairs and replacement-head evidence. No F28 closure accepted. |
