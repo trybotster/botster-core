@@ -727,3 +727,42 @@ fn a_pending_progress_report_goes_before_a_pending_output_report() {
     assert_eq!(kinds, ["progress", "output"], "{reports:?}");
     assert_eq!(progress(&reports), [(mark + 2, true)]);
 }
+
+/// OU-3b, DP-6: a `modes` frame is droppable. A resize while the route waits queues it behind the output; the stall drops it
+/// unstarted, and the new baseline's `baseline_begin` carries the size again.
+#[test]
+fn a_stall_drops_an_unstarted_modes_frame_and_the_baseline_carries_the_size() {
+    let (mut w, mut client, write, mark) = waiting_route(FRAME as usize);
+    let actions = w.feed(Input::RouteRead {
+        route: RouteId(1),
+        bytes: resize_frame(30, 100),
+    });
+    assert!(
+        writes(&actions).is_empty(),
+        "the route's write is still out"
+    );
+    let before = client.frames.len();
+    let actions = w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    assert!(w.reports(&actions).contains(&WorkerMsg::RouteStalled {
+        route: RouteId(1),
+        mark
+    }));
+    client.reader.push(&write);
+    let actions = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(write.len()),
+    });
+    client.take_all(&mut w, RouteId(1), actions);
+    let frames = &client.frames[before..];
+    let mut expected = vec!["output"];
+    expected.extend(RESUMED);
+    assert_eq!(kinds(frames), expected);
+    let begin = frames.iter().find_map(|f| match f {
+        ToClient::BaselineBegin(b) => Some((b.rows, b.cols)),
+        _ => None,
+    });
+    assert_eq!(begin, Some((30, 100)));
+}
