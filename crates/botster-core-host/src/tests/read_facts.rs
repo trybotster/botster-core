@@ -151,32 +151,37 @@ fn a_counter_at_the_largest_number_is_exhaustion_not_a_wrap() {
     assert_eq!(launched_ordinals(&w), Vec::<u64>::new());
 }
 
-/// Core ST-7, EV-6: the end of a client input's transaction raises the keyed `Activity{Client(route)}` edge again, and
-/// changes no revision.
+fn client_input_ended(w: &mut World, route: RouteId) {
+    w.worker_says(
+        "s1",
+        WorkerMsg::Observed {
+            observation: Observation::ClientInputEnded { route },
+        },
+    );
+}
+
+/// Core ST-7, EV-6: the end of a client input's transaction on a live route of the session raises the keyed
+/// `Activity{Client(route)}` edge again, and changes no revision.
 #[test]
 fn the_end_of_a_client_input_raises_the_activity_edge_and_changes_no_revision() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
+    let route = super::losses::attach(&mut w);
     w.unix = 5000;
     w.feed(Input::Clock(5000));
     w.engine.poll_events(64);
     let before = w.engine.terminal_state(&sid("s1")).unwrap().input_rev;
-    w.worker_says(
-        "s1",
-        WorkerMsg::Observed {
-            observation: Observation::ClientInputEnded { route: RouteId(4) },
-        },
-    );
+    client_input_ended(&mut w, route);
     let events = w.engine.poll_events(64);
     assert!(
         matches!(
             &events[..],
             [Event::Activity {
-                source: ActivitySource::Client(RouteId(4)),
+                source: ActivitySource::Client(r),
                 at: 5000,
                 ..
-            }]
+            }] if *r == route
         ),
         "{events:?}"
     );
@@ -184,4 +189,31 @@ fn the_end_of_a_client_input_raises_the_activity_edge_and_changes_no_revision() 
         w.engine.terminal_state(&sid("s1")).unwrap().input_rev,
         before
     );
+}
+
+/// Core EV-5 (#320 RF-PC-3): `RouteClosed` retired the route's key, so the end of a client input that completes after the
+/// close raises no `Activity` for it. A route that the session never had raises none either.
+#[test]
+fn the_end_of_a_client_input_after_its_route_closed_raises_no_activity() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::Detached,
+            route_tag: None,
+        },
+    );
+    let events = w.engine.poll_events(64);
+    assert!(
+        matches!(&events[..], [Event::RouteClosed { route: r, .. }] if *r == route),
+        "{events:?}"
+    );
+    client_input_ended(&mut w, route);
+    client_input_ended(&mut w, RouteId(99));
+    let events = w.engine.poll_events(64);
+    assert!(events.is_empty(), "{events:?}");
 }
