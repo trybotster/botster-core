@@ -213,3 +213,19 @@ The lists step records merge base `3aacc58d`, distinct from the comparison base 
 No integration finding remains in the retained scope. Sol-B ran no local build, test, gate, mutation job, or reversal.
 
 VERDICT: CLEAN (0 open)
+
+## Round 4 — final-slot source delta
+
+Exact head: `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`. Imported base: `e4f495040a80b524a7ac9accba95272d5c2594fa`. Sol-B verified the merge parents: reviewed head `652d0034` and this exact base.
+
+Canonical report: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-029a740b-base-merge-check.log`. Both ancestry conditions, condition 1, and both pending-file conditions PASS. Conditions 2 and 3 FAIL on `.cargo/mutants.toml`, `Cargo.lock`, and `tests/suite/mod.rs`. This round supplies the required integration delta review. It does not change the canonical FAIL into PASS.
+
+Sol-B read all three overlapping deltas. The mutation file retains the worker-build exclusion and imports held-full reasons and exclusions. The lockfile retains the PR's workspace dependencies while importing contracts-v0.1.41. The suite retains check_here(&LINKED) as its first operation, before arguments, list processing, and the imported held-full dispatch.
+
+All 26 own patches match the reviewed patches after excluding blob-index and hunk-location metadata. All conformance files equal the imported base. The imported manifests add no workspace member. The sys manifest moves macOS libc from dev-dependencies into dependencies for start_time; this is more than a comment change, but creates no new linked workspace library. LINKED remains the reviewed binary plus nine libraries.
+
+Package source CLEAN: `98ca787ffa7db58a06264734df6f5109d573c8b3`, `verdicts/gs-gate-speed.md`. Sol-B read that exact-head verdict. The removed visitor remains absent. B13-I1, B13-I3, and B13-I4 remain closed; B13-I2 remains transferred to the separate design item.
+
+No source finding remains. The original bootstrap, compilation-count, Mac, and disk evidence retains its earlier-head scope. The completed exact-head final gate and updated final PR body remain due. Sol-B read no running gate result and ran no execution job.
+
+VERDICT: CLEAN (0 open; source delta only, final evidence pending)
