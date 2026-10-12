@@ -47,6 +47,19 @@ pub trait Scheduler {
 
     /// Chooses a count from `1..=max` (a work bound, a batch size or a chunk size). Returns 0 only when `max` is 0.
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize;
+
+    /// Whether the policy holds one step of ready work until it lets it go (Core A5-2: "the scheduler defers the operation's
+    /// progress"; steward ruling R-88, group E: the testkit's `scheduler_hold`). `ops` are the numbers of the `OpId`s whose
+    /// progress the step makes: the op of an op step, or the ops of a session's flow. It is empty when the step makes no op's
+    /// progress.
+    ///
+    /// A held step is not runnable work: the driver does not run it, does not ask any other choice point about it, and does
+    /// not count it in `PumpReport.more`. The policy signals the wake when it lets the step go. The default holds nothing
+    /// and draws nothing, so a policy that does not hold steps makes the same choices as before. Clause: Core A5-2.
+    fn held(&mut self, ops: &[u64]) -> bool {
+        let _ = ops;
+        false
+    }
 }
 
 /// The production policy: no variation, and a round-robin visit of sessions.
@@ -144,5 +157,31 @@ mod tests {
     #[test]
     fn no_candidate_gives_index_zero() {
         assert_eq!(Production::new().pick(ChoicePoint::Session, 0), 0);
+    }
+
+    /// A policy that records every choice that it is asked.
+    struct Recorded(Vec<(ChoicePoint, usize)>);
+
+    impl Scheduler for Recorded {
+        fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
+            self.0.push((point, candidates));
+            0
+        }
+
+        fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+            self.0.push((point, max));
+            max
+        }
+    }
+
+    /// The default `held` holds nothing and asks no choice point, whatever the ops (none included), so a policy that does not
+    /// hold steps makes the same choices as before the method existed (steward ruling R-88, group E).
+    #[test]
+    fn the_default_holds_nothing_and_draws_nothing() {
+        let mut policy = Recorded(vec![]);
+        assert!(!policy.held(&[]));
+        assert!(!policy.held(&[7, 9]));
+        assert_eq!(policy.0, []);
+        assert!(!Production::new().held(&[1]));
     }
 }

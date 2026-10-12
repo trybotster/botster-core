@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 mod api;
 mod deadlines;
 mod handoff;
+mod holds;
 mod observations;
 
 #[derive(Default)]

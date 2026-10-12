@@ -10,6 +10,7 @@
 
 use crate::entropy::SeededEntropy;
 use crate::net::LinkEnd;
+use crate::op_holds::SharedHolds;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -156,9 +157,10 @@ pub trait Spawner: Send {
     fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
-/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
+/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream. The holds of
+/// `scheduler_hold` are the host's own (op ids are numbered per host), and they draw nothing.
 #[derive(Debug, Clone)]
-struct HandleScheduler(SchedulerHandle);
+struct HandleScheduler(SchedulerHandle, SharedHolds);
 
 impl Scheduler for HandleScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
@@ -167,6 +169,10 @@ impl Scheduler for HandleScheduler {
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         self.0.with(|s| s.bound(point, max))
+    }
+
+    fn held(&mut self, ops: &[u64]) -> bool {
+        crate::op_holds::lock(&self.1).holds_any(ops)
     }
 }
 
@@ -431,6 +437,8 @@ pub struct Opened {
     pub reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The testkit's `Core` also signals it for its in-process workers.
     pub wake: Arc<dyn HostWake>,
+    /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted.
+    pub holds: SharedHolds,
 }
 
 /// A reader of one stored row, held apart from the harness: it reads the row as the storage edge holds it now.
@@ -518,12 +526,13 @@ impl Directories {
         };
         let faults = Arc::new(Mutex::new(Faults::default()));
         let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
+        let holds = SharedHolds::default();
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
             wake: Arc::new(SimHostWake::new(scheduler.clone())),
-            scheduler: HandleScheduler(scheduler),
+            scheduler: HandleScheduler(scheduler, Arc::clone(&holds)),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),
@@ -550,6 +559,7 @@ impl Directories {
             faults,
             reports,
             wake,
+            holds,
         })
     }
 }

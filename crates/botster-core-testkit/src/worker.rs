@@ -1619,6 +1619,8 @@ pub struct TestkitCore {
     captures: CaptureLog,
     route_ends: crate::route_client::RouteEnds,
     route_instances: crate::route_client::RouteInstances,
+    /// Where the ops that Core admits are recorded for `scheduler_hold` (none in a test that serves no scheduler control).
+    holds: Option<crate::op_holds::SharedHolds>,
 }
 
 impl TestkitCore {
@@ -1635,7 +1637,15 @@ impl TestkitCore {
             captures: CaptureLog::default(),
             route_ends: Default::default(),
             route_instances: Default::default(),
+            holds: None,
         }
+    }
+
+    /// Records each op that Core admits, and whether a clause fixes its timing (R-20), in the holds of this host's scheduler
+    /// (`scheduler_hold`).
+    pub(crate) fn with_holds(mut self, holds: crate::op_holds::SharedHolds) -> TestkitCore {
+        self.holds = Some(holds);
+        self
     }
 
     /// The session instance of each route that this Core attached (`route_fill`).
@@ -1663,7 +1673,12 @@ impl CoreApi for TestkitCore {
     /// A `Resize` or a `SetColorProfile` is recorded as it enters, before Core admits it (condition 3, R-62).
     fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
         self.captures.begun(&op);
-        self.driver.begin(op)
+        let id = self.driver.begin(op)?;
+        if let Some(holds) = &self.holds {
+            let fixed = self.driver.engine().fixed_timing(id) == Some(true);
+            crate::op_holds::lock(holds).begun(id, fixed);
+        }
+        Ok(id)
     }
 
     /// TM-1, plan 4.1: the clock moves to `now`, the workers run their ready work, then the host pumps. A worker that still
