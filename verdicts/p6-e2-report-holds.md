@@ -116,3 +116,81 @@ No CLEAN is sent to the lead.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-12: report-hold repairs
+
+Exact head: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Tree: `e48333e160ae048a5b7e1b0f59e0b7246d41022b`.
+Parent and reviewed input: `cac85963de8f02a9751f94714248d957c082a497`.
+Source merge base: `080987829a2e2245a7ea97606020400392c974d6`.
+Gate comparison base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Risk remains HIGH. READY: `msg_plugin-w_1791825160_2c59ae`.
+
+I read the complete five-file repair delta and the relevant adapter, fixture, holder, and completion paths.
+The head descends directly from the reviewed input. No base import occurs.
+I read the complete updated PR body after GitHub MCP truncates it.
+Body SHA256: `b75f8956ced08659500fcbf776c93b2e11923847da1f01134a2895fe00b3e76f`.
+GitHub names this exact head and the gate comparison base. The PR remains OPEN when read.
+Round 1's unchanged source, contract assertions, process ownership, status accounting, and Prior-art review carry to this head.
+
+### Finding closure
+
+**B315-I1 — CLOSED.** Tap::quiet now checks ReportHolds::withholds before it probes a link.
+It skips the inner read when that link has a held frame. It cannot read the held EOF again through that probe.
+ReportHolds::gives now includes an end with no hold before it. A released end therefore remains deliverable work.
+Quiet retains the existing bounded probe on other links and the existing process-exit path.
+The tap takes its holder lock in the existing tap-to-holder order. The changed path adds no reverse lock acquisition.
+
+The new controlled tap test uses an inner link whose closed state returns EOF on every read.
+It asserts WouldBlock and quiet twice while the frame and EOF remain held. It requires zero wake signals in that state.
+After release, it asserts non-quiet, receives the report, asserts non-quiet for the end, and receives EOF.
+After the driver closes the link, it asserts quiet.
+These assertions observe edge behavior. The closed-state setup belongs to the test fixture, not private production state.
+The component end test separately requires withholds during the hold and gives for the free end after release.
+The earlier component exit tests still cover retained exits and release. The new tap test isolates the repeated-EOF defect.
+Both tests pass normally. The withholds-to-false mutant is caught by the new tap test.
+
+**B315-I2 — CLOSED.** The completion helper checks its cleanup deadline after every pump that does not complete the requested operation.
+The check runs for both more=true and more=false. The idle path retains its wait on the public wake handle.
+The helper adds no sleep, additional reap, or unbounded derived wait.
+
+**B315-I3 — CLOSED.** I read the corrected shared design-note section 10 again.
+It states that EOF and read errors wait behind the active hold. It distinguishes an explicit break and the driver's link close.
+
+### Completed gate and earlier failure
+
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-e2-report-holds-29dc0efe-pool-20261012-095714-12815.log`.
+SHA256: `2ccaf806491ddf58159b70ab4183dd4c7c6b1cf02276701275a161117346a46b`.
+I read its head/base header, conformance records, changed-test results, mutation records, citations, tier summaries, and exits.
+All ten steps PASS in 873.8 seconds.
+Default passes 1960 tests, with 431 skipped, in 11.317 seconds.
+Slow passes 622 tests, with 2091 skipped, in 39.544 seconds.
+The new quiet-state test, changed component test, and all three real report-control tests PASS.
+Strict conformance passes 261 with zero failures. Pending remains 406; real-pending remains 43.
+No status removal is accepted from the job's pending-test suggestions.
+
+Stage 1 tests 159 mutants: 136 caught, 10 missed, 13 unviable, and zero timeout.
+The unmutated slow baseline passes 622 tests. Stage 2 catches those exact 10 misses.
+I independently compare the stage-1 missed identities with the stage-2 caught identities. The sets match exactly.
+The final result has 146 caught, 13 unviable, zero missed, and zero timeout.
+All 146 unique raw catches match their citations. Every cited catcher has a normal PASS.
+The complete log contains no FLAKY or INCONCLUSIVE record. No catch is credited to an unviable mutant.
+Fuzz reports no changed crate with a decoder harness.
+The job and wrapper exit zero after 882 seconds: one second queued and 881 seconds running.
+
+The body retains the earlier failed gate at local head `8d605032`.
+Log: `~/botster-sessions/gates/botster-core-stage1-p6-e2-report-holds-8d605032-pool-20261012-095336-3367.log`.
+SHA256: `495460070fbecbb5d291e8b066c2eab39c0a33744ae718bcf83fe71a03db5b34`.
+I read the named failure, expected/actual byte output, tier summary, and final exits.
+The new test asks for 64 bytes and incorrectly expects the complete hello frame, which exceeds that buffer.
+The default tier reports one failure; later steps do not run. The job and wrapper exit one.
+I inspect that local-head delta against the READY head. It changes only four test read sizes from 64 to 4096.
+The expected frames and quiet-state assertions remain unchanged. The source repair is unchanged.
+The structural fixture correction accounts for the failure. This is not a same-source retry credited as a catch.
+
+No source or evidence finding remains for this exact head. The package source and retained Linux gate are CLEAN.
+This verdict accepts no later head, base import, train composition, contracts pin, or status removal.
+The integration verdict, later slot or train review, and lead merge verification retain their separate requirements.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
