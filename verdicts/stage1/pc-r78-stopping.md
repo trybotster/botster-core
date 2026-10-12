@@ -560,3 +560,21 @@ The complete repaired-head package verdict, final body, and final-slot acceptanc
 This supplement accepts no final merge or new execution. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN for Sol's IN9 controlled attribution; overall #291 acceptance remains NOT CLEAN pending package acceptance and final-slot evidence
+
+### Round 8 supplement — independent IN9 acceptance
+
+Package receipt `msg_plugin-w_1791765275_d061a2` accepts the same controlled IN9 attribution.
+The package reviewer reads the corrected record, complete raw log, scratch diff, and unchanged source paths.
+Both embedded patches match 0151f1ec. The package reviewer preserves the exact step-8 step_timeout result and the missing event-order trace.
+The reviewer also preserves the absence of an uninstrumented-v1 failure and the NotWritten(NotReported) source result.
+The package reviewer reads Sol's e72d7d01 supplement and verifies publication.
+The package reviewer closes R78-PC-3 and R78-PC-4.
+
+R291-SI-4 closes after both reviewers accept the attribution and the lead accepts this case under 23bl(A).
+There are zero open integration source or evidence findings on repaired head 8ac717c7 against source base f6025aed.
+This closes the attribution finding; it does not change the recorded A5-4 failure into a PASS.
+The current body and complete formal package verdict remain due. The package reviewer will publish after PC completes the body.
+The final slot still requires the ST-first import, applicable checks and delta reviews, and the exact-final-head gate.
+Sol accepts no later source head or final merge. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open integration source or evidence findings; body, formal package verdict, and final-slot acceptance remain due) at 8ac717c7d94560bf1f82a5975bb45162ba0b88da against source base f6025aed4cdf7da836e835e0040fc128b7e8f32f
