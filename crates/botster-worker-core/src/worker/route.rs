@@ -44,8 +44,9 @@ use botster_core_link::msg::Observation;
 use botster_core_link::msg::WorkerMsg;
 use botster_core_link::route::{frame_bounds, frame_fits, route_closed_frame};
 use botster_route_codec::prelude::{
-    stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HistoryState, HistoryUnavailable,
-    InputRefused, Op, RefusalReason, RouteLimits, StreamReader, ToClient, ToWorker,
+    stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HexBytes, HistoryState,
+    HistoryUnavailable, Input, InputDone, InputRefused, Op, RefusalReason, RouteLimits,
+    StreamReader, ToClient, ToWorker,
 };
 use std::collections::{BTreeMap, VecDeque};
 
@@ -100,14 +101,27 @@ struct Route {
     input: bool,
     /// The last read allowance that the driver got (`Action::RouteReadAllowance`); none yet at the bind.
     allowance: Option<usize>,
+    /// The open paste (Codec TS-5d): at most one per route. A file has a slot of its own (steward ruling R-75).
+    paste: Option<OpenPaste>,
+}
+
+/// A paste between its `paste_begin` and its `paste_commit` or `paste_abort` (Codec TS-5d). Its chunks are assembled here,
+/// within `max_paste_bytes`, and its commit goes to the admission point as one transaction. These bytes are outside the
+/// route's input bound: `max_paste_bytes` bounds them, and they are not held at the admission point until the commit. A
+/// closing route applies no more input, so a paste that is not committed when its route ends writes nothing.
+#[derive(Debug)]
+struct OpenPaste {
+    op: Op,
+    bytes: Vec<u8>,
+    require_bracketed: bool,
 }
 
 /// A complete client frame that the route received (IN-4), with what its receipt decided (DP-5): the decision is made when
 /// the frame is received, never when it is applied, so a frame received before `live` stays `NotReady` (PR3 F107).
 #[derive(Debug)]
 enum Received {
-    /// Client input that goes to the admission point, with its op.
-    Input(Option<Op>, Vec<u8>),
+    /// Client input that goes to the admission point, with its op, and true when a written paste is answered `input_done`.
+    Input(Option<Op>, InputPayload, bool),
     /// Client input that is refused with this op and reason.
     Refused(Option<Op>, RefusalReason),
     /// A frame that cannot be decoded: the route closes with this reason (OU-5), after the frames before it.
@@ -125,37 +139,110 @@ impl Route {
         self.queue.push_back(bytes);
     }
 
-    /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt.
-    fn decide(&self, frame: ToWorker) -> Received {
-        let (op, bytes) = match frame {
-            ToWorker::Bytes { op, bytes } => (op, bytes.0.to_vec()),
-            ToWorker::Text { op, text } => (op, text.into_bytes()),
-            // Keys, mouse, pastes and files are later P4a work (DP-5): they are refused with their op (TS-5b), and the
-            // route stays open. A chunk always has a nonzero op: the codec rejects a chunk with op 0 as malformed.
+    /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt. `None` is a
+    /// frame that has its whole effect now and sends no frame: a paste's chunk, its `paste_begin`, and its abort before the
+    /// commit (Codec TS-5d).
+    fn decide(&mut self, frame: ToWorker) -> Option<Received> {
+        let op = match &frame {
+            ToWorker::Bytes { op, .. } | ToWorker::Text { op, .. } => (op.0 != 0).then_some(*op),
+            ToWorker::PasteChunk { op, .. } | ToWorker::FileChunk { op, .. } => Some(*op),
+            ToWorker::Input(input) => input.op(),
+        };
+        if !self.input {
+            return Some(Received::Refused(op, RefusalReason::NotWritable));
+        }
+        if self.baseline > 0 {
+            // DP-5: no input before `live` is written.
+            return Some(Received::Refused(op, RefusalReason::NotReady));
+        }
+        let input = |payload| Some(Received::Input(op, payload, false));
+        match frame {
+            ToWorker::Bytes { bytes, .. } => input(InputPayload::Bytes {
+                bytes: HexBytes(bytes.0.to_vec()),
+            }),
+            ToWorker::Text { text, .. } => input(InputPayload::Text { text }),
+            ToWorker::PasteChunk { op, bytes } => self.paste_chunk(op, &bytes.0),
+            ToWorker::Input(Input::PasteBegin {
+                op,
+                total_bytes,
+                require_bracketed,
+            }) => self.paste_begin(op, total_bytes, require_bracketed.unwrap_or(false)),
+            ToWorker::Input(Input::PasteCommit { op, want_result }) => {
+                Some(match self.paste.take_if(|paste| paste.op == op) {
+                    Some(paste) => Received::Input(
+                        Some(op),
+                        InputPayload::Paste {
+                            bytes: HexBytes(paste.bytes),
+                            require_bracketed: paste.require_bracketed,
+                        },
+                        want_result.unwrap_or(false),
+                    ),
+                    // Codec TS-5d (R-5): a commit with no open paste, or with another op. The open paste stays open.
+                    None => Received::Refused(Some(op), RefusalReason::Refused),
+                })
+            }
+            ToWorker::Input(Input::PasteAbort { op }) => {
+                match self.paste.take_if(|paste| paste.op == op) {
+                    // Codec TS-5d: an abort before the commit writes nothing and sends no frame.
+                    Some(_) => None,
+                    // Codec TS-5d (R-5): an abort with no open paste, or with another op. The open paste stays open.
+                    None => Some(Received::Refused(Some(op), RefusalReason::Refused)),
+                }
+            }
+            // Keys, mouse, files and query replies are later P4a work (DP-5): they are refused with their op (TS-5b), and
+            // the route stays open.
             other => {
-                let (op, what) = match other {
-                    ToWorker::PasteChunk { op, .. } => (Some(op), "paste_chunk"),
-                    ToWorker::FileChunk { op, .. } => (Some(op), "file_chunk"),
-                    ToWorker::Input(input) => (input.op(), "input"),
-                    _ => (None, "input"),
+                let what = match other {
+                    ToWorker::FileChunk { .. } => "file_chunk",
+                    _ => "input",
                 };
-                return Received::Refused(
+                Some(Received::Refused(
                     op,
                     RefusalReason::Unsupported {
                         what: what.to_string(),
                     },
-                );
+                ))
             }
-        };
-        let op = (op.0 != 0).then_some(op);
-        if !self.input {
-            Received::Refused(op, RefusalReason::NotWritable)
-        } else if self.baseline > 0 {
-            // DP-5: no input before `live` is written.
-            Received::Refused(op, RefusalReason::NotReady)
-        } else {
-            Received::Input(op, bytes)
         }
+    }
+
+    /// `paste_begin` (Codec TS-5d): it opens the route's paste. A second one while a paste is open is refused `refused` (R-5),
+    /// and the open paste stays open. A `total_bytes` over `max_paste_bytes` is refused `too_large` now (R-9: the worker
+    /// may refuse at `paste_begin`), with no paste opened.
+    fn paste_begin(
+        &mut self,
+        op: Op,
+        total_bytes: Option<u64>,
+        require_bracketed: bool,
+    ) -> Option<Received> {
+        if self.paste.is_some() {
+            return Some(Received::Refused(Some(op), RefusalReason::Refused));
+        }
+        if total_bytes.is_some_and(|total| total > self.limits.max_paste_bytes) {
+            return Some(Received::Refused(Some(op), RefusalReason::TooLarge));
+        }
+        self.paste = Some(OpenPaste {
+            op,
+            bytes: Vec::new(),
+            require_bracketed,
+        });
+        None
+    }
+
+    /// `paste_chunk` (Codec TS-5d): its bytes join the open paste of its op. A chunk with no open paste, or with another op,
+    /// is refused `refused` (R-5), and the open paste stays as it is. The first chunk that takes the paste over
+    /// `max_paste_bytes` is refused `too_large`, and the paste is discarded: nothing of it is written.
+    fn paste_chunk(&mut self, op: Op, bytes: &[u8]) -> Option<Received> {
+        let max = usize::try_from(self.limits.max_paste_bytes).unwrap_or(usize::MAX);
+        let Some(paste) = self.paste.as_mut().filter(|paste| paste.op == op) else {
+            return Some(Received::Refused(Some(op), RefusalReason::Refused));
+        };
+        if paste.bytes.len().saturating_add(bytes.len()) > max {
+            self.paste = None;
+            return Some(Received::Refused(Some(op), RefusalReason::TooLarge));
+        }
+        paste.bytes.extend_from_slice(bytes);
+        None
     }
 
     /// True when the encoded frame is within its bound on this route (DP-3, `bound_of`).
@@ -275,6 +362,7 @@ impl Worker {
             received: VecDeque::new(),
             input: options.input,
             allowance: None,
+            paste: None,
         };
         match self.baseline(&entry, &options) {
             Ok((frames, sequence)) => {
@@ -603,15 +691,20 @@ impl Worker {
                 Ok(Decoded::Ignored { .. }) => continue,
                 // A complete input frame that cannot be applied is still client input: it is received, then refused (IN-4).
                 Ok(Decoded::Unsupported { op, what }) => {
-                    Received::Refused(op, RefusalReason::Unsupported { what })
+                    Some(Received::Refused(op, RefusalReason::Unsupported { what }))
                 }
+                // Steward ruling R-75: a parseable frame that breaks a field rule of Core 5.1A, and is not over a size bound
+                // or of an unknown kind or value, is refused `refused`, with zero effect. The codec's field rules
+                // (`Input::check`) are of that class.
                 Ok(Decoded::Invalid { op, .. }) => {
-                    Received::Refused(op, RefusalReason::InvalidInput)
+                    Some(Received::Refused(op, RefusalReason::Refused))
                 }
-                Err(error) => Received::Bad(RouteCloseReason::BadFrame { code: error.code }),
+                Err(error) => Some(Received::Bad(RouteCloseReason::BadFrame {
+                    code: error.code,
+                })),
             };
-            let input = !matches!(received, Received::Bad(_));
-            route.received.push_back(received);
+            let input = !matches!(received, Some(Received::Bad(_)));
+            route.received.extend(received);
             if input {
                 self.client_received(id);
             }
@@ -634,7 +727,9 @@ impl Worker {
                 return;
             };
             match received {
-                Received::Input(op, bytes) => self.enqueue_route_input(id, op, bytes),
+                Received::Input(op, payload, want_result) => {
+                    self.enqueue_route_input(id, op, payload, want_result)
+                }
                 Received::Refused(op, reason) => self.refuse(id, op, reason, None),
                 Received::Bad(reason) => {
                     self.close_healthy(id, reason);
@@ -727,6 +822,32 @@ impl Worker {
         self.settle_routes();
     }
 
+    /// `input_done` (Codec TS-5b): a paste that asked for its result was written whole, `written` bytes to the PTY. It is
+    /// queued in order with the route's frames, in the room that the route kept for the input's refusal. A route that closed
+    /// gets nothing, and so does a closing one (OU-2b).
+    pub(super) fn input_done(&mut self, id: RouteId, op: Option<Op>, written: u64) {
+        let Some(op) = op else {
+            return;
+        };
+        let Some(route) = self
+            .routes
+            .routes
+            .get_mut(&id)
+            .filter(|r| r.closing.is_none())
+        else {
+            return;
+        };
+        let frame = ToClient::InputDone(InputDone {
+            op,
+            written_bytes: written,
+            path: None,
+        });
+        debug_assert!(stream_wrap(&frame.encode()).len() <= refusal_bound());
+        route.push(&frame);
+        self.pump_route(id);
+        self.settle_routes();
+    }
+
     /// The one place where the routes' waiting work is re-evaluated (DP-5, PR3 F105). Each event that changes what a route
     /// holds or the room of its queue calls it: a read, a write of the queue, a queued frame, the end or the progress of a
     /// route's input, a bind and a close. It applies the frames that wait for room on every route, then sends the PTY read
@@ -810,6 +931,7 @@ mod tests {
             writing: false,
             closing: None,
             allowance: None,
+            paste: None,
         }
     }
 

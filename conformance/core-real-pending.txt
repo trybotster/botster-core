@@ -24,13 +24,9 @@
 # real-controls PR C; R-49 Q2 and Q3) made 3 more pass.
 
 # the route data plane on the real tier: RealCoreHarness attach_stream (R-47 (A) route forms, real client end), P6 (with ids from P4a PR3: attach_stream, client_close, route_gate).
+# a2_2_missing_op passes on the wrapped composition at contracts-v0.1.39, but on a plain Core::open (the pass-through run)
+# it is INCONCLUSIVE at seed 0 step 18 (step_timeout; the .39 pin PR's N-run, Linux, 0 of 5).
 conf::a2_2_missing_op_is_bad_frame_not_refused
-conf::dp_7_revoked_reason_reaches_client_and_host
-conf::ev_5_route_closed_retires_route_keyed_events
-conf::ou_2b_healthy_reasons_send_route_closed_last
-conf::ou_5_peer_fault_closes_only_that_route
-conf::ou_7_exit_after_last_frame_then_close
-conf::ou_7_exit_after_tail_queued_then_close
 
 # the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (with ids from P4a PR3: pty_output, pty_input, pty_blocked).
 conf::a2_2_cancel_race_reports_the_real_outcome
@@ -42,37 +38,29 @@ conf::in_2_link_loss_is_unknown_not_zero
 conf::in_2_partial_is_certain
 conf::in_6_cancel_reports_progress
 conf::in_7_lost_worker_ends_pending
-conf::ou_12_output_bytes_are_unmodified_and_in_order
 
 # needs wait_worker_exit for a non-spawned worker (R-46 follow-up 5651aec): its Remove of a stray worker learns of the end only
 # at the stop_grace re-check, P5.
 conf::ad_2_lost_row_keeps_id_and_allows_retry
-
-# fail_handoff is on the real tier (#246, RC); the second route after the failed handoff needs the worker's descriptor intake (DP-2 PR C, #243, P3).
-conf::ou_2b_handoff_failure_is_reported_as_handoff_failed
 
 # fail_writes: no portable real form of a write failure with reads intact (macOS accepts the send after SHUT_RD); steward and lead, 2026-10-10: a Linux-only form behind a platform check is allowed at low priority, after the minimum ids, P3 (P4a routes).
 conf::a2_3_close_first_reason_wins_with_new_reasons
 conf::a2_3_write_failed_closes_with_write_failed
 
 # R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6.
+# #287 gives the real route_fill; the id stays: the pinned core-fence-exceptions.txt lists step 19 as unfenced (no await_title,
+# R-57), so a real-tier pass is not evidence (lead, #287).
 conf::ou_3_progressing_reader_lossless
 
-# no_spurious_wakes on the real tier: waits for the contracts no_spurious_wakes PR (real form), P6.
-conf::ev_5_poll_wakes_pending_work
-conf::tm_3_wake_handle_ignores_deadlines
-# R-43(5): no_spurious_wakes, GS's .39 transcript (lead, plan 23aw); it passes on the testkit since the TM-6 wake fix.
+# R-43(5): no_spurious_wakes (contracts-v0.1.39, #50; lead, plan 23aw); it passes on the testkit since the TM-6 wake fix. On the
+# real tier at contracts-v0.1.39 it fails at seed 5 step 21: the pump posts 1 event where the transcript expects
+# {"more":false,"events_posted":0} (A5-4 of the .39 pin PR, Linux). Owner: GS (the tm_6 probe).
 conf::tm_6_begin_and_attach_signal_wake
-conf::tm_6_create_without_worker_input_wakes
-conf::tm_6_poll_room_unparks_and_wakes
-
-# oracle_resume on the real tier, P6 (oracle) with P3.
-conf::st_6b_cut_inside_an_sgr_sequence_applies_the_suffix_not_prints_it
-conf::st_6b_model_after_baseline_plus_output_equals_the_sessions_model
-conf::st_6b_saved_cursor_tab_stops_margins_rendition_and_charsets_survive_a_cut
 
 # The testkit route end answers pty_input since the testkit PR of plans 23aw/23bd; route_stream_holders has no real form (lead,
 # plans 23be and 23bh). P6, with the other R-47 real route controls.
+# #287 gives the real route controls; the ids stay: the pinned core-fence-exceptions.txt lists step 9 of each as unfenced (no
+# program_ready, R-60), so a real-tier pass is not evidence (lead, #287).
 conf::ou_1_attach_hands_transport_to_worker
 conf::ou_11_transport_ownership_is_defined
 
@@ -86,8 +74,65 @@ conf::dp_3_unknown_type_closes_route
 # Step 25 strict expect on r3 races the PTY echo (1/3 FAIL, seed 6) (lead, plan 23bh). P3, in the am_2 contracts PR.
 conf::ou_10_no_authorization_in_core
 
+# FAIL real tier s13: wait_wake timeout 0 after poll_all gave TimedOut; diagnosis open (TM-6 vs transcript), record
+# shared/core-stage1/handoffs/flaky-ev-5-poll-wakes-pending-work-017f0127.md (the final gate of the .39 pin PR on 017f0127, seed 0;
+# it passed the PR's first gate and 5 of 5 per tier in its N-run). Owner of the diagnosis: P5 (lead).
+conf::ev_5_poll_wakes_pending_work
+
 # oracle_screen and oracle_screen_payload pass on the testkit (RC, plans 23ax to 23ba). On the real tier, ou_9 needs hold_handoff,
 # release_handoff and route_stream_written, which the real tier lacks (unowned; the lead assigns them). st_5's program prints, so
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
 conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
+
+# oracle_encode, oracle_modes and oracle_state pass on the testkit (RC, R-84 with the corrected base of R-84 (1)). On the real tier
+# the oracle read is not the step that fails (macOS evidence:
+# ~/botster-sessions/gates/botster-core-rc-oracle-ids-evidence-mac-7b19bfe2-20261011-125939.log; the gate on 1c4ce117:
+# ~/botster-sessions/gates/botster-core-stage1-rc-oracle-encode-1c4ce117-pool-20261011-130557-86252.log):
+# - the in_9 ids below except in_9_application_cursor_and_keypad read pty_input after a WriteInput with no await_pty fence
+#   (unfenced capture, R-56, in the contracts' core-fence-exceptions.txt): an empty log fails them (in_9_legacy_keys_table and
+#   in_9_non_us_layout_uses_supplied_text at step 7 on macOS, in_9_kitty_flag_16_needs_flag_8 at step 8 in the gate; the
+#   others passed once by timing). P3, the R-56 burn-down.
+# - in_9_application_cursor_and_keypad: the program receives 0a for kp_enter's 0d at step 128 (the real PTY's line discipline).
+#   R-85, P3.
+# - ev_5_keyed_events_bounded_by_keys: at step 78 Core's terminal_state title differs from the O_raw title after await_quiet
+#   (the model is not fenced to the probe's output history). P5, the R-80 lint of contracts #54.
+# - ev_1_replaced_keyed_event_moves_to_latest_position: no Bell at 3000 at step 13. PC, diagnosis first.
+# - ev_6_loss_leaves_marker_then_state_is_readable: INCONCLUSIVE at step 60 (step_timeout). PC, diagnosis first.
+conf::ev_1_replaced_keyed_event_moves_to_latest_position
+conf::ev_5_keyed_events_bounded_by_keys
+conf::ev_6_loss_leaves_marker_then_state_is_readable
+conf::in_9_application_cursor_and_keypad
+conf::in_9_key_shifted_and_alternate_keys_omission_rule
+conf::in_9_kitty_flag_16_needs_flag_8
+conf::in_9_kitty_text_with_control_codepoint_omitted
+conf::in_9_legacy_keys_table
+conf::in_9_non_us_layout_uses_supplied_text
+
+# R-76 (`scripted` ignored; RC testkit PR) makes it pass on the testkit. On the real tier it is INCONCLUSIVE at step 9
+# (step_timeout, 3 of 3 logged runs on macOS): after pty_chunk 1, the host paste never completes. Not diagnosed further.
+conf::in_8_no_recheck_after_start
+
+# The route's paste passes on the testkit (RC PR A, plan 23bp). On the real tier the terminal echoes the route's bytes, and step 19
+# of in_3 expects input_refused with no ignore of output frames, so the echo arrives first (a transcript fence, as R-60's echo).
+conf::in_3_route_reports_only_exceptions_on_the_route
+
+# R-82 and v1's route pty_input (#279) make it pass on the testkit (RC PR A). On the real tier step 13 reads an empty route PTY log
+# in 3 of 3 runs: step 12 is await_quiet only, with no await_pty or barrier before the read (dp_5_lane_full and dp_5_route_op_namespace
+# have one, and pass). The contracts' core-fence-exceptions.txt lists the id (step 9, no program_ready, R-60), and the read of
+# step 13 has no fence: the transcript fences come in the R-56 burn-down. Owner: P3.
+conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
+
+# #284's paste refusal and this PR's testkit controls make it pass on the testkit (BOTSTER_SEEDS=0-31) and once on the real tier
+# (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
+# that fence lands (the GS lists rule). Owner: P3 (R-60 fences).
+conf::dp_5_bytes_and_text_reach_the_pty_exactly
+
+# After the merge of v1 f6025aed into this PR, these pass on the testkit (strict, BOTSTER_SEEDS=0-31). The contracts'
+# core-fence-exceptions.txt (contracts-v0.1.39) lists each of them: unfenced pty_input captures (R-56; 1, 2, 9 and 13 entries)
+# and one no program_ready entry (R-60) in each.
+# So they stay real-pending until those fences land (the GS lists rule). Owner: P3 (the R-56 burn-down, R-60 fences).
+conf::in_9_key_encoded_by_worker_modes_at_write
+conf::in_9_kitty_modifier_keys_need_flag_8
+conf::in_9_mouse_each_encoding_and_limits
+conf::in_9_mouse_each_tracking_mode
