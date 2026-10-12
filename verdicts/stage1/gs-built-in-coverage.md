@@ -274,3 +274,43 @@ This receipt accepts no later head, status removal, completed merge, or addition
 Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; #306 train 5 source delta only, final train evidence pending)
+
+## Round 8: final #306 receipt on train 5
+
+Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Gate and merge base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Frozen #306 member: `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+Lead final request: `msg_plugin-w_1791831674_e19b66`.
+Round 7's source acceptance remains unchanged.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-5-2683de7c-pool-20261012-112942-61568.log`.
+SHA256: `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`.
+Sol-B independently verifies the hash and reads identity, accounting, tests, coverage, raw mutations, citations, summaries, and exits.
+All ten steps PASS in 1,747.7 seconds. Default passes 1,998 tests; ordinary slow passes 663 tests.
+The name check reads 251 Rust files. Coverage checks 1,098 slow-only tests without a coverage or presence failure.
+All 23 default run binaries and all 25 ordinary slow run binaries have normal root-test PASS records.
+All 46 mapped new #307/#315 tests have their expected normal-tier PASS records: 43 default and three slow.
+The accepted manual name rule and mixed stale-library limit remain. These results establish no stronger guarantee.
+
+Stage 1 tests 176 mutants: 147 caught, 14 missed, 15 unviable, and zero timeout.
+The unmutated slow baseline passes 673 tests. Stage 2 catches the 14 exact misses.
+All 161 unique raw catches match citations and normal PASS records.
+The final result has 161 caught, 15 unviable, zero missed, and zero timeout.
+The two checker files retain exactly the 17 mutation identities from #306's accepted initial gate.
+They have 15 caught and two unviable in this train. The command fixture catches the former command survivor again.
+No runtime FLAKY or INCONCLUSIVE result appears. The EV-2 exclusion receives no catch credit.
+EV-2 passes ordinary slow and the unmutated baseline; those passes supply no entry removal or structural repair.
+All four selected decoder fuzz harnesses complete. The job and wrapper exit 0 after 1,854 seconds on msa1.
+
+Sol-B reads final package receipt `1f0f77ddee0a8e5ef30b6294abf293fa6d0f3d8f`, its complete train 5 final #306 section.
+It agrees with these checks and reports zero findings.
+Sol-B reads the full updated #306 body. Its final section names this head, tree, base, completed log/hash, and results.
+The initial evidence, reversals, focused mutation scope, timing limits, and failed gates retain their original scopes.
+The complete combined final record is Round 2 in `verdicts/stage1/train-5.md` in this commit.
+No #306 source, final-body, or supplied-evidence finding remains on this exact head.
+The lead must still verify the merged tree and remote publication.
+This receipt accepts no later head, pin, removal, specific retry, or completed merge.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; final #306 receipt on the completed exact-head train 5 gate)

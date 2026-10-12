@@ -240,3 +240,45 @@ This receipt accepts no later head, pin, status removal, or completed merge.
 Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; #315 train 5 source delta only, final train evidence pending)
+
+## Round 4: final #315 receipt on train 5
+
+Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Gate and merge base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Frozen #315 member: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Lead final request: `msg_plugin-w_1791831674_e19b66`.
+Round 3's source and interface acceptance remains unchanged. All three earlier findings remain closed.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-5-2683de7c-pool-20261012-112942-61568.log`.
+SHA256: `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`.
+Sol-B verifies the hash and reads exact identities, affected tests, coverage, accounting, raw mutations, citations, summaries, and exits.
+All ten steps PASS in 1,747.7 seconds. Default passes 1,998 tests; ordinary slow passes 663 tests.
+All 28 new #315 tests have normal PASS records in their expected tiers: 25 default and three real slow_controls tests.
+The PumpBound, repeated-EOF, worker order, registry, and component proofs PASS.
+The real break proof passes in 0.049 seconds. The real release and delay proofs each pass in 0.052 seconds.
+Root presence and slow-only coverage pass. The coverage inventory includes all new #307 tests as recorded in the combined receipt.
+
+Stage 1 tests 176 mutants: 147 caught, 14 missed, 15 unviable, and zero timeout.
+The unmutated slow baseline passes 673 tests. Stage 2 catches the 14 exact misses.
+The final result has 161 caught, 15 unviable, zero missed, and zero timeout.
+All 161 unique raw catches match citations and normally passing catchers.
+The non-checker source scope has 159 mutation identities: 146 caught and 13 unviable.
+The repeated-EOF test catches withholds-to-false and gives-to-false. Their normal PASS records are present.
+No runtime FLAKY or INCONCLUSIVE result appears. The stored EV-2 diagnosis is not a trial result.
+EV-2 receives no mutation credit and passes ordinary slow and the unmutated baseline.
+All four selected decoder fuzz harnesses complete. The job and wrapper exit 0 after 1,854 seconds on msa1.
+This gate makes no new Mac execution claim.
+
+Sol-B reads final package receipt `46e1a72a5ef550165fcd04c7f7ad257818bd4769`, its complete Round 4.
+It agrees with these checks and reports zero findings.
+Sol-B reads the full updated #315 body. It records this exact train, base, member order, gate log/hash, and completed results.
+The original gate, local failed gate, buffer repair, and earlier evidence limits remain recorded with their original scopes.
+The existing CONTROLS warning is recorded as a P6 follow-up. It changes no frozen source or accepted gate result.
+The complete combined final record is Round 2 in `verdicts/stage1/train-5.md` in this commit.
+No #315 source, final-body, or supplied-evidence finding remains on this exact head.
+The lead must still verify the final merged tree and remote publication.
+This receipt accepts no later head, pin, status removal, specific retry, or completed merge.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; final #315 receipt on the completed exact-head train 5 gate)

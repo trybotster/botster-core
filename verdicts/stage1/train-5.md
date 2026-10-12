@@ -119,3 +119,95 @@ This source verdict authorizes no specific retry and accepts no running gate, la
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; combined train 5 source only, final train evidence pending)
+
+## Round 2: final combined train 5 acceptance
+
+Exact head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Gate and merge base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Lead final request: `msg_plugin-w_1791831674_e19b66`.
+The ordered frozen members, delivery contract, complete patch checks, and source invariants from Round 1 remain applicable.
+This round completes the exact-head gate, runtime coverage, final bodies, and four final review records.
+
+The complete final member records are:
+
+- #306 package: `1f0f77ddee0a8e5ef30b6294abf293fa6d0f3d8f`, train 5 final section in verdicts/gs-gate-speed.md.
+- #306 integration: Round 8 in this commit's verdicts/stage1/gs-built-in-coverage.md.
+- #315 package: `46e1a72a5ef550165fcd04c7f7ad257818bd4769`, Round 4 in verdicts/p6-e2-report-holds.md.
+- #315 integration: Round 4 in this commit's verdicts/stage1/p6-e2-report-holds.md.
+
+Sol-B reads both complete applicable package sections and both complete final member bodies.
+The four records accept the same head, tree, base, completed gate, and frozen members. They have zero open findings.
+Both bodies separately record the train evidence and preserve original and failed-gate scopes.
+No source change occurs after Round 1's accepted composition.
+
+### Completed gate and coverage
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-5-2683de7c-pool-20261012-112942-61568.log`.
+Independently verified SHA256: `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`.
+Sol-B reads the exact identity, base accounting, normal test runs, checker results, raw mutations, citations, fuzz completions, summaries, and exits.
+Lists reports the recorded base as the merge base. All ten steps PASS in 1,747.7 seconds on msa1.
+Default passes 1,998 tests across 23 binaries, with 427 skipped.
+Ordinary slow passes 663 tests across 25 binaries, with 2,078 skipped.
+The unmutated mutation baseline passes 673 tests across 35 binaries.
+
+Sol-B maps every test in Round 1's 46-test source inventory to its exact binary and qualified name.
+All 43 default tests and all three slow tests have normal PASS records in their assigned tiers.
+This includes all 18 new #307 tests and all 28 new #315 tests.
+Every one of the 23 default run binaries and 25 ordinary slow run binaries has a normal root-test PASS.
+The name check scans 251 Rust files. The coverage checker checks 1,098 slow-only tests without a coverage or root-presence violation.
+The runtime record therefore completes the earlier coverage-structure condition.
+It does not exceed the accepted manual name rule or establish that a rebuilt binary cannot link a stale library.
+
+The real report release, break, and delay proofs PASS. The repeated-EOF, PumpBound, and worker report-order proofs PASS.
+The command fixture, root-presence regressions, and contracts-checkout comparison PASS.
+The checkout comparison takes 0.104 seconds in ordinary slow.
+The inherited determinism test passes in 0.022 seconds.
+The compiled shared testkit and its recorded public behavior preserve both control families under the accepted composition.
+
+Strict conformance passes 265 with zero failures. Pending remains 403; real-pending remains 34.
+Held-full runs three budget IDs at 32 seeds, with 96 expected ignored trials and zero failures.
+The real minimum records 66/68 passing and 67/69 accepted under its stated accounting.
+The unchanged sets and gate accounting approve no additional pending promotion.
+
+### Mutation and fuzz evidence
+
+Sol-B independently finds 176 unique tested mutation identities.
+Stage 1 catches 147, misses 14, reports 15 unviable, and has zero timeout.
+The unmutated slow baseline passes. The stage 1 missed set equals the 14 stage 2 caught identities exactly.
+The final result has 161 caught, 15 unviable, zero missed, and zero timeout.
+All 161 unique raw catches equal their citation identities. Every cited catcher has a normal PASS.
+Unviable results supply no behavioral catch evidence.
+
+The checker files retain the 17 identities from #306's accepted initial gate: 15 caught and two unviable.
+The other changed source scope has 159 identities: 146 caught and 13 unviable.
+The command-to-Ok replacement and withholds-to-false replacement are caught by their normally passing regression tests.
+The train supplies valid current outcomes rather than relabeling the original member evidence.
+
+No runtime FLAKY or INCONCLUSIVE result appears.
+The single INCONCLUSIVE string is stored diagnosis text in the expected known-flaky exclusion report at line 7140.
+EV-2 passes ordinary slow in 0.103 seconds and the unmutated baseline in 0.115 seconds.
+Its exact mutation pair is excluded and supplies no catch credit. These passes neither remove its entry nor close its structural fix.
+The .44 pin and EV-2 entry remain. #308 and #316 are not members of this train.
+
+All four selected fuzz harnesses complete their 60-second limits, with 61 seconds reported for each:
+
+- link_decoder: 6,230,000 cases.
+- msg_decoder: 3,615,174 cases.
+- guardian_command_decoder: 7,088,305 cases.
+- guardian_log_decoder: 28,432,924 cases.
+
+The job and wrapper exit 0 after 1,854 seconds, with one second queued and 1,853 seconds running.
+The completed gate satisfies the final runtime, coverage, mutation, and fuzz evidence conditions for this exact composition.
+
+### Final disposition
+
+No member or combined source, interface, body, accounting, or supplied-evidence finding remains.
+All prior source findings stay closed. The historical RED and stopped gates, copied reversal provenance, and local limits retain their scopes.
+The Linux gate supplies no new Mac execution or general full-seed real-tier claim.
+The existing CONTROLS warning remains the recorded P6 follow-up; it changes no frozen source or completed verdict.
+The lead must still verify ancestry, the final equal-tree merge, and remote publication.
+This final acceptance authorizes no specific retry and accepts no later head, pin, status removal, or completed merge.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; final combined train 5 at the exact gated head, lead merge verification pending)
