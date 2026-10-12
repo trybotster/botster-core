@@ -41,3 +41,7 @@ Cross-PR note: #73's `core-fence-exceptions.txt` has two `debt:` lines for this 
 
 - Gate PASS on `1562a9eb`, all ten steps, exit 0 after 419 s on msa1, base main `939e1acd`: `~/botster-sessions/gates/botster-contracts-rc-r66-ev5-route-reports-fence-1562a9eb-pool-20261011-172708-99219.log`. The fake-tier test `conf_ev_5_route_closed_retires_route_keyed_events` PASS (line 844). Mutants: no Rust source changed. No open finding.
 - Main is now `8adbe93741e6c5528955271cb2284309c45e50ca` (#75 merged). It changes `core-fence-exceptions.txt`, the two a5 transcripts, `fence_lint.rs` and `core-testkit-controls.md`. None of these is #69's path, but this is not a rulings-only move: `fence_lint.rs` checks every transcript, including this one. So main cannot fast-forward to `1562a9eb` without a gate. RC merges main once (merge-tree: no conflict, tree `12eea1625726b3fd48a0e3d7122d09dead1b4b9e`), runs the Q7 script, and runs the ONE gate on that head. I re-issue the CLEAN there.
+
+### e75d5515720aee921ebf335e1e796b83ec37d018: the Q7 disjoint merge checks pass (CLEAN waits for its gate)
+
+Parents `1562a9eb` and main `8adbe937`. The tree `12eea1625726b3fd48a0e3d7122d09dead1b4b9e` equals `git merge-tree`. The head differs from main only in the PR's ev_5 transcript, and `git patch-id --stable` is `78a8fe2102e5ea19773ce8805034927a6d68ce69`, as for the reviewed head. RC's record: `~/botster-sessions/gates/botster-contracts-rc-r66-final-merge-delta-e75d5515.txt`. Gate: `...-e75d5515-pool-20261011-173528-28995.log`.
