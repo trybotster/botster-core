@@ -6,9 +6,9 @@
 
 use crate::tools::{cargo, cargo_nightly, ensure_nightly, require_cargo_tool, run};
 use crate::{
-    built_in, caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs,
-    mutants_cited, mutants_stale, platform_code, prebuild, process_check, public_api, real_proofs,
-    signals, slow_coverage, taint, test_budget, timers, unsafe_exception,
+    caps, fsutil, gate_decisions, high_tier, known_flaky, lists, mutant_logs, mutants_cited,
+    mutants_stale, platform_code, prebuild, process_check, public_api, real_proofs, signals,
+    slow_coverage, taint, test_budget, timers, unsafe_exception,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use botster_core_testkit::pending;
@@ -111,7 +111,6 @@ fn taint_job(root: &Path) -> Result<()> {
     gate_decisions::command(root, &[])?;
     mutants_stale::command(root, &[])?;
     high_tier::command(root, &[])?;
-    built_in::command(root, &[])?;
     // The mutation step derives the platform-only code on its own OS; this static step fails early, on both gate OSes,
     // when the derivation cannot place some code.
     let files = package_sources(root)?;

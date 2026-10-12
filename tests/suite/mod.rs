@@ -72,7 +72,7 @@ const REAL_PROOFS: &str = include_str!("../../conformance/core-real-proofs.txt")
 /// The held ids of the strict pending run (`cargo xtask lists` checks it).
 const HELD: &str = include_str!("../../conformance/core-held.txt");
 /// The workspace crates that these binaries link, with their compile-time manifest directories (bug catalog B13). The
-/// `built-in` check of `cargo xtask ci` checks that this list names every workspace library that `botster-core` depends on.
+/// coverage guarantee of this list is a separate design item (Core lead, #293 split).
 const LINKED: [(&str, &str); 10] = [
     // The test binary itself: its files outside the package root are the ones that RC saw reused.
     ("this test binary", env!("CARGO_MANIFEST_DIR")),
