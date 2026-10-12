@@ -22,7 +22,9 @@ The source delta has zero findings. The canonical check requires delta reviews b
 
 GS-HF-R3-1 LOW is closed. The body now describes both current budget ids and the final head and base.
 
-The package source delta is CLEAN with zero findings. The final gate and Sol's delta review remain pending.
+Both source delta reviews are CLEAN with zero findings. Sol's published receipt is `e72d7d01dc22a5eac71d57ea2e3f63c53fa32028`.
+
+The final gate, final body, and final evidence acceptance remain pending.
 
 PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 

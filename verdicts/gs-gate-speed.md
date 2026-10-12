@@ -2530,3 +2530,9 @@ The body ties the earlier one-id evidence to `34b47734`. It describes the final 
 The package source delta has no remaining finding. Sol's delta review and the exact-head final gate remain pending.
 
 This CLEAN accepts the source delta only. It does not approve a merge before the required final evidence completes. I ran no execution job.
+
+Sol publishes delta CLEAN in `e72d7d01dc22a5eac71d57ea2e3f63c53fa32028`, at `verdicts/stage1/gs-held-full.md`, round 3.
+
+I read the complete round and verified publication. Both source delta reviews have zero findings on the same exact head and base.
+
+The final gate, final body, and final evidence acceptance remain pending. This receipt accepts no completed result from a running gate.
