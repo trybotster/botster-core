@@ -1085,11 +1085,11 @@ fn link_room(rig: &Rig, room: Option<usize>) {
 fn last_request(rig: &Rig) -> u64 {
     rig.host_frames(LinkId(1))
         .iter()
-        .filter_map(|(k, p)| match HostMsg::decode(p) {
+        .rev()
+        .find_map(|(k, p)| match HostMsg::decode(p) {
             Ok(HostMsg::Op { req, .. }) if *k == FrameType::HOST_MSG => Some(req),
             _ => None,
         })
-        .last()
         .expect("an op was sent")
 }
 
