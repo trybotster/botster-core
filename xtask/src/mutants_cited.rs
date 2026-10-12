@@ -745,7 +745,12 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
         .context("run cargo metadata")?;
     let json: serde_json::Value =
         serde_json::from_str(&crate::tools::stdout_of(&out, "cargo metadata")?)?;
-    let root = std::fs::canonicalize(root)?;
+    packages_of(&json, &std::fs::canonicalize(root)?)
+}
+
+/// The packages of the JSON output of `cargo metadata`, with the targets whose root file is under `root` (canonical),
+/// relative to it.
+fn packages_of(json: &serde_json::Value, root: &Path) -> Result<Vec<Package>> {
     let strings = |value: &serde_json::Value| -> Vec<String> {
         value
             .as_array()
@@ -762,7 +767,7 @@ fn packages(root: &Path) -> Result<Vec<Package>> {
         let mut targets = Vec::new();
         for target in package["targets"].as_array().into_iter().flatten() {
             let source = Path::new(target["src_path"].as_str().unwrap_or_default());
-            let Ok(relative) = source.strip_prefix(&root) else {
+            let Ok(relative) = source.strip_prefix(root) else {
                 continue;
             };
             targets.push(Target {
@@ -816,3 +821,25 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
 
 #[cfg(test)]
 mod tests;
+
+/// The check that starts cargo (slow tier: a cargo call can wait on the shared Cargo home lock).
+#[cfg(all(test, feature = "slow"))]
+mod slow_tests {
+    use super::*;
+
+    /// The packages of this workspace, from `cargo metadata`: botster-test-process with its slow feature and its slow
+    /// test target.
+    #[test]
+    fn the_packages_come_from_cargo_metadata() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let packages = packages(root).unwrap();
+        let process = packages
+            .iter()
+            .find(|p| p.name == "botster-test-process")
+            .unwrap();
+        assert!(process.slow);
+        assert!(process.targets.iter().any(|t| t.kind == "test"
+            && t.name == "slow_process"
+            && t.root == "crates/botster-test-process/tests/slow_process.rs"));
+    }
+}
