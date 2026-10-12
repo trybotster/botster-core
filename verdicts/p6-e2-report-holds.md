@@ -278,3 +278,86 @@ This verdict accepts no later head, pin, status removal, or completed merge.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-12: final #315 receipt on train 5
+
+Exact train head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Gate base and merge base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Frozen #315 member: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Lead request: `msg_plugin-w_1791831674_84d558`.
+Scope: #315's final package receipt on this exact gated train head.
+
+Round 3's source and composition remain unchanged. I confirm the exact tree again.
+The original patch, public behavior assertions, worker report order, process ownership, and finding closures retain their reviewed scope.
+I read integration commit `961f2be2a8c07f19ec09de7dfc9f8883b2bcbf2d`: #315 Round 3 and combined train-5 Round 1, in full.
+Those records agree with the package source verdict and preserve their source-only limits.
+
+### Completed final gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-train-5-2683de7c-pool-20261012-112942-61568.log`.
+SHA256: `bcb49fb7a9644f33b0a5f1b2dbc0e16dda3fb6cd84f1a4f291bfc2427375d536`.
+I independently confirm the hash. I read the identity, accounting, affected tests, coverage records, mutation results, citations, summaries, fuzz completions, and exits.
+The header names the exact train head and base above. Lists reports that base as the merge base too.
+All ten steps PASS in 1747.7 seconds.
+Default passes 1998 tests, with 427 skipped, in 11.863 seconds.
+Slow passes 663 tests, with 2078 skipped, in 42.153 seconds.
+
+I inventory the 28 new #315 tests from the original patch and match each complete name to its normal-tier PASS.
+All 25 default tests and all three real slow_controls tests pass in their assigned tiers.
+The real break test passes in 0.049 seconds. Release and delay each pass in 0.052 seconds.
+The PumpBound, repeated-EOF, and worker report-order tests each pass in 0.003 seconds.
+The host, testkit, and worker-core build-root tests pass in default. The testkit root also passes in ordinary slow.
+Ordinary slow selects packages with a slow feature; it does not select host or worker-core test binaries.
+The static name check inspects 251 Rust files. Slow coverage checks 1098 slow-only tests and completes without a coverage or root-presence violation.
+These records preserve #306's accepted coverage limits. They establish no stronger stale-library guarantee.
+
+Strict conformance passes 265 with zero failures. Pending remains 403; real-pending remains 34.
+Held-full runs three budget identifiers at 32 seeds: 96 expected ignored trials, with zero failures.
+The real minimum reports 66/68 passing and 67/69 accepted under its stated accounting.
+No pending-test suggestion supplies an additional status removal in this receipt.
+
+Stage 1 tests 176 mutants: 147 caught, 14 missed, 15 unviable, and zero timeout.
+The unmutated slow baseline passes 673 tests in 43.788 seconds. Its stage takes 63.5 seconds.
+Stage 2 catches the exact 14 stage-1 misses. I independently compare those identity sets; they match.
+The final result has 161 caught, 15 unviable, zero missed, and zero timeout.
+All 161 unique raw catch identities match their citations. Every cited catcher has a normal PASS.
+The gives-to-false and withholds-to-false mutants name the normally passing repeated-EOF test.
+No catch is credited to an unviable mutant.
+
+No FLAKY or runtime INCONCLUSIVE result appears. The single INCONCLUSIVE string belongs to the stored known-flake diagnosis.
+The listed EV-2 test passes ordinary slow in 0.103 seconds and the unmutated baseline in 0.115 seconds.
+The mutation filter explicitly excludes its exact pair. No credited catch names EV-2.
+Those ordinary passes remove no known-flaky entry and establish no structural repair.
+
+Four fuzz harnesses complete their 60-second limits in 61 seconds each:
+
+- link_decoder: 6230000 cases.
+- msg_decoder: 3615174 cases.
+- guardian_command_decoder: 7088305 cases.
+- guardian_log_decoder: 28432924 cases.
+
+No sanitizer failure or written crash artifact appears in the retained log.
+The job and wrapper exit zero after 1854 seconds: one second queued and 1853 seconds running.
+This receipt claims no new Mac execution. The source adds no OS-specific process ownership or reap path.
+
+### Final evidence body and disposition
+
+I read the complete initial body after GitHub MCP truncates it. I ask P6 to add the final train record.
+P6 confirms the update in `msg_plugin-w_1791831938_6a856b`.
+I read the complete updated delta against the previously reviewed body. The frozen member head remains unchanged.
+Updated body SHA256: `1d475c73319e90e97d9a18983ececb93864888f34f6070646475ee1fb657a15c`.
+Its final train section names the exact head, tree, base, ordered member merges, completed results, log, and hash.
+The source and gate records support its test counts, conformance counts, mutation summary, and EV-2 credit limit.
+The initial gate and earlier failed local gate retain their original scopes and outcomes.
+The body records the existing CONTROLS dead-code warning in builds without the real tier as a P6 follow-up.
+The real tier uses that constant. The completed gate passes; this prose record changes no frozen source or process rule.
+
+No #315 source, final-body, or supplied-evidence finding remains on this exact train head.
+This is #315's final package CLEAN receipt naming the completed train-5 gate.
+It does not replace #306's package review or the combined integration final review.
+The final integration receipts and lead verification of the merged tree and remote push remain separate requirements.
+This receipt accepts no later head, contracts pin, status removal, additional re-gate, or completed merge.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
