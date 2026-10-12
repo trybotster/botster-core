@@ -46,3 +46,18 @@ The R-94 follow-up (main `48e518f1`, after this head) rules that 3 parked-reply 
 - P3's PR therefore needs either an `exception:` line with the ruled reason, or a lint change. The steward rules the check form (R-94 follow-up), so the steward also decides this. #79 is correct against the rulings at its head.
 
 No open finding. Final CLEAN on `d9d4ccfc362ceb1701aa0588944b8bcf0bcc679c` when the Linux per-seed log is in the body and its transcript sha256 values equal this head's blobs. If main moves by more than rulings before the merge, I re-check the delta per Q7.
+
+016c's round 1 (REJECT on `d9d4ccfc`): five MEDIUM package findings in `held.rs` and `order.rs`. They are 016c's scope, so I do not re-review them.
+
+## Final: CLEAN on fdcd15bc0befedd3158c5e2ef9277f57aca07daa
+
+- **The delta.** One commit on `d9d4ccfc`, `fence lint: 016c #79 round 1`. It changes only `fence_lint/held.rs` and `fence_lint/order.rs` (016c's five findings, 016c's scope). No transcript, no exception line and no list changes, so the integration facts of round 1 hold.
+- **Main.** The gate base is `1798a65de4c11855906366ab4a233564d3ec637d`. `git diff 41355cc6 1798a65d` changes only `docs/steward-rulings.md`, and `1798a65d` contains `bf50290e`. This is a rulings-only move: no merge needed.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 423 s on gaming, base main `1798a65d`: `~/botster-sessions/gates/botster-contracts-stage1-pc-unheld-blocked-input-fdcd15bc-pool-20261011-192456-61100.log`.
+- **The Linux per-seed log** (my round-1 condition): `~/botster-sessions/shared/core-stage1/evidence/pc-unheld/unheld-linux-d9d4ccfc.log`, msa1, Linux 6.12.111, Core v1 `20b2525c`.
+  - The job's sha256 of in_8 (`3fa70cdb…`) and in_9_key_encoded (`f55119c4…`) equals my `shasum -a 256` of `fdcd15bc`'s blobs.
+  - in_8 and in_9_key_encoded: seeds 0-7 each, 16 of 16 PASS on the real tier.
+  - Red on revert, with the scratch delay (`206fab17…`): this PR's in_8 PASS; the `.41` in_8 (`82388fe8…`) is INCONCLUSIVE at `seed=0 step=8 limit=step_timeout` (log lines 207-212).
+- **The R-94 follow-up note** is resolved by the steward (main `bf50290e`): the lint refinement goes in P3's R-94 PR after #79 merges, with no exception line.
+
+Every finding is closed. CLEAN on `fdcd15bc0befedd3158c5e2ef9277f57aca07daa`.
