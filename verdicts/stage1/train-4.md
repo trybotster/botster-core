@@ -516,3 +516,23 @@ Both have zero open findings and retain the future entry-removal/empty-list-rest
 
 The #312 final pair is complete. The #314 final pair and #307 package FINAL remain pending before combined FINAL.
 Q7 remains due. I ran no execution job.
+
+### #314 final pair — complete after replacement receipt
+
+Sol-B final receipt: `msg_plugin-w_1791827666_ca19af`.
+I read complete integration Round 4 at `d02a6a40e13d5d1b0d36830bd80d363e478bb32e`.
+I read the complete package gate audit and replacement final Round 5 at `efa99fb22d75cb86a0f9cfdde98e011933d095a4`.
+The replacement supersedes package `4d21704f3a4ae5f8f9246da979f19932eabb3e92`, which was held for the final body clarification.
+Both final reviews name the exact train head/base/tree and the same completed gate/hash.
+Both confirm the preserved trace test's normal PASS in 0.025 seconds and zero open source, body, or evidence findings.
+Both retain the original synthetic E1 evidence's three-file scope. This gate supplies no new full E1 mutation run.
+
+The LOW B314-I2 clarification separates the pre-.45 EV-2 fence gap and #316 removal from A31's OU-7 obligation.
+I independently read the complete body correction at unchanged frozen member head and base.
+Body SHA256: `857f7969359223868bff21909ac1ee8fa8b46cd6624a4571f6627be4090c7a3b`.
+Raw JSON SHA256: `2e6e90674dafd9dd6665f92a2f8f905ec95712e1478c55deb4a1f0c60cad5826`.
+The corrected paragraph preserves the failed old train, the retained logs' causal limits, and the completed new train identities/results.
+The final body and both reviews agree with the governing R107-SI-2 disposition.
+
+The #314 and #312 final pairs are complete. The #307 package FINAL remains pending before combined FINAL.
+No source or gate finding remains in my audit. Q7 remains due. I ran no execution job.
