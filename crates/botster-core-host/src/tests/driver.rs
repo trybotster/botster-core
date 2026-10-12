@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 
 mod api;
 mod deadlines;
+mod drain;
 mod handoff;
 mod holds;
 mod observations;
