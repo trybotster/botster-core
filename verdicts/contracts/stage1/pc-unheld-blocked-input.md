@@ -61,3 +61,19 @@ No open finding. Final CLEAN on `d9d4ccfc362ceb1701aa0588944b8bcf0bcc679c` when 
 - **The R-94 follow-up note** is resolved by the steward (main `bf50290e`): the lint refinement goes in P3's R-94 PR after #79 merges, with no exception line.
 
 Every finding is closed. CLEAN on `fdcd15bc0befedd3158c5e2ef9277f57aca07daa`.
+
+## Rounds 3-4 and the final merges (016c's package rounds; my delta checks)
+
+016c rejected `fdcd15bc` (2 MEDIUM) and `654c7792` (1 MEDIUM, the walk's stack depth, the third NOT CLEAN round). The steward allowed round 4 with a differential test. Those findings are 016c's scope; 016c closed them all on `3d32e06a` and `c0dc8826`. My integration checks of each later head:
+- `b2656bcd`: the merge of main `673cd248` (#81) equals `git merge-tree`; the 7 st_7 R-74 debt lines go (#81 holds st_7's write), and no st_7 line remains.
+- `d5def5b8`: the merge of main `c973323f` (#80) equals `git merge-tree`. Only `fence_lint.rs` is shared: #79 adds its two modules and calls, #80 adds the print history in `lint()`. They do not touch each other.
+- `222867c1`: the merge of main `0be439d4` (#82, #83) equals `git merge-tree` (tree `b2d61d94…`). The only shared path is `core-fence-exceptions.txt`. Its entry set is exact (three-way, against base `c973323f`): #79 removes 1 and adds 29; main removes 8 R-60/R-57 entries (dp_2, dp_3 ×3, dp_5_bytes, ou_1, ou_3, ou_9) and adds 0; the head holds exactly the union.
+
+## Final: CLEAN on 3756a34cc2fae51c24c5efaae78f90a69d250a45
+
+- **The merge of main `8a3abfb4` (#84).** The tree `1fbfa2df43bc475849c15465a3429f877793440e` equals `git merge-tree --write-tree 222867c1 8a3abfb4`. Only `fence_lint.rs` is shared (#84 widens the O_raw match; #79 adds the held/order calls). `git patch-id --stable` of #79's own diff is `f93ff446…` against both the merge base `0be439d4` and main `8a3abfb4`.
+- **Main.** Main is `8a3abfb45d77449b41717cdf03a9d6f09e49171b`, the gate base.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 176 s on msa1, base main `8a3abfb4`: `~/botster-sessions/gates/botster-contracts-stage1-pc-unheld-blocked-input-3756a34c-pool-20261011-205652-66848.log`.
+- **The Linux and macOS evidence still applies.** The blobs of in_8 (`35a7910a…`), in_9_key_encoded (`c0d35f31…`) and dp_5_every_not_written (`85ce4ad6…`) are the same at `d9d4ccfc` and at this head.
+
+Every finding is closed. CLEAN on `3756a34cc2fae51c24c5efaae78f90a69d250a45`.
