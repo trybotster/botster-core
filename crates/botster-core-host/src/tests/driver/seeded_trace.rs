@@ -1,10 +1,15 @@
-//! Condition 3 of the lead's E1 ruling (steward ruling R-88, group E): with no hold, the driver asks the same choices, in the
-//! same order, and gets the same answers as before `Scheduler::held` and `Scheduler::admitted` existed.
+//! The seeded choice trace is deterministic: one seed gives the same choices, in the same order, with the same answers, in
+//! every run on one head (Core A5-1: deterministic under a script and a seed).
 //!
 //! A seeded policy varies every choice and records each one: the choice point, the candidate count (or the bound's `max`),
-//! and its answer. Two sessions start, run and stop under it. The test compares each seed's trace, as its length and an
-//! FNV-1a digest, with `BEFORE_E1`: the values that this same file gave on v1 `1b984f06`, the parent of E1, where the trait
-//! had only `pick` and `bound`. The policy implements only those two, so the file compiles on both.
+//! and its answer. Two sessions start, run and stop under it.
+//!
+//! History: condition 3 of the lead's E1 ruling (steward ruling R-88, group E) asked for a one-time proof that E1
+//! (`Scheduler::held` and `Scheduler::admitted`) changed no choice. This file then compared each seed's trace with the
+//! values that it gave on v1 `1b984f06`, the parent of E1. The gate on merge train 2's head `08098782`, which merged #300's
+//! head `484912ac`, passed with that comparison (`botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`), so
+//! the proof is settled. A
+//! recorded trace changes with every legitimate change of the driver's steps, so the test now checks determinism only.
 
 use super::deadlines::to_launch;
 use super::*;
@@ -15,28 +20,6 @@ type Trace = Arc<Mutex<Vec<(ChoicePoint, usize, usize)>>>;
 
 /// The seeds of the comparison.
 const SEEDS: u64 = 16;
-
-/// `(trace length, FNV-1a digest)` per seed `0..SEEDS`, from `print_the_seeded_traces` on v1 `1b984f06` (pool evidence job
-/// on E1 `1d1d7fc9`, which ran the same file on both commits; log
-/// `botster-core-stage1-p6-e1-scheduler-hold-1d1d7fc9-pool-20261011-200116-36766.log`).
-const BEFORE_E1: [(usize, u64); SEEDS as usize] = [
-    (207, 16081904804330880812),
-    (193, 14999279856648310390),
-    (230, 10601161564193167726),
-    (229, 8461361969394252691),
-    (208, 13394400034927130325),
-    (248, 4822766342596046137),
-    (219, 1766076094699244872),
-    (293, 4616665827199621369),
-    (221, 1538455162258642356),
-    (213, 12098497657580199005),
-    (173, 11502032415553900377),
-    (206, 641723253192062702),
-    (231, 5545640914891194933),
-    (261, 7983905030523437726),
-    (201, 5681368860853910093),
-    (235, 13479727771670637969),
-];
 
 /// A policy that varies every choice from a seeded xorshift64* stream.
 struct Seeded {
@@ -75,8 +58,8 @@ impl Scheduler for Seeded {
     }
 }
 
-/// The trace of one seed, as its length and its FNV-1a digest over the `Debug` text of each entry.
-fn trace(seed: u64) -> (usize, u64) {
+/// The choice trace of one seed.
+fn trace(seed: u64) -> Vec<(ChoicePoint, usize, usize)> {
     let trace = Trace::default();
     let policy = Seeded {
         state: seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1,
@@ -92,29 +75,20 @@ fn trace(seed: u64) -> (usize, u64) {
         rig.driver.begin(Op::Stop { id: sid(name) }).unwrap();
     }
     rig.run_out();
-    let trace = trace.lock().unwrap();
-    let mut digest = 0xcbf2_9ce4_8422_2325_u64;
-    for entry in trace.iter() {
-        for byte in format!("{entry:?};").bytes() {
-            digest ^= u64::from(byte);
-            digest = digest.wrapping_mul(0x0100_0000_01b3);
-        }
-    }
-    (trace.len(), digest)
+    drop(rig);
+    Arc::try_unwrap(trace)
+        .expect("the rig held the only other handle")
+        .into_inner()
+        .unwrap()
 }
 
 #[test]
-fn with_no_hold_the_seeded_choices_are_those_before_e1() {
-    for seed in 0..SEEDS {
-        assert_eq!(trace(seed), BEFORE_E1[seed as usize], "seed {seed}");
+fn one_seed_gives_the_same_choices_in_every_run() {
+    let traces: Vec<_> = (0..SEEDS).map(trace).collect();
+    for (seed, first) in traces.iter().enumerate() {
+        assert!(!first.is_empty(), "seed {seed} asked no choice");
+        assert_eq!(&trace(seed as u64), first, "seed {seed}");
     }
-}
-
-/// Prints the traces, so that an evidence job can record them on another commit.
-#[test]
-#[ignore = "evidence: prints the seeded traces"]
-fn print_the_seeded_traces() {
-    for seed in 0..SEEDS {
-        println!("seeded-trace {seed} {:?}", trace(seed));
-    }
+    // The seeds vary the choices, so the comparison is not of one fixed trace.
+    assert!(traces.iter().any(|t| t != &traces[0]));
 }
