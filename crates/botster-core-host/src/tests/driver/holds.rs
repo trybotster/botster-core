@@ -213,3 +213,52 @@ fn begin_reports_each_admission_once_with_its_fixed_timing() {
     );
     assert_eq!(*log.lock().unwrap(), [], "begin asks no choice point");
 }
+
+/// An op step (`Work::Op`) is held too: a `Resize` of a running session to a new size is forwarded to the worker only after
+/// its release, once.
+#[test]
+fn a_held_forwarded_op_is_not_sent_until_its_release() {
+    let (mut rig, held, _, _) = holding_rig();
+    let link = LinkId(1);
+    to_launch(&mut rig, "s1", link);
+    rig.worker_says(link, launched());
+    rig.settle();
+    let forwarded = |rig: &Rig| {
+        rig.host_frames(link)
+            .iter()
+            .filter(|(k, p)| {
+                *k == FrameType::HOST_MSG
+                    && matches!(
+                        HostMsg::decode(p),
+                        Ok(HostMsg::Op {
+                            op: Op::Resize { .. },
+                            ..
+                        })
+                    )
+            })
+            .count()
+    };
+    let resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 40,
+                cols: 100,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    held.lock().unwrap().insert(resize.0);
+    for _ in 0..4 {
+        let report = rig.pump();
+        assert!(
+            !report.more,
+            "a held op step is not runnable work: {report:?}"
+        );
+    }
+    assert_eq!(forwarded(&rig), 0, "the held resize is not sent");
+    held.lock().unwrap().remove(&resize.0);
+    rig.run_out();
+    assert_eq!(forwarded(&rig), 1, "the released resize is sent once");
+}
