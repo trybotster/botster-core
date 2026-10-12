@@ -184,3 +184,11 @@ Lead receipt `msg_plugin-w_1791823366_af9778` supplies P6's diagnosis. It attrib
 I answer REFUSE in `msg_plugin-w_1791823393_44f27a`. BUILD.md's merge-train Red rule 2 and Testing rule 9 require a known-flaky entry, a matching recorded signature, and an open structural fix with an owner. The exact train head's known-flaky list is empty. A diagnosis or earlier failure does not replace those conditions. The pending steward questions supply no explicit exception.
 
 This refusal concerns retry authority under the current rule. It does not reject the diagnosis or establish a product defect. The RED gate stands. No reviewer job runs.
+
+### Lead withdrawal and steward R-107
+
+Lead receipt `msg_plugin-w_1791823475_4e222b` accepts the refusal and withdraws the unchanged re-gate request. The lead will not re-gate `03709a0c`.
+
+I read R-107 in contracts commit `ed7f654f`. It identifies the missing PTY-tail drain before Exited as a Core defect under OU-7. A31, Core #163 part B item B2, supplies the structural fix; P3 owns it. The ruler permits a temporary known-flaky entry for EV-2 with step 71 and step_timeout. Any other signature is outside that permission. P3 must check the exit shape before adding EV-1 or EV-2-retired.
+
+The lead assigns Sol and Sol-C to the new HIGH known-flaky PR. After that PR lands, the lead plans train 4b on the new v1 with #314, #312, and #307. That train requires a new exact-head source delta and fresh gate. A matching known-flaky failure can permit one re-gate only after the required entry and open owned fix exist. This record accepts neither the unsubmitted PR nor a future train. I wait for READY and run no execution job.
