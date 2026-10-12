@@ -451,3 +451,19 @@ This is the complete package source delta, static evidence, and pre-gate body ap
 It accepts no later head, gate result, or evidence substitution.
 Sol's formal matching delta verdict and one exact-head final gate remain due before final evidence approval.
 The lead's Q7 check remains required before merge. No reviewer execution job runs. Never poll.
+
+### Matching Round 3 integration delta receipt
+
+Receipt: `msg_plugin-w_1791773769_91a53d`.
+Sol verdict: `718699173b786c3bb74e3201db7ad28073cf79d9`, `verdicts/stage1/pc-r78-stopping.md`, Round 9.
+The reviewer reads the complete round and verifies publication on `origin/stage1/integration-review-sol`.
+Both delta CLEANs cover head 4ccd6a7d, base bfef8865, and tree `ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be`.
+Both reviews preserve the canonical FAIL, actual scratch source, cap refusal, corrected body, and older evidence limits.
+The formal matching integration delta condition closes. Both required source delta rounds are complete with zero open findings.
+
+The reviewer also reads both failing transcripts at the imported contracts-v0.1.41 pin.
+Neither prefix uses Cancel or Attach before its named failure. Neither prefix reports an exit, failed send, or lost link.
+Thus the additional initial action pass supplies no new cancel, handoff, or exit action on those prefixes.
+This strengthens the written non-interference condition for the carried ST-6 and IN-9 attribution.
+It is source reasoning, not a new-head A5-4 run or a recovered event trace.
+One exact-head final gate, mutation audit, final body and evidence reviews, and the lead's Q7 check remain due. Never poll.

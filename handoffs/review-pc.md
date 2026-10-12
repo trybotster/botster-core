@@ -1762,3 +1762,11 @@ The complete package delta verdict is CLEAN, zero open findings, on 4ccd6a7da142
 The prior source and evidence findings remain closed with their historical execution and controlled-attribution limits.
 The matching formal Sol delta verdict, one exact-head final gate, final evidence reviews, and Q7 remain due. No final merge is approved.
 No reviewer execution job runs. Never poll.
+
+The #291 complete delta verdict is pushed at 6c4d51321b7e352a6c0f377d996dc7bd9cd84729. PC, Sol, and the lead received it.
+Sol receipt msg_plugin-w_1791773769_91a53d and verdict 718699173b786c3bb74e3201db7ad28073cf79d9 Round 9 are read.
+Publication is verified. Both delta CLEANs cover 4ccd6a7d, base bfef8865, and tree ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be.
+The formal matching delta condition closes. Zero source or body findings remain.
+Both failing prefixes are checked at .41: no Cancel, Attach, exit, failed send, or lost link precedes either failure.
+The initial whole-action pass therefore supplies no new relevant action on those prefixes. This is source reasoning, not new execution.
+One exact-head final gate, mutation audit, final body/evidence reviews, and lead Q7 remain due. Never poll.
