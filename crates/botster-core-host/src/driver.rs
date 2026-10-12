@@ -157,6 +157,12 @@ struct LinkState {
     /// R-65): its `RouteReceived`, or a `RouteClosed` of the route, closes the copy. A copy in flight is not the worker's
     /// own: a socket in flight with no other reference can lose its receive side (macOS).
     sent: BTreeMap<RouteId, StreamEndpoint>,
+    /// A send failed: nothing more is written, and the link is read to its end of file (R-78 item 4). The worker's frames
+    /// that wait in the socket are still handled.
+    write_closed: bool,
+    /// The worker process ended (R-78 item 4, `Action::LinkPeerEnded`): the link is read without waiting, and the first
+    /// would-block closes it. No end of file is awaited.
+    peer_ended: bool,
 }
 
 /// A route stream that waits in a link's outbound bytes: `at` is the offset of its frame in `out`, `len` the frame's length.
@@ -178,6 +184,12 @@ pub struct HostDriver<E: HostEdges> {
     /// Routes whose handoff failed, or whose held stream closed with its link (`HandoffLost`): each one is fed to the engine
     /// in a step of its own, within the budget of a pump (9B).
     failed_handoffs: std::collections::VecDeque<Input>,
+    /// An exit that the process edge reaped when the pump had no budget left: the next pump feeds it first (9B). It is how
+    /// the driver knows that an exit waits, so that `PumpReport.more` is true only then (TM-6).
+    next_exit: Option<(ProcessIdentity, ExitStatus)>,
+    /// The end of a link (end of stream or a read error) that a read met when the pump had no budget left: the next pump
+    /// closes the link for it, after the frames that came before it (9B, TM-6).
+    link_ends: BTreeMap<LinkId, String>,
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -203,6 +215,8 @@ impl<E: HostEdges> HostDriver<E> {
             wake,
             frame_bound,
             failed_handoffs: std::collections::VecDeque::new(),
+            next_exit: None,
+            link_ends: BTreeMap::new(),
         })
     }
 
@@ -368,6 +382,11 @@ impl<E: HostEdges> HostDriver<E> {
                 self.send_frame(link, FrameType::HOST_MSG, &payload);
             }
             Action::CloseLink { link } => self.close_link(link),
+            Action::LinkPeerEnded { link } => {
+                if let Some(state) = self.links.get_mut(&link) {
+                    state.peer_ended = true;
+                }
+            }
             Action::ConnectWorker { ticket, instance } => {
                 let link = self.edges.connect_worker(&instance);
                 if let Some(link) = link {
@@ -416,7 +435,7 @@ impl<E: HostEdges> HostDriver<E> {
             limits,
         }
         .encode(&mut payload);
-        let Some(state) = self.links.get_mut(&link) else {
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             self.failed_handoffs
                 .push_back(Input::HandoffFailed { route });
             return;
@@ -446,7 +465,8 @@ impl<E: HostEdges> HostDriver<E> {
     }
 
     fn send_frame(&mut self, link: LinkId, kind: FrameType, payload: &[u8]) {
-        let Some(state) = self.links.get_mut(&link) else {
+        // A link whose write side failed queues nothing (R-78 item 4).
+        let Some(state) = self.links.get_mut(&link).filter(|s| !s.write_closed) else {
             return;
         };
         if let Err(error) = encode_frame(kind, payload, self.frame_bound, &mut state.out) {
@@ -498,7 +518,7 @@ impl<E: HostEdges> HostDriver<E> {
                     Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                     Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => {
-                        self.close_link_because(link, &error);
+                        self.close_write(link, &error);
                         return;
                     }
                 }
@@ -512,15 +532,37 @@ impl<E: HostEdges> HostDriver<E> {
         self.edges.set_write_interest(link, wanted);
     }
 
-    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics).
+    /// Closes a link that the driver gives up on, and records why (LC-10 diagnostics). A link whose write side failed keeps
+    /// that first reason.
     fn close_link_because(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
-        if self.links.contains_key(&link) {
+        if self.links.get(&link).is_some_and(|s| !s.write_closed) {
             self.engine.record_link_close(link, why);
         }
         self.close_link(link);
     }
 
+    /// Closes the write side of a link whose send failed, and records why (R-78 item 4). The link is read on, so the frames
+    /// that the worker wrote before it ended are still handled; its end of file or a read error closes it (`close_link`).
+    /// The streams in the outbound bytes never left: their routes close `HandoffLost` now. The streams that left stay with
+    /// the link until their `RouteReceived` or its close.
+    fn close_write(&mut self, link: LinkId, why: &dyn std::fmt::Display) {
+        let Some(state) = self.links.get_mut(&link) else {
+            return;
+        };
+        state.write_closed = true;
+        state.out.clear();
+        let marks = std::mem::take(&mut state.marks);
+        self.engine.record_link_close(link, why);
+        for mark in marks {
+            self.failed_handoffs
+                .push_back(Input::HandoffLost { route: mark.route });
+        }
+        self.edges.set_write_interest(link, false);
+        self.feed(Input::LinkWriteFailed { link });
+    }
+
     fn close_link(&mut self, link: LinkId) {
+        self.link_ends.remove(&link);
         if let Some(state) = self.links.remove(&link) {
             // The streams that did not leave close with their marks. Nothing of them was sent: the engine decides each
             // route's close (`HandoffLost`), unless the link's loss closed it first (the first reason wins, OU-2).
@@ -551,6 +593,8 @@ impl<E: HostEdges> HostDriver<E> {
                 pending: Vec::new(),
                 held: None,
                 sent: BTreeMap::new(),
+                write_closed: false,
+                peer_ended: false,
             },
         );
     }
@@ -570,17 +614,38 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
+    /// An open link of an ended worker with no held frame is runnable work (R-78 item 4, TM-6: `more` only for input that is
+    /// known to wait). Its drain has not read since the end, or it stopped at the pump's budget; every other read either
+    /// closes the link or holds a frame. A held frame waits for mandatory room and is not runnable work: the poll that frees
+    /// room restores the link (EV-5d).
+    fn draining(&self) -> bool {
+        self.links
+            .values()
+            .any(|s| s.peer_ended && s.held.is_none())
+    }
+
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
+    ///
+    /// An exit that the pump has no budget for is taken from the edge and kept for the next pump, which feeds it first. So the
+    /// pump reports `more` only when an exit really waits (TM-6: `more` means runnable work remains), never because the
+    /// budget ran out before the edge was asked.
     fn take_exits(&mut self, budget: &mut Budget) {
-        while !budget.exhausted() {
-            let Some((identity, status)) = self.edges.poll_process_exit() else {
+        loop {
+            let Some((identity, status)) = self
+                .next_exit
+                .take()
+                .or_else(|| self.edges.poll_process_exit())
+            else {
                 return;
             };
+            if budget.exhausted() {
+                self.next_exit = Some((identity, status));
+                budget.more_input = true;
+                return;
+            }
             self.feed(Input::ProcessExited { identity, status });
             budget.account(&mut self.engine);
         }
-        // An exit may stay in the edge for the next pump; the host must call again.
-        budget.more_input = true;
     }
 
     /// Delivers the frame that the engine could not take before, as soon as it can (EV-5d): it runs whenever the link is
@@ -589,14 +654,19 @@ impl<E: HostEdges> HostDriver<E> {
         let Some(input) = self.links.get_mut(&link).and_then(|s| s.held.take()) else {
             return;
         };
-        // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`).
+        // A frame that waits for mandatory-queue room is parked: it is not runnable, so it never makes `more` true (TM-6,
+        // EV-5b). A poll that frees room signals the wake.
+        if !self.engine.can_accept(&input) {
+            // A frame that waited for budget can find the queue full now: its link stops reading, as in `deliver`.
+            self.edges.set_read_interest(link, false);
+            self.links.get_mut(&link).expect("kept").held = Some(input);
+            return;
+        }
+        // A held frame posts events like any other input: it waits for a pump with budget left (9B `pump_events`). It is
+        // runnable, so the pump reports `more`.
         if budget.exhausted() {
             self.links.get_mut(&link).expect("kept").held = Some(input);
             budget.more_input = true;
-            return;
-        }
-        if !self.engine.can_accept(&input) {
-            self.links.get_mut(&link).expect("kept").held = Some(input);
             return;
         }
         self.feed(input);
@@ -613,12 +683,15 @@ impl<E: HostEdges> HostDriver<E> {
             if state.held.is_some() {
                 return;
             }
-            // 1. The bytes that were read earlier and not yet decoded: one frame at a time.
-            if !state.pending.is_empty() {
-                if budget.exhausted() {
-                    budget.more_input = true;
-                    return;
-                }
+            // 1. The end of the link that this read met in a pump with no budget left. It came after every frame that the
+            // link carried before it, so it waits for nothing else.
+            if let Some(why) = self.link_ends.remove(&link) {
+                self.end_link(link, why, budget);
+                return;
+            }
+            // 2. The bytes that were read earlier and not yet decoded, or a frame that the decoder completed: one frame at a
+            // time. `deliver` decides whether the frame goes to the engine now, waits for room, or waits for budget.
+            if !state.pending.is_empty() || state.decoder.ready() {
                 let took = state.decoder.push(&state.pending);
                 state.pending.drain(..took);
                 match state.decoder.next_frame() {
@@ -629,42 +702,58 @@ impl<E: HostEdges> HostDriver<E> {
                             Delivery::Done => {}
                             Delivery::Held => return,
                             Delivery::Bad(why) => {
-                                self.close_link_because(link, &why);
+                                self.end_link(link, why, budget);
                                 return;
                             }
                         }
+                        if !self.links.contains_key(&link) {
+                            return;
+                        }
+                        continue;
                     }
+                    // The decoder took every pending byte and waits for the rest of a frame: the read below comes next.
+                    // Going on to the read, not back to the top, keeps each turn of this loop on a delivered frame or a
+                    // read, so the loop ends by its own structure (plan section 8).
                     Ok(None) => {}
                     Err(error) => {
                         // A frame over the bound ends the link (plan section 3).
-                        self.close_link_because(link, &error);
+                        self.end_link(link, error.to_string(), budget);
                         return;
                     }
                 }
-                if !self.links.contains_key(&link) {
-                    return;
-                }
-                continue;
             }
-            // 2. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
-            // more than what is left of that allowance.
+            // 3. More bytes, within the bytes that one pump may read from this link (9B `pump_bytes`). A read never takes
+            // more than what is left of that allowance. A read posts no event, so it runs with no event budget left too:
+            // that is how the pump learns whether a whole frame waits (TM-6).
             let slice = budget.bytes_left(link).min(READ_CHUNK);
-            if budget.exhausted() || slice == 0 {
-                if budget.exhausted() || budget.bytes_left(link) == 0 {
-                    budget.more_input = true;
-                }
+            if slice == 0 {
+                // The pump read every byte that it may read from this link. Whether more bytes wait cannot be known without
+                // a read past that bound, so the pump reports `more`.
+                budget.more_input = true;
                 return;
             }
             let n = match self.edges.link_recv(link, &mut buf[..slice]) {
                 Ok(0) => {
-                    self.close_link_because(link, &"the peer closed it");
+                    self.end_link(link, "the peer closed it".to_string(), budget);
                     return;
                 }
                 Ok(n) => n,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    // The worker process ended, so nothing more comes: the drain ends here, and a partial frame is a
+                    // truncated link (R-78 item 4, steward follow-up: never wait for the end of file). Closing it posts
+                    // events, so a pump with no budget left keeps the end for the next pump (9B, TM-6: `end_link`).
+                    if self.links.get(&link).is_some_and(|s| s.peer_ended) {
+                        self.end_link(
+                            link,
+                            "the worker process ended: its link is drained".to_string(),
+                            budget,
+                        );
+                    }
+                    return;
+                }
                 Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
                 Err(error) => {
-                    self.close_link_because(link, &error);
+                    self.end_link(link, error.to_string(), budget);
                     return;
                 }
             };
@@ -675,7 +764,19 @@ impl<E: HostEdges> HostDriver<E> {
         }
     }
 
-    /// Turns one frame into an input. `Held` when the engine cannot take it now: it stays unread on its link (EV-5b).
+    /// Ends a link for `why`. Closing it posts events (the loss of its session), so a pump with no budget left keeps the end
+    /// for the next pump, which closes the link first (9B), and reports `more` (TM-6).
+    fn end_link(&mut self, link: LinkId, why: String, budget: &mut Budget) {
+        if budget.exhausted() {
+            self.link_ends.insert(link, why);
+            budget.more_input = true;
+        } else {
+            self.close_link_because(link, &why);
+        }
+    }
+
+    /// Turns one frame into an input. `Held` when the engine cannot take it now (EV-5b: the link's read interest goes off), or
+    /// when the pump has no budget left for it (9B).
     fn deliver(
         &mut self,
         link: LinkId,
@@ -712,6 +813,15 @@ impl<E: HostEdges> HostDriver<E> {
             if let Some(state) = self.links.get_mut(&link) {
                 state.held = Some(input);
             }
+            return Delivery::Held;
+        }
+        // The engine can take it, but this pump has no budget left (9B `pump_events`): it waits for the next pump, which
+        // takes it first (`retry_held`). It is runnable, so the pump reports `more` (TM-6).
+        if budget.exhausted() {
+            if let Some(state) = self.links.get_mut(&link) {
+                state.held = Some(input);
+            }
+            budget.more_input = true;
             return Delivery::Held;
         }
         self.feed(input);
@@ -796,6 +906,9 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             budget.account(&mut self.engine);
         }
         self.take_exits(&mut budget);
+        // An exit's actions run before the links are read: a link of an ended worker is marked for its drain
+        // (`LinkPeerEnded`, R-78 item 4), so this pump's read ends the drain and the work loop below classifies the session.
+        self.perform_counted(&mut budget);
         // Each link's held frame goes first, before the link's later frames (`service_links`).
         self.service_links(&mut budget);
         self.perform_counted(&mut budget);
@@ -837,6 +950,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
         }
+        // An ended link that waits for its drain needs no term here: the settle below reads every link.
         let mut more = self.more(&budget);
         if !more {
             self.edges.settle_wake();
@@ -845,7 +959,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
-            more = self.more(&budget);
+            more = self.more(&budget) || self.draining();
         }
         if more {
             // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).
@@ -901,6 +1015,11 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn diagnostics(&self) -> serde_json::Value {
         let mut diagnostics = self.engine.diagnostics();
         diagnostics["edges"] = self.edges.diagnostics();
+        // The sessions whose work waits only for mandatory-queue room: an engine step, or a frame that a link holds (EV-5b,
+        // TM-6). The test control `parked_work` reads it (steward ruling R-87).
+        diagnostics["parked_work"] = serde_json::json!(self
+            .engine
+            .parked_on_room(self.links.values().filter_map(|l| l.held.as_ref())));
         diagnostics
     }
 

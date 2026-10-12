@@ -28,7 +28,8 @@
 exclude_globs = ["**/tests/**", "tests/**"]
 
 exclude_re = [
-    # xtask prebuild.rs build_anchor, build_probe and command (P6 PR A; build_probe since the per-tag build dir): the I/O
+    # xtask prebuild.rs build_worker, build_anchor, build_probe and command (P6 PR A; build_probe since the per-tag build
+    # dir; build_worker since its per-worktree build dir, #293): the I/O
     # shell of the prebuild-worker step runs `cargo build` and `cargo install` and installs the binaries; a default-tier
     # test cannot run a build inside a mutation run. Only the whole-body replacements are excluded. The slow tier runs
     # after this step and needs its output:
@@ -36,8 +37,11 @@ exclude_re = [
     # evidence), and the real-process tests fail without the probe. The decisions stay tested: manifest_text
     # (the_manifest_lists_binaries_sorted_with_their_hashes), install_executable
     # (an_installed_executable_is_a_new_file_with_the_new_bytes), sha256_hex (a_file_hash_is_the_sha256_of_its_bytes),
-    # contracts_source (the_contracts_source_is_read_from_the_dependency) and probe_build_dir
-    # (each_contracts_tag_builds_the_probe_in_its_own_dir).
+    # has_worker_binary (the_worker_is_built_only_when_a_package_of_that_name_has_a_binary),
+    # contracts_source (the_contracts_source_is_read_from_the_dependency), probe_build_dir
+    # (each_contracts_tag_builds_the_probe_in_its_own_dir) and candidate_build_dir
+    # (each_worktree_builds_the_candidate_in_its_own_dir).
+    'xtask/src/prebuild\.rs:\d+:\d+: replace build_worker -> Result<Option<\(String, String\)>> with Ok\(.*\)$', # 5 mutants
     'xtask/src/prebuild\.rs:\d+:\d+: replace build_anchor -> Result<\(String, String\)> with Ok\(.*\)$', # 4 mutants
     'xtask/src/prebuild\.rs:\d+:\d+: replace build_probe -> Result<\(String, String\)> with Ok\(.*\)$', # 4 mutants
     'xtask/src/prebuild\.rs:\d+:\d+: replace command -> Result<\(\)> with Ok\(\(\)\)$',

@@ -809,3 +809,237 @@ fn retirement_keeps_the_result_path_of_a_running_setter() {
     );
     assert!(done.contains_key(&remove));
 }
+
+/// Core EV-5b, TM-6 (steward ruling R-87, `parked_work`): with no mandatory room, a state step that waits only for room is
+/// parked work of its session. A session whose work is not parked is not reported, and a poll that frees room empties the set.
+#[test]
+fn a_step_that_waits_only_for_room_is_parked_work_of_its_session() {
+    let mut w = World::new(limits(|l| {
+        l.max_sessions = 2;
+        l.mandatory_events = 2;
+    }));
+    w.running("s1");
+    w.engine.poll_events(64);
+    w.ok(create("s2"));
+    w.engine.begin(Op::Start { id: sid("s2") }).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the start's states filled the queue, and nothing waits yet"
+    );
+    w.engine.begin(Op::Stop { id: sid("s2") }).unwrap();
+    assert!(!w.pump().more);
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s2")]),
+        "the stop's state step waits only for room"
+    );
+    // A resize of s1 goes to its worker now, room or not: work that is runnable now is not parked.
+    w.engine
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: size(),
+        })
+        .unwrap();
+    assert!(w.engine.runnable(), "the resize is runnable now");
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s2")]),
+        "s1's runnable resize is not parked work"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
+
+/// Core EV-5b, TM-6 (steward ruling R-87, `parked_work`): a held frame is parked work of its link's session only when room
+/// alone keeps the engine from taking it. A frame that the engine takes now, or that waits for something else, is not.
+#[test]
+fn a_held_frame_is_parked_work_only_when_it_waits_for_room() {
+    let mut w = World::new(limits(|l| {
+        l.max_sessions = 3;
+        l.mandatory_events = 2;
+    }));
+    w.running("s1");
+    w.engine.poll_events(64);
+    w.ok(create("s2"));
+    w.ok(create("s3"));
+    // s2's start waits for the worker's launch: its observations wait for the start, not for room (OR-2).
+    w.engine.begin(Op::Start { id: sid("s2") }).unwrap();
+    w.pump();
+    let s2 = w.link_of_after_hello("s2");
+    assert!(!w.engine.has_room(), "the creates' states fill the queue");
+    let exited = Input::LinkMsg {
+        link: w.link_of("s1"),
+        msg: WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    };
+    let observed = |link| Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Observed {
+            observation: botster_core_link::msg::Observation::Bell,
+        },
+    };
+    assert_eq!(
+        w.engine.parked_on_room([&exited]),
+        BTreeSet::from([sid("s1")]),
+        "the exit report needs room for its state event (EV-5b)"
+    );
+    assert!(
+        w.engine
+            .parked_on_room([&observed(w.link_of("s1")), &observed(s2)])
+            .is_empty(),
+        "s1 takes an observation now; s2's waits for its start"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([&exited]).is_empty(),
+        "with room, the exit report is taken now"
+    );
+}
+
+/// Core EV-5b, TM-6 (steward ruling R-87, `parked_work`): an op step that waits only for room is parked work of the op's
+/// session. A detach whose worker link is gone closes the route itself (`DetachLocal`), and that close needs room.
+#[test]
+fn an_op_step_that_waits_only_for_room_is_parked_work_of_its_session() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.engine.poll_events(64);
+    let link = w.link_of("s1");
+    w.feed(Input::LinkClosed { link });
+    // One mandatory event fills the queue.
+    w.engine.begin(create("s2")).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the create's event filled the queue, and nothing waits yet"
+    );
+    w.engine
+        .begin(Op::Detach {
+            route,
+            reason: DetachReason::Detached,
+        })
+        .unwrap();
+    w.pump();
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s1")]),
+        "the detach's local close waits only for room"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
+
+/// Core EV-5b, EV-6, TM-6 (steward ruling R-87, `parked_work`): a route event that the full queue cannot take is parked, and
+/// it is parked work of the route's session.
+#[test]
+fn a_parked_route_event_is_parked_work_of_the_routes_session() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    let route = super::losses::attach(&mut w);
+    w.engine.poll_events(64);
+    // One mandatory event fills the queue.
+    w.engine.begin(create("s2")).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the create's event filled the queue, and nothing waits yet"
+    );
+    w.worker_says("s1", WorkerMsg::RouteStalled { route });
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s1")]),
+        "the RouteStalled event waits only for room"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
+
+/// Steward ruling R-88 (B), `op_posted`: the diagnostics name the minted ops (`next_op`) and those whose terminal
+/// `Completed` is not posted yet (`unposted_ops`). A start that waits for the worker's launch is unposted; once its
+/// `Completed` is posted it is not, before any poll takes the event.
+#[test]
+fn the_diagnostics_name_the_ops_whose_completion_is_not_posted() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.ok(create("s1"));
+    let start = w.engine.begin(Op::Start { id: sid("s1") }).unwrap();
+    w.pump();
+    let unposted = |w: &World| -> Vec<u64> {
+        serde_json::from_value(w.engine.diagnostics()["unposted_ops"].clone()).unwrap()
+    };
+    assert_eq!(w.engine.diagnostics()["next_op"], start.0 + 1);
+    assert_eq!(
+        unposted(&w),
+        vec![start.0],
+        "the start waits for the launch"
+    );
+    let link = w.link_of_after_hello("s1");
+    w.feed(Input::LinkMsg {
+        link,
+        msg: WorkerMsg::Launched {
+            features: BTreeSet::new(),
+            terminal: terminal_state(),
+            formats: vec![],
+            payload: botster_core_link::msg::PayloadId {
+                pid: 900,
+                start_time: 3,
+            },
+        },
+    });
+    for _ in 0..10 {
+        w.pump();
+    }
+    assert!(
+        unposted(&w).is_empty(),
+        "the start's Completed is posted, and no poll has taken it"
+    );
+    let events = w.engine.poll_events(64);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op, .. } if *op == start)),
+        "{events:?}"
+    );
+}
+
+/// Core EV-5b, LC-11, TM-6 (steward ruling R-87, `parked_work`; R292-SI1): an `AdoptAll` names no session, and its row step
+/// needs room. While the queue is full, the row at the front is parked work of its session, here a session that this handle
+/// holds and has shown, whose row posts its state again.
+#[test]
+fn an_adopt_row_that_waits_only_for_room_is_parked_work_of_its_rows_session() {
+    let mut w = World::new(limits(|l| l.mandatory_events = 1));
+    w.ok(create("s1"));
+    // One mandatory event fills the queue.
+    w.engine.begin(create("s2")).unwrap();
+    w.pump();
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "the create's event filled the queue, and nothing waits yet"
+    );
+    w.engine.begin(Op::AdoptAll).unwrap();
+    w.pump();
+    assert_eq!(
+        w.engine.parked_on_room([]),
+        BTreeSet::from([sid("s1")]),
+        "the row of s1 is at the front, and its state waits only for room"
+    );
+    w.engine.poll_events(64);
+    assert!(
+        w.engine.parked_on_room([]).is_empty(),
+        "with room, no work waits for it"
+    );
+}
