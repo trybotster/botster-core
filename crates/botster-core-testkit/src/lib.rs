@@ -5,6 +5,7 @@
 
 pub mod adopt_controls;
 pub mod alloc_controls;
+pub use botster_test_process::built_in;
 pub mod candidate;
 // Only the real harness (the `slow` feature) composes the capture layer; its tests run in the default tier too.
 #[cfg_attr(not(feature = "slow"), allow(dead_code))]
@@ -17,6 +18,7 @@ pub mod entropy;
 pub mod every_cut;
 pub mod harness;
 pub mod net;
+pub mod op_holds;
 pub mod oracle;
 pub mod oracle_compare;
 pub mod oracle_controls;
@@ -25,6 +27,7 @@ pub mod process_controls;
 pub mod process_group;
 pub mod program;
 pub mod pty_controls;
+pub mod queue_controls;
 #[cfg(feature = "slow")]
 pub mod real;
 pub mod refusal;
@@ -60,3 +63,14 @@ pub use worker::{TestkitCore, WorkerSpawner, Workers};
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: PeakAllocator = PeakAllocator;
+
+/// The compile-time manifest directory of this crate, for the build-root check of the test binaries (bug catalog B13,
+/// `botster_test_process::built_in`).
+#[doc(hidden)]
+pub const BUILT_IN: &str = env!("CARGO_MANIFEST_DIR");
+
+#[cfg(test)]
+#[test]
+fn this_test_binary_was_built_in_this_worktree() {
+    botster_test_process::built_in::assert_built_here(env!("CARGO_PKG_NAME"), BUILT_IN);
+}

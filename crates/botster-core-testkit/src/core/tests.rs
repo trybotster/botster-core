@@ -10,7 +10,7 @@ fn edges(seed: u64) -> SimEdges {
         faults: Arc::default(),
         entropy: SeededEntropy::with_seed(seed),
         wake: Arc::new(SimHostWake::new(scheduler.clone())),
-        scheduler: HandleScheduler(scheduler),
+        scheduler: HandleScheduler(scheduler, Default::default()),
         spawner: None,
         pending: VecDeque::new(),
         links: BTreeMap::new(),

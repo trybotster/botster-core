@@ -147,9 +147,7 @@ conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
 conf::a5_1_testkit_is_real_core_one_worker_code_path
-conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
-conf::a5_2_reads_match_atomic_transitions
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
 conf::a5_4_hub_tests_on_testkit_under_seeds
@@ -188,6 +186,7 @@ conf::ad_1_starting_without_identity_is_lost
 conf::ad_2_lost_reasons
 conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
+# conf::am_2_fairness_bound_across_routes: R-93, owner PC; the debt is the contracts core-fence-exceptions.txt line (contracts #79).
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
 conf::dp_10_t1_keystroke_to_pty_latency_budget
@@ -206,7 +205,6 @@ conf::dp_12_no_route_ever_is_authoritatively_false
 conf::dp_12_terminal_state_focused_matches_the_event
 conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown
 conf::dp_1_host_process_never_sees_route_bytes
-conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte
 conf::dp_3_history_is_paged_within_max_history_page_bytes
 conf::dp_3_output_deflate_frames_share_no_state
@@ -317,10 +315,10 @@ conf::ev_8_shadow_cannot_answer_and_client_silent_means_no_reply
 conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
+# conf::ev_9_every_session_event_carries_instance_id: Core serves control_queue, and the id fails at step 28: steward ruling R-96, the transcript
+# lists one Activity where Core correctly posts two (Output, and Client of r1). Owner PC: the contracts transcript PR; then core-real-pending (R-57, s81).
 conf::ev_9_every_session_event_carries_instance_id
 conf::in_1_host_write_and_route_frames_share_payload_kinds
-conf::in_6_cancel_result_kinds
-conf::in_6_refused_full_wakes_on_room
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag
@@ -428,7 +426,6 @@ conf::sz_1_resize_without_route
 conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
-conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
 conf::tp_1_full_tap_drops_oldest_with_loss_marker_and_never_slows_the_pty

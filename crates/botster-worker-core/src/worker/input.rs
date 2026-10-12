@@ -362,10 +362,9 @@ impl Worker {
         Ok(())
     }
 
-    /// The payload is being stopped: a `SIGTERM` or a `SIGKILL` went to its group, or the grace of the worker-control
-    /// signal runs (IN-2: `Stopping`).
+    /// The payload is being stopped: a `SIGTERM` or a `SIGKILL` went to its group (IN-2: `Stopping`).
     fn stopping(&self) -> bool {
-        self.termed || self.killed || self.grace.is_some()
+        self.termed || self.killed
     }
 
     /// The bytes of a payload at the start of its transaction, with the caller's payload in them: `bytes` and `text` as they

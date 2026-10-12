@@ -10,6 +10,7 @@
 
 use crate::entropy::SeededEntropy;
 use crate::net::LinkEnd;
+use crate::op_holds::SharedHolds;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -55,6 +56,9 @@ pub struct Faults {
     pub fail_handoff: bool,
     /// The hand-over that the edge holds until `release_handoff` (`hold_handoff`, Core OU-9).
     pub handoff_hold: HandoffHold,
+    /// The worker instances whose control link takes no more control bytes (`control_queue`, Core IN-6): the link edge
+    /// reports no room for them.
+    pub control_full: std::collections::BTreeSet<InstanceId>,
     /// The starts whose worker control link the edge holds from the host's accept until `release_start` (`hold_start`, Core
     /// LC-4, A2-1; steward ruling R-71), by instance: `None` while the hold is armed, and the link once the worker connects.
     pub start_holds: BTreeMap<InstanceId, Option<HeldLink>>,
@@ -186,9 +190,10 @@ pub trait Spawner: Send {
     fn remove_endpoint(&mut self, instance: &InstanceId);
 }
 
-/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream.
+/// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream. The holds of
+/// `scheduler_hold` are the host's own (op ids are numbered per host), and they draw nothing.
 #[derive(Debug, Clone)]
-struct HandleScheduler(SchedulerHandle);
+struct HandleScheduler(SchedulerHandle, SharedHolds);
 
 impl Scheduler for HandleScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
@@ -197,6 +202,14 @@ impl Scheduler for HandleScheduler {
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
         self.0.with(|s| s.bound(point, max))
+    }
+
+    fn held(&mut self, ops: &[u64]) -> bool {
+        crate::op_holds::lock(&self.1).holds_any(ops)
+    }
+
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        crate::op_holds::lock(&self.1).admitted(op, fixed_timing);
     }
 }
 
@@ -367,6 +380,19 @@ impl HostEdges for SimEdges {
         }
     }
 
+    /// `control_queue` (Core IN-6): no room on the link of a held instance; else the driver's own bound decides.
+    fn link_room(&self, link: LinkId) -> usize {
+        let reports = lock(&self.reports);
+        let full = reports
+            .instance_of(link)
+            .is_some_and(|instance| lock(&self.faults).control_full.contains(instance));
+        if full {
+            0
+        } else {
+            usize::MAX
+        }
+    }
+
     fn link_close(&mut self, link: LinkId) {
         lock(&self.reports).closed(link);
         if let Some(mut end) = self.links.remove(&link) {
@@ -481,6 +507,8 @@ pub struct Opened {
     pub reports: Arc<Mutex<crate::route_reports::RouteReports>>,
     /// The testkit's `Core` also signals it for its in-process workers.
     pub wake: Arc<dyn HostWake>,
+    /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted.
+    pub holds: SharedHolds,
 }
 
 /// A reader of one stored row, held apart from the harness: it reads the row as the storage edge holds it now.
@@ -568,12 +596,13 @@ impl Directories {
         };
         let faults = Arc::new(Mutex::new(Faults::default()));
         let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
+        let holds = SharedHolds::default();
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
             wake: Arc::new(SimHostWake::new(scheduler.clone())),
-            scheduler: HandleScheduler(scheduler),
+            scheduler: HandleScheduler(scheduler, Arc::clone(&holds)),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),
@@ -600,6 +629,7 @@ impl Directories {
             faults,
             reports,
             wake,
+            holds,
         })
     }
 }
