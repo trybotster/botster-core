@@ -14796,4 +14796,65 @@ Equal-tree/push verification remains due. No future head, train, pin, or merge i
 The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 203.
 
+### Round 202 expanded-body receipt — 30-ID audit, 2026-10-12
+
+Exact source head remains `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`.
+Source tree remains `cff0c4b99d6e157b2bb9aba0ab171abd553576e1`; source/gate base remains 3e655eff.
+Earlier package Round 202 source and gate CLEAN: `8590b7220d467ed45b29452da4556a46d472ce32`.
+Expanded-body request: `msg_plugin-w_1791837919_8cd27c`. The source does not change and no v1 import is pushed.
+This receipt extends the body review within Round 202. It starts no new package round or gate.
+Next package round remains 203.
+
+The reviewer reads the complete final body at /private/tmp/review-p3-pr328-6b1918c9-body-v4.json.
+Final body UTF-8 SHA256: `1a347c38e9b39a2eee24392f1e42d76d786d5901621c2dc3f7788f8f5c4fdd2a`.
+The earlier evidence, risk, and prior-art text remains intact. The added section audits train-7b's 30 passing pending-real IDs.
+Audit source: train `007efbde6a59af403d0937c38361c137a8961a48`, contracts .46 commit `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`.
+The body's b82ff81f is the annotated .46 tag object. It peels to that exact commit, which the train's Cargo.lock pins.
+This .46 audit source is separate from the submitted PR's .44 pin. It changes no source acceptance at 6b1918c9.
+
+The thirty unique table IDs equal shared/core-stage1/evidence/t7b-real-pass.txt exactly.
+They also equal the raw pending-real PASSED set in the train-7b gate.
+Train-7b log: gates/botster-core-stage1-train-7b-007efbde-pool-20261012-132706-69303.log.
+SHA256: `049b0bf57804f35a61221ff63c47cd146ce349c481712bf6b75858727fd9010e`.
+Its header names the exact train and base. Its report says 38 pending-real IDs, of which 30 passed.
+The reviewer reads only the relevant header and pending-real evidence for this body audit.
+This receipt supplies no combined train review or redundant final train receipt.
+
+All 23 retained fence-exception rows match every step and reason in the exact .46 fence file.
+The reviewer also reads each listed step in its pinned transcript. No table ID, exception, or listed step is missing.
+The seven IDs with no exception are exactly dp_3, in_7, ev_5_keyed, ev_5_poll, ev_6, in_3, and a2_2_missing_op.
+The full six retained transcripts and the earlier complete dp_3 transcript review supply the scan scope.
+The AUD report excludes pending-real IDs, so its absence of a row grants no removal by itself.
+The reviewer reads pair-common's unfenced-read and recorded-failure rules and the relevant complete AUD rows.
+
+Four retained reasons still apply at .46:
+- in_7's s7 waits for the kernel queue after a fill write. The exact .46 await_control path waits for a Core edge with the remaining deadline; it has no R-111 bounded re-check.
+- ev_5_keyed's s76 title fences model application. Its s80 can consume an earlier Activity; its s81 strict absence check can then see the later output report. The current worker still sends metadata before its output observation. A later worker-reply completion is required.
+- in_3's s18 requires the refusal on r2 with no output ignore. The r1 byte's echo can reach r2 first; the s16 r1 barrier does not order r2's output. Its .39 and .46 transcript blobs are identical.
+- a2_2_missing_op's s18 is expect_closed. Its .39 and .46 transcript blobs are identical. The retained failure comment names an undiagnosed plain-Core 0/5 result. Read-only ancestry proves readiness commit 944c885d precedes the comment's introducing commit 530023e6; that earlier commit is not a demonstrated repair.
+
+**F158 LOW — CLOSED.** The first expanded ev_5_poll row treated the historical .39 fence gap as a current .46 missing-control defect.
+The reviewer and Sol-C independently identify that mismatch and share F158 as one finding.
+The first correction still claimed that parked_work proved a specific Exited report. The final body removes that claim.
+The exact R-87 correction and control row define two forms: a held worker-link frame or an engine transition parked on mandatory-queue room.
+Current Core serves the control on both harnesses. The .46 transcript's s9 proves parked work before s13 poll_all and strict s14 wait_wake.
+The historical .39 failure remains a separate record. The corrected row no longer asks for a withdrawn link-held control.
+
+The ev_6 row also separates its historical failure from the current transcript.
+The reviewer compares the old 62-step form with the .42/.46 63-step form and reads the exact .41-to-.42 sentinel diff.
+At .46, s56 writes the last Bell and title; s57 awaits the title before the state reads and s61 collection.
+The collection accepts unlisted events, so the late-Activity absence issue of ev_5_keyed does not apply to that read.
+Both ev_5_poll and ev_6 have pending-real PASSED records in the two .44 PR gates and the train-6 gate.
+Those records are not relabeled as must-pass removal results or future .49 evidence.
+
+Lead disposition: `msg_plugin-w_1791838090_9cc236`, supplied by Sol-C in `msg_plugin-w_1791838116_ed05e7`.
+The reviewer also reads shared core-lead.md:1708-1709, which confirms both deferred candidates and the unchanged #328 head.
+The body marks ev_5_poll and ev_6 as fenced removal candidates, deferred to P3's batch after the .49 pin.
+It does not claim their old failure comments still establish a current missing fence.
+The thirty rows therefore divide into 23 exception holds, four current retention reasons, two deferred candidates, and the one dp_3 removal.
+The source still removes only dp_3. No new pending removal, pin, composition, rule exception, or future gate is accepted.
+F155/F156 retain their closures. F158 is closed. No package body finding remains.
+The original exact-head gate and source CLEAN remain applicable. The lead-scheduled integration body review remains due.
+The reviewer changes no product code and runs no execution job. All earlier source and evidence limits remain.
+
 VERDICT: CLEAN
