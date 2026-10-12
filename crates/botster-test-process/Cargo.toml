@@ -43,3 +43,10 @@ pty-process.workspace = true
 # `pipe`: a pipe with no close-on-exec, which production hands its program (the #171 TP3 test).
 rustix = { workspace = true, features = ["pipe"] }
 tempfile.workspace = true
+
+# The slow tier's integration tests. Each file is `#![cfg(feature = "slow")]`, so without the feature its binary holds no
+# test. `required-features` keeps cargo from building that empty binary in the default tier: every test binary that a
+# tier builds lists the build-root test (bug catalog B13, #306).
+[[test]]
+name = "slow_process"
+required-features = ["slow"]
