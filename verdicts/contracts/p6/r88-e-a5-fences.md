@@ -63,3 +63,13 @@ The steward withdrew the F1 application that `910d7f2e` follows. Core E3-1 item 
 3. The held-report construction leaves these steps.
 
 **F3 part 1 stays** wherever s22/s27 use `scheduler_delay`: the row states the pump in which Core reads the held report. 016c's lint MEDIUM stays open. I review the next head against this form.
+
+## Round 3: no open finding on 60c87f1e60d72d8c506ac620141508c69a1ec6ce (final CLEAN after the main merge, Q7 and the gate)
+
+Delta from `910d7f2e`: `4d1772cb` (lint), `2c683294` (a5_2, the steward's new form), `60c87f1e` (F3 part 1).
+
+- **F1, in the steward's new form (main `8ce40a0d`, lines 69-71): closed.** For each half: `set_silence_threshold 1000` on s13x after its one output byte is collected (s88/s114), `scheduler_ready` on the Create `$co*`, `scheduler_deadline {before}`, `advance_clock 1000`, `next_deadline` 0, and one `pump` (s97/s123). `Silent` is the deadline's own event (TM-4, E3-1 item 2), and the Create's `Completed` is ready in the same pump, so `before` decides their order. s100 (`Silent` first; it ignores only `Activity` and the s14a `Created` state) and s126 (`Completed` first; the same ignores) each hold only in the order that `before` sets. The stop-grace steps (s103-s109, s129-s135) use `await_get Exited{Killed}` with no order claim. The held-report construction is gone from them. `requires.features` is `["silence"]`.
+- **F3 part 1: closed.** The `scheduler_delay` row says that the edge gives the report to Core at the start of pump `pumps + 1`, and that Core reads it in that pump.
+- **016c's lint MEDIUM: closed on my side** (016c checks its own finding). `Program` follows each session's prints through the transcript. A `print` runs at the session's `Start`. A `print_after_input` runs at the host input that completes its `match_hex` in the probe's input log (even offsets only). An input of unknown bytes (a key, a non-`bytes` frame) places no later print. The sentinel is the last print, only after it has run and only if it ends with the title. A `pty_output` of the session after that step is not covered. The red cases include 016c's case (an old title, newer output, an unrelated input), an input that does not complete the match, and a key input. The green cases include a `print` at the start and a match split across two inputs. `input_hex` reads `WriteInput` bytes and `route_send` `bytes` frames, so a5_2's s74/s75 place s12's sentinel at s75.
+
+Next: P6 merges main `8ce40a0d`. That merge is not disjoint: #74 changed `docs/core-testkit-controls.md`, which this PR also changes. So I review the merge delta (Q7), then the ONE gate on the merged head, and then the final CLEAN.
