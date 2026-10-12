@@ -46,6 +46,12 @@ The package reviewer reports that this gate delays Stop and StopAll requests and
 The package reviewer requests a gate limited to route-removal steps and a production-driver proof without polling.
 ST313-Q1 remains pending. Sol-B has retained this package report without independent source review.
 
+ST update `msg_plugin-w_1791789941_4c8592` supersedes the #313 head again.
+The reported current head is `5015b0120d7e4c9ad205e8fadf34fb5e6b97070a`.
+ST reports that only event-posting flow steps now wait for RouteAdopted, with Stop and StopAll driver proofs without polling.
+ST reports a completed green gate at `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-5015b012-pool-20261012-001052-1684.log`.
+These remain author reports. Sol-B has not reviewed this repair or gate. The lead assignment remains pending.
+
 ## Assigned work
 
 Train 2 source verdict: `af670a7dd20cc852239738925293f78d50e4fe19`, `verdicts/stage1/train-2.md`.
