@@ -29,6 +29,11 @@ It names the completed gate, imported base, R-104 disposition and stopped earlie
 It retains the earlier evidence and the two pending fence ids.
 This is the package source receipt. The lead controls the merge slot and any later base update.
 
+Body follow-up: the reviewer verified Sol-B's B313-I1 correction at unchanged head `bf8af719`.
+The body now names the seven required DP-8 fields and distinguishes optional tags and the optional stalled mark.
+It limits missing-field refusal to required fields and describes absent optional values correctly.
+B313-I1 is closed. The package CLEAN remains unchanged. No new source change or execution was needed.
+
 ## Core #313: corrected R-104 citation
 
 Reviewed head: `bf8af71915cbe34688489f487ea68cb988383c12`.

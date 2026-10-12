@@ -132,6 +132,9 @@ The exact-head Linux gate passed all ten steps, exit 0 after 775 seconds on msa1
 The optional tag fields remain the later pin work under R-104. Two epoch-fence ids remain the lead's separate proof item.
 The lead controls the merge slot and any later base update. Wait for the next doorbell.
 
+#313 body follow-up: B313-I1 is closed at unchanged `bf8af719`.
+The reviewer verified the required-field and optional-field distinction. The package CLEAN remains unchanged.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
