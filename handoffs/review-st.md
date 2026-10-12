@@ -16,8 +16,10 @@ The verdict records the required conditions. Revision 3 retains those conditions
 The lead assigned a separate TM-6 host-driver PR before the stall-clock PR. The pair reviewer and Sol review both PRs.
 
 Current implementation review: Core #295 at `dcc53d8f94d64e94a5b0028c0bd1e86369456773`.
-Verdict: NOT CLEAN, with one open evidence finding, ST295-E1. The reviewer found no new logic defect.
-The exact-head Linux gate passed. The focused Mac evidence and the promised full-seed real-tier evidence remain required.
+Verdict: CLEAN. ST295-E1 is closed. The reviewer found no new logic defect.
+The exact-head Linux gate passed. The focused Mac host/link checks passed 351/351.
+Both removed IDs passed on the real tier with seeds 0-31.
+The broader Mac run passed 230/232 and exited 100. The verdict retains its known R-66 and R-80 fence failures.
 Integration reviewer Sol-B: `sess-1791760169-0182-7a5ca22a6e65a307e8f0b2a8fd1ef2d5`.
 
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.

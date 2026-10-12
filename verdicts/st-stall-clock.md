@@ -1,6 +1,44 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
+
+## Core #295: evidence review
+
+Reviewed head: `dcc53d8f94d64e94a5b0028c0bd1e86369456773`.
+Reviewed base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+ST295-E1 is CLOSED. There is no new code commit and no new source finding.
+
+Mac evidence: `~/botster-sessions/gates/botster-core-stage1-st-more-input-dcc53d8f-pool-20261011-162605-32994.log`.
+The header names the reviewed head. The job runs on macOS and explicitly sets `BOTSTER_PENDING_STRICT=1 BOTSTER_SEEDS=0-31` for real conformance.
+All 351 selected host and link tests passed.
+Both removed pending IDs passed in the full-seed real run (lines 570-571).
+The named `slow_real_core` tests passed, including process exit, link hello and wake checks.
+
+The broader real run passed 230 of 232 tests and exited 100. This review does not call that run green.
+The two failures remain recorded:
+
+- `conf::ev_5_route_closed_retires_route_keyed_events`, seed 1, step 28:
+  `activity_before_close` was false after the close report was consumed.
+  The pinned transcript sends r2 input, uses only `await_quiet`, and then sends Detach.
+  It has no fence that proves the worker read r2's input before Detach.
+  R-66's follow-up diagnoses this exact precondition gap and requires an activity fence before Detach.
+  #295 preserves delivery order for complete frames on a link. It adds no synchronization between route input and Detach.
+  The cited P6 log at `9231c06d` has an earlier retirement failure, but its expected value differs from this failure.
+  That log alone is not an exact-signature reproduction. The pinned transcript and R-66 support the attribution here.
+- `conf::st_6_capture_is_frozen_at_model_rev`, seed 5, step 17:
+  the revision inequality compared 1 with 1.
+  The pinned transcript sends the second output at step 13 and uses only `await_quiet` before ReadScreen.
+  R-80 diagnoses this model-read fence gap. #295 changes neither the worker's output handling nor that transcript.
+  The RC Linux log at `46c8c548` contains the same step-17 inequality failure at seed 0 (lines 5753-5755).
+
+These diagnoses identify missing transcript fences outside #295's repair.
+The changed driver can change timing, but it supplies neither missing fence and does not change the required worker report order.
+The focused Mac checks and full-seed proofs required by ST295-E1 passed on the reviewed head.
+The separate full Linux gate remains green on that head.
+
+The reviewer ran no local build or test. This CLEAN covers #295's exact head and retains both broader-run failures as known limits.
+The normal final-gate and base-merge rules still apply before the lead merges the PR.
+The earlier implementation verdict below remains as review history; this evidence review supersedes its open status.
 
 ## Core #295: first implementation review
 
