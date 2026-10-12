@@ -113,14 +113,11 @@ pub fn assert_built_here(name: &str, manifest_dir: &str) {
     }
 }
 
-/// The name of the build-root test that every test binary of the workspace lists (design `design-gs-built-in-coverage.md`).
-/// Only [`built_in_test!`](crate::built_in_test) and [`built_in_trial!`](crate::built_in_trial) make it: `cargo xtask
-/// built-in` refuses the name anywhere else in the workspace's sources, and the gate checks that every binary of each
-/// tier's `cargo nextest list` has it.
-pub const TEST_NAME: &str = "this_test_binary_was_built_in_this_worktree";
-
 /// The build-root test of a test binary with the libtest harness, at the root of the crate or of the integration test file:
-/// `botster_test_process::built_in_test!();`. At the root of a library or a binary, the call has `#[cfg(test)]` above it:
+/// `botster_test_process::built_in_test!();`. The two macros are the only items that hold the test's name: no constant or
+/// function gives it, so a harness cannot name a trial with it (review B306-I2). `cargo xtask built-in` refuses the name in
+/// every other file of the workspace's sources and a third copy in this file, and the gate checks that every binary of
+/// each tier's `cargo nextest list` has the test (design `design-gs-built-in-coverage.md`). At the root of a library or a binary, the call has `#[cfg(test)]` above it:
 /// `botster-test-process` is a dev-dependency there, so the call cannot resolve in the build without tests. (The presence
 /// check of the gate fails a list where any `cfg` removed the test.) `env!` expands in the calling crate, so the test compares the compile-time
 /// manifest directory of the crate that builds the binary with the run-time one, and the caller passes no argument.
