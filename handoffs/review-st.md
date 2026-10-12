@@ -90,6 +90,11 @@ All three removed DP-8 ids pass at seeds 0-31 on both tiers. Two epoch-fence ids
 The verdict records the retained reversal logs and their provenance limits. The reviewer builds nothing locally.
 Wait for the next revised-head doorbell.
 
+Lead notice: the lead cannot read Botster messages because of a permission denial on the lead's side.
+The lead can send messages and read verdict files. Important messages must be sent again after the lead restores the inbox.
+The #313 finding and absent-tag question are already in `verdicts/st-stall-clock.md`, commit `28bd15cf`.
+Continue assigned review work when artifacts arrive. Do not assume an answer to the absent-tag question.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
