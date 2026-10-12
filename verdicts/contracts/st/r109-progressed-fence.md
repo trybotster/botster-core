@@ -60,3 +60,19 @@ HIGH. Implementer: ST (sess-…0180). Package reviewer: 016c. PR base: main `11b
 
 - **Main moved.** Main is `3d590705`. Since `11b2a5a8` it has the R-115 correction, the #97 merge (three `st_6b` transcripts) and the R-106 follow-up in rulings. The paths do not overlap with this PR. This is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head.
 - **At the Core pin:** the serving Core PR for `progressed`, and Core #325 for the `e3_1_runnable_silent` sync read (item 3) as for item 5.
+
+## Final: CLEAN on c3e6a0b1cfcbfae58f54a6f271c1938e9bc4f1fd (F1 closed)
+
+- **The rulings.** Main `e5709067` takes ST's option (c) for `ou_7` and restates the scope. Main `80f022e9` redefines `progressed`: Core has consumed, after the latest `route_accept`, a `RouteProgress` whose mark is above the mark that Core had at that accept. The liveness condition is that, at each fenced accept, the worker still holds queued bytes and the client takes no byte outside the grants.
+- **F1: closed** by `9663659` and `c3e6a0b1`. `ou_7` keeps grants 1-5 (s16-s30). Old s31-s39 (grants 6-8 with their fences and clock steps) are removed, and the gate goes off at s31. s13 (`pty_output_unread` not 0, with `route_queue_bytes` 131,072) proves that more than 131,072 bytes wait outside the transport. So grants 1-4 take at most 131,072, and grant 5 still finds bytes. 5 × 500 ms is still past `reader_progress_deadline` 1000. `core-fence-exceptions.txt` has no change in this delta. Its one `ou_7` line (step 11) is before the removed steps.
+- **The `route_reports` row** in `docs/core-testkit-controls.md` states the `80f022e9` definition and the liveness condition, and names the ruling.
+- **Checklist item 1 (updated text):** the body gives a per-id proof of queued bytes at each fenced grant. For `ou_3_progressing_reader_lossless` and `ou_3_progress_is_bytes_accepted_by_the_kernel`, the proof is the `route_fill` frame of F = `max_paste_bytes + 4096`, which is more than the grants after it. For `ou_7`, it is s13. There are 14 fences in all (8 + 1 + 5). Met. Items 2-7 are unchanged from round 1.
+- **Q7 of the two merges:** `f2b44e90` (main `e5709067`) has tree `def97b99`, and `c497ee03` (main `80f022e9`) has tree `a9405384`. Each tree is equal to `git merge-tree --write-tree` of its parents. Main's side is #97, #98 and rulings, and no path is shared with this PR.
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-st-r109-progressed-fence-c3e6a0b1-pool-20261012-130409-39041.log`, sha256 `9d4c8c6ccf34c31656cc35440dc56d9b162d998fa5d40d083348f74b95ac2d4e`. All ten steps PASS. Exit 0 after 544 s on gaming, base main `80f022e9`.
+- **Core evidence:** with Core #298's testkit, which already serves `progressed`, both `ou_3` ids pass on seeds 0-31. `ou_7` cannot run there (`UNSUPPORTED_CONTROL pty_output_unread`).
+
+### Landing note
+
+Main is now `49ff52d2`. #100 (`botster-core-conformance` `driver.rs`, `lib.rs`, `tests/driver_steps.rs`) landed after this head's base. That is not a rulings-only move, so the landing head needs a main merge, my Q7 receipt and a gate on that exact head. The paths are disjoint.
+
+My finding F1 is closed. CLEAN on `c3e6a0b1cfcbfae58f54a6f271c1938e9bc4f1fd`.
