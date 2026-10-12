@@ -4270,3 +4270,102 @@ I read the current BUILD Green rule. Per `msg_plugin-w_1791832646_b23aee`, the c
 This package member is unchanged. No package final receipt is due unless it changes. The exact-head train gate and lead merge checks remain required.
 
 I ran no execution job.
+
+## Core #329 — held-full accounting source review
+
+- Exact head: `b9763b0f851a029a48af3a0f495388d69683f10b`.
+- Tree: `12d58ecbce13fef61b696ea4cdf693f2a1f8d435`.
+- Branch base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Stacked #324 member: `0572493fc9e695acd57b1916e485fdd900ba7643`.
+- Previous evidence head: `3ce9220cfcc029ebb129e7c34bf2c57615a4dbd4`.
+- VERDICT: CLEAN (source only; 0 open on this exact head; replacement gate and final body due).
+
+I read plan 23cn, the lead's design approval and stacking condition, the complete own delta, affected suite and process paths, and supplied evidence.
+
+The lead approves gate refusal as the automatic-return mechanism. This review requires no source mutation of core-pending when a proof fails.
+
+The branch imports the accepted #324 repair. Its four code blobs equal that member. The held-record metadata retains #324's change.
+
+The held-full run uses nextest with the ordinary default-tier profile, the strict and held-full variables, and the complete CI seed set.
+
+It removes selection variables. It removes the earlier JUnit file before starting. A removal error or missing new file fails.
+
+The existing bounded runner retains the process group, tracker, leftover check, caps, and whole-run deadline. Each trial also has the default profile's two-second limit.
+
+Profile selection uses the actual CI value. None and empty select default; a nonempty value selects ci. Both profiles retain the limit, and ci prohibits retries.
+
+held_full_proved requires successful nextest execution and the exact binary, trial kind, ID, and seed for every budget ID at every CI seed.
+
+A missing trial, failed run, or trial above two seconds fails the slow step. Another binary or a bare trial name cannot supply the proof.
+
+The time map uses the existing nextest JUnit reader. Missing or unparseable time fields cannot supply the required matrix entries. The proof uses nextest's overall success for failures.
+
+The suite runs one transcript per seed in held-full mode. Its existing LINKED check still runs before that mode exits to its separate trial list.
+
+On the ordinary testkit tier, a promoted budget ID has an ignored `budget: held-full` trial. Its proof comes from the separate `pending: held-full` trials.
+
+The three promoted IDs retain their held records. All three are absent from real-pending and run must-pass on the real tier under existing selection.
+
+An unproven held ID must remain pending. Real-only treatment still takes precedence. Other pending and named-proof paths retain their earlier behavior.
+
+The minimum report counts promoted budget IDs and prints K. The lists command reports the same minimum subset. Only dp_5_full is a minimum ID here.
+
+The three authorized budget IDs leave core-pending. The held set does not grow. No timeout, seed, deadline, transcript, contract, or product implementation changes.
+
+The accepted proof rule changes accounting, not mutation catch credit. The mutation stages keep their existing build and test selection. The final catch verdict remains unchanged.
+
+### Findings and closure
+
+GS-HF-R1-1 LOW: the initial body calls the ordinary ignored trial `pending: held-full`. I read the complete corrected body, which distinguishes both trial kinds.
+
+This body finding is closed. It needs no source change or new gate.
+
+GS-HF-R1-2 LOW: the held-list header says every held ID runs in strict mode and stays pending. That statement is false for promoted budget IDs.
+
+The exact replacement head changes only that comment. It distinguishes pending held IDs from budget IDs outside pending. This finding is closed.
+
+All findings, including LOW, are closed for source review. The replacement head changes no executable source or list membership from the previous evidence head.
+
+### Mutation exclusions and earlier evidence
+
+Static TOML comparison confirms that all mutation configuration values equal the branch base. Only explanatory comments change.
+
+The existing held_full exclusion now covers fourteen whole-body tuple replacements. Its cited decision is held_full_proved; the decision itself has no exclusion.
+
+The focused no-config record names `05d65376d1c9f1553cc8db79ca7c9ec11ba9391d`. It tests 29 identities in both stages.
+
+Default catches fourteen. Slow misses all 29. The fifteen common misses are fourteen held_full replacements and command-to-Ok, all within existing cited glue exclusions.
+
+The five profile-selection mutants are caught in default. The earlier gate at `1e331bbd04f13a8a28c9c0bdf96aebadc8ccedd2` remains RED for its profile survivor.
+
+The repair separates profile_under from the environment read and tests None, empty, and nonempty values. The new source closes that survivor without adding an exclusion.
+
+The reversal script and log name the repair head. Removing the time check fails the 2.01-second regression; deleting the profile negation fails its regression.
+
+Both negative runs exit 100. Restoration is recorded, and the intact source passes all three selected tests. Cleanup remains owner-recorded provenance.
+
+### Completed previous-head gate
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-held-full-accounting-3ce9220c-pool-20261012-131407-95764.log`.
+
+Computed SHA256: `f059b97ee30437d671da1ac1e3dbfdd1119cb666b64bfda58f895b2541ca34d5`. The header names the previous evidence head.
+
+Its recorded gate base is `3e655eff46d36f8c337339a1a17d401c8c662594`. That base is not an ancestor of this branch. This evidence retains its initial scope.
+
+All ten steps PASS in 349.6 seconds. Default passes 2,003 tests, slow passes 666, and held-full passes all 96 trials.
+
+Static log analysis verifies exactly 32 distinct seeds, 0–31, for each of the three held IDs. The reported minimum is 68/69, including one budget-held ID.
+
+Maximum dp_5_full time is 0.368 seconds at seed 10, below the lead's 1.5-second condition. The other maxima are 1.271 and 1.263 seconds.
+
+Stage 1 catches 46 of 49 mutants, misses one, and reports two unviable. Stage 2 catches the exact real-route miss from #324.
+
+The final result has 47 caught, two unviable, zero missed, and zero timeout. All 47 raw catches match citations and normal PASS results.
+
+No runtime FAIL, FLAKY, TIMEOUT, or RETRY result appears. The inherited ev_2 exclusion earns no catch credit. Fuzz selects no changed decoder harness.
+
+The wrapper exits 0 after 768 seconds on MS-A1, with 408 seconds queued and 360 seconds running. This gate does not validate the replacement head.
+
+The prior-art tree has no matching conformance testkit, pending lists, or held-full run. The old failed gate and local evidence retain their stated scopes.
+
+Sol-B's complete integration review, the replacement-head gate and final body, and authorized current-base delivery remain due. I ran no execution job.

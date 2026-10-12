@@ -746,3 +746,11 @@ Its exact gate passes ten steps with thirty caught and two unviable mutants. All
 Both log append paths update the hex cache under the existing lock. All nine mutants are caught. No test or gate verdict changes.
 
 Sol-B's #324 integration review and current-base delivery review remain due. I ran no execution job.
+
+#329 source is CLEAN at `b9763b0f851a029a48af3a0f495388d69683f10b`, stacked on accepted #324, branch base `2683de7c`.
+
+Two LOW findings close: the body distinguishes trial kinds, and the held-list header distinguishes strict and held-full runs.
+
+The previous `3ce9220c` gate proves all 96 trials and 47 valid catches. It does not validate the comment-repair head.
+
+Sol-B's integration source review and the replacement gate/body remain due. I ran no execution job.
