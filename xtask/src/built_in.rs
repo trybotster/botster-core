@@ -127,6 +127,25 @@ mod tests {
         );
     }
 
+    /// The command reads the tracked Rust files of the root and fails on a violation (the gate's first mutation run,
+    /// a217da82: no test caught `command` -> `Ok(())`).
+    #[test]
+    fn the_command_fails_on_a_tracked_rust_file_that_names_the_test() {
+        let allowed = vec![TEST_NAME; ALLOWED[0].1].join("\n");
+        let by_hand = format!("#[test]\nfn {TEST_NAME}() {{}}\n");
+        // A file that is not Rust is not read.
+        let clean = crate::fsutil::test_repo(&[(ALLOWED[0].0, &allowed), ("notes.md", &by_hand)]);
+        command(clean.path(), &[]).unwrap();
+        let named = crate::fsutil::test_repo(&[
+            (ALLOWED[0].0, &allowed),
+            ("crates/a/tests/t.rs", &by_hand),
+        ]);
+        assert_eq!(
+            command(named.path(), &[]).unwrap_err().to_string(),
+            "1 violation(s)"
+        );
+    }
+
     #[test]
     fn the_slow_filter_selects_the_test_by_its_exact_name() {
         // The other allowed file holds the name only for the slow tier's filter (lead, 2026-10-12).
