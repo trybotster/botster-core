@@ -415,7 +415,6 @@ conf::sz_1_resize_without_route
 conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
-conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap
 conf::tp_1_full_tap_drops_oldest_with_loss_marker_and_never_slows_the_pty
