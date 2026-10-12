@@ -193,14 +193,20 @@ fn after_write(result: io::Result<usize>, unsent: &mut Vec<u8>) -> bool {
 }
 
 /// Writes `unsent` to `end` while each write makes progress: until nothing is left, or a write takes nothing
-/// (`after_write`). Each pass drains at least one byte or ends the flush, so the loop ends.
-fn flush_into(end: &mut impl Write, unsent: &mut Vec<u8>) {
+/// (`after_write`). Each pass drains at least one byte or ends the flush, so the loop ends. Returns the count of bytes that
+/// `end` took: bytes that a lost stream discards are not counted.
+fn flush_into(end: &mut impl Write, unsent: &mut Vec<u8>) -> usize {
+    let mut moved = 0;
     while !unsent.is_empty() {
         let result = end.write(unsent);
+        if let Ok(n) = result {
+            moved += n;
+        }
         if !after_write(result, unsent) {
-            return;
+            break;
         }
     }
+    moved
 }
 
 /// The poll timeout of a wait.
@@ -341,13 +347,13 @@ impl RealRoute {
     }
 
     /// Writes the unsent bytes while the stream takes them. A failed write loses the stream's bytes, as with a lost
-    /// transport (Core OU-5).
-    fn flush(&mut self) {
+    /// transport (Core OU-5). Returns the count of bytes that the stream took.
+    fn flush(&mut self) -> usize {
         let Some(end) = self.end.as_mut() else {
             self.unsent.clear();
-            return;
+            return 0;
         };
-        flush_into(end, &mut self.unsent);
+        flush_into(end, &mut self.unsent)
     }
 
     /// One read of at most `max` bytes: a wait of `wait` for the first byte, or no wait. The stream stays nonblocking: the
@@ -496,9 +502,7 @@ impl RouteClient for RealRoute {
     /// Steward ruling R-86: the client is an independent actor. Sends the waiting bytes that the stream takes now; the
     /// worker process reads the stream on its own. True when a byte moved.
     fn progress(&mut self) -> bool {
-        let waiting = self.unsent.len();
-        self.flush();
-        self.unsent.len() < waiting
+        self.flush() > 0
     }
 
     fn has_control(&self, op: &str) -> bool {
@@ -535,23 +539,13 @@ mod slow_tests {
     /// The step deadline of the tests that must not wait: long, so that a wait shows as a failed bound.
     const LONG: Duration = Duration::from_secs(10);
 
-    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved.
+    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved. Bytes that a
+    /// lost stream discards did not move.
     #[test]
     fn progress_is_true_only_when_a_kept_byte_moves() {
-        let (mut client, mut worker) = pair();
-        assert!(!client.progress(), "nothing is kept");
-        // More than the socket buffers hold: the client keeps the rest.
-        client.write(&vec![b'x'; 4 << 20]);
-        let kept = client.unsent.len();
-        assert!(kept > 0, "the full stream keeps bytes");
-        assert!(
-            !client.progress(),
-            "the stream is still full: no byte moves"
-        );
-        assert_eq!(client.unsent.len(), kept);
-        worker.set_nonblocking(true).unwrap();
-        let mut buf = vec![0u8; 1 << 20];
-        let mut read = |worker: &mut UnixStream| {
+        // Everything that the worker's end can read now.
+        let read_all = |worker: &mut UnixStream| {
+            let mut buf = vec![0u8; 1 << 20];
             let mut n = 0;
             while let Ok(got) = worker.read(&mut buf) {
                 if got == 0 {
@@ -561,17 +555,31 @@ mod slow_tests {
             }
             n
         };
-        assert!(
-            read(&mut worker) > 0,
-            "the worker reads what the stream holds"
-        );
+        let (mut client, mut worker) = pair();
+        worker.set_nonblocking(true).unwrap();
+        assert!(!client.progress(), "nothing is kept");
+        // More than the socket buffers hold: the client keeps the rest.
+        let sent = 4 << 20;
+        client.write(&vec![b'x'; sent]);
+        assert!(!client.progress(), "the stream is full: no byte moves");
+        let mut got = read_all(&mut worker);
+        assert!(got > 0 && got < sent, "the stream took only part");
         assert!(client.progress(), "kept bytes move into the room");
-        assert!(client.unsent.len() < kept);
-        while !client.unsent.is_empty() {
-            assert!(read(&mut worker) > 0);
+        // Each pass of the worker's reads makes room, and the next progress moves more, until every byte arrived.
+        let mut passes = 0;
+        while got < sent {
+            got += read_all(&mut worker);
             client.progress();
+            passes += 1;
+            assert!(passes < 10_000, "every byte arrives");
         }
+        assert_eq!(got, sent, "the worker got every byte, once");
         assert!(!client.progress(), "nothing is kept again");
+        // A lost stream discards the kept bytes: none moved.
+        client.write(&vec![b'y'; sent]);
+        drop(worker);
+        assert!(!client.progress(), "the discarded bytes did not move");
+        assert!(!client.progress());
     }
 
     #[test]
