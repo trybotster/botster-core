@@ -159,6 +159,7 @@ impl HostEngine {
         let s = self.sessions.get_mut(id).expect("checked above");
         s.worker.link = Some(link);
         s.worker.link_failed = false;
+        s.worker.write_failed = false;
         let token = s.token.expect("an adopted row has its token");
         let instance = s.instance.clone();
         self.links.insert(link, id.clone());
@@ -345,6 +346,7 @@ impl HostEngine {
             phase: StopPhase::SendStop,
             deadline: None,
             end: None,
+            probing: false,
         });
     }
 

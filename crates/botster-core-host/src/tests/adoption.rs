@@ -1373,4 +1373,29 @@ fn only_an_adopted_failed_start_is_silent_a_threshold_after_its_adoption() {
     silent_three_seconds_after_the_adoption(&mut again, "s", adopted_at);
 }
 
+/// Steward ruling R-78 item 3, A21: an adopted worker has no exit watch, so a stop whose link is broken keeps
+/// `Lost(WorkerUnreachable)` at its grace, and the host sends no identity check. The worker is gone here, so a check would
+/// have ended the session `Lost(WorkerGone)`.
+#[test]
+fn an_adopted_worker_at_the_stop_grace_stays_unreachable() {
+    let first = crashed_before_launch("s");
+    let mut again = adopting(&first, "s", running_payload());
+    adopt_all(&mut again);
+    again.autopilot = Autopilot::Silent;
+    let worker = again.identity_of("s");
+    let link = again.link_of("s");
+    again.feed(Input::LinkClosed { link });
+    let stop = again.engine.begin(Op::Stop { id: sid("s") }).unwrap();
+    again.pump();
+    again.alive.remove(&worker);
+    again.advance(again.engine.cfg.limits.stop_grace);
+    again.pump();
+    assert_eq!(
+        again.complete(stop),
+        OpResult::Ok(OpOutput::End(SessionEnd::Lost(
+            LostReason::WorkerUnreachable
+        )))
+    );
+}
+
 mod routes;

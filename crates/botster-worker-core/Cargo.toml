@@ -20,3 +20,5 @@ botster-terminal-ghostty.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# The build-root check of the unit-test binary (bug catalog B13).
+botster-test-process.workspace = true

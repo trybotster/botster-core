@@ -476,6 +476,12 @@ impl Workers {
         }
     }
 
+    /// Tests: adds `node` to the workers' simulation, so that [`Workers::run_ready`] runs it as a worker.
+    #[cfg(test)]
+    pub(crate) fn add_node(&self, node: Box<dyn crate::sim::Node>) {
+        lock(&self.sim).add(node);
+    }
+
     /// True when a worker has ready work at the virtual clock, a PTY write waits for the next step of `pty_chunk`, or an
     /// impostor has bytes or an end of file to read.
     pub fn has_ready(&self) -> bool {
