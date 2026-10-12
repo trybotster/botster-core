@@ -95,3 +95,10 @@ The lead's decision (the same day) agrees: settle the point, no split, no replan
 ### 8adbe93741e6c5528955271cb2284309c45e50ca (merge of main 939e1acd): Q7 delta review, no finding (final CLEAN waits for its gate)
 
 Parents `f0e356ff` and main `939e1acd`. The tree `947c7831935e3567fa05812682f527461b6b9192` equals `git merge-tree`. From merge base `8ce40a0d`: the PR's five files have the same sorted +/- lines in `8ce40a0d..f0e356ff` and in `939e1acd..8adbe937`. #66's seven files have the same lines in `8ce40a0d..939e1acd` and in `f0e356ff..8adbe937`. In the shared `core-fence-exceptions.txt`, #66's removal of the `dp_5` lines and the PR's a5_2 step 74 line are both kept. Gate: running on `8adbe937`.
+
+## Final: CLEAN on 8adbe93741e6c5528955271cb2284309c45e50ca
+
+- Gate PASS on the exact head, all ten steps, exit 0 after 182 s on msa1, base main `939e1acd` (current main): `~/botster-sessions/gates/botster-contracts-p6-r88-e-a5-fences-8adbe937-pool-20261011-172748-2973.log`.
+- The pushed PR head is `8adbe937`. The Q7 delta review of its merge has no finding (above).
+- Every finding is closed: F1 (in the steward's silence form), F2, F3 part 1 (part 2 withdrawn per E3-1), 016c's stale-title MEDIUM and its sentinel-position MEDIUM (R-80 condition 3).
+- Merge-order notes for the next mergers: #73 changes `fence_lint.rs` and `core-fence-exceptions.txt`, so #73's merge after this one gets a Q7 delta review. #73's a5_2 debt lines (steps 22, 27, 94, 113) and a5_1 step 44 line refer to the old step numbers and the old fences, so #73 must reconcile them with this PR.
