@@ -139,7 +139,7 @@ fn passed_count(report: &str) -> Option<u64> {
 
 /// The selection variables of the conformance runner (`botster_conformance::Selection::from_env`). The lists step checks
 /// every id, so its runs clear them; `lists_verdict` also fails a strict run that a selection narrowed.
-const SELECTION_VARS: [&str; 3] = ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SEED"];
+pub(crate) const SELECTION_VARS: [&str; 3] = ["BOTSTER_ONLY", "BOTSTER_CLAUSE", "BOTSTER_SEED"];
 
 /// Runs the conformance binary and returns its report text.
 fn conformance_report(root: &Path, extra: &[&str], env: &[(&str, &str)]) -> Result<String> {
@@ -261,7 +261,42 @@ fn slow_job(root: &Path) -> Result<()> {
     // The pending-real trials run under the slow tier's bounds: the same deadline, process group, tracker and leftover
     // check (#220 R1-1).
     let (success, report) = test_budget::pending_real(root, test_budget::SLOW_DEADLINE)?;
-    real_report_ran(success, &report)
+    real_report_ran(success, &report)?;
+    // Each `budget` held id at every CI seed, one trial a seed: the strict run of the lists step runs it at the first seed
+    // only (lead, 2026-10-11).
+    let held = pending::parse_held(&std::fs::read_to_string(
+        root.join("conformance/core-held.txt"),
+    )?)
+    .map_err(|e| anyhow!("conformance/core-held.txt: {e}"))?;
+    let budget = pending::budget(&held).count();
+    let seeds = test_budget::ci_seed_count().context("the CI seed set is a range")?;
+    let (success, report) = test_budget::held_full(root, test_budget::SLOW_DEADLINE)?;
+    held_full_ran(success, &report, budget, seeds)
+}
+
+/// The verdict on the held-full run: the binary succeeded (each `budget` held id passed at each seed; a failed trial names
+/// its seed), and its report line shows every `budget` id of `core-held.txt` (`budget`) at every seed of the CI set
+/// (`seeds`). A harness that ignores the variable gives no line; a selection gives fewer ids or seeds.
+fn held_full_ran(success: bool, report: &str, budget: usize, seeds: usize) -> Result<()> {
+    if !success {
+        bail!("the held-full run failed: a `budget` held id failed at a seed (its trial names the seed)");
+    }
+    let line = report
+        .lines()
+        .find_map(|l| l.strip_prefix("conformance held-full: ran "))
+        .context("the held-full run gave no `conformance held-full:` report")?;
+    let numbers: Vec<usize> = line
+        .split(|c: char| !c.is_ascii_digit())
+        .filter(|w| !w.is_empty())
+        .map(|w| w.parse().expect("digits"))
+        .collect();
+    let [ran, at] = numbers[..] else {
+        bail!("the held-full report line is not `ran B budget ids at S seeds, one trial a seed`: {line}");
+    };
+    if (ran, at) != (budget, seeds) {
+        bail!("the held-full run ran {ran} budget ids at {at} seeds; core-held.txt has {budget} and the CI set {seeds} seeds");
+    }
+    Ok(())
 }
 
 /// The verdict on the run of the real tier's pending-real ids: the binary succeeded and printed its report, with the count
@@ -1490,6 +1525,41 @@ mod tests {
         assert!(real_report_ran(true, no_pending_line).is_err());
         let no_count_line = report.lines().nth(1).unwrap();
         assert!(real_report_ran(true, no_count_line).is_err());
+    }
+
+    /// The held-full run passes only with a success and a report line of every `budget` id at every CI seed.
+    #[test]
+    fn the_held_full_run_passes_only_with_every_budget_id_at_every_seed() {
+        let report = "x\nconformance held-full: ran 2 budget ids at 32 seeds, one trial a seed\n";
+        assert!(held_full_ran(true, report, 2, 32).is_ok());
+        let failed = held_full_ran(false, report, 2, 32).unwrap_err().to_string();
+        assert!(failed.contains("failed at a seed"), "{failed}");
+        let none = held_full_ran(true, "conformance strict: ran 3 of 3 pending ids", 2, 32)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            none.contains("no `conformance held-full:` report"),
+            "{none}"
+        );
+        for (budget, seeds) in [(1, 32), (3, 32), (2, 1), (2, 33)] {
+            let narrowed = held_full_ran(true, report, budget, seeds)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                narrowed.contains(&format!(
+                    "ran 2 budget ids at 32 seeds; core-held.txt has {budget} and the CI set {seeds} seeds"
+                )),
+                "{narrowed}"
+            );
+        }
+        let malformed = "conformance held-full: ran 2 budget ids\n";
+        assert!(held_full_ran(true, malformed, 2, 32)
+            .unwrap_err()
+            .to_string()
+            .contains("is not `ran B budget ids at S seeds"));
+        // No budget id: the run passes with an empty line of trials.
+        let empty = "conformance held-full: ran 0 budget ids at 32 seeds, one trial a seed\n";
+        assert!(held_full_ran(true, empty, 0, 32).is_ok());
     }
 
     #[test]

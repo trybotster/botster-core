@@ -10,8 +10,9 @@
 //!   transcript must-pass and only the testkit tier does not (lead, 2026-10-11, after R-55).
 //! - **held**: `conformance/core-held.txt` lists a pending id that passes but stays pending, with its reason class, owner and
 //!   authority. A held id must pass: a held id that fails is an error, so the list cannot go stale. A `budget` id is over the
-//!   time budget, so the strict run runs it at the first seed of the set only (lead, 2026-10-09): its full-seed proof is
-//!   missing, and the held file says so.
+//!   time budget, so the strict run runs it at the first seed of the set only (lead, 2026-10-09). Its full-seed proof is the
+//!   held-full run of the gate's slow step ([`HELD_FULL_ENV`]): there it runs at every seed of the set, one trial a seed,
+//!   and must pass at each (lead, 2026-10-11). Its line names that proof ([`BUDGET_PROOF`]).
 //!
 //! Formats (`core-real-only.txt` and `core-real-proofs.txt`: one tab between the fields, as the suite reads them;
 //! `core-held.txt`: fields separated by two or more spaces, as in `status`):
@@ -28,6 +29,14 @@ use std::collections::BTreeSet;
 /// The environment variable that turns the conformance harness into the strict pending run. `cargo xtask ci` sets it in
 /// its `lists` step.
 pub const STRICT_ENV: &str = "BOTSTER_PENDING_STRICT";
+
+/// The environment variable that turns the strict pending run into the held-full run: each `budget` held id runs at every
+/// seed of the set, one trial a seed, and no other id runs. `cargo xtask ci` sets it, with [`STRICT_ENV`], in its `slow` step.
+pub const HELD_FULL_ENV: &str = "BOTSTER_PENDING_HELD_FULL";
+
+/// The text that a `budget` line of `core-held.txt` contains in its `because:` field: its full-seed proof is the held-full
+/// run (lead, 2026-10-11: a machine check, so that the rule cannot drift).
+pub const BUDGET_PROOF: &str = "Full-seed proof: the gate's slow step, held-full run";
 
 /// A Core id whose proof in the pinned replacement map is `slow:*`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,7 +70,8 @@ impl RealProof {
 /// The reason class of a held id. `real-only` is not a class of the held file: those ids come from the replacement map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HeldReason {
-    /// The id passes, but over the default-tier time budget. It runs at the first seed only.
+    /// The id passes, but over the default-tier time budget. The strict run runs it at the first seed only; the held-full
+    /// run of the slow step runs it at every seed.
     Budget,
     /// The id passes on the testkit, but that pass does not prove the clause; the line names the missing proofs. It runs at
     /// every seed, and its line leaves the file in the PR that adds the last missing proof (lead, 2026-10-09).
@@ -204,6 +214,11 @@ pub fn parse_held(text: &str) -> Result<Vec<Held>, String> {
             let owner = nonempty(owner.strip_prefix("owner: "), "`owner: <package>`")?;
             let authority = nonempty(clause(authority), "the authority in parentheses")?;
             let because = nonempty(because.strip_prefix("because: "), "`because:`")?;
+            if reason == HeldReason::Budget && !because.contains(BUDGET_PROOF) {
+                return Err(format!(
+                    "line {line}: a `budget` line names its full-seed proof: `because:` contains `{BUDGET_PROOF}`"
+                ));
+            }
             Ok(Held {
                 id: id.to_string(),
                 reason,
@@ -327,6 +342,23 @@ pub fn seeds_of(class: &Class, seeds: &[u64]) -> Vec<u64> {
     }
 }
 
+/// The `budget` held ids: the ids of the held-full run.
+pub fn budget(held: &[Held]) -> impl Iterator<Item = &Held> {
+    held.iter().filter(|h| h.reason == HeldReason::Budget)
+}
+
+/// The result of a `budget` held id's trial at one `seed` of the held-full run: [`verdict`], with the seed named.
+pub fn held_full_verdict(
+    id: &str,
+    seed: u64,
+    class: &Class,
+    passed: bool,
+) -> Result<String, String> {
+    verdict(id, class, passed)
+        .map(|note| format!("seed {seed}: {note}"))
+        .map_err(|error| format!("seed {seed}: {error}"))
+}
+
 /// The strict result of a pending id that ran on the testkit: `Ok(note)` when its result is the expected one, else the error.
 pub fn verdict(id: &str, class: &Class, passed: bool) -> Result<String, String> {
     match (class, passed) {
@@ -350,7 +382,7 @@ mod tests {
     use super::*;
 
     const HELD: &str = "# a comment\n\
-        conf::slow_query  budget  owner: p4b-queries-files (unstaffed)  (lead, 2026-10-09)  because: 2.005 s, over 2 s\n";
+        conf::slow_query  budget  owner: p4b-queries-files (unstaffed)  (lead, 2026-10-09)  because: 2.005 s, over 2 s. Full-seed proof: the gate's slow step, held-full run\n";
 
     fn ids(list: &[&str]) -> BTreeSet<String> {
         list.iter().map(|s| s.to_string()).collect()
@@ -396,7 +428,8 @@ mod tests {
                 reason: HeldReason::Budget,
                 owner: "p4b-queries-files (unstaffed)".into(),
                 authority: "lead, 2026-10-09".into(),
-                because: "2.005 s, over 2 s".into(),
+                because: "2.005 s, over 2 s. Full-seed proof: the gate's slow step, held-full run"
+                    .into(),
             }]
         );
         let bad = |line: &str| parse_held(line).unwrap_err();
@@ -414,6 +447,15 @@ mod tests {
         assert!(bad("conf::a  budget  owner: p  ( )  because: y\n").contains("authority"));
         assert!(bad("conf::a  budget  owner:   (x)  because: y\n").contains("owner"));
         assert!(bad("conf::a  budget  owner: p  (x)  because: \n").contains("because"));
+        // A `budget` line names its full-seed proof; an `unproven` line needs no such text.
+        assert_eq!(
+            bad("conf::a  budget  owner: p  (x)  because: y\n"),
+            "line 1: a `budget` line names its full-seed proof: `because:` contains `Full-seed proof: the gate's slow step, held-full run`"
+        );
+        assert!(
+            bad("conf::a  budget  owner: p  (x)  because: Full-seed proof: missing\n")
+                .contains("names its full-seed proof")
+        );
     }
 
     /// A held id is pending, once, has a transcript, and is not real-only.
@@ -625,6 +667,33 @@ mod tests {
         assert_eq!(
             seeds_of(&Class::RealOnly(real("conf::lock")), &[3, 4]),
             [3, 4]
+        );
+    }
+
+    /// The held-full run takes the `budget` lines only.
+    #[test]
+    fn the_held_full_run_takes_the_budget_lines() {
+        let held = parse_held(&format!(
+            "conf::b  unproven  owner: p  (x)  because: y\n{HELD}"
+        ))
+        .unwrap();
+        let ids: Vec<&str> = budget(&held).map(|h| h.id.as_str()).collect();
+        assert_eq!(ids, ["conf::slow_query"]);
+    }
+
+    /// A trial of the held-full run names its seed: a held id that passes there is the expected result, and one that fails
+    /// is an error at that seed.
+    #[test]
+    fn a_held_full_trial_names_its_seed() {
+        let held = parse_held(HELD).unwrap();
+        let class = class_of("conf::slow_query", &[], &held);
+        assert_eq!(
+            held_full_verdict("conf::slow_query", 7, &class, true),
+            Ok("seed 7: held (Budget, owner p4b-queries-files (unstaffed)): passes and stays pending".to_string())
+        );
+        assert_eq!(
+            held_full_verdict("conf::slow_query", 7, &class, false),
+            Err("seed 7: conf::slow_query is held but failing: remove its line from conformance/core-held.txt (it stays pending), or fix it".to_string())
         );
     }
 

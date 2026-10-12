@@ -86,10 +86,13 @@ exclude_re = [
     # the slow-only test check (slow_coverage::command, which prints "slow-coverage: N slow-only tests checked"), then
     # the check that each named real-process proof passed in that run (real_proofs::check_slow_run, which prints
     # "real-proofs: N named proofs checked"), then the real-tier conformance binary under `--ignored` with the slow tier's
-    # bounds (test_budget::pending_real; the ids of core-real-pending.txt, plan 23l), and prints its report;
-    # a test cannot run the slow tier inside the test run. Only this whole-body replacement is excluded. A body replaced by
-    # Ok(()) prints no slow summary and no "real conformance: pending-real" line, which every gate log of the step shows. Its
-    # decision is the tested real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report).
+    # bounds (test_budget::pending_real; the ids of core-real-pending.txt, plan 23l), and prints its report; then the
+    # held-full run of the testkit conformance binary (test_budget::held_full; each `budget` id of core-held.txt at every CI
+    # seed, lead 2026-10-11); a test cannot run the slow tier inside the test run. Only this whole-body replacement is
+    # excluded. A body replaced by Ok(()) prints no slow summary, no "real conformance: pending-real" line and no
+    # "conformance held-full:" line, which every gate log of the step shows. Its decisions are the tested real_report_ran
+    # (the_pending_real_run_passes_only_with_a_success_and_its_report) and held_full_ran
+    # (the_held_full_run_passes_only_with_every_budget_id_at_every_seed).
     'xtask/src/ci\.rs:\d+:\d+: replace slow_job -> Result<\(\)> with Ok\(\(\)\)$',
     # xtask lists.rs command -> Ok(()): process glue. The body reads the lists, the pinned ledger, the status copies, the
     # replacement map and the base ref's files, and prints the verdict; a test cannot run it on the workspace. Only this
@@ -212,6 +215,18 @@ exclude_re = [
     # run. Only this whole-body replacement is excluded. Its decision is the tested real_report_ran
     # (the_pending_real_run_passes_only_with_a_success_and_its_report), and every gate's slow step runs it.
     'xtask/src/test_budget\.rs:\d+:\d+: replace pending_real -> ', # 4 mutants
+    # xtask test_budget.rs held_full -> a value: process glue. The body builds the command of the held-full run (`cargo test
+    # -p botster-core --test conformance` with the strict and held-full variables, lead 2026-10-11) and runs it with
+    # bounded_conformance; a test cannot run the conformance binary inside the test run. Only this whole-body replacement is
+    # excluded. Its decision is the tested held_full_ran (the_held_full_run_passes_only_with_every_budget_id_at_every_seed),
+    # and every gate's slow step runs it.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace held_full -> ', # 4 mutants
+    # xtask test_budget.rs bounded_conformance -> a value: process glue. The body checks the caps, empties its pid file in
+    # the slow tier's directory and runs it with bounded_report; a test cannot run a conformance binary inside the test run.
+    # Only this whole-body replacement is excluded. Its callers are pending_real and held_full. Their decisions are the tested
+    # real_report_ran (the_pending_real_run_passes_only_with_a_success_and_its_report) and held_full_ran
+    # (the_held_full_run_passes_only_with_every_budget_id_at_every_seed); every gate's slow step runs it.
+    'xtask/src/test_budget\.rs:\d+:\d+: replace bounded_conformance -> ', # 4 mutants
     # xtask test_budget.rs command -> Ok(()): process glue. The body builds and runs a nextest tier with run_nextest,
     # removes the tier's earlier JUnit file, kills the leftovers and prints the budget report; a test cannot run a nextest
     # tier inside the test run. Only this whole-body replacement is excluded. A body replaced by Ok(()) prints no
