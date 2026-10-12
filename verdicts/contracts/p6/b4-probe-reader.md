@@ -21,3 +21,15 @@ Base: main `32d36828e1a26749b37d8530348147fc4bd01a4b`. Three commits, no merge. 
 Body note, not a finding: in "Evidence", the macOS bullet and "**Measured before and after**" run together on one line (no line break after the macOS log path).
 
 No finding. CLEAN on `09a1dd7eee03635a7334f79c8dc2b36528ddc159`.
+
+016c's package review: ACCEPT on `09a1dd7e`.
+
+## Final merge receipt: CLEAN on 8dabe804fae15c59428846e4fe086a4953b88109 (the steward's base merge)
+
+- The parents are main `7ed9df37fef76742e73b096e34b554da47afa064` and the reviewed head `09a1dd7eee03635a7334f79c8dc2b36528ddc159`.
+- The tree `24768d88fb3e69a6f18a416e1c5be7d69569b582` equals `git merge-tree --write-tree 7ed9df37 09a1dd7e`.
+- Main's changes since `32d36828` (final42 `3acaf781`, R-109 `7ed9df37`) touch no path of `botster-conformance-probe`.
+- `git patch-id --stable` of #95's own diff is `ff173292…` against both `32d36828` and `7ed9df37`.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 185 s on gaming, base main `7ed9df37`, "ledger ok: 2550 ids"; mutants 7 tested, 7 caught: `~/botster-sessions/gates/botster-contracts-detached-8dabe804-8dabe804-pool-20261012-113517-96541.log`.
+
+CLEAN on `8dabe804fae15c59428846e4fe086a4953b88109`. Main may fast-forward to it if main is still `7ed9df37`.
