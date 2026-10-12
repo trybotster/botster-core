@@ -25,14 +25,3 @@ diagnosis = "R-107/R107-SI-2: .44 ev_2 has no fence between the s67 title write 
 signature = { step = "slow", symptom = "step_timeout", seed = "any", text = "step=71 limit=step_timeout" }
 owner = "RC"
 removed_by = "#316"
-
-# Core lead, 2026-10-12: a real-tier race of the transcript (PC sweep: LIVE, worker model.rs:394). The gate of #306 on
-# 2fa58b79 failed with it ("INCONCLUSIVE conf::in_8_mode_checked_at_write_start_by_worker seed=0 step=8
-# limit=step_timeout"). The fix is contracts #79 (3d32e06), which the contracts-v0.1.44 pin brings.
-[[flaky]]
-binary = "botster-core::slow_conformance"
-test = "conf::in_8_mode_checked_at_write_start_by_worker"
-diagnosis = "real-tier race of the transcript at step 8 (PC sweep: LIVE, worker model.rs:394); fix contracts #79 3d32e06"
-signature = { step = "slow", symptom = "step_timeout", seed = "any", text = "step=8 limit=step_timeout" }
-owner = "PC"
-removed_by = "contracts-v0.1.44 pin"

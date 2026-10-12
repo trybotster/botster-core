@@ -576,9 +576,9 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12), which #316
-    /// removes, and the in_8 real-tier race (Core lead, 2026-10-12), which the contracts-v0.1.44 pin removes. #243 removed
-    /// the ev_5 flake's cause and entry. The Stage 1 exit needs the list empty.
+    /// The repository's list parses, and it holds only the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12), which
+    /// #316 removes. #243 removed the ev_5 flake's cause and entry. The contracts-v0.1.44 pin (#312) brought the in_8 fix,
+    /// contracts #79, so it removed the in_8 entry. The Stage 1 exit needs the list empty.
     #[test]
     fn the_repository_list_holds_only_the_ev_2_flake() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -591,18 +591,11 @@ removed_by = "#243"
             .collect();
         assert_eq!(
             names,
-            [
-                (
-                    "botster-core::slow_conformance",
-                    "conf::ev_2_mandatory_and_keyed_never_dropped",
-                    "#316"
-                ),
-                (
-                    "botster-core::slow_conformance",
-                    "conf::in_8_mode_checked_at_write_start_by_worker",
-                    "contracts-v0.1.44 pin"
-                )
-            ]
+            [(
+                "botster-core::slow_conformance",
+                "conf::ev_2_mandatory_and_keyed_never_dropped",
+                "#316"
+            )]
         );
     }
 }
