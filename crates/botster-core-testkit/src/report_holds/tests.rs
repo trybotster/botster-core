@@ -373,8 +373,17 @@ fn the_end_waits_behind_the_hold_and_a_partial_frame_goes_out_before_it() {
         drain(&mut holds, &mut inner, 64),
         (Vec::new(), would_block())
     );
+    assert!(holds.withholds(LINK), "the frame and the end wait");
+    assert!(!holds.gives());
     holds.release_worker_report(&instance()).unwrap();
-    assert_eq!(drain(&mut holds, &mut inner, 64), (other(1), None));
+    assert!(!holds.withholds(LINK));
+    let mut buf = vec![0u8; 64];
+    let n = holds.recv(LINK, &mut buf, |b| inner.recv(b)).unwrap();
+    assert_eq!(buf[..n], other(1)[..]);
+    // The end is read: the edge gives it now, with no hold before it (#315 B315-I1).
+    assert!(holds.gives(), "the end waits for the driver");
+    assert_eq!(holds.recv(LINK, &mut buf, |_| unreachable!()).unwrap(), 0);
+    assert!(!holds.gives());
 
     let mut holds = ReportHolds::default();
     holds.hold_worker_report(InstanceId("9-9".into())).unwrap();

@@ -1879,8 +1879,9 @@ mod slow_controls {
                     }
                 }
             }
+            // The bound holds for a host that keeps reporting more work too.
+            assert!(!deadline.expired(), "the op {op:?} never completed");
             if !report.more {
-                assert!(!deadline.expired(), "the op {op:?} never completed");
                 // timer: deadline — the cleanup bound ends a host that never completes the op.
                 wake.wait(deadline.remaining());
             }

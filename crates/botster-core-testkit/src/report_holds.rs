@@ -413,10 +413,21 @@ impl ReportHolds {
         None
     }
 
-    /// Whether this host's edge holds anything that it would give the driver now: free bytes, or a free exit.
+    /// Whether this host's edge holds anything that it would give the driver now: free bytes, an end with no hold before it,
+    /// or a free exit.
     pub fn gives(&self) -> bool {
-        self.links.values().any(|link| link.free() > 0)
+        self.links
+            .values()
+            .any(|link| link.free() > 0 || (link.holding.is_none() && link.end.is_some()))
             || self.exits.iter().any(|(id, _)| !self.exit_waits(*id))
+    }
+
+    /// Whether a hold holds a frame of `link`: its later bytes and its end wait behind the frame, so they are no report, and
+    /// a zero-wait probe of the link (the real tier's `Tap::quiet`) must not read them.
+    pub fn withholds(&self, link: LinkId) -> bool {
+        self.links
+            .get(&link)
+            .is_some_and(|link| link.holding.is_some())
     }
 
     /// A pump begins (the driver asks `ChoicePoint::PumpBound`). Each `scheduler_delay` hold counts it, and the hold whose
