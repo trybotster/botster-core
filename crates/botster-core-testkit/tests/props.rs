@@ -11,6 +11,9 @@ use botster_core_testkit::sock_diag;
 /// Cases of the default tier. The seed is pinned by `cargo xtask` through `BOLERO_RANDOM_SEED` (bolero has no API for it).
 const CASES: usize = 256;
 
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();
+
 /// The frame ends of `bytes` by a second, whole-input reading: a 4-byte big-endian length, then that many bytes.
 fn reference_ends(bytes: &[u8]) -> Vec<u64> {
     let mut ends = Vec::new();
