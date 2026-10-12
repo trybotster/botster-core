@@ -2,6 +2,10 @@
 
 ## Current Core PR #308 result
 
+GS-FS-R1-1 LOW is closed on the unchanged exact head `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`. I read the corrected complete body.
+
+Open source findings: 0. The completed gate remains required before final CLEAN. I accept no gate result yet.
+
 NOT CLEAN at `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. One LOW body finding is open.
 
 GS-FS-R1-1 requires an accurate description of the twelve refusal cases. No parser or filter defect is found. The named schema follows the lead's revised form.
@@ -17,6 +21,12 @@ Sol-B relays the lead's instruction `msg_plugin-w_1791782721_1fa4f3` to replace 
 The initial source and body are read. No CLEAN is issued. Wait for the revised exact head. I ran no execution job.
 
 ## Current Core PR #306 result
+
+Source delta CLEAN at `2fa58b79291f44023778a8a53f8bd05387e93cfb`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
+
+Eleven existing slow-only targets now require the slow feature. The default tier stops building their empty binaries. The slow tier retains their tests and root macros.
+
+The c69cbcb8 gate fails presence on those eleven binaries. That failure remains recorded. New-head gate evidence and integration review remain pending.
 
 Source delta CLEAN at `c69cbcb85e5d173468703bdea45bb3a325e87366`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
 

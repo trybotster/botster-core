@@ -3358,3 +3358,54 @@ The prior source delta remains CLEAN. The original Mac proof and local reversal 
 This receipt accepts #304 on the frozen train head. The lead must complete the train record and verify the final base tree and push before declaring the train merged.
 
 I ran no execution job.
+
+## Core #308 — body finding closure
+
+Exact head remains `0a9a6cdedd9abb619a65a225bd0bf3d5594a2a9f`. Base remains `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+I read the complete amended body. GS-FS-R1-1 LOW is closed. The paragraph now names the twelve selected refusal cases.
+
+The paragraph explicitly states that non-string symptom and text values have no separate cases. It correctly identifies the shared string reader.
+
+Open source findings: 0. The completed gate remains required before final CLEAN. This closure accepts no gate result.
+
+## Core #306 — slow target manifest delta
+
+- Exact head: `2fa58b79291f44023778a8a53f8bd05387e93cfb`.
+- Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- VERDICT: CLEAN (source delta only; gate evidence pending).
+- Open source findings: 0.
+
+I read the complete five-manifest delta, all eleven affected file headers and root macro entries, and the tier selection code.
+
+Each affected file already has `#![cfg(feature = "slow")]`. Each contains the approved root macro. Each owning package declares the slow feature.
+
+The manifest adds `required-features = ["slow"]` to each named test target. The default tier stops building empty binaries for those targets.
+
+The slow tier enables each package's slow feature and selects the slow binaries. Mutation stage 2 enables the same package features.
+
+The repair removes no previously executable default-tier test. Every affected file was empty in that tier. The slow-tier test bodies and selections remain unchanged.
+
+The proof citation checker reads required target features as feature conditions. These entries preserve the existing file-level slow condition.
+
+No target is deleted or renamed. No product dependency, gate decision, root macro, timeout, mutation exclusion, or pending list changes.
+
+The earlier repaired-head gate remains failed: `gates/botster-core-stage1-gs-built-in-coverage-c69cbcb8-pool-20261011-221807-53060.log`.
+
+Its slow tests pass, but presence reports the eleven empty default-tier binaries. The slow step fails at 48.9 seconds with eleven violations.
+
+Mutants and fuzz do not run. The job and wrapper exit 1 after 586 seconds, with 469 seconds queued and 117 seconds running.
+
+That result demonstrates the retained empty-binary rejection. This manifest repair changes target availability rather than weakening that rejection.
+
+The implementer reports a gate running on the new head. Local list checks remain implementer reports. No completed new-head gate is accepted here.
+
+The gate, mutation results, timing comparison, required evidence, final body, and integration receipt remain pending. The accepted manual name rule and stale-library limit remain.
+
+## Core #304 — train body receipt
+
+I read the complete amended #304 body. The frozen member remains `37e5ee32d326f588676b6fc727ad52c86022de61`.
+
+Its train section records head `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, tree, base, review receipts, and the completed train gate.
+
+The stated DP-2 proof results and gate counts match the reviewed log. The composed-proof limit remains. No finding changes.
