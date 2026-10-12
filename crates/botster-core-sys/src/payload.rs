@@ -221,6 +221,22 @@ impl Payload {
         let _ = crate::signal::signal_group(self.pid, signal);
     }
 
+    /// Sets the PTY's window size (`TIOCSWINSZ`): `rows` and `cols`, and the window's pixel size (0 when unknown). The kernel
+    /// sends `SIGWINCH` to the PTY's foreground process group.
+    ///
+    /// # Errors
+    /// The OS error of the `ioctl`.
+    pub fn resize(&self, rows: u16, cols: u16, xpixel: u16, ypixel: u16) -> io::Result<()> {
+        let pty = self.pty.as_ref().expect("the payload master is open");
+        pty.resize(pty_process::Size::new_with_pixel(
+            rows, cols, xpixel, ypixel,
+        ))
+        .map_err(|error| match error {
+            pty_process::Error::Io(e) => e,
+            pty_process::Error::Rustix(e) => io::Error::from_raw_os_error(e.raw_os_error()),
+        })
+    }
+
     /// Reaps the leader, after its group kill. It consumes the payload: no signal can follow. It is the drop: the group
     /// kill of the drop finds no process left, and the leader has exited (the watch reported it), so the wait returns at
     /// once.

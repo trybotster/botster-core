@@ -17,7 +17,7 @@
 use crate::controls::{parse, session_row, ControlRegistry};
 use crate::harness::TestkitHarness;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::{ColorProfile, Op, SessionId, Size};
+use botster_core_contract::prelude::{ColorProfile, Event, Op, SessionId, Size};
 use botster_route_codec::prelude::{hex_decode, hex_encode, HexBytes};
 use botster_terminal_ghostty::{
     encode_focus_with_modes, encode_key_with_modes, encode_mouse_with_modes,
@@ -57,7 +57,8 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
 ///
 /// Each tier records at the point where its host begins the op (the testkit's `TestkitCore`, the real tier's capture
 /// layer), before Core admits it. The record stays correct when a resize reaches the worker, because the op still enters
-/// there.
+/// there. A route's `resize` (Core DP-6) enters on the route, not at the host, so each tier also records the session at
+/// its `SizeChanged` as the event passes the same layer's `poll_events`: an O_raw read after that event is refused.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Changed(BTreeSet<SessionId>);
 
@@ -69,7 +70,14 @@ impl Changed {
         }
     }
 
-    /// `Ok` unless a `Resize` or a `SetColorProfile` reached `session`.
+    /// The host reports `event`: a `SizeChanged` session changed its size, from a host `Resize` or the size policy.
+    pub(crate) fn observed(&mut self, event: &Event) {
+        if let Event::SizeChanged { id, .. } = event {
+            self.0.insert(id.clone());
+        }
+    }
+
+    /// `Ok` unless a `Resize` or a `SetColorProfile` reached `session`, or its size changed.
     pub(crate) fn check(&self, session: &SessionId) -> Result<(), ControlError> {
         if self.0.contains(session) {
             return Err(ControlError::UnsupportedFor(SIZE_OR_PROFILE_CHANGED.into()));

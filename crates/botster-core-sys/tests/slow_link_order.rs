@@ -102,3 +102,6 @@ fn the_read_gives_the_ended_peers_frame_before_the_end_and_a_send_then_fails() {
         assert!((&host).write(b"kill").is_err(), "unread {unread}");
     }
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

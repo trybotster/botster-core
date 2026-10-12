@@ -1045,3 +1045,6 @@ fn a_large_tail_streams_and_replays_before_the_status() {
     assert_eq!(joined(logs, 0), bytes);
     assert_eq!(status, &Sent::Report(Report::Status(rig.g.status())));
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();
