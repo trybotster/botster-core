@@ -756,3 +756,47 @@ fn a_protected_entry_is_within_its_share_of_the_facts_reply_bound() {
     assert!(longest > 12 * u64::from(tag_bytes), "the tags are escaped");
     assert!(largest_status_update() <= PROTECTED_ENTRY_FIXED);
 }
+
+/// Steward ruling R-117: the room of a newest host record beside the client pair is exact. While the client record is
+/// pending, the room of its status update is kept; once its status update exists, its own length counts. A cut payload
+/// fills the room to within one byte (hex is two characters a byte).
+#[test]
+fn the_room_of_a_host_record_beside_the_client_pair_is_exact() {
+    let t0 = start();
+    let bound = 1280;
+    let mut facts = Facts::new(1, &limits(64, bound), t0);
+    let client_id = facts
+        .received(t0, client(), Content::Payload(&bytes(&[7; 200])))
+        .unwrap();
+    let check = |facts: &mut Facts| -> RecordId {
+        let client = facts.client;
+        let pair: Vec<u64> = facts
+            .entries
+            .iter()
+            .filter(|k| Some(k.record) == client)
+            .map(|k| k.len)
+            .collect();
+        let update = if pair.len() == 1 {
+            facts.status_room
+        } else {
+            0
+        };
+        let other = pair.iter().sum::<u64>() + update + 2;
+        let room = bound - 3 - facts.status_room - other;
+        let id = host_write(facts, t0, &[9; 256]);
+        let kept = facts.entries.back().unwrap();
+        assert!(record(&kept.entry).payload_truncated);
+        assert!(
+            kept.len <= room && room - kept.len <= 1,
+            "{} vs {room}",
+            kept.len
+        );
+        id
+    };
+    let first = check(&mut facts);
+    facts.ended(client_id, InputRecordState::Written, Some(200));
+    facts.ended(first, InputRecordState::Written, Some(256));
+    let second = check(&mut facts);
+    facts.ended(second, InputRecordState::Written, Some(256));
+    assert!(facts.list_len() <= bound);
+}
