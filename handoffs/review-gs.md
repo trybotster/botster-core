@@ -8,7 +8,9 @@ The three named proofs cover the approved DP-2 clause map. The new EOF assertion
 
 Linux gate and focused Mac proofs pass. The local reversal's cleanup is an after-run owner statement; no original clean record exists. The verdict states that limit.
 
-Sol-B's same-head review remains due. Then the final-slot flow requires the current-base import and exact-head final gate.
+Sol-B publishes same-head CLEAN in `24dc5fc8188f8c055073d821bdee04e5874867d9`. Both reviews have zero findings.
+
+The final-slot flow requires the current-base import, applicable review, exact-head final gate, and final body.
 
 ## Current Core PR #293 result
 

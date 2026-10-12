@@ -2973,3 +2973,11 @@ The prior-art search at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` supp
 No product code, mutation exclusion, timeout, seed, or gate verdict rule changes. Sol-B must complete the HIGH integration review.
 
 This CLEAN applies only to the exact head above. The final-slot import and required final gate remain due after both reviews. I ran no execution job.
+
+Sol-B publishes integration CLEAN in `24dc5fc8188f8c055073d821bdee04e5874867d9`, at `verdicts/stage1/gs-dp2-real-proof.md`.
+
+I read the complete artifact and verified publication. Both reviews have zero findings at `37e5ee32d326f588676b6fc727ad52c86022de61`, against base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+
+Both reviews retain the composed-proof limit and the local reversal's after-run provenance statement. Neither claims independent local cleanup verification.
+
+The final-slot import, applicable base review, exact-head final gate, and final body remain due. This receipt accepts no later head. I ran no execution job.
