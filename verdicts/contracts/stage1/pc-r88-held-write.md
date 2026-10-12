@@ -30,3 +30,12 @@ R-74 (`docs/steward-rulings.md:313`): "FakeCore stays frozen … The held-write 
 - **Merge of main `6fdfc413` (Q7): disjoint, no finding.** The tree `cf1acb6862cd46f3b38e9499bd55c3da1550e4d9` equals `git merge-tree d9cb11be 6fdfc413`. `git patch-id --stable` of the PR's own diff is `3420b363255c39afc72a38e24f1817cf8742e3a7` against both bases. PC's script and log: `shared/core-stage1/evidence/pc-r88-held-write/q7-merge-main-6fdfc413.log`.
 - **Gate PASS on the exact head**, all ten steps, exit 0 after 410 s on msa1, base main `6fdfc413` (current main): `~/botster-sessions/gates/botster-contracts-stage1-pc-r88-held-write-c284e82c-pool-20261011-175745-13986.log`.
 - **Still to come:** the Linux per-seed Core job (in_9 and tm_6_begin, seeds 0-7, and the in_9 red-on-revert) with `c284e82c`'s transcripts, which the READY announced. in_9 is live on both Core tiers, so I give the final CLEAN when its log is in the PR body.
+
+## Final: CLEAN on c284e82c51aaaed2e1d14f66a1510c3931a6bf97
+
+- Linux per-seed log: `~/botster-sessions/shared/core-stage1/evidence/pc-r88-held-write/r88-linux-c284e82c.log` (msa1, Linux 6.12.111, Core `69d41499`). The job's sha256 of each of the three transcripts (`resolve-linux-job.out`) equals `c284e82c`'s blob (`d6f2f0c6…`, `fd1612b6…`, `2c830106…`; I computed them from git).
+  - in_9: seeds 0-7, each alone, 8 of 8 PASS on the real tier. tm_6_begin: 8 of 8 PASS.
+  - Red on revert, with the scratch delay: this PR's in_9 PASS; the `.41` in_9 is INCONCLUSIVE at `seed=0 step=8 limit=step_timeout` (log lines 216-218).
+  - Run 1 failed at its clone (no network) before any test, so it is not a run.
+- Gate PASS on the exact head (round 2), base main `6fdfc413`, which is still current main.
+- Every finding is closed. #73 (final CLEAN on `fa1b7620`) still has PC-owned debt lines for `tm_6_begin` (steps 20-23) and `in_6_refused_full` (step 9). Whichever of #73 and #77 merges second removes them, and I review that delta.
