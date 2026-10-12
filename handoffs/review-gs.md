@@ -2,6 +2,14 @@
 
 ## Current Core PR #306 result
 
+Early package source CLEAN at `354c59e78e2232543b06a4705e968fba60daed5f`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open source findings: 0.
+
+The binary inventory preserves empty suites. The public name constant is removed. The lead accepts the remaining name-rule limit with a mandatory manual review rule.
+
+The macro doc, PR body, and pair-common rule satisfy the lead's conditions. The #299 import, ordinary gate, timing, and required evidence remain pending.
+
+This verdict is source-only. It supplies no completed gate result for the amended head.
+
 Early source review is NOT CLEAN at `4d49be0b70a5193ee96c57a84f29fb9ede56b8b6`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
 
 Two HIGH findings remain. An empty listed binary disappears from presence. A constant-based custom trial passes without executing the build-root check.

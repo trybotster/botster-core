@@ -3061,3 +3061,50 @@ I read the complete artifact. Its two required closures agree with this source r
 The prior-art search at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` supplies no build-root macro or nextest presence proof.
 
 Both findings must close on an exact head before CLEAN. I ran no gate, build, test, diagnostic, or executable probe.
+
+### Core PR #306: source repairs and accepted design limit
+
+- Head: `354c59e78e2232543b06a4705e968fba60daed5f`.
+- Base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+- VERDICT: CLEAN (early package source review only).
+- Open source findings: 0.
+
+I read the complete four-file repair at 4649a610 and the following one-file documentation commit. GitHub confirms the amended exact head and unchanged base.
+
+GS-BC-R1-1 HIGH is closed. The parser now returns a `List` with a binary set and a separate test map.
+
+The binary set comes from every suite key, including a listed suite with zero testcases. Presence checks that set rather than reconstructing it from tests.
+
+The new fixture combines an empty anchor and a valid binary. It requires exactly one violation naming the empty anchor. Other tests cannot hide it.
+
+The overall empty-list rejection remains. Slow-only, proof, and known-flaky checks still use the same testcase map and retain their existing verdict rules.
+
+GS-BC-R1-2 HIGH is closed under the lead's explicitly accepted reduced guarantee, not by a claim of complete runtime proof.
+
+The shared test crate removes its public name constant. The exact original constant-based bypass no longer resolves through that crate.
+
+Xtask keeps a private-module copy for its checks and filter. The name rule caps literal occurrences at two in the macro file and three in the filter file.
+
+The added fixture rejects a third occurrence that exports the old constant. A name mismatch between macros and checker causes presence failure.
+
+The name rule still cannot prove execution of a custom trial. The lead accepts this limit and requires manual rejection of any root-named trial created outside the approved macros.
+
+I verified all three lead conditions: the required sentence in the macro doc, that sentence in the complete PR body, and the new pair-common review rule.
+
+The shared test crate exports no name constant. The lead records the decision in its handoff; Sol-B supplies decision message `msg_plugin-w_1791780044_f7eba4`.
+
+The required sentence is: "a trial that takes the root name without calling the macro is not detected; reviewers reject any trial with that name outside built_in_test!/built_in_trial!".
+
+This manual rule also covers a caller copying a macro-created trial's name through libtest-mimic's public `name()` method before constructing a different trial.
+
+I read that method in the pinned libtest-mimic 0.8.2 source. This approval does not claim mechanical exclusive ownership of the runtime name.
+
+The current custom harnesses use the approved trial macro. I found no caller constructing a replacement root-named trial. The macro retains fixed compile-time arguments and its fixed root-check callee.
+
+The earlier reviewed root and integration entries, slow-filter addition, candidate checks, and LINKED check remain unchanged. No new timeout or mutation exemption appears.
+
+The mixed stale-library case remains the separately recorded limit. This source verdict closes neither that limit nor the accepted manual-review boundary.
+
+Local checks are implementer reports. No pool job validates this amended head yet. I ran no execution job.
+
+The #299 import, ordinary gate, timing comparison, required evidence, and final body remain pending under the lead's plan. This CLEAN is source-only and accepts no completed gate result.
