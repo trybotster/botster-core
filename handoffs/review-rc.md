@@ -1653,3 +1653,38 @@ RC-PIN43-1 and RC-PIN43-2 remain closed in the corrected source.
 The final body must retain this completed red gate and the later accepted disposition, if any.
 Final CLEAN requires the body finding closed and valid completed exact-head evidence under the lead's retry rules.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — separate resume-test repair review
+
+VERDICT: NOT CLEAN (2 open: RC-PIN43-3, RC-PIN43-4).
+Head: `d8ae1c9d200e2cd7790ce3e1ee61ed39c5dcd91e`.
+Message: `msg_plugin-w_1791774156_0def18`.
+The reviewer reads the complete one-file test delta, scratch script, and retained scratch results.
+The lead handoff directs a separate test-only root fix in #299 and an ordinary gate on the new head.
+This is a source repair, not a same-head re-gate exception.
+The helper polls events before the first successful resume call; the later explicit events_pending refusal check remains unchanged.
+The public diagnostics baseline is taken after the quiet call, so its before/after comparison retains the quiet-capture scope.
+No production resume behavior, capture-layer behavior, or R-69 refusal changes.
+
+RC-PIN43-4 — MED — The new quiet helper can bypass its cleanup deadline.
+At resume.rs lines 177-187, the inner loop pumps and polls until `report.more` is false.
+The cleanup-deadline check is outside that loop, at line 191.
+A Core that continually reports more never reaches the deadline check or exits that loop.
+Thus the helper can spin beyond the cleanup bound it claims to enforce.
+R-89 states the same wait principle: reported work must not extend the deadline. BUILD.md requires bounded waits.
+Required change: check the deadline on every pump pass, or flatten the helper's loop so more cannot bypass it.
+Preserve event draining, the edges-quiet check, and the later explicit events_pending refusal proof.
+
+Scratch record: `evidence/rc-pin-42/resume-late-event-d8ae1c9d.log` under the shared core-stage1 directory.
+Its script adds an output on s2 and pumps without polling immediately before the first resume.
+Without the quiet call, the unchanged resume assertion fails with events_pending and test exit 101.
+With the same injected output before quiet, the test passes. The unchanged corrected test also passes.
+The script restores the source after each scratch edit and reports zero changed files at the end.
+This diagnostic adds an event; it is not a timing-only controlled reproduction under 23bl A.
+It demonstrates the repair's event-draining behavior, not an original-gate trace or uninstrumented plain-v1 reproduction.
+The source repair needs neither claim for an ordinary new-head gate under the lead's disposition.
+The filtered record identifies the head and target directory but contains no full build output or independent target-clean proof.
+RC-PIN43-1 and RC-PIN43-2 remain closed. RC-PIN43-3 awaits the published body count correction.
+The running gate supplies no accepted result. Any later source correction needs its applicable exact-head review and gate.
+The reviewer ran no test, build, gate, or diagnostic.
