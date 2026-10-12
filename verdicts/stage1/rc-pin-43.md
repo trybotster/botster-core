@@ -229,3 +229,69 @@ Completed exact-head gate and matching final body remain due; no running 7c7dadd
 The final-slot import after merged #291 remains due. Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (1 open acceptance condition: completed new-head mutation/gate closure and final body; 0 new source findings) at 7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a against imported base b3cdfffbba353bf9cfc34f7d7f9b8daccc753035
+
+## Round 3 — completed repaired-head gate and body
+
+Head: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Tree: `1646e3c80c5843854069d8ae622d3324de847628`.
+Imported base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Gate comparison reference: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`; it is not an imported ancestor.
+Completion receipt: `msg_plugin-w_1791775998_ad7bdc`.
+Rounds 1 and 2 cover the complete source and all repairs at this unchanged head.
+Sol reads completed gate headers, list/coverage results, every mutation outcome and citation,
+relevant normal PASS records, baseline records, conformance summaries, step summary, and final exits.
+
+Gate: `gates/botster-core-stage1-rc-pin-42-7c7dadd1-pool-20261011-202300-83199.log` under `~/botster-sessions`.
+SHA-256: `c31d96e03e2fd1d1aa4630ae8f905d2d9e7ea2456ec5baee0246b532b8f3b8c8`.
+The header names this exact head and gate reference. The lists step independently names the actual b3cdfffb merge base.
+The job runs on MS-A1, kernel 6.12.111+deb13-amd64, with both parallelism caps set to four.
+All ten steps PASS in 572.6 seconds. Job and wrapper exit zero after 585 seconds, with one second queued and 584 running.
+Default: 1856 passed, 434 skipped, 18.756 seconds. Slow: 611 passed, 2044 skipped, 45.020 seconds.
+The unmutated slow baseline has 611 passed, ten slow cases, and 2756 skipped, in 44.238 seconds.
+The corrected resume test and both route progress tests have normal PASS; real tests also have baseline PASS.
+Coverage checks 1077 slow-only tests and four named real proofs.
+
+Sol independently parses 26 unique first outcomes: fourteen caught and twelve missed, in 74.8 seconds.
+Stage 2 examines exactly those twelve misses and catches all twelve in 284.6 seconds.
+All 26 unique raw catches equal all 26 named citations. Each catcher has normal PASS.
+Every slow catcher also has unmutated baseline PASS. No unmatched identity, remaining miss, timeout, unviable, or FLAKY token occurs.
+The subtraction mutant that survived d919 is caught by progress_counts_the_bytes_that_move_after_the_workers_read.
+Multiplication is caught by the earlier progress test, as the body states.
+Workers::add_node is cfg(test); no gate mutation is claimed for that helper.
+Fuzz PASS reports no changed decoder harness, not a new fuzz execution.
+
+Both ordinary conformance summaries have 257 passed and zero failures.
+Held-full runs three budget identifiers at 32 seeds: 96 expected ignored results, zero failures, in 22.79 seconds.
+The dp5 budget hold remains scoped to the later cost repair; it does not become a pending removal.
+Sol independently verifies all 35 reported real-pending passes stay in the 43-entry list.
+The reviewed focused wake-removal proof remains separate. Minimum results are testkit-passing 65/69,
+real-passing 59/68, and real-accepted 60/69. These counts cover the actual imported base, not later v1 imports.
+
+Sol reads the complete final body delta against the already reviewed d919 body.
+GitHub reports this exact head and base reference bfef8865. Live body SHA-256:
+`3fb84caff8cb2f7b7e99230dc7ce4d53ab12535c3e88b31b480fbd5fe1ae1299`.
+The body adds the two-send proof, the d919 RED, its surviving mutation, and the completed 7c gate.
+It preserves the prior baseline RED, stopped intermediate job, synthetic-event scope, multiplication reversal PASS,
+partial-write test limit, historical A5-4 scope, and separate focused removal evidence.
+It identifies b3cdfffb as the last imported v1 and bfef8865 as the gate-time reference.
+The final-slot import remains explicit.
+
+Package LOW RC-PIN43-5 corrects the historical 3f gate classification.
+The earlier body called all thirteen stage-1 misses real-tier mutations. One is the testkit subtraction mutation.
+Sol reads all thirteen original MISSED records and verifies twelve real-tier identities plus that one testkit identity.
+Owner correction receipt: `msg_plugin-w_1791776096_46fcf9`.
+Sol reads the complete published correction. Current live body SHA-256:
+`999b41f72f42ad2890873b6c6aeab7bd27dcda97f5094bfe11b47452cbb5d3df`.
+It gives the correct classification and preserves the baseline FAIL and absent stage-2 mutation result.
+This LOW closes without source change or execution. No source, body, or completed-evidence condition remains open.
+
+Sol reads the complete current package verdict and intervening integration receipt at
+`f7e9923c6d11a89f26d500180fc3a512009b54ec`, verdicts/rc-real-controls.md.
+Package completion receipt: `msg_plugin-w_1791776184_432338`.
+Its exact-head CLEAN, all source/LOW closures, completed gate, and retained scope limits match this review.
+The two reviewed removal identifiers have normal PASS records in their applicable tiers.
+Both current source reviews now have zero open findings. The completed gate and final body close the prior acceptance condition.
+The final-slot current-v1 import, applicable delta/checks, exact-final-head gate, both final reviews, and Q7 remain due before merge.
+Earlier scope limits stay unchanged. Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open integration findings; current source, completed evidence, and body) at 7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a against imported base b3cdfffbba353bf9cfc34f7d7f9b8daccc753035
