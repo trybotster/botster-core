@@ -363,6 +363,35 @@ fn a_stall_step_is_atomic_and_a_kill_is_not() {
     assert_eq!(w.engine.ready()[..2], [Work::Deadline, Work::DueStep]);
 }
 
+/// TM-3, E3-1 items 2 and 4 (0181's ST298-R3): new progress replaces a parked step with a new one, which is not parked:
+/// only a step that ran can be parked. With the queue still full, the new step's instant is the next deadline, and at it
+/// the step runs and parks again.
+#[test]
+fn new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.engine.begin(create("x1")).unwrap();
+    w.pump();
+    w.advance(STALL);
+    w.pump();
+    assert_eq!(w.engine.deadline(), None, "the step is parked");
+    progress(&mut w, route, 4, true);
+    assert!(
+        !w.engine.queue.has_mandatory_room(),
+        "the queue is still full"
+    );
+    let next = w.now + STALL;
+    assert_eq!(w.engine.deadline(), Some(next), "the new step");
+    w.advance(STALL);
+    w.pump();
+    assert!(dues(&w).is_empty(), "no room: the new step parks");
+    assert_eq!(w.engine.deadline(), None);
+    w.engine.poll_events(64);
+    w.pump();
+    assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 4 }]);
+}
+
 /// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
 /// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
 /// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.
