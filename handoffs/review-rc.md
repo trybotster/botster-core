@@ -2167,3 +2167,17 @@ No mutation exclusion changes in this delta. Every existing exclusion still need
 The implementer requests a hold on this head while it prepares the repair and a new gate.
 The reviewer stops the remaining audit of this head. No CLEAN is issued.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — integration round 1 receipt
+
+Integration message: `msg_plugin-w_1791785040_1fedff`.
+Integration verdict: `6e44dda897b7df9254a51dd39275cc1bd81ef5c5`, Round 1 in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete round.
+It reports NOT CLEAN with five open findings at `84be34b0b8bc464bf6be55af2ef2c292b670fcdf` against source base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+It retains package RC-R100-1 through RC-R100-4 and owns RC-R100-I1.
+Its source analysis and review hold match package verdict `10182ac69f63800fc109c9ba4883ae102448a5b9`.
+The implementer confirms the initial worker bound and plans checks against DEFAULT_MAX_PAYLOAD for Launch admission.
+That planned repair and its shared-decoder regression remain unreviewed.
+Both reviewers wait for the repaired exact head and completed evidence. No CLEAN carries from this head.
+The reviewer runs no execution job.
