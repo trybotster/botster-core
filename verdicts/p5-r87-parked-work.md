@@ -318,3 +318,107 @@ I ran no build, test, gate, mutation job, or executable merge check.
 I used read-only Git, source inspection, and artifact parsing.
 
 VERDICT: CLEAN
+
+
+## Round 4 — final-slot base import, 2026-10-11
+
+- Exact head: `1ed69c709da7f75a7f90895ae36675f3e8702d84`.
+- Tree: `8d370b057c8b25dcb05a8d31621b6db46e3066fc`.
+- Base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+- Parents: `2e03346020a63cdc9c069a638170e95cb1416177` and the base.
+- Previous head: `2e03346020a63cdc9c069a638170e95cb1416177`.
+- Previous base: `5e953398925351c12e463a7b0a946b79d9841edc`.
+- Package source CLEAN: `f79e822f5e3407dbcd4f1140b96b5a5f3c833740`.
+- Sol source CLEAN: `5bfb2bbee7e98ead84fdd3fea7f2d4c31b72c266`.
+- Delta request: `msg_plugin-w_1791767479_7ae87c`.
+- Tier: HIGH. Open review findings: zero. Result: source delta CLEAN; final gate remains required.
+
+### Canonical check and independent composition
+
+The lead assigns the slot after #296 and records the current base above.
+I read the complete canonical base check in both retained files, including every PASS, FAIL, and warning.
+Both ancestry checks pass. Condition 1 reports no merge conflict. Condition 4 passes both pending files.
+Condition 2 fails because real.rs overlaps the base's changes. Condition 3 first differs at that file's index line.
+This is a retained FAIL. It requires both reviewer delta rounds; no automatic carryover is claimed.
+
+Report: `shared/core-stage1/evidence/p5-r87/base-merge-check-292.txt`.
+SHA256: `00a9e3818f9cd4380f28c650aa9a074fc341cc02659e52763240c942c0e97ad8`.
+The report includes the canonical output and the implementer's source supplement.
+
+The own delta contains nine paths. The base changes thirty-three paths. Only real.rs overlaps.
+Eight other own blobs equal the previous reviewed head exactly.
+Both the own and imported added/deleted line sequences of real.rs survive the merge exactly.
+The own real.rs line-sequence SHA256 is `4caf4c171381e5b23d17b1d25be45a23550988e337017c8ca0f00c69de0a6e33`.
+All nine complete own patches match after removing only index and hunk metadata.
+The stable patch ID is `55757a231397995106230f4906106615726e8a5d` on both sides. I compute it independently.
+All 342 final tree entries equal the base plus the verified own delta.
+All nine conformance text files equal the base exactly. This PR changes no ID or list record.
+The final own diff SHA256 is `032cfa0e9a9e24446b540762a0fadc7747a61611c2b5bf39ee2ad6b00ee4d8c3`.
+`git diff --check` passes. These static checks supply no executable base-check PASS.
+
+### Source interaction
+
+I read the complete imported real.rs delta and the final own delta in that file.
+The ParkedWork record still wraps the same crash slot, capture layer, and host driver.
+The inserted field, initialization, control method, dispatch, and real-process scenario keep their reviewed placement and behavior.
+The worker_alive comment stays attached to worker_alive. The scenario's deadline and AdoptRow regression survive unchanged.
+The imported controls use distinct names. They do not replace parked_work or its record.
+The hold controls change tapped edges; the host diagnostic still counts engine work and frames held by the driver for room.
+A tap-held start or handoff is not automatically counted as room-blocked host work.
+The imported oracle controls use stored rows and a separate oracle terminal. They do not mutate the host's parked-work record.
+The route callbacks keep weak tap references. ParkedWork retains session IDs, not Core or its directory claim.
+The real wake descriptor and its crash check retain their reviewed behavior.
+The imported fake-handle test now supplies its own wake field. That test does not change production descriptor ownership.
+
+I read the imported edge-tap decisions and the oracle-control lookup relevant to these interactions.
+The host engine, run logic, record layer, and testkit harness have no base overlap.
+The imported mutation exclusions concern xtask process glue. They exclude no new R-87 function.
+I read the latest final integration records for #287, #288, and #289.
+Those base PRs retain separate reviews and evidence limits. This delta review does not replace their acceptance records.
+
+The base imports contracts-v0.1.41 at `2fcd7739708fe6de1390ff9bd9f90da5a8bc6d87`.
+All seven manifest tags and nine lock sources match the base exactly.
+The Core contract lib.rs file is unchanged between .39 and .41.
+The .41 EV-5 transcript still has its strict wake step and no parked_work fence.
+The future .42 pin supplies the R-87 fence. This PR introduces no transcript or pin move of its own.
+
+### Retained local static evidence
+
+Log: `shared/core-stage1/evidence/p5-r87/r292-slot-checks.log`.
+SHA256: `d94a86856c15e3eda3e67d63df745f9c6e4fdb16f3da991aed543e6b90687243`.
+The log records cargo clean: 2139 files, 839.4 MiB, then zero target entries.
+It names the exact head, both parents, the base, a clean status, and one slot worktree writer.
+This record establishes the B13 condition for its local checks.
+Fmt is clean. Lists and taint pass. The clippy command finishes with no reported errors.
+The log reports 299 core-host and 421 testkit unit passes, plus its additional passing test and documentation summaries.
+The log ends with a clean status. These local checks do not replace the final pool gate or mutation result.
+
+### R292-D1 — LOW, closed
+
+The initial body omitted the final slot merge and still named .39 as the current pin.
+P5 adds the exact head/base, real.rs overlap, canonical FAIL, preserved delta, and linked check records.
+P5 limits the earlier green gate to 6c231801 and marks the final gate RUNNING.
+P5 correctly states that .41 is now imported and that .39 belongs to historical evidence.
+Fix receipts: `msg_plugin-w_1791767592_2a08c7` and `msg_plugin-w_1791767609_c7f931`.
+I verify those corrections in the complete published body at the unchanged head.
+
+The corrected body initially said that condition 3 differs only at the index line.
+The check reports that first difference. Ten real.rs hunk headers also change their line offsets.
+The complete patch content remains unchanged after removing those metadata lines.
+I required the body to distinguish the first index difference from the remaining hunk offsets and retain the canonical FAIL.
+I sent the condition directly to P5 and Sol in `msg_plugin-w_1791767787_4cb95d` and `msg_plugin-w_1791767787_6b89f6`.
+
+P5 corrects that final condition in `msg_plugin-w_1791767804_613011`.
+I read the complete updated body and verify the unchanged exact head. The body now states both metadata differences.
+R292-D1 closes. All source and body findings close before this formal delta verdict.
+
+I read complete Sol Round 4 at `dc1f3bf80fb5a05a08b7644bd4c2daaeb47701de`.
+Its source delta CLEAN matches this head, base, tree, exact composition, and retained canonical FAIL.
+It requires the matching package delta and completed final evidence. This record supplies the package delta.
+
+The exact-head final gate is running by owner report. I read no running gate output and accept no result from it.
+The completed final gate and mutation result remain required. Sol's exact-head import verdict remains separate.
+I changed no product code. I ran no build, test, gate, mutation job, or executable merge check.
+I used read-only Git, source inspection, and artifact parsing.
+
+VERDICT: CLEAN
