@@ -194,3 +194,87 @@ The integration verdict, later slot or train review, and lead merge verification
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN
+
+## Round 3 — 2026-10-12: #315 source delta on train 5
+
+Exact train head: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Tree: `42e00e9808db9faec524e2404f67302bee0d66c5`.
+Train base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Reviewed #315 input: `29dc0efe0f817f729f62582d09a28a239c49272b`.
+Original source merge base: `080987829a2e2245a7ea97606020400392c974d6`.
+Original gate comparison base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Lead request: `msg_plugin-w_1791828964_3f25ee`.
+Scope: #315's source delta and composition on this exact train head. Risk remains HIGH.
+
+### Merge and patch preservation
+
+I inspect both merge objects and their exact parents.
+First merge `1034c71e1e3b42a916455e5fc5ee8ee67388f7ff` joins the train base and #306 input `0a09168702048cf34ef3fa30dffc07131b620f0a`.
+The final merge joins that first merge and the reviewed #315 input above.
+I compare each file's added and deleted lines in #315's original patch with its landing patch after the first merge.
+All 18 comparisons match exactly. No #315 line is lost, changed, or duplicated in the landing patch.
+Thirteen complete #315 files are byte-identical between the reviewed input and the train.
+Five files also contain the new base's changes: controls.rs, core.rs, edge_tap.rs, lib.rs, and real.rs in botster-core-testkit.
+The report_holds component and both test modules remain byte-identical.
+Component SHA256: `101a1c8863109bb4005dbf25c598f76dabdb5b9a002cfc253f3bbce61e8da24a`.
+The worker implementation subtree and report-order test remain unchanged from the reviewed #315 input.
+
+I read the complete base deltas in the five shared files and the relevant host, message, and route-report changes.
+I read the final receive, close, scheduler, quiet, control registration, dispatch, and completion paths.
+The report-hold registration and the control-queue registration both remain in the registry.
+The real harness retains both controls and their tapped-only dispatch.
+Per-host report-holder state, spawned identity association, and retention of already reaped exits remain intact.
+The shared files add no additional reap or ownership of a production child.
+The quiet repair, free-end accounting, and completion deadline check remain intact.
+All public contract assertions and the finding closures from Round 2 carry to this exact source.
+
+### Composition with the base
+
+#307 adds the control-room check before each link read. It does not replace or bypass that read.
+Its event path runs only after a cancel was refused for lack of room.
+The driver still asks PumpBound once, as its first scheduler choice, before it handles exits or services links.
+The report-delay counter therefore retains its reviewed pump-start observation.
+The report-control tests do not refuse a cancel or set control_queue. Their control-room path has no waiting event.
+
+On the simulated edge, RouteReports identifies the instance from hello bytes that reached the driver.
+The holder passes the hello before a held worker report. Its reads still record only the bytes returned to the driver.
+The added instance lookup does not count the holder's later bytes as consumed reports.
+The control-room read takes the reports lock before the faults lock. Report reads take the reports lock before the holder lock.
+The queue control resolves its session row before it takes the faults lock. The report control resolves its row before its holder lock.
+I find no new reverse lock acquisition in these intersecting paths.
+On the real edge, both controls use the tap lock. The report holder retains the existing tap-to-holder order.
+
+The base removes Observation::Writable and posts SessionWritable from the host's control-room check instead.
+ReportHolds still classifies Launched, Exited, and all other successfully decoded worker messages.
+It does not match the removed observation variant. The worker report-order path is unchanged.
+The .44 contracts pin adds no source change to the reviewed worker implementation or report-control assertions.
+No #315 conformance identifier leaves pending on this train.
+
+### Composition with #306
+
+#306 and #315 share only botster-core-testkit/src/lib.rs as changed files.
+I read the complete shared-file delta and the new build-root macro definition.
+The final file retains queue_controls, adds report_holds, and uses #306's root build check.
+The macro calls the same assert_built_here helper with caller-side package and manifest values.
+It changes no report-control state, scheduler, process ownership, or contract assertion.
+The host and worker unit roots also retain that macro and the new #315 test modules.
+
+I read the relevant Cargo test declarations and the slow-filter change.
+The new report component, registry, tap, host, and worker tests remain unit tests in their existing test binaries.
+The real report-control tests remain in real::slow_controls and match the existing slow_ filter term.
+The additional exact-name filter term selects build-root tests. It excludes no #315 test.
+The required-features declarations apply to separate integration binaries, not the new unit-test modules.
+This composition review does not replace #306's package review or the combined integration review.
+
+The complete conformance and ci trees remain identical to the train base.
+The existing LINK_CAPACITY exclusion still names core.rs line 35, column 33, which matches the final source.
+Its positive capacity and arithmetic expression remain unchanged. No additional mutation exclusion or process allowance appears.
+
+No #315 source finding remains on this exact train head.
+This CLEAN covers source and composition only. The original retained gate still belongs to the original #315 head and bases.
+The lead reports compile and strict-conformance pre-checks. I do not accept those reports as a completed train gate.
+The exact train-5 gate, final #315 body and receipts, and lead merged-tree/push verification remain due.
+This verdict accepts no later head, pin, status removal, or completed merge.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
