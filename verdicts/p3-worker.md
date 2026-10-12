@@ -14858,3 +14858,59 @@ The original exact-head gate and source CLEAN remain applicable. The lead-schedu
 The reviewer changes no product code and runs no execution job. All earlier source and evidence limits remain.
 
 VERDICT: CLEAN
+
+
+## Round 203 — #328 list fit on train 9, 2026-10-12
+
+Exact train head: `4d7c547a17577dc73daaa1cd89da7eed743ca8bf`.
+Tree: `4c1fae2dde6f2f7c6c3265f8fa64d6c8d9331ae0`.
+Train base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Frozen #328 member: `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`, source base `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Previous package CLEAN: Round 202 at `8590b7220d467ed45b29452da4556a46d472ce32`, with complete body receipt `744bf1e9e410865d43750780c07772926c722db2`.
+Previous integration CLEAN: Round 1, `e4c8ca5ea3a6bc16ba3fbc19bc555a91414b86be`.
+Lead request: `msg_plugin-w_1791839691_572cd2`. Scope: #328's list fit only. Member tier: STANDARD, unchanged.
+BUILD.md requires this delta because the member changes a list file. Sol-C owns the integration delta and combined train review.
+
+### Composition and exact list change
+
+The actual first-parent order matches the request: #328 6b1918c9, #319 71ec2783, #318 acd6ced0, #326 797f090a.
+The #328 insertion is `972ae56064ed0ab5bed86fafbf65d5744b6f3f23`, with parents train base and the frozen member.
+The unique common base is 3e655eff. The inserted added/deleted lines equal the accepted member's complete own edit.
+The only inserted path is conformance/core-real-pending.txt.
+That file is byte-identical between the #328 insertion and the final train head. Later members change no line in it.
+
+The final real-pending set equals the checked three-way formula against the exact common base, member, and preceding train base.
+It removes only `conf::dp_3_route_codec_matches_client_appendix_a4_a5`, from 38 IDs to 37, and adds no ID.
+The final comment keeps both steps 11 and 9 on dp_5_no_input and step 15 on dp_5_op_is_optional.
+The two dp_5 IDs remain real-pending. The earlier historical .43 note and .44 fence date remain accurate.
+All other nine conformance blobs equal the train base exactly.
+Final counts: pending 385, real-pending 37, held four, real proofs seven, ledger 692, minimum 69, real-only 26.
+The dp_3 ID stays active in the ledger and minimum list and remains absent from core-pending.
+No accepted removal returns and no additional removal follows from the train insertion.
+
+The train inherits contracts .46, commit `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`, from its base.
+The exact dp_3 transcript blob is identical between accepted member pin .44 and train pin .46.
+The earlier reviewed title/program_ready fences, route barrier, and oracle-derived PTY floor remain present.
+Neither pinned fence file has a dp_3 exception. The two retained dp_5 exceptions remain unchanged.
+The thirty-ID body audit and its corrected F158 scope retain their prior review.
+ev_5_poll and ev_6 remain deferred to the lead's post-.49 batch. No deferred candidate leaves through this train fit.
+F155/F156/F158 retain their closures. No new #328 source or body finding appears.
+
+### Evidence and limits
+
+The lead reports its ID-set check PASS with 37 real-pending IDs, workspace check --tests PASS, and strict seeds 0-31 with 281 passes and zero failures.
+The request supplies no retained pre-check log. These remain operator reports, not independently verified execution evidence.
+The reviewer independently checks source sets, lines, blobs, composition, and dependency transcript identity only.
+The final train gate has not been supplied. Historical .44 member and earlier train evidence retain their exact heads and limits.
+No old gate becomes a real must-pass run of this train head.
+
+#328's source/list fit is CLEAN on this exact train head. This is a member source delta, not combined, gate, or merge acceptance.
+The separate #318 delta has F159 MEDIUM open for its exit-watch result adaptation; that finding does not alter this list-fit result.
+Sol-C's applicable deltas and combined review, the exact final gate, ONE combined final receipt, and equal-tree/push verification remain due.
+The package sends no redundant final train receipt for an unchanged member.
+A repaired member or changed composition requires the applicable new review.
+The Mac IN-6 classification, F28/F33/F39, F61/F62, and later A24 work remain separate. #163 stays open.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 204.
+
+VERDICT: CLEAN
