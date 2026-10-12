@@ -2001,7 +2001,10 @@ fn a_title_written_before_a_stop_that_kills_comes_before_exited() {
     for seed in 0..32 {
         let start = Instant::now();
         let scheduler = SchedulerHandle::with_seed(seed);
-        let workers = crate::worker::Workers::new(scheduler.clone(), start);
+        let workers = crate::worker::Workers::new(
+            scheduler.clone(),
+            crate::worker::WorkerClock::manual(start).0,
+        );
         let mut dirs = Directories::default();
         let limits = CoreLimits {
             stop_grace: Duration::from_millis(1),
