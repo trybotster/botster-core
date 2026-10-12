@@ -18,7 +18,7 @@ Package P1 (session registry and lifecycle) of Stage 1. Plan pin `555bc433`, con
   mandatory event is not ready work while the queue has no room: it is parked, `PumpReport.more` stays false, and the poll that
   frees room makes it ready again (EV-5d, TM-6).
 - The queue (`queue.rs`) has the four classes of 6.2: M never dropped (`Completed` has a reserved slot; the others share
-  `mandatory_events`), K keyed and coalesced to the newer position (EV-1, EV-6), D bounded with drop-oldest and one marker per
+  `mandatory_events`, less the slots that route due steps hold for their answers, R-90), K keyed and coalesced to the newer position (EV-1, EV-6), D bounded with drop-oldest and one marker per
   instance (EV-2), L the marker. `Released` retires the unpolled K, L and D events of its instance, with no marker (EV-5).
 
 ## Choices where the contract is silent (each is reviewable)
@@ -414,8 +414,38 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 ## Round 3 decisions
 
 - **One event per step (9B).** `complete` posts at once only when the current input has posted no event. Otherwise it sets `Next::Complete` and the op completes in a step of its own. `UpdateMetadata` posts `Completed`, then `MetadataChanged` in the next session step (`metadata_pending`). A local `Detach` posts `RouteClosed`, then `Completed` in the next step.
-- **Deadlines (erratum 3, E3-1).** `Work::Deadline` is the earliest due effect without an event (capture expiry, the kills, the startup and remove grace). It runs whatever the budget. `Work::Silent` is the earliest due `Silent`, a step atomic with its event. It needs budget, and the driver carries it with `more` otherwise. `ready()` lists `Deadline`, then `Silent`, then other work. A step parked on mandatory room is absent from `ready()`, so it never blocks a runnable step. At the bound the driver lets only `Work::Deadline` run.
+- **Deadlines (erratum 3, E3-1).** `Work::Deadline` is the earliest due effect without an event (capture expiry, the kills, the startup and remove grace). It runs whatever the budget. `Work::DueStep` is the earliest due step that is atomic with its event: a session's `Silent`, or a route's stall step (R-90, below). It needs budget, and the driver carries it with `more` otherwise. `ready()` lists `Deadline`, then `DueStep`, then other work. A step parked on mandatory room is absent from `ready()`, so it never blocks a runnable step. At the bound the driver lets only `Work::Deadline` run.
 - **Write bound.** `begin` computes a write's size once (`payload_size`): the payload bytes, or for `Key`, `Mouse` and `Focus` the worst case over every mode from libghostty's encoders, once for each repeat or notch (5.1A). The pending op keeps it as `held_bytes`. `PayloadTooLarge`, the lane bound (IN-5) and `Unknown` (IN-7) all use that one value.
 - **SetNotificationPolicy retirement.** The registry path (`RegistryFailed`) is only for an op admitted in `Created` (`created_path`). Other states end `WorkerLinkFailed`.
 - **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone, at the stop and at `stop_grace`. The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
-- **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+- **Carried due steps first; failed handoffs.** The driver runs a due step (`Silent` or a route's stall step) before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+
+## The stall clock (OU-2, OU-3; steward ruling R-90 and its follow-up; `stall.rs`)
+
+The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadline` (per route, default
+`reader_progress_deadline`, OU-1) and `stall_close_after`. The worker owns the route machine and decides each transition
+(its `DESIGN.md`, "The stall clock").
+
+- **Arming.** `RouteProgress{route, mark, waiting: true}` arms the stall step at the pump that consumes it plus
+  `stall_deadline`. A report of the same mark keeps the instant; a new mark restarts it; `waiting: false` disarms it.
+  `RouteStalled{route, mark}` arms the close step at the pump that consumes it plus `stall_close_after`; `RouteResumed`
+  disarms it. No report arms nothing: an older worker never sends `RouteProgress`, so its routes have no stall clock.
+- **The due step (R-90 Q1, E3-1 items 2 to 5).** `DeadlineKind::Route` is atomic with its event, as `Silent` is: it runs
+  as `Work::DueStep` and needs event budget; with no budget it is carried (`more: true`). A step that runs checks the
+  mandatory room. With room, it sends `RouteStallDue{route, mark}` (or `RouteCloseDue{route, mark}` for the stall's
+  mark) and reserves one mandatory slot for the answer (`EventQueue::reserve`). With no room, it is parked: it sends
+  nothing, its instant leaves `deadlines()` and `next_deadline()`, and the pump reports no `more`; a poll that frees room
+  makes it due again (EV-5d, TM-6). Only a step that ran is parked, so a step with no budget is carried first.
+- **No host-visible change at the due step.** The route's state, `route_reports` and every event change when the worker's
+  answer is consumed and posted, not at the due step. The answer's event posts in the reserved slot, so it never waits
+  for room, and it counts against the budget of the pump that posts it.
+- **Release.** The slot is released when the host consumes the worker's answer: `RouteStalled` or `RouteClosed` (the
+  event takes the slot), or, when the worker declines, a newer `RouteProgress` that is not the asked mark waiting, or a
+  `RouteResumed` that answers a close step. A route that closes for another reason releases its slot first.
+- **While a step waits for its answer** (`asked`), the route has no deadline, and `can_accept` takes a `RouteClosed` or a
+  `RouteStalled` of that route although the queue looks full, because the slot is its.
+- **No host, no clock (R-90 Q3).** A due message that cannot be sent (no worker link) disarms both steps; the route
+  closes with its session's loss. After an adoption, the new host arms from the pump that consumes the worker's new
+  report, as A18 does for silence.
+- Tests: `tests/stall.rs` (arming, the slot and its release on a decline, the stall and the close step, the resume, a
+  parked step); the carried step is the driver's (`e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room`).
