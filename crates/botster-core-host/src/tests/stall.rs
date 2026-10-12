@@ -47,6 +47,7 @@ fn attach(w: &mut World) -> RouteId {
         .unwrap()
         .route;
     w.pump();
+    w.worker_says("s1", WorkerMsg::RouteReceived { route });
     w.engine.poll_events(64);
     route
 }
@@ -242,4 +243,64 @@ fn a_due_step_with_no_room_is_parked_until_a_poll_frees_room() {
     assert_eq!(due_at(&w, route), Some(w.now), "the poll freed room");
     w.pump();
     assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 3 }]);
+}
+
+/// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
+/// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
+/// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.
+#[test]
+fn a_report_before_the_routes_receipt_or_from_another_worker_arms_nothing() {
+    let mut w = world(1);
+    w.running("s2");
+    w.engine.poll_events(64);
+    let route = w
+        .engine
+        .attach(
+            ClientId("c".into()),
+            sid("s1"),
+            RouteTransport::Stream(StreamEndpoint::new(())),
+            AttachOptions {
+                file_directory: "/tmp".into(),
+                file_permissions: None,
+                route_features: vec![],
+                terminal_formats: vec![],
+                owner: None,
+                query_deadline: Some(Duration::from_secs(1)),
+                route_tag: None,
+                route_limits: None,
+                history: None,
+                stall_deadline: Some(STALL),
+                answers_queries: true,
+                input: true,
+            },
+        )
+        .unwrap()
+        .route;
+    w.pump();
+    // A surviving route's reports with the same id, still on the link before the worker binds the new route.
+    progress(&mut w, route, 7, true);
+    w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 7 });
+    assert_eq!(due_at(&w, route), None, "no report before the receipt");
+    // Another session's worker: its route of the same id is not this one.
+    w.worker_says("s2", WorkerMsg::RouteReceived { route });
+    progress_of(&mut w, "s2", route, 7, true);
+    assert_eq!(due_at(&w, route), None, "another worker's route");
+    // The receipt from the session's own worker: its later reports are this route's.
+    w.worker_says("s1", WorkerMsg::RouteReceived { route });
+    progress(&mut w, route, 1, true);
+    assert_eq!(due_at(&w, route), Some(w.now + STALL));
+    w.advance(STALL);
+    w.pump();
+    assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 1 }]);
+}
+
+fn progress_of(w: &mut World, session: &str, route: RouteId, mark: u64, waiting: bool) {
+    w.worker_says(
+        session,
+        WorkerMsg::RouteProgress {
+            route,
+            mark,
+            waiting,
+        },
+    );
 }
