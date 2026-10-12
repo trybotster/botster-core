@@ -179,3 +179,40 @@ The local strict results remain failed: 578 pass and two time out at the two-sec
 Zero integration source or body findings remain. This CLEAN accepts the import source only. It supplies no FINAL-READY or final evidence receipt. Budget diagnosis, applicable train-head and combined reviews, the exact train gate, final member receipts, and equal-tree merge verification remain due. No future head, gate, pin, status removal, or merge is accepted. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+
+## Round 6: train-6 source delta for #311
+
+- Train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+- Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Member order: #303 `df461c83`, #309 `cfcc438d`, #308 `c3bd7fcd`, #311 `2c5d09a0`.
+- Lead request: `msg_plugin-w_1791832618_7d2987`.
+- Lead correction: `msg_plugin-w_1791832646_cbd010`. I supply member deltas only. Sol supplies the one train receipt.
+
+- Frozen member: `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d`.
+- Member source base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Reviewed delta: #311's fit on this train, including the train-5 test changes and #303's worker-clock interface.
+
+All seventeen member file deltas retain exactly their additions and deletions after merge onto #303 at 3837b2c7.
+The final worker-core production files, io_decisions, payload resize edge, and session test equal the frozen #311 member.
+The capture layer, oracle controls and tests, and resume controls also equal that member.
+The route tests retain every reviewed resize test. The sole extra line registers train 5's report_order module.
+I read that module. It observes returned LinkSend and PtyWrite actions and checks that client reports precede their PTY writes.
+It changes no resize queue, arrival-order decision, adoption retirement, or policy state.
+The worker main differs only through train 5's built_in_test macro replacement. The macro preserves the build-location check.
+All reviewed resize handling, acknowledgment, failed-size restoration, and Stop/Kill handling remain byte-identical there.
+
+#303 supplies the workers' own clock and changes Workers::run to take no host time.
+The train retains #311's PtyResize edge and its result while adapting the surrounding testkit run calls to that clock interface.
+No #311 delta disappears during that composition. Sol owns the required combined #303/#311 review; this member check does not replace it.
+The pending, real-pending, ledger, and real-proof ID sets equal the #311 member: 387, 38, 691, and seven respectively.
+Only #303's existing a2_1_no_deadline_code_exists debt comment differs in pending. No additional ID leaves pending.
+The train retains .44 and #308's structured EV-2 entry. It does not contain #316's .46 pin or its IN-8 entry.
+
+Earlier findings remain closed. Earlier local Mac failures retain their classification and evidence limits.
+No finding appears in #311's fit on this train. The lead reports successful pre-checks; I do not claim independent log verification.
+The gate has not run. Combined review, exact-head train gate, Sol's train receipt, and merge verification remain due.
+I supply no final receipt under the lead's corrected instruction. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; #311 source delta only)

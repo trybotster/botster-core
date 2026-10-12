@@ -259,3 +259,35 @@ I read the current body repair and evidence sections and verify the exact UTF-8 
 Zero integration delta findings remain. This CLEAN accepts source only at the stated head. Applicable train delta and combined reviews, the final train-6 gate, final member receipts, and equal-tree merge verification remain due. No later head, specific retry, or final gate is accepted. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+
+## Train 6: #309 source delta
+
+- Train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+- Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+- Member order: #303 `df461c83`, #309 `cfcc438d`, #308 `c3bd7fcd`, #311 `2c5d09a0`.
+- Lead request: `msg_plugin-w_1791832618_7d2987`.
+- Lead correction: `msg_plugin-w_1791832646_cbd010`. I supply member deltas only. Sol supplies the one train receipt.
+
+- Frozen member: `cfcc438d8eac85108d64237bdc11fa215dc85104`.
+- Member source base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Reviewed delta: #309's fit on the train, with the train-5 host module and test additions.
+
+I read the merge chain. The merges have no conflict repair. The member heads match the lead's frozen order.
+All twelve #309 file deltas retain exactly their member additions and deletions at merge d5a59447.
+The final train changes no other #309 production file. The only host differences from the member are lib.rs and driver/holds.rs.
+The host module retains pub mod frame_fit. Train 5 replaces the build-location test with the existing built_in_test macro.
+I read the macro expansion. It preserves the test name and calls assert_built_here with the package and manifest directory.
+The added driver test observes PumpBound as each pump's first choice. It changes no production pump or frame-fit decision.
+The pure control_bound test repair, 97 MiB formula, four-cancel term, and saturating queue calculation retain their reviewed content.
+No member code is removed. No new private subject-state assertion appears in this composition delta.
+
+I read the complete matching package train delta at `4b800553694f1a3043e9a036f1320ca200a880de`.
+It confirms the same exact train head, member, base, tree, source preservation, and zero findings.
+Earlier package and integration source closures remain applicable. No finding appears in this member's fit on the train.
+The lead reports successful id-set, cargo check --tests, and strict checks. I accept those as lead reports, not independently checked logs.
+The train gate has not run. Combined review, exact-head gate, Sol's train receipt, and merge verification remain due.
+This delta accepts no #316 pin, future known-flaky composition, or final gate result. I ran no execution check.
+
+VERDICT: CLEAN (0 open, including LOW; #309 source delta only)
