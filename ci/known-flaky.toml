@@ -6,5 +6,8 @@
 # binary      the nextest binary id
 # test        the exact test name
 # diagnosis   the diagnosed cause
+# signature   the recorded failure signature: comma-separated clauses of the step, the limit and the symptom, for
+#             example "seed any, step 8, step_timeout"; the seed is not part of it (a seed clause is only "seed any").
+#             A red gate may run once more only when its failure matches it (BUILD.md Testing rule 9, second exception).
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry

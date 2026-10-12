@@ -2,10 +2,15 @@
 //! with a diagnosed cause and an open fix. The mutation stages do not run a listed test, so the test cannot catch a mutant
 //! by its flake. The slow step and the stage-2 baseline still run it: the list hides no failure of an unmutated run.
 //!
-//! Each entry names the test (`binary`, the nextest binary id, and `test`, its exact name), the `diagnosis`, the `owner` of
-//! the fix, and the pull request that removes the entry (`removed_by`, `#<number>`). The `lists` step refuses an entry with
-//! a missing, empty or unknown field, a duplicate, and a name with a character outside `[A-Za-z0-9_:/-]`, which a filterset
-//! needs no escape for. The Stage 1 exit needs the list empty (plan 23ap, done item 7).
+//! Each entry names the test (`binary`, the nextest binary id, and `test`, its exact name), the `diagnosis`, the recorded
+//! failure `signature`, the `owner` of the fix, and the pull request that removes the entry (`removed_by`, `#<number>`).
+//! The `lists` step refuses an entry with a missing, empty or unknown field, a duplicate, and a name with a character
+//! outside `[A-Za-z0-9_:/-]`, which a filterset needs no escape for. The Stage 1 exit needs the list empty (plan 23ap, done
+//! item 7).
+//!
+//! The `signature` is what a failure must match before a red gate may run once more (BUILD.md Testing rule 9, second
+//! exception, contracts main b6c7ea9d): comma-separated clauses of the step, the limit and the symptom, for example
+//! `seed any, step 8, step_timeout`. The seed is not part of it (plan 23bl(A)): a `seed` clause may only be `seed any`.
 //!
 //! A test can run in both stages (a library's unit test is in both builds), or in stage 2 only (a test that only the slow
 //! features build, also in a binary that both builds have). So each stage lists its own tests (`cargo nextest list` with
@@ -28,11 +33,33 @@ pub struct Entry {
     pub binary: String,
     pub test: String,
     pub diagnosis: String,
+    pub signature: String,
     pub owner: String,
     pub removed_by: String,
 }
 
-const FIELDS: [&str; 5] = ["binary", "test", "diagnosis", "owner", "removed_by"];
+const FIELDS: [&str; 6] = [
+    "binary",
+    "test",
+    "diagnosis",
+    "signature",
+    "owner",
+    "removed_by",
+];
+
+/// Why `signature` is not a failure signature of the module documentation's form, or `None`.
+fn signature_error(signature: &str) -> Option<String> {
+    let clauses: Vec<&str> = signature.split(',').map(str::trim).collect();
+    if clauses.len() < 2 || clauses.iter().any(|clause| clause.is_empty()) {
+        return Some(format!(
+            "`signature` {signature:?} is not comma-separated clauses of the step, the limit and the symptom"
+        ));
+    }
+    clauses
+        .iter()
+        .find(|clause| clause.split_whitespace().next() == Some("seed") && **clause != "seed any")
+        .map(|clause| format!("`signature` {signature:?} names a seed ({clause:?}); the seed is not part of it (seed any)"))
+}
 
 /// A name that a filterset `=` matcher takes as it is: not empty, only `[A-Za-z0-9_:/-]`.
 fn plain_name(name: &str) -> bool {
@@ -96,6 +123,10 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
                 "{at}: `removed_by` {removed_by:?} is not a pull request `#<number>`"
             ));
         }
+        let signature = field("signature")?;
+        if let Some(error) = signature_error(&signature) {
+            return Err(format!("{at}: {error}"));
+        }
         if !seen.insert((binary.clone(), test.clone())) {
             return Err(format!("{at}: {binary} {test} is listed twice"));
         }
@@ -103,6 +134,7 @@ pub fn parse(text: &str) -> Result<Vec<Entry>, String> {
             binary,
             test,
             diagnosis: field("diagnosis")?,
+            signature,
             owner: field("owner")?,
             removed_by,
         });
@@ -134,13 +166,18 @@ pub fn stage_filter(entries: &[Entry], tests: &Tests, filter: Option<&str>) -> O
 }
 
 /// The lines that a mutation stage whose list is `tests` prints for the listed tests that it does not run: each one with
-/// its diagnosis, owner and removing pull request.
+/// its diagnosis, failure signature, owner and removing pull request.
 pub fn report(entries: &[Entry], tests: &Tests) -> Vec<String> {
     in_stage(entries, tests)
         .map(|entry| {
             format!(
-                "known flaky, not run: {} {} ({}; owner {}; removed by {})",
-                entry.binary, entry.test, entry.diagnosis, entry.owner, entry.removed_by
+                "known flaky, not run: {} {} ({}; signature {}; owner {}; removed by {})",
+                entry.binary,
+                entry.test,
+                entry.diagnosis,
+                entry.signature,
+                entry.owner,
+                entry.removed_by
             )
         })
         .collect()
@@ -173,6 +210,7 @@ mod tests {
 binary = "botster-core::slow_conformance"
 test = "conf::ev_5_x"
 diagnosis = "R-63"
+signature = "seed any, step 8, step_timeout"
 owner = "P3"
 removed_by = "#243"
 "##;
@@ -182,6 +220,7 @@ removed_by = "#243"
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
+            signature: "s, t".into(),
             owner: "o".into(),
             removed_by: "#1".into(),
         }
@@ -201,6 +240,7 @@ removed_by = "#243"
                 binary: "botster-core::slow_conformance".into(),
                 test: "conf::ev_5_x".into(),
                 diagnosis: "R-63".into(),
+                signature: "seed any, step 8, step_timeout".into(),
                 owner: "P3".into(),
                 removed_by: "#243".into(),
             }])
@@ -240,6 +280,22 @@ removed_by = "#243"
                 "unknown field `fixed_by`",
             ),
             (format!("{ENTRY}tier = \"slow\"\n"), "unknown field `tier`"),
+            // The failure signature (BUILD.md Testing rule 9, second exception): clauses, and no seed.
+            (
+                ENTRY.replace("seed any, step 8, step_timeout", "step_timeout"),
+                "`signature` \"step_timeout\" is not comma-separated clauses",
+            ),
+            (
+                ENTRY.replace("seed any, step 8, step_timeout", "step 8,, step_timeout"),
+                "`signature` \"step 8,, step_timeout\" is not comma-separated clauses",
+            ),
+            (
+                ENTRY.replace(
+                    "seed any, step 8, step_timeout",
+                    "seed 10, step 8, step_timeout",
+                ),
+                "`signature` \"seed 10, step 8, step_timeout\" names a seed (\"seed 10\")",
+            ),
             (format!("{ENTRY}\n[other]\n"), "unknown key `other`"),
             (ENTRY.replace("\"#243\"", "\"243\""), "`removed_by` \"243\""),
             (ENTRY.replace("\"#243\"", "\"#\""), "`removed_by` \"#\""),
@@ -315,7 +371,7 @@ removed_by = "#243"
         assert_eq!(stage_filter(&[], &stage2, Some("f")), Some("f".to_string()));
         assert_eq!(
             report(&entries, &stage1),
-            ["known flaky, not run: lib slow_both (d; owner o; removed by #1)"]
+            ["known flaky, not run: lib slow_both (d; signature s, t; owner o; removed by #1)"]
         );
         assert_eq!(report(&entries, &stage2).len(), 3);
     }
@@ -404,6 +460,7 @@ mod slow_tests {
             binary: binary.into(),
             test: test.into(),
             diagnosis: "d".into(),
+            signature: "s, t".into(),
             owner: "o".into(),
             removed_by: "#1".into(),
         };
