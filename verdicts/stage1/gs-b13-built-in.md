@@ -175,3 +175,21 @@ Required closure: supply the retained failure records and the structural-fix dis
 The required disposition remains unknown. This entry does not attribute the flake to this PR's source or to an existing fence defect.
 
 VERDICT: NOT CLEAN (2 open)
+
+## B13-I4 disposition closure
+
+B13-I4 is CLOSED. Sol-B read `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/gs-b13-in8-flaky/disposition.md` and the copied artifacts beside it.
+
+The exact M1 and M2 logs are `target-mutants-stage2-mutants.out/log/xtask__src__prebuild.rs_line_95_col_5_003.log` and `_004.log` under `artifacts/jobq-botster-core-96c58d88-20261011173013-3033/`. Both first attempts fail with `INCONCLUSIVE`, seed 0, step 8, and `limit=step_timeout`. Both retries pass. Both logs retain FLAKY summaries. The historical mutants remain MISSED.
+
+The plain-v1 log `/Users/jasonconigliari/botster-sessions/gates/botster-core-detached-5e953398-5e953398-pool-20261011-160013-7403.log` records the same id, step, and timeout symptom at seed 5. It contains no #293 source change.
+
+Sol-B verified the candidate rejection path. Either replacement supplies no worker manifest entry if the normal prebuild runs it. Candidate verification rejects that missing entry. Mutation stage 2 instead uses the candidate built before mutation and cannot execute the changed prebuild shell. This explains the shell exclusion, but does not convert the flaky results to catches.
+
+The lead's shared handoff assigns the open diagnosis and fence work to PC after contracts #77. The proposed mechanism is the R-74 held-write form. The id stays live and is not re-pended. This closes the required retained evidence and owned disposition. It claims no completed structural fix.
+
+Package disposition receipt: `b09a6c627b50076348a09565ce6a338905db44e4`, `verdicts/gs-gate-speed.md`. Sol-B read that receipt.
+
+The lead's SPLIT decision transfers the coverage guarantee to a new design-first item. Sol-B must verify removal of the visitor on the submitted split head before transferring B13-I2. The exact split head and its evidence remain due. Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (1 open; split head pending)
