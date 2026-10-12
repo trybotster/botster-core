@@ -10,7 +10,7 @@ use crate::core::{core_features, Directories, RunInputs};
 use crate::refusal::{CoreRecord, RefusalHandle, RefusalLayer};
 use crate::resume_controls::CaptureLog;
 use crate::scheduler::SchedulerHandle;
-use crate::worker::{ProcessTable, TestkitCore, Workers};
+use crate::worker::{ProcessTable, TestkitCore, WorkerClock, Workers};
 use botster_core_conformance::{
     ControlError, CoreHarness, DataDirRef, OpenSpec, RouteClient, WorkerBuild, WorkerRef,
 };
@@ -19,7 +19,6 @@ use botster_core_host::driver::HostWake;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
 
 /// The default-tier harness for one seed (foundation design 6.1: seeds 0 to 31).
 #[derive(Debug)]
@@ -80,12 +79,11 @@ impl std::fmt::Debug for HandleEdges {
 
 impl TestkitHarness {
     pub fn new(seed: u64) -> TestkitHarness {
-        let start = Instant::now();
         TestkitHarness {
             controls: crate::controls::registered_controls(),
             seed,
             directories: Directories::default(),
-            workers: Workers::new(SchedulerHandle::with_seed(seed), start),
+            workers: Workers::new(SchedulerHandle::with_seed(seed), WorkerClock::real()),
             refusals: BTreeMap::new(),
             records: BTreeMap::new(),
             handles: BTreeMap::new(),
@@ -381,6 +379,7 @@ mod tests {
     use super::*;
     use botster_hub_conformance::route::RouteRead;
     use serde_json::json;
+    use std::time::Instant;
 
     /// R-87, R-88: `record_of` gives the record that the handle's refusal layer keeps, so the `parked_work` and `op_posted`
     /// controls read what
