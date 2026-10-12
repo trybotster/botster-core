@@ -511,6 +511,15 @@ impl HostEngine {
                     at: unix,
                 });
             }
+            // ST-7: the end of a client input's transaction raises the keyed edge again (EV-6). It changes no revision.
+            Observation::ClientInputEnded { route } => {
+                self.queue.post_keyed(Event::Activity {
+                    id: sid,
+                    instance,
+                    source: ActivitySource::Client(route),
+                    at: unix,
+                });
+            }
             Observation::HostInput { input_rev } => {
                 if let Some(t) = &mut s.terminal {
                     t.input_rev.host = input_rev;

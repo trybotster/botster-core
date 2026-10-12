@@ -333,6 +333,7 @@ fn hello_and_launch(
         size_policy: SizePolicy::Latest,
         link_frame_bound: 1 << 20,
         limits: limits.clone(),
+        cursor_ordinal: 1,
     }));
     match route {
         None => link.msg(&launch_msg),

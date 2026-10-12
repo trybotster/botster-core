@@ -259,6 +259,8 @@ pub struct Session {
     pub row_protocol: Option<u8>,
     pub worker_features: Option<BTreeSet<Feature>>,
     pub token: Option<[u8; TOKEN_LEN]>,
+    /// The cursor ordinal of the instance (steward ruling R-101 Q6), reserved in the registry before the launch.
+    pub ordinal: u64,
     pub worker: WorkerHandle,
     /// The payload's identity, from the launch report (LC-5, LC-6).
     pub payload: Option<ProcessIdentity>,
