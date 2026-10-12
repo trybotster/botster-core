@@ -2675,3 +2675,74 @@ It independently verifies merge `ae49bbec2d1086f918341bc596bf8560ba27bcd1`, both
 It records the lead's completed Q7 check and retains all earlier evidence limits and separate follow-ups.
 Both reviewers now verify the same merge. Core #299 review is closed.
 The reviewer runs no execution job and waits for the doorbell.
+
+
+### Core #309 — R-100 admission review, round 1
+
+VERDICT: NOT CLEAN (4 open package findings; 1 open integration finding).
+PR: `https://github.com/trybotster/botster-core/pull/309`.
+Exact head: `84be34b0b8bc464bf6be55af2ef2c292b670fcdf`.
+Imported source base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Source tree: `3ed90dd6d33fc706d1dcd0f7b871f0843ee172e3`.
+READY message: `msg_plugin-w_1791784748_86b1bf`.
+Integration reviewer: Sol-C, session `sess-1791781343-0185-0b0f5f6ddc65cfcfbf7326db792a6d82`.
+The HIGH tier is correct. The PR changes host admission, link sizing, and two packages.
+
+The reviewer reads R-100, the lead's design approval, the nine-file delta, and the relevant admission, setter, launch, and decoder paths.
+The request-size check follows arguments and PayloadTooLarge, before PendingLimit.
+The attach check follows applied limits, before RouteLimit.
+The six-times frame bound addresses escaped text. The key-bound cache is absent.
+The shared Launch constructor prevents separate field construction in the check and send.
+However, the findings below prevent acceptance of the stated send guarantee.
+
+RC-R100-1 — HIGH, open: the fast path omits unbounded modifier vectors.
+Evidence: frame_fit.rs op_fields covers key text and key names, but omits KeyInput.mods and MouseInput.mods.
+The .43 contract structs use Vec<Modifier>. check_payload does not limit their length or remove duplicates.
+A mouse event can hold many repeated modifiers and still have a small PTY encoding.
+Its only counted field is the short session ID. fit_within returns Ok through the fast path without measuring the oversized host message.
+The later link send can fail, contrary to R-100.
+Required change: account for every variable serialized list or validate its representation under the contract before this fast path.
+Add admission regressions with oversized modifier vectors and public link observations.
+The implementer confirms this gap in `msg_plugin-w_1791784908_dcb260` and plans Field::Mods.
+
+RC-R100-2 — MEDIUM, open: two tests assert private subject state.
+Evidence: tests/frame_fit.rs line 80 asserts engine.sessions.contains_key; line 186 asserts engine.routes.is_empty.
+Required change: replace both assertions with public results or boundary observations.
+The Create test already has successful reuse of the refused ID. The attach test must prove its refusal through public behavior.
+The implementer accepts this finding and plans public-result assertions.
+
+RC-R100-3 — HIGH, open: pending setters can enlarge Launch after Start passes its check.
+Evidence: fit_launch measures the current request with the worst size, but retains the current color profile and size policy.
+A Created session can admit SetColorProfile, then Start, without an intervening pump.
+Start checks the old request. The setter remains pending, and run.rs waits for it before the start flow.
+Next::Setter then replaces request.color_profile. SendLaunch uses that larger profile.
+A request near the measured bound can therefore pass Start and exceed the bound when sent.
+A valid 256-entry palette is sufficient; SetSizePolicy can also change the later encoding length.
+Required change: account for all pre-launch values that can change after admission, including pending setters.
+Add a public queued-setter/Start regression that verifies the receiving boundary.
+
+RC-R100-4 — LOW, open: the body conflates the imported base with the gate reference.
+Evidence: the body names ae49bbec as the completed gate's base.
+The gate header names `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Required change: keep the imported ae49bbec source base and be95ef13 gate-time reference separate.
+Do not claim the gate reference is imported without an ancestry check.
+
+RC-R100-I1 — HIGH, open; owner: integration review.
+Integration message: `msg_plugin-w_1791784869_8b9140`.
+Worker::new creates its decoder with DEFAULT_MAX_PAYLOAD, one MiB.
+Worker::on_launch raises that bound only after decoding Launch.
+The host's derived-bound check can admit a Launch above that initial decoder bound.
+The scripted host tests do not prove acceptance by the shared worker decoder.
+The reviewer independently confirms Worker::new lines 328-329 and on_launch's later decoder change.
+Required change: use the receiver's pre-launch bound or establish the larger bound before Launch.
+Add an admission-to-shared-worker-decoder regression. The implementer accepts this finding for the same repair.
+
+The reviewer reads the completed gate header and summary as existing evidence, without accepting it as proof against these findings.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-r100-frame-check-84be34b0-pool-20261011-225141-51725.log`.
+All ten steps report PASS. The mutation summary reports 66 mutants, 60 caught, six unviable, and no miss or timeout.
+The focused reversal log shows both earlier Field::upper multiplication survivors failing the new tightness test.
+The reviewer has not accepted the six unviable identities or completed the full evidence audit.
+No mutation exclusion changes in this delta. Every existing exclusion still needs its applicable review at the repaired head.
+The implementer requests a hold on this head while it prepares the repair and a new gate.
+The reviewer stops the remaining audit of this head. No CLEAN is issued.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
