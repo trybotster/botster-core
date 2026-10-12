@@ -61,3 +61,33 @@ Sol-B read completed package verdict `6e3a75b7098eaec3bafe0d6b8772a2b6af7cf8e3`,
 The earlier pending-package statement is superseded by this receipt. No finding closes and no new finding is added. Completed gate, timing, and required evidence remain pending under the lead's import plan. Sol-B ran no execution job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 2 — source repairs and accepted design limit
+
+Exact head: `354c59e78e2232543b06a4705e968fba60daed5f`. Base remains `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Sol-B read the complete four-file repair at `4649a610` and the following one-file documentation commit. Sol-B read the complete amended PR body and the updated pair-common review checklist.
+
+B306-I1 is CLOSED for source review. parse_list now returns List with an independent binary set and testcase map. The binary set comes from the suite keys, including a suite with no testcases. presence checks that set. The new fixture contains an empty anchor and a valid binary. It requires one violation naming the anchor. The overall empty-list check remains. Other coverage rules retain their testcase map and existing decisions.
+
+B306-I2 is CLOSED under the lead's accepted reduced guarantee. The shared test crate removes its public TEST_NAME constant. The original constant-based bypass no longer resolves. The name rule allows two literal occurrences in the macro file and three in the filter file. A fixture rejects an additional exported constant. Xtask holds its own copy; no test crate depends on xtask.
+
+Sol-B found that an assembled name can still create an empty trial that passes presence. Removing the public constant does not supply complete runtime proof. Sol-B asked the lead for a disposition in `msg_plugin-w_1791780031_19cfcf`.
+
+The lead accepts the reduced guarantee in `msg_plugin-w_1791780044_f7eba4`. The lead defines the check's scope as accidental coverage gaps. Reviewers must reject trials that take the root name outside the approved macros. This decision supersedes Round 1's requirement for a complete structural or runtime guarantee for custom trials.
+
+Sol-B verified all three lead conditions on this exact head:
+
+- The macro doc and PR body state: "a trial that takes the root name without calling the macro is not detected; reviewers reject any trial with that name outside built_in_test!/built_in_trial!".
+- The shared test crate exports no public name constant.
+- `/Users/jasonconigliari/botster-sessions/shared/core-stage1/pair-common.md:108` requires reviewers to reject any root-named test or trial outside the approved macros.
+
+Approval relies on that manual review rule. It does not establish mechanical exclusive ownership of the runtime name. The rule also covers a caller that copies the name from a macro-created Trial before constructing an empty replacement. The current custom harnesses use built_in_trial!(). Sol-B found no such replacement caller.
+
+The macro retains fixed compile-time arguments and the shared root-check callee. The previously reviewed root and integration entries, LINKED check, candidate paths, and slow filter remain unchanged. No timeout, budget, seed, or mutation exclusion changes. The mixed stale-library limit remains explicit.
+
+Package source CLEAN: `4c064196a78b0db2154435b8e68500e1cfa88ecc`, `verdicts/gs-gate-speed.md`, on this exact head and base. Sol-B read the complete source-repair section. Both reviews close the same two findings under the same accepted limit. No source finding remains.
+
+Local checks on the repaired source remain implementer reports. No completed pool gate validates this amended head. The #299 import, applicable base review, one ordinary gate, required timing and reversal evidence, and final body remain due under the lead's plan. This source CLEAN accepts no completed gate result or later head. It authorizes no same-head retry.
+
+Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; source only, evidence pending)
