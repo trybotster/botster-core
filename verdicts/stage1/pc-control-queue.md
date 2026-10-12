@@ -196,3 +196,164 @@ Final-slot or train import/checks, applicable delta reviews, exact-final-head ga
 I ran no execution job.
 
 VERDICT: NOT CLEAN (2 open MEDIUM findings) at 614cc30dabd59a7d8d5a770ff0eb74991bb240cb against source base e4f495040a80b524a7ac9accba95272d5c2594fa
+
+## Round 2 inspection — combined repair READY
+
+READY message: `msg_plugin-w_1791783700_57a219`.
+Head: `5139373242b37638cabf1017ab471124c2330adf`.
+Parent: `c938caaf367b2a5ae150428257da5b40ff333913`.
+Tree: `dcbefc16d2986aa6fa2640a24bae856e45dfb7c2`.
+Source base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+Gate reference: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The Git merge base equals the source base. This round imports no later v1 commit.
+
+I read the complete seven-file repair delta, its affected driver/engine paths, the updated body, and the completed evidence.
+The repair delta has 368 additions and 27 deletions.
+Full-index repair diff SHA256: `79e280a7e15e28c94aa573dd4848ab045caf1af10ac72348153a6e7b32c014e4`.
+The whitespace check reports no error. All nine conformance text files are byte-identical to the original READY head.
+The previous complete source review remains applicable outside this delta.
+
+### R307-SI-1 / CQ-PC-1 — MEDIUM — closed in inspected source
+
+`close_write` still clears unsent bytes, stops write interest, and feeds `LinkWriteFailed` before the driver checks room.
+`on_link_write_failed` now clears `refused_full` when it sets `write_failed`.
+The later room check therefore finds no waiting mark and posts no false `SessionWritable` or `more` work.
+`cancel_with_room` now skips the Full check when the worker's write side has failed.
+The earlier UnknownOp, TooLate, NotCancellable, and AlreadyAdmitted decisions retain their order.
+`send_msg` still queues nothing on a failed write side. The read side retains its original Done/EOF behavior.
+
+The first new test refuses Full, then injects BrokenPipe while sending another write.
+It keeps the read side open, spends the pump budget with Silent, and proves no false `more` or writable event.
+It then feeds the original worker request's Done and observes Written for the original write.
+The second new test proves that a cancel on the failed write side is Admitted despite zero edge room.
+Both tests PASS in the completed exact-head gate.
+The final clippy delta changes only test construction and reverse request lookup; it changes no production path.
+
+### R307-SI-2 / CQ-PC-2 — MEDIUM — closed in inspected source
+
+`largest_frame` uses `HEADER_LEN + frame_bound`, where `HEADER_LEN` is five and the engine supplies `frame_bound`.
+`control_bound` uses that term for each pending/input operation and retains the input term and room for four cancels.
+The room remains the smaller of counted room and `HostEdges::link_room`.
+`encode_frame` checks payload length before it appends the frame, so an accepted message cannot exceed the term.
+The source changes no CoreLimits field or other admission rule.
+R-100's separate oversize-at-call implementation remains RC's work, assigned to Sol-C for review.
+
+Ten new message-term tests cover Stop, Kill, Remove, Cancel, Detach, forwarded bounded operations, and four unbounded-string kinds.
+The bounded cases include the longest session id with JSON escapes, large numbers, and a 256-colour palette.
+The unbounded-string cases prove encoder rejection above the frame bound; they do not prove synchronous Core API refusal.
+The formula test pins the default frame bound at 65 MiB. All eleven term/formula tests PASS in this gate.
+The default control threshold is about 18 GiB; the threshold calculation allocates no buffer.
+The source uses the actual engine method, including its cap. The remaining documentation finding is separate below.
+
+### R307-SI-3 — LOW — open — frame-bound documentation omits its cap
+
+DESIGN.md and the inspected body state `F = 4 × max(max_paste_bytes, max_snapshot_bytes) + 1 MiB` as the engine formula.
+`HostEngine::link_frame_bound` uses saturating arithmetic, then clamps to `LINK_FRAME_CAP = u32::MAX / 2`.
+The stated general formula therefore differs from the actual method for large configured limits.
+The default 65 MiB example is correct. The production term already uses the correct capped method.
+The new `control_term.rs` comment says `small()` has a bound of 1 MiB plus 8 KiB.
+Both configured payload fields are 1024, so that test's actual bound is 1 MiB plus 4 KiB.
+
+Required change: state the cap and saturation, or name the engine method without an exact uncapped formula.
+Correct the small-test comment. Correct the body to agree with DESIGN.md.
+No runtime source change or broader sizing change is requested.
+Finding messages: `msg_plugin-w_1791783927_3f77da` and `msg_plugin-w_1791783927_115ab4`.
+
+### Exact-head gate and accounting
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-pc-control-queue-51393732-pool-20261011-221503-34203.log`.
+SHA256: `e867fc5768a40ed812188bfc8803a829a8f5d92da1932fd9bb1657f7c527b461`.
+The header names this exact head and the later gate reference. The lists step names the actual e4f49504 merge base.
+All ten steps PASS in 643.8 seconds.
+The job and wrapper exit zero after 653 seconds on msa1: one queued second and 652 running seconds.
+This gate does not prove that the later gate reference has been imported into the source.
+
+Default: 1907 PASS and 431 skipped in 15.839 seconds. Slow: 615 PASS and 2041 skipped in 42.675 seconds.
+I audit all normal PASS rows. Each expected ordinal occurs exactly once, with the correct denominator.
+The two removed IN-6 ids have normal testkit and real PASS records.
+Both strict summaries report 260 PASS and zero failures, in 6.41 and 5.69 seconds.
+Strict runs 320 of 338 pending ids, excludes eighteen real-only ids, and retains three held ids.
+Held-full runs two budget ids at 32 seeds: 64 ignored results, zero failure, 19.28 seconds.
+The gate reports ledger 691, pending 408, real-pending 44, and minimum 69.
+All 36 reported passing ignored real ids remain in the unchanged real-pending file.
+The earlier two own pending removals remain the only removals. No new status change occurs in this repair.
+
+I independently match all 64 unique Stage 1 mutation identities: 39 caught, thirteen missed, and twelve unviable.
+Stage 2 tests exactly those thirteen misses and catches all thirteen.
+All 52 raw catches match their citations. Every cited test has a normal PASS in this gate.
+Every Stage 2 catcher also has an unmutated slow baseline PASS.
+Baseline: 615 PASS, eleven slow, 2802 skipped, 45.003 seconds.
+Stage times: 108.3 seconds, 53.1 seconds for the slow baseline, and 180.6 seconds for Stage 2 mutations.
+No mutation remains missed or timed out. The complete log has no FLAKY token.
+Fuzz runs both link_decoder and msg_decoder for sixty seconds each.
+Their logs end with 5,451,331 and 3,719,385 runs respectively, each after 61 seconds.
+The prebuild step writes three candidate binaries. Existing Linux platform limits remain.
+
+### Local checks and replacement reversal
+
+I read complete `cq-local-checks-v3.sh` and `cq-local-checks-51393732.log`.
+Script SHA256: `2b7b3f3c74ea7313e6cb8ffee96d084d89d4f66284670509898a5aea9c479334`.
+Log SHA256: `d8d5742dce4db0e2a761f771d755e2f6777e24419c3000871c2c7299d00c9342`.
+The script sets both parallelism caps and removes the toolchain override.
+The log names this head, Darwin 27.0.0, and a 05:06:13 UTC clean marker.
+The script suppresses the clean output and does not retain its numeric exit. That marker is not an independently proved clean.
+Ten xtask commands exit zero. Fmt succeeds; filtered clippy reports only the existing Ghostty warning.
+Host has 348 passes; link has 48 unit and four integration passes; testkit has 427; worker-core has 192.
+Strict seeds 0–31 report 260 PASS and zero failure. Filtered Cargo pipelines do not retain each command's numeric exit.
+The completed pool gate separately validates these current-head paths.
+
+I read the first reversal log at 973507ab. It has no clean record or numeric command exits.
+Owner message `msg_plugin-w_1791783915_6f513e` explicitly withdraws it because the writer sequence cannot be proved.
+I do not count that first log as acceptance evidence.
+
+I read complete replacement `red-on-revert-v2.sh` and `red-on-revert-51393732.log`.
+Script SHA256: `cd0046580726479f59dc396c54b09185dbd7a01576c9bb15d5f67ac56de563a5`.
+Log SHA256: `eb05827274d110ec9b91358d81e7fadda7f7353165abc5191c2756fb210251cf`.
+The replacement names this exact head, an empty status, Darwin 27.0.0, and a clean with exit zero at 05:43:58 UTC.
+It names this worktree as the target's only writer from that clean onward.
+The script sets both caps and removes the toolchain override. It records each changed patch and the nextest command's exit.
+Each separate reversal fails exactly its corresponding new test: 347 PASS and one failure, exit 100.
+After restoration, the status is empty and all 348 tests PASS, exit zero.
+The nextest output is filtered; the script's comment does not make it a complete raw test transcript.
+The retained patches, expected failures, command exits, clean, and restoration support the two failure-path reversals.
+
+### Body and inspection state
+
+The inspected GitHub body names this head and distinguishes the source merge base from its later gate reference.
+Raw JSON SHA256: `7fc096208cad1e3bd7a1d320f795ab8368c410356328ac6ac845894900bdb4a1`.
+Body text SHA256: `be6723b7b9333955f9ff3636fee4b454a07335e234dbc6396648619bb65a5512`.
+The READY body hash `bf62fdac9ac88ad4e575dbd1190e922949dbd20aa5a3532230ae9b481872156b` includes the final output newline; it matches.
+Owner message `msg_plugin-w_1791783933_ca9885` reports a later body edit that withdraws the first reversal and names its replacement.
+That body edit and the LOW documentation correction still need their exact receipt and read.
+The complete Round 2 package verdict remains pending. This inspection completes no formal review round.
+Both MEDIUM repairs close in the inspected source; R307-SI-3 remains LOW open.
+Final-slot or train import/checks, applicable delta reviews, exact-final-head gate, final reviews, and Q7 remain due.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+### Documentation correction inspection — 50a50cff
+
+Correction READY: `msg_plugin-w_1791784031_03a474`.
+New head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+Its parent is the gated repair head `5139373242b37638cabf1017ab471124c2330adf`.
+Its tree is `90d10894ec8b19da48921f176abae1baaba771e5`.
+I read the complete two-file delta. It changes only DESIGN.md text and one Rust documentation comment.
+The cap/saturation formula now agrees with the engine method. The small-test comment now states 1 MiB plus four times 1024 bytes.
+No executable statement, test assertion, status list, pin, profile, or gate decision changes.
+The 51393732 gate remains completed evidence on its own exact head. I do not relabel it as a 50a50cff gate.
+The eventual imported final head still requires its exact final gate and applicable reviews.
+The owner reports fmt, taint, and ten term tests passing on 50a50cff; no retained current-head local log is supplied yet.
+I do not treat that short owner report as a new independently read execution log.
+
+I read the complete corrected body at this exact GitHub head.
+Raw JSON SHA256: `f5e932eece87c92f2ea492041ad3f070f9465c9c4df66aaded33a275fec3c03f`.
+Body text SHA256: `38cfae3315bd365eb9a327f90488b9f20caa5c50fc8fd727c2bde5caa6e95e30`.
+Body-plus-output-newline SHA256: `dd5f76812a172315fc5d68ced06514341547b9a1d633a7a76ae1fb7cad906b37`, matching the owner receipt.
+The body states the capped formula and explicitly withdraws the first reversal log.
+R307-SI-3 closes in source, but its body precision remains open after this head move.
+The body still calls 51393732's gate and replacement reversal evidence records evidence on the current PR head.
+Those artifacts name 51393732; the current PR head is 50a50cff.
+The owner must label the gated repair head precisely and state the later documentation/comment-only delta.
+Body correction request: `msg_plugin-w_1791784122_4928e7`.
+No replacement gate is requested for that text correction.
+The complete exact-50a50cff package verdict remains pending. No formal Round 2 verdict is complete.
+I ran no execution job.
