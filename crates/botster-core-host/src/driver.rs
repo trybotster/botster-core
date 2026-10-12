@@ -643,9 +643,13 @@ impl<E: HostEdges> HostDriver<E> {
 
     /// After a flush: a control stream with room for one control message lets a session whose `cancel` was refused `Full`
     /// post `SessionWritable` (IN-6, SV-3). The event counts against the pump (9B); with no budget left it waits for the
-    /// next pump.
+    /// next pump, which the pump reports as `more`. A link with no refused cancel has no waiting work, so its room is never
+    /// `more` (TM-6).
     fn control_room(&mut self, link: LinkId, budget: &mut Budget) {
-        if control_room(&self.links, &self.edges, self.control_bound, link) < self.control_message {
+        if !self.engine.waits_for_room(link)
+            || control_room(&self.links, &self.edges, self.control_bound, link)
+                < self.control_message
+        {
             return;
         }
         if budget.exhausted() {

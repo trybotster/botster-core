@@ -1027,3 +1027,46 @@ fn a_frame_parked_on_queue_room_is_not_more_when_the_budget_is_spent() {
         SessionState::Exited(_)
     ));
 }
+
+/// IN-6, TM-6, 9B: a refused cancel waits for the control queue's room. When a pump with no budget left finds the room, that
+/// is runnable work: the pump reports `more` and posts nothing for it, and the next pump posts the one `SessionWritable`.
+/// (A link with room and no refused cancel is no work: `one_due_silence_that_spends_the_budget_leaves_no_more_work`.)
+#[test]
+fn a_refused_cancel_whose_room_comes_back_in_a_spent_pump_is_more() {
+    let mut rig = Rig::new(limits(|l| {
+        l.pump_events = 1;
+        l.max_sessions = 4;
+        l.mandatory_events = 64;
+    }));
+    silent_session(&mut rig, "s1", LinkId(1), 3);
+    // The write is sent and waits for its completion: no op work is runnable.
+    let write = text_write(&mut rig, "a");
+    rig.settle();
+    rig.drain_events();
+    let room = |rig: &mut Rig, room: Option<usize>| {
+        rig.mock
+            .lock()
+            .unwrap()
+            .links
+            .get_mut(&LinkId(1))
+            .unwrap()
+            .link_room = room;
+    };
+    room(&mut rig, Some(0));
+    assert_eq!(
+        rig.driver.cancel(write),
+        CancelResult::Refused(CancelRefusal::Full)
+    );
+    room(&mut rig, None);
+    rig.now += Duration::from_secs(3);
+    rig.unix += 3;
+    let report = rig.pump();
+    assert_eq!(report.events_posted, 1, "the Silent spends the budget");
+    assert!(
+        report.more && rig.wake_set(),
+        "the refused cancel's room waits (TM-6)"
+    );
+    assert_eq!(writable(&rig.drain_events()), 0);
+    rig.pump();
+    assert_eq!(writable(&rig.drain_events()), 1);
+}
