@@ -317,3 +317,34 @@ The doc log does not contain its own head header. The owner identifies its head 
 These are local producer records. They do not replace the later exact train gate or establish a completed merge.
 F28 and the earlier Mac IN-6 diagnosis remain separate duties. I ran no execution job.
 No formal verdict or new NOT CLEAN round follows from this pending inspection.
+
+
+## Round 6: second v1 import and repairs CLEAN in source
+
+- Head: `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+- Tree: `b01738869303a3d6e5d4eae1d385b69134b714c0`.
+- Imported base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Complete integration inspection: `49a87aa5`, above.
+- Complete package Round 205: `b84ad95cf3021021bacda725f6b758a1c97ba38e`, `verdicts/p3-worker.md`.
+- Package message: `msg_plugin-w_1791841002_4ac0c9`.
+
+I read the complete same-head package verdict. Its source, tree, base, body hash, and evidence limits match the integration inspection.
+No source or evidence change follows that inspection. The package verdict adds no execution result or product change.
+
+**F159 — MEDIUM — CLOSED.** Only a successful watched exit ends the tail test's exit wait.
+An inner watch error fails before DrainPty. The poll event, absolute deadline, count gap, byte equality, and cleanup remain unchanged.
+**F160 — LOW — CLOSED.** The public action comment describes the repeated count/flush rule and quiet-read or EIO/EOF end conditions.
+It states the lack of a byte bound and retains the continuous-writer A24 gap.
+All earlier finding closures and the lead's F154 SETTLE retain their scopes. Neither review has an open finding, including LOW.
+
+The complete body hash remains `e98d05d204a37e86d0e9eb65d7b30471c45fec1179a1bc3f23b0c698af1ef7ca`.
+The local records retain their original heads and limits. The missing-cap taint failure remains recorded beside the later capped pass.
+The doc record lacks an exact-head header and printed doc command. Its head and rustdoc flag remain the producer's report.
+The local clean record supplies no numeric clean exit or independent target-writer history. No local record becomes a train gate.
+
+This verdict accepts the second import and repaired member source. No separate member gate is supplied or required under the stated lead ruling.
+The later train composition, applicable combined review, exact merging gate, ONE final train receipt, and merge verification remain due.
+#318 remains outside train 9b. No future train, pin, pending removal, Mac IN-6 diagnosis, F28 closure, or A24 implementation is accepted.
+I ran no execution job and changed no product code.
+
+VERDICT: CLEAN (0 open, including LOW; second-import and repair source only)
