@@ -274,3 +274,50 @@ The old source CLEAN stays valid. Future known-flaky and train-4b reviews remain
 I ran no execution job.
 
 STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
+
+## R107-SI-1 resolved by the corrected ruling
+
+Lead receipt: `msg_plugin-w_1791823877_c463c0`.
+I read the complete corrected R-107 and its follow-up at contracts `fe209c6563fa8943065ef1aaa3e09a7e3154a201`.
+The follow-up supersedes the original acknowledgement premise and the original Q2 scope where they differ.
+It explicitly says that the retained logs cannot distinguish an unwritten probe chunk from an omitted worker tail drain.
+It preserves pty_output's acknowledgement meaning: the bytes are queued in writer order.
+It rejects a default acknowledgement that waits for the write, because output backpressure can require a later transcript step to release the writer.
+It also rejects a held-output exception that gives one acknowledgement two meanings.
+These corrections agree with the independently read source. R107-SI-1 closes.
+
+The new read-only control is pty_output_written {session} -> {bytes}.
+It reports the total bytes of that session's pty_output requests whose write_all and flush have returned.
+The transcript waits through await_control. The probe adds no wait and holds no reference for the control.
+The testkit program edge supplies its immediate written total. The real tier must forward the control to the probe.
+The contracts patch includes the control row, probe count, acknowledged-request documentation, and transcript fences.
+A Core testkit PR is required if unknown probe controls are not already forwarded.
+The lead assigns the contracts patch to P6. No implementation or future pin is accepted by this ruling read.
+
+The EV-2 transcript awaits the cumulative pty_output_written total after the final TB output and before Stop.
+Then the actual PTY tail falls under OU-7, and A31's drain requirement remains binding.
+The EV-2 R-57 exception remains because the written-output fence and exit order supply its ordering.
+The patch must also count every output/exit/check shape in the sweep and add its fence or a debt line that cites the follow-up.
+The same PR adds the shape lint and its positive and negative self-tests.
+
+The other two ids have no intervening exit. Their earlier exceptions are revoked.
+EV-1 step 10 gets await_title for its existing T3 title, with no new sentinel and no event poll.
+EV-2-retired step 121 gets a title sentinel in the same output and await_title on s2.
+Only the sentinel's TitleChanged enters later ignore lists. The author must first prove that s2's live instance owns the title.
+If the sentinel changes the loss-marker expectations, the author must return to the steward.
+Both fences retain R-57's no-launch-or-adoption scope condition.
+
+The current EV-2 known-flaky entry must name both candidate causes and both owners: P6's written-output control/fence and P3's A31.
+Its exact covered signature remains the tail-metadata step_timeout, step 71 on the current transcript.
+Removal requires both fixes to land and the three ids to pass at their failing seeds.
+The entry cannot claim an A31-only diagnosis or an A31-only removal condition.
+The other ids get separate entries only if they fail before the patch, with their own read-step signatures and this patch as the fix.
+R-107's separate A31 evidence requirements remain binding.
+
+The lead keeps the new HIGH known-flaky PR assigned to Sol and Sol-C, followed by train 4b after that PR lands.
+No exact-head READY or train-4b delta request has arrived in this receipt.
+The old train gate stays RED and will not be re-gated. Its mutation and fuzz evidence remain absent.
+This record closes the ruling question only. It accepts no new list, control, transcript, pin, PR, train, gate, or merge.
+I ran no execution job.
+
+STATUS: CLEAN (R107-SI-1 resolved; future known-flaky PR and train-4b review pending)
