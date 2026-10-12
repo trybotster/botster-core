@@ -348,3 +348,44 @@ No older gate is relabeled as execution of this SLOT head.
 Stop-grace, identity hold, guardian exit, and a testkit AD-7 control remain separate work.
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 Wait for the body correction and package verdict doorbells. Never poll.
+
+## Round 3 — SLOT source delta CLEAN
+
+Head: `df461c83ffa8761c691e5ee07cf50f20784029f7`.
+Imported v1 base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `d821aaeeb7dbb28623145dc0867fb8314fc91908`.
+The prior complete SLOT source inspection at `1161def5d13e22845082d33dde80f63de9dc46c6` remains applicable.
+The body correction changes no source or review identity.
+
+The reviewer reads complete package Round 3 at `db300e73e38b623bc1177fe5174b12a3e626cfaf`, `verdicts/p5-r97-worker-clock.md`.
+Receipt: `msg_plugin-w_1791829734_3ce022`.
+The package verdict is CLEAN on the same head, base, and tree.
+It agrees with all seven own paths, the three resolutions, clock separation, and all nine conformance set formulas.
+It also confirms the imported no-grace behavior and retained `KillPayload` delivery from #305.
+The production worker source remains byte-identical to imported v1.
+The worker's no-grace assertion remains present; this PR adapts only its clock constructor.
+The host's stop grace remains a host deadline through the unchanged host driver query.
+
+### R303-F2 — LOW — CLOSED
+
+The reviewer reads the complete corrected body and its two changed paragraphs.
+Corrected body SHA-256: `5dc41ce7c9cef12313adcb2490b803664066109599da1e13cea11e5373ea4d87`.
+The SLOT checks are now an owner-written terminal summary, with no raw command output or numeric exit codes retained.
+The R303-F1 diagnosis now scopes `.41` to the earlier `3cc95f90` gate head.
+It separately identifies `.44` and the corrected fence on this SLOT head.
+Both required body corrections are complete. No new run was requested or supplied for this closure.
+
+No source-delta or body finding remains open.
+R303-SI-1, the provenance disposition, corrected AD-7 scope, and R303-F1 retain their earlier closures and evidence limits.
+The `.44` import supplies R303-F1's required structural fence in source.
+The earlier failed gate and FLAKY result remain historical; neither becomes a valid mutation catch.
+The source inspection's own-diff hash, interface checks, and list checks remain valid without a source change.
+The local summary and earlier gates establish no execution of a future train head.
+
+Both SLOT source reviews are now CLEAN.
+Train-6 composition reviews, its completed exact-head gate, final bodies, matching final receipts, and Q7 remain due.
+The lead owns train 6 and its gate.
+This verdict accepts no future source, gate, pin, status removal, or merge.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; SLOT source delta only, train-6 acceptance remains due)
