@@ -2062,3 +2062,46 @@ Formal Round 7 in verdicts/pc-control-queue.md is FINAL CLEAN, zero open finding
 Matching formal FINAL Sol receipt, other FINAL member receipts, combined FINAL acceptance, lead Q7, and equal-tree published merge remain due.
 No later head or merge is accepted. No final client-copy comparison or independent old-train raw RED audit is claimed.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Publication: FINAL #307 package commit 4112796926e0e9a6b0cf90bcbcab72294da07bec is pushed on stage1/review-pc.
+PC, Sol, and the lead receive it in msg_plugin-w_1791827845_283f15, msg_plugin-w_1791827845_01e57d, and msg_plugin-w_1791827845_8ec6ca.
+Sol FINAL receipt msg_plugin-w_1791827999_4accdc supplies 5116ef86159c5a160dfd5738e79704aa83316258.
+The reviewer reads complete #307 Round 6 and combined train-4b Round 3 and verifies remote publication.
+Both match the exact head, base, tree, body, and gate of package FINAL 41127969.
+The combined verdict reports all six complete member FINAL records read and CLEAN.
+Matching FINAL #307 and combined FINAL review conditions close. Lead Q7, equal-tree merge, and remote verification remain due.
+No completed merge or later head is accepted. No reviewer job runs.
+
+## #319 route_frames_taken: package Round 1
+
+PC READY msg_plugin-w_1791827733_63e796 names ab9b223611978270179cb2c2f361f3a2becfbe65.
+Source merge base 080987829a2e2245a7ea97606020400392c974d6; tree d926f7aea682779594933d840ad9c5a8c50f8a03.
+Lead msg_plugin-w_1791827904_c61baa confirms 0179 PACKAGE and Sol INTEGRATION. PC's earlier role labels were reversed.
+The reviewer reads the brief first, binding instructions, R-93 rulings, design, complete seven-file diff, and completed supplied records.
+Risk is HIGH under BUILD rule 3. No conformance list, pin, facade, mutation exclusion, or gate-decision file changes.
+The control counts frames at the client/worker stream boundary on both tiers. No worker queue count or production test branch is added.
+The Linux query matches worker inode and client peer. The Mac query matches Address and Conn in exactly one netstat row.
+All query failures return harness errors. The client holds no duplicate worker endpoint.
+
+CQ-RFT-1 MEDIUM is open: FrameEnds::push and diag::parse are new byte decoders with no bolero harness or landing registration.
+Plan section 8 step 9 requires that coverage. The gate's fuzz step selects no harness and takes 0.0 seconds.
+PC and Sol receive the finding in msg_plugin-w_1791828105_9d39a7 and msg_plugin-w_1791828105_c45109.
+Required: bounded decoder property/fuzz coverage, landing registration, a compiling diag harness despite slow gating, and actual corrected-head fuzz records.
+No other source finding is identified. Formal verdict is verdicts/pc-route-frames-taken.md Round 1: NOT CLEAN, one open.
+
+Completed gate: ~/botster-sessions/gates/botster-core-stage1-pc-route-frames-taken-ab9b2236-pool-20261012-103338-83559.log.
+Verified SHA-256 87d4fc09cb7b8e84f93b384ce087092b684014b48e045fe5ca8b8cffe43b2512; retained client output is byte-identical.
+It names base9fe and source merge-base080. All ten checks report PASS; this is pre-review evidence, not a final current-base merge receipt.
+Default 1937/0; slow 627/0; baseline 627/0; strict 261/0. Stage 1 is 15 caught and 71 missed.
+Stage 2 is 67 caught and four unviable. Total is 82 caught, four unviable, zero miss, zero timeout.
+All 82 raw catches match citations and normal PASS. All 67 Stage 2 citations have baseline PASS. No FLAKY or RETRY record exists.
+Both platform parser test groups and real socket/count/error tests pass. Empty fuzz selection remains the finding.
+
+The local current-head Mac summary reports testkit442/442 and focused slow13/13 after a clean marker; test/clean numeric exits are not retained.
+The 22888a13 reversal record has 13 applicable Mac failures with exit100 and a clean baseline. The Linux-only peer change is not compiled there.
+The final Linux gate catches the peer mutant. A separate 70679e8a Linux job reports 28 caught and two unviable, exit0.
+Earlier per-seed proof uses Core22888a13 and scratch contracts1baa18ed with a temporary path override, seeds0-31, both tier exits0.
+The scratch proof is not a current pinned-transcript or final-gate run. The body keeps all three earlier RED gates and their fixes.
+Corrected body without added LF: a69a136905ffaf4c5b38623cc61266ed1e0bcc916724e57a5281986a03928e72.
+Next: wait for PC's correction and Sol's independent verdict. CQ-RFT-1 must close before package CLEAN.
+The final slot/base check/gate/receipts/Q7 remain due after both CLEANs. No reviewer execution job runs. Never poll.

@@ -677,3 +677,14 @@ The lead must verify the equal tree and published merge before merge closure.
 This receipt accepts no later head or merge. It does not authorize a retry.
 No reviewer build, test, gate, mutation, reproduction, or executable base-check job runs.
 Wait for the doorbell. Never poll.
+
+### Matching FINAL member and combined verdicts
+
+Sol receipt `msg_plugin-w_1791827999_4accdc` supplies commit `5116ef86159c5a160dfd5738e79704aa83316258`.
+The reviewer reads complete #307 Round 6 and combined train-4b Round 3.
+The reviewer verifies that the remote integration branch publishes this commit.
+Both records match package FINAL `4112796926e0e9a6b0cf90bcbcab72294da07bec` on the exact head, base, tree, body, and gate.
+The combined record reports all six complete member FINAL records read and CLEAN.
+The matching formal FINAL #307 condition and combined FINAL review condition close.
+The lead's Q7 ancestry, equal-tree merge, and remote publication checks remain due.
+No completed merge or later head is accepted. No reviewer execution job runs.
