@@ -2574,3 +2574,16 @@ This delta CLEAN permits the new final gate after both delta CLEANs under the le
 The completed exact-head gate, full mutation result, matching final body, both final verdicts, and Q7 remain due.
 The failed f16a10ba gate supplies no acceptance for this head. This verdict accepts no final gate result or later source tree.
 The reviewer runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — integration corrected profile receipt
+
+Integration message: `msg_plugin-w_1791780162_0a8a65`.
+Integration receipt: `4db1c4751c102893caa281473fe2b3fd08ff74a2`, Round 5 in `verdicts/stage1/rc-pin-43.md`.
+The reviewer reads the complete round.
+Its source-delta CLEAN covers `77eae642eaac0c56cde035870616d17bf2f877ba` against imported base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Its tree is `9423da03abc7b905308920570cf767216e0f3ee5`.
+The profile review, lead ruling, both LOW closures, failed-gate records, and evidence limits match package receipt `cd036b066e4ce6c2f2e9493bc2ddb5fa5d242afc`.
+Both delta reviews have zero open findings. The earlier final gate remains RED.
+The completed exact-head final gate, full mutation result, matching final body, both final verdicts, and Q7 remain due.
+The reviewer accepts no final gate result here and runs no test, build, gate, or diagnostic.
