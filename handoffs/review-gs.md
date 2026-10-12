@@ -10,6 +10,8 @@ The .44 pin and inherited ev_2 entry retain their current-base scope. No retired
 
 Sol-B owns the combined review. The train gate and final evidence remain due. I ran no execution job.
 
+Sol-B #306 delta and combined source CLEAN is published at `961f2be2a8c07f19ec09de7dfc9f8883b2bcbf2d`. I read both complete artifacts. Final train evidence remains due.
+
 ## Current train 3d result
 
 #310 final evidence CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, tree `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`, base `080987829a2e2245a7ea97606020400392c974d6`.

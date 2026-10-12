@@ -3955,3 +3955,15 @@ The complete body records the conflict resolution, retirement, inherited signatu
 Both earlier LOW findings remain closed. No source, body, or supplied-evidence finding remains. The schema still supplies no automatic failure matcher.
 
 The integration receipt and authorized final delivery procedure remain due. This CLEAN accepts no later head or retry. I ran no execution job.
+
+### Sol-B train 5 source receipt
+
+I read both complete artifacts at `961f2be2a8c07f19ec09de7dfc9f8883b2bcbf2d`: `verdicts/stage1/train-5.md` and `verdicts/stage1/gs-built-in-coverage.md`.
+
+Sol-B accepts #306's source delta and the combined train on the same exact head, tree, and base. No source finding remains in that scope.
+
+Sol-B maps all 46 new #307/#315 tests to existing guarded binaries: 43 default library tests and three selected slow-control tests.
+
+Both reviews preserve the imported pin, inherited EV-2 policy, unchanged accounting, and accepted root-check limits. The LINK_CAPACITY exclusion shift adds no checker exclusion.
+
+The final train gate, bodies, member receipts, and lead merge checks remain due. This receipt accepts no running result or additional retry.
