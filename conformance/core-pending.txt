@@ -130,6 +130,7 @@ conf::a3_1_set_policy_in_created_is_stored_in_the_row_and_reaches_the_worker_at_
 conf::a3_1_stall_resync_reports_dropped_notifications_once_before_the_resync
 conf::a3_1_started_frame_is_completed_and_its_notifications_are_not_counted
 conf::a3_1_unshortened_last_has_no_truncated_field
+# conf::a3_2_close_from_stalled_runs_dp12: DP-12 focus state, PR B (RC): Core posts no FocusChanged at step 13 (lead, plan 23cf).
 conf::a3_2_close_from_stalled_runs_dp12
 conf::a3_2_resume_writes_no_focus_in
 conf::a3_2_stall_changes_no_focus_value_and_posts_no_focus_changed
@@ -207,7 +208,6 @@ conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
-conf::dp_5_bytes_and_text_reach_the_pty_exactly
 conf::dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
@@ -279,12 +279,8 @@ conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open
 conf::er_registry_failed
 conf::er_service_limit
 conf::er_unsupported_feature
-conf::ev_1_replaced_keyed_event_moves_to_latest_position
-conf::ev_2_mandatory_and_keyed_never_dropped
-conf::ev_5_keyed_events_bounded_by_keys
 conf::ev_5_service_released_retires_service_keyed_events
 conf::ev_6_keyed_event_carries_latest
-conf::ev_6_loss_leaves_marker_then_state_is_readable
 conf::ev_7_each_terminal_feature_reaches_the_host
 conf::ev_7_every_mode_change_posts_modes_changed
 conf::ev_7_hyperlink_in_output_and_snapshot
@@ -320,30 +316,13 @@ conf::ev_8_shadow_reply_is_computed_at_the_query_point
 conf::ev_8_unstarted_query_frame_is_retired_by_a_resync
 conf::ev_8_worker_never_writes_before_client_opportunity_ends
 conf::ev_9_every_session_event_carries_instance_id
-conf::in_10_terminal_guard_refuses_after_a_mode_change_before_start
-conf::in_10_unequal_model_rev_is_conservative_stale
 conf::in_1_host_write_and_route_frames_share_payload_kinds
 conf::in_6_cancel_result_kinds
 conf::in_6_refused_full_wakes_on_room
-conf::in_8_mode_checked_at_write_start_by_worker
-conf::in_8_no_recheck_after_start
-conf::in_9_application_cursor_and_keypad
-conf::in_9_focus_needs_reporting_mode
-conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
-conf::in_9_key_shifted_and_alternate_keys_omission_rule
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag
-conf::in_9_kitty_flag_16_needs_flag_8
-conf::in_9_kitty_modifier_keys_need_flag_8
-conf::in_9_kitty_text_with_control_codepoint_omitted
 conf::in_9_kitty_unknown_flag_bits_ignored
-conf::in_9_legacy_keys_table
-conf::in_9_legacy_release_is_not_reported
-conf::in_9_modes_read_at_write_start
-conf::in_9_mouse_each_encoding_and_limits
-conf::in_9_mouse_each_tracking_mode
-conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
 conf::lc_12_stop_all_target_set
 conf::lc_6_signal_reaches_group
@@ -372,6 +351,7 @@ conf::st_2_screen_history_flag
 conf::st_3_coordinates_are_zero_based_cells
 conf::st_3_cursor_fields
 conf::st_3_trimming_rules
+# conf::st_4_terminal_state: DP-12 focus state, PR B (RC): Core's terminal_state has no `focused` at step 5, before the oracle_state read.
 conf::st_4_terminal_state
 conf::st_6_capture_bound
 conf::st_6_snapshot_versioned
