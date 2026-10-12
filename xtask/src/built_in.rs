@@ -138,25 +138,31 @@ pub fn verdict(packages: &BTreeMap<String, Package>, suite: &str) -> Vec<String>
     problems
 }
 
-/// Whether the root function `TEST_NAME` of `text` calls `built_in::assert_built_here` (a path that ends in those two
-/// segments). A file that does not parse has no such call.
+/// Whether the root function `TEST_NAME` of `text` has the one supported form: its body is exactly one statement, a call
+/// of a path that ends in `built_in::assert_built_here`. Every other body is refused, so a reference to the function, a
+/// call inside a nested function or closure, or a call after an early return is no call. A file that does not parse has
+/// no such function.
 fn root_test_calls(text: &str) -> bool {
-    struct Calls(bool);
-    impl<'ast> syn::visit::Visit<'ast> for Calls {
-        fn visit_path(&mut self, path: &'ast syn::Path) {
-            let names: Vec<String> = path.segments.iter().map(|s| s.ident.to_string()).collect();
-            self.0 |= names.ends_with(&TEST_CALL.map(str::to_string));
-            syn::visit::visit_path(self, path);
-        }
-    }
     let Ok(file) = syn::parse_file(text) else {
         return false;
     };
     file.items.iter().any(|item| match item {
         syn::Item::Fn(function) if function.sig.ident == TEST_NAME => {
-            let mut calls = Calls(false);
-            syn::visit::Visit::visit_block(&mut calls, &function.block);
-            calls.0
+            match function.block.stmts.as_slice() {
+                [syn::Stmt::Expr(syn::Expr::Call(call), _)] => match call.func.as_ref() {
+                    syn::Expr::Path(path) => {
+                        let names: Vec<String> = path
+                            .path
+                            .segments
+                            .iter()
+                            .map(|s| s.ident.to_string())
+                            .collect();
+                        names.ends_with(&TEST_CALL.map(str::to_string))
+                    }
+                    _ => false,
+                },
+                _ => false,
+            }
         }
         _ => false,
     })
@@ -445,7 +451,7 @@ mod tests {
         assert!(root_test_calls(&format!(
             "#[test]\nfn {TEST_NAME}() {{\n    {call}\n}}\n"
         )));
-        // The re-export path of the testkit, and a `use` of the module.
+        // The re-export path of the testkit.
         assert!(root_test_calls(&format!(
             "#[test]\nfn {TEST_NAME}() {{\n    botster_core_testkit::built_in::assert_built_here(\"x\", BUILT_IN);\n}}\n"
         )));
@@ -454,6 +460,16 @@ mod tests {
             format!("#[test]\nfn {TEST_NAME}() {{}}\nfn other() {{\n    {call}\n}}\n"),
             format!("#[test]\nfn {TEST_NAME}() {{\n    botster_test_process::built_in::check_here(&[]).unwrap();\n}}\n"),
             "not rust {".to_string(),
+            // A reference to the function, not a call (Sol-B, round 2).
+            format!("#[test]\nfn {TEST_NAME}() {{\n    let _ = botster_test_process::built_in::assert_built_here;\n}}\n"),
+            // A call inside a nested function that nothing calls (Sol-B, round 2), and inside a closure.
+            format!("#[test]\nfn {TEST_NAME}() {{\n    fn never() {{\n        {call}\n    }}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{\n    let _never = || {{\n        {call}\n    }};\n}}\n"),
+            // A call after an early return, and a call with another statement before it.
+            format!("#[test]\nfn {TEST_NAME}() {{\n    return;\n    {call}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{\n    if false {{\n        {call}\n    }}\n}}\n"),
+            // A method or macro of that name is not the call.
+            format!("#[test]\nfn {TEST_NAME}() {{\n    x.assert_built_here(\"x\", BUILT_IN);\n}}\n"),
         ] {
             assert!(!root_test_calls(&negative), "{negative}");
         }
