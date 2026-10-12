@@ -15,6 +15,10 @@ The Linux gate reports ten PASS steps and exit 0. Its head matches the CLEAN sou
 The verdict file records the gate log and its SHA256.
 The implementer sent FINAL-READY to the lead. The reviewer waits for B1's design note or a train review request.
 
+B1 round 1 at `d8358ee920892da144c1f6289a735451bafda28f` is NOT CLEAN with one LOW finding, PB1-1.
+The source logic has no open finding. The design or PR description needs BUILD.md's prior-art note.
+The B1 gate is running. The reviewer built nothing locally.
+
 ## Review authority
 
 - The package brief is `~/botster-sessions/shared/core-stage1/brief-part-b.md`.
