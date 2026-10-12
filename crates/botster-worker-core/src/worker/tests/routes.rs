@@ -2891,7 +2891,7 @@ fn a_policy_change_keeps_the_host_resize_that_waits() {
 fn input_that_changes_no_policy_size_keeps_the_policy_change_in_its_place() {
     let plain = client_frame(&bytes_frame(0, b"x"));
     let partial = plain[..plain.len() - 1].to_vec();
-    for last in [plain, partial] {
+    for last in [partial, plain] {
         let (mut w, mut client, _) = attached(limits());
         w.pty_resized = None;
         let mut all = Vec::new();
