@@ -275,6 +275,94 @@ fn a_parked_due_step_is_parked_work_of_the_routes_session() {
     );
 }
 
+/// E3-1 item 4, EV-5b: the answer of a due step has the slot that the step holds. The full queue takes that route's
+/// `RouteStalled` or `RouteClosed`, and no other route event.
+#[test]
+fn the_full_queue_takes_only_the_answer_of_the_due_step() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    let other = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.advance(STALL);
+    w.pump();
+    assert!(!w.engine.queue.has_mandatory_room(), "the slot is held");
+    let link = w.link_of("s1");
+    let takes = |w: &World, msg| w.engine.can_accept(&Input::LinkMsg { link, msg });
+    assert!(takes(&w, WorkerMsg::RouteStalled { route, mark: 3 }));
+    assert!(takes(
+        &w,
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::StallTimeout,
+            route_tag: None,
+        }
+    ));
+    assert!(
+        !takes(&w, WorkerMsg::RouteResumed { route, mark: 4 }),
+        "a resume is no answer of a stall step"
+    );
+    assert!(
+        !takes(
+            &w,
+            WorkerMsg::RouteStalled {
+                route: other,
+                mark: 0
+            }
+        ),
+        "another route has no slot"
+    );
+}
+
+/// OU-7, E3-1 item 4: a worker that answers a due step with the close of its ended session gives the slot back at once. The
+/// route's close posts later, after the session's state (A2-3).
+#[test]
+fn a_session_ended_answer_gives_the_slot_back() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.advance(STALL);
+    w.pump();
+    assert!(!w.engine.queue.has_mandatory_room(), "the slot is held");
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SessionEnded {
+                exit: Exit {
+                    code: None,
+                    signal: None,
+                    cause: ExitCause::Other,
+                },
+            },
+            route_tag: None,
+        },
+    );
+    assert!(w.engine.queue.has_mandatory_room());
+}
+
+/// E3-1 items 2 and 5: a due stop grace is an effect without an event (`Work::Deadline`), and it comes first. A due stall
+/// step is atomic with its event (`Work::DueStep`), so it needs event budget.
+#[test]
+fn a_stall_step_is_atomic_and_a_kill_is_not() {
+    let mut w = World::new(limits(|l| {
+        l.mandatory_events = 8;
+        l.max_sessions = 4;
+        l.stop_grace = STALL;
+    }));
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.running("s2");
+    w.engine.poll_events(64);
+    let route = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.engine.begin(Op::Stop { id: sid("s2") }).unwrap();
+    w.pump();
+    w.engine.poll_events(64);
+    w.advance(STALL);
+    w.feed(Input::Clock(w.unix));
+    assert_eq!(w.engine.ready()[..2], [Work::Deadline, Work::DueStep]);
+}
+
 /// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
 /// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
 /// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.
