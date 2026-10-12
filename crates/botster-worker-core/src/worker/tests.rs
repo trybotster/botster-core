@@ -818,6 +818,51 @@ fn a_resize_during_the_spawn_applies_after_the_launch() {
     assert_eq!(reports[2], applied(size));
 }
 
+/// DESIGN.md 3.4, AM-3 (#311 F147): a `Resize` that the old host asked while the spawn was out is retired at the adoption:
+/// the new host reuses its request number, and the new link gets only the new request's `Done`, once, with the new size,
+/// whether the spawn then succeeds or fails.
+#[test]
+fn an_adoption_retires_the_old_hosts_resize_queued_during_the_spawn() {
+    for spawned in [Ok(PAYLOAD), Err(SpawnFailure::CwdMissing)] {
+        let mut w = World::linked();
+        w.send(&HostMsg::Launch(Box::new(spec())));
+        w.send(&HostMsg::Op {
+            req: 3,
+            op: resize_op(30, 100),
+        });
+        adopt(&mut w, EPOCH + 3);
+        let mut actions = w.send(&HostMsg::Op {
+            req: 3,
+            op: resize_op(40, 120),
+        });
+        actions.extend(w.feed(Input::Spawned(spawned.clone())));
+        let new = Size {
+            rows: 40,
+            cols: 120,
+            cell_px: None,
+        };
+        let done: Vec<WorkerMsg> = w
+            .reports(&actions)
+            .into_iter()
+            .filter(|m| matches!(m, WorkerMsg::Done { .. }))
+            .collect();
+        if spawned.is_ok() {
+            assert_eq!(resizes(&actions), [new]);
+            assert_eq!(done, [applied(new)]);
+        } else {
+            assert!(resizes(&actions).is_empty(), "{actions:?}");
+            let [WorkerMsg::Done {
+                req: 3,
+                result: OpResult::Err(error),
+            }] = done.as_slice()
+            else {
+                panic!("{done:?}");
+            };
+            assert_eq!(error.code, ErrorCode::SessionEnded);
+        }
+    }
+}
+
 /// A resize that comes while the spawn is out, when the spawn then fails, has no PTY: each queued request completes once
 /// `SessionEnded` after `LaunchFailed` (#311 F145), and no PTY resize is asked.
 #[test]

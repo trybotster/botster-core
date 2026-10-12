@@ -1108,6 +1108,9 @@ impl Worker {
         self.link = LinkState::Ready;
         self.decoder = FrameDecoder::new(self.frame_bound);
         self.input_fence();
+        // DESIGN.md 3.4, AM-3: the old host's requests are retired. A `Resize` that it asked while the spawn was out is
+        // neither applied nor answered on the new link, whose request numbers are the new host's.
+        self.early.resizes.clear();
         self.send_hello();
         let report = self.adoption_report();
         self.report(&report);
