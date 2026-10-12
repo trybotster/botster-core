@@ -263,3 +263,78 @@ No future source, import, pin, pending removal, gate, or merge is accepted.
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open) at 78d7057fca48480e2e8e3174baa2e5c2ab7a70c3 against source base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
+
+## SLOT source inspection — complete package delta remains due
+
+Inspected head: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`.
+Previous reviewed head: `78d7057fca48480e2e8e3174baa2e5c2ab7a70c3`.
+Imported v1 base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `4871354dba1b1901c1a79d651e28ddd80426bcd2`.
+Request: `msg_plugin-w_1791831176_173955`.
+The exact pushed branch and remote v1 match these identities.
+The commit has exactly those two parents. Their merge base is `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+The owner reports one v1 merge with rerere disabled.
+
+The reviewer reads the complete five-file own delta and the pending-list resolution through `git show --remerge-diff`.
+Own full-index delta SHA-256: `cc8bc97f0b94a6d0ea47362669426348e63ea2a29eee5d1640c175a64acd73f2`.
+The delta has 375 additions and 26 deletions.
+Every own added and removed line equals the accepted repair's own delta, excluding indices and hunk positions.
+No source conflict occurs.
+The route implementation and route tests are byte-identical to the accepted repair.
+The input implementation also imports v1's accepted removal of the worker grace state from `stopping`.
+That input-file import equals the same change between the common base and v1.
+No semantic input behavior changes in this import.
+
+R302-SI-1 and R302-SI-2 stay closed in source.
+Queued semantic inputs retain their stream-frame charge. Active inputs retain their existing encoded-unwritten charge.
+The reader's pending bytes and refusal reservation still limit route reads.
+The configured key-text bound still applies before other key size work and encoding.
+The boundary and retained-byte regression tests remain exact.
+Transaction-start model encoding, optional route ops, `NotReported`, and serialized `Unsupported` outcomes remain preserved.
+The imported #305 no-grace stopping path remains intact.
+The host driver, queue controls, operation holds, production worker, manifest, lockfile, known-flaky entry, and mutation configuration equal v1.
+No new decoder, production test branch, or terminal encoder appears.
+No new source finding is identified.
+
+All nine conformance text sets satisfy the three-way formula.
+The conflict removes `in_1_host_write_and_route_frames_share_payload_kinds` through #302 and both `in_6` ids through v1.
+The resolution returns none of these ids to pending.
+Against v1, the accepted three both-tier removals remain removed.
+`dp_4_worker_encodes_route_frames_with_write_time_modes` still moves from testkit pending to real-pending.
+No other identifier changes against v1.
+Counts: pending 399, real-pending 35, held four, ledger 691, minimum 69, real-only 26, real-proofs seven, deferred three, withdrawn 27.
+The `.44` pin and accepted base interfaces remain unchanged.
+No new removal follows from the local record or this inspection.
+
+### Body and supporting local record
+
+The reviewer reads the complete current body.
+Body SHA-256: `04bac9fd47d97cb59b234b8adf5aaea0a3c4d0565c0d50c5c69a9a4e12b825c4`.
+The current-head section names the one list conflict, source preservation, local checks, and the lead's future train-7 gate.
+The earlier `.41` records, before/after coverage, original test reversals, tier-specific outcomes, and unretained rerun keep their historical scope.
+R302-SI-3 remains closed. No new body finding is identified.
+
+Local log: `~/botster-sessions/shared/core-stage1/evidence/p3-302-merge-check-953aa2ba.log`.
+SHA-256: `eff3505404bac6e15bd56cb5bd94093942fe85f7006715f6f0dc79a2bdea926c`.
+The reviewer reads its producer script and audits the retained headers, test outcomes, summaries, and command exits.
+The script removes the toolchain override and sets both concurrency caps to four.
+It sets strict conformance and seeds 0–31 for the default-tier nextest conformance command.
+The log identifies this exact head and target clean at `2026-10-12T18:43:17Z`, removing 25970 files and 6.7 GiB.
+It reports zero exits for fmt, the taint CI step, lists, dependent test compilation, worker-core tests, and strict conformance.
+Worker-core passes 199 tests with zero skips in 0.736 seconds.
+Strict conformance passes 580 tests with 111 skips in 23.980 seconds.
+The reviewer counts 779 unique PASS results across both runs; 312 conformance results are marked `[pending: strict]`.
+The log reports no runtime FAIL, FLAKY, RETRY, TIMEOUT, or INCONCLUSIVE result.
+The three both-tier removals, dp4 testkit trial, and repaired key-text test have retained local PASS records.
+The script prints no numeric clean exit and provides no independent target-writer history.
+This local default-tier record supplies no current-head real-tier, mutation, or full-gate result.
+
+### Remaining conditions
+
+The complete matching package delta remains due. This inspection completes no CLEAN round.
+The lead owns train 7 and its gate.
+Train composition reviews, the completed exact-train-head gate, final bodies, matching final receipts, and Q7 remain required.
+The earlier gates are not relabeled as executions of this SLOT head.
+Resize, DP-12 focus state, the real dp4 fence, and other separately owned gaps remain outside this source review.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+Wait for the complete package verdict doorbell. Never poll.
