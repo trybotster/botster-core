@@ -3558,3 +3558,39 @@ The faster default tests preserve the byte-copy decision. The full gate retains 
 Open source findings: 0. Local results remain implementer reports. The exact-head gate, mutation evidence, final body, and integration verdict remain due.
 
 This source record accepts no running gate result and authorizes no retry. I ran no execution job.
+
+## Core #310 — completed exact-head acceptance
+
+- Exact head: `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`.
+- Source and gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- VERDICT: CLEAN (0 open on this exact head).
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-no-cargo-default-tier-204e91d8-pool-20261011-230511-22291.log`.
+
+I read the completed header, base accounting, affected test results, two-stage mutation results, and final exits. I read the complete updated body.
+
+The lists step names the same base and merge base. All ten steps PASS in 481.4 seconds on MS-A1.
+
+The default tier passes 1,921 tests. The job-common test takes 0.006 seconds. The pure metadata fixture takes 0.002 seconds.
+
+The slow tier passes 619 tests. The new resolver comparison passes in 0.114 seconds. The moved real metadata test passes in 0.017 seconds.
+
+Stage 1 tests four mutants: one caught, one missed, and two unviable. The pure metadata fixture catches the empty `packages_of` replacement.
+
+The stage-1 miss replaces `packages` with an empty result. The unmutated slow baseline passes. Stage 2 catches that mutant with the moved real metadata test.
+
+The combined verdict has two caught, two unviable, zero missed, and zero timeout. Static log analysis matches both raw catches to their citations and normal PASS records.
+
+No FLAKY result appears. The fuzz step reports no changed decoder-harness crate. The job and wrapper exit 0 after 680 seconds.
+
+The job spends 119 seconds queued and 561 seconds running. The gate preserves the metadata mutation catch after its test moves to the slow tier.
+
+The new resolver functions are test-only and receive no cargo-mutants mutants. Their fixture and slow comparison pass; this evidence does not claim a new mutated resolver proof.
+
+I also read the earlier #306 re-gate failure. Its job-common test times out at 2.002 seconds and reports a remaining Cargo metadata process.
+
+That earlier gate remains failed. This new source head removes the Cargo launch from the affected default test without changing its byte-copy decision.
+
+No source or evidence finding remains. The integration verdict and authorized final import or train procedure remain due. This CLEAN accepts no later head.
+
+I ran no execution job.

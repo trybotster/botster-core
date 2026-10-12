@@ -2,6 +2,12 @@
 
 ## Current Core PR #310 result
 
+CLEAN at `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`, source and gate base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Open findings: 0.
+
+All ten gate steps pass. Both real metadata tests pass. The moved test catches the stage-1 miss in stage 2. Final mutants: 2 caught, 2 unviable, 0 missed, 0 timeout.
+
+The integration verdict and final import or train procedure remain due. This CLEAN accepts no later head. I ran no execution job.
+
 Source review complete at `204e91d820c2d719c00b3665e2d5ba6aa436b0d0`, base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Open source findings: 0.
 
 The affected default tests start no Cargo process. Production metadata checks remain. The slow tier retains both real comparison tests.
