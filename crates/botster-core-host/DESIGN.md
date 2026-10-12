@@ -447,5 +447,10 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
 - **No host, no clock (R-90 Q3).** A due message that cannot be sent (no worker link) disarms both steps; the route
   closes with its session's loss. After an adoption, the new host arms from the pump that consumes the worker's new
   report, as A18 does for silence.
+- **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: a route that survives a host restart
+  is unknown to the new host, which drops its reports (`route_progress` and the other route reports find no entry). So
+  that route has no stall clock, and its stuck reader holds PTY output (OU-3d) until it closes for another reason. The DP-8
+  PR (ST's next) adds the route's stall state to the per-route adoption record and the restore rule: `RouteAdopted` only,
+  and the stall step or the close step armed from the pump that consumes the record (the worker's `DESIGN.md`).
 - Tests: `tests/stall.rs` (arming, the slot and its release on a decline, the stall and the close step, the resume, a
   parked step); the carried step is the driver's (`e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room`).
