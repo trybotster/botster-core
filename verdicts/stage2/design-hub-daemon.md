@@ -274,3 +274,95 @@ The new store adds findings 6, 7, and 8. This round has four open findings.
 The reviewer ran no build, test, gate, or reproduction.
 
 VERDICT: NOT CLEAN (4 open)
+
+## Round 3: baseline wakes and store lifecycle corrections
+
+Exact reviewed document SHA-256: `217d75aaadc3f77e852385c6739993dc9f8b9c2c8c9c919f20afa8876a395ba7`.
+Matching owner receipt: `msg_plugin-w_1791848977_4326dc`.
+The reviewer saved and read the complete document. The review covers its full delta from Round 2.
+
+### S2-HD-1 — MEDIUM — remains OPEN: arm the capacity wake before checking the level
+
+The wait rule now includes runnable baselines and queued store completions.
+It distinguishes a blocked baseline from runnable work, so a blocked baseline does not force an immediate loop.
+The owner sets `wants_room` after it observes a full outbox.
+IO clears that flag and wakes the owner when its writes reduce the frame count to the threshold.
+
+That order still permits a lost wake:
+
+1. The owner observes a full outbox.
+2. IO drains the outbox below the threshold while `wants_room` is false.
+3. The owner sets `wants_room` and waits.
+4. IO has no remaining frame to write. No later write clears the flag or wakes the owner.
+
+Required change: define an arm-then-recheck handshake, or one synchronized level check, before the owner can wait.
+The handshake must retain the no-spin rule when capacity is absent.
+Implementation evidence must exercise IO drainage between the owner's capacity check and wake registration.
+
+### S2-HD-2 through S2-HD-5 — remain CLOSED
+
+The revision retains token ownership, dispatch effects, between-batch cuts, FIFO unwatch ordering, and counted baselines.
+The common stop phases and out-of-band wakes remain present.
+The reviewer finds no regression in those original paths.
+
+### S2-HD-6 — MEDIUM — remains OPEN: close the live store on its fault path
+
+The owner is now the only store sender and bounds jobs in flight by `store_queue`.
+The completion channel has capacity `store_queue + 1`, including StoreGone.
+Each record has one retained terminal slot. Terminal jobs get capacity before creates or deletions.
+Runtime publication uses only the durable state after completion.
+Normal stop drains store jobs, sends Close, joins the store, and only then publishes OwnerDone.
+Owner panic follows the same quiescence sequence. These changes close the earlier normal-stop and capacity paths.
+
+The store-fault paragraph gives a different sequence.
+After an Unknown write or a terminal/delete error, the owner sends no more jobs, waits for completions, and joins.
+The store remains alive after a write error. Once it drains its jobs, it can wait for another job indefinitely.
+The fault sequence does not send Close or close the sender. The join can therefore wait forever.
+
+The paragraph also says every unwritten terminal state leaves a `starting` disk record.
+An error after rename can leave the terminal record present. The result is unknown, as the write-error rule states.
+The design must not claim a particular disk state after that error.
+
+Required change: send Close or close the sole sender before joining a live store on the fault path.
+After StoreGone, retire jobs with unknown outcomes and join without waiting for nonexistent completions.
+State that recovery loads either surviving record state after an uncertain write.
+Reconcile a surviving `starting` record through R-121 without guessing what reached disk.
+
+### S2-HD-7 — MEDIUM — CLOSED
+
+Caller-known ids are explicitly deferred. The skeleton accepts only Hub-minted operation ids.
+`create_spawn(session_id) -> operation_id` reserves the index entry before store queue admission.
+Reservations count against `max_operation_records`. Refusal with no free record or job slot changes nothing.
+A proved pre-rename failure removes the reservation and returns `effect: none`.
+An uncertain write returns `effect: unknown` and starts store-fault shutdown.
+The caller receives an id only after the initial write is durable.
+This closes the admission and capacity paths within the stated minimum scope.
+
+The PC protocol design read in Round 2 still names the older two-argument API.
+The reviewer sends the interface change to PC and its assigned integration reviewer, Sol-B.
+Those notices assign no new review work and issue no separate PC verdict.
+Implementation must use the same store API on both sides.
+
+### S2-HD-8 — MEDIUM — CLOSED
+
+Startup load now fails on a corrupt record, unknown version, size violation, key/name mismatch, or duplicate operation id.
+It also fails if committed records exceed the configured count. It drops no admitted record to meet that count.
+The failure is typed `data_root_unusable`, before the listener or ready line.
+The load treats unfinished temporary files separately from committed record names.
+Runtime reads use the index. They do not skip an unreadable committed file and then claim non-admission.
+This closes the specified false-not-found path.
+
+### Recovery and evidence limits
+
+Step 6b now carries the full R-121 table and explicitly waits for the Core pin with A26.
+It gives no interim Core v1 recovery rule. The indeterminate rows retain `starting`.
+The table is applied again after a later Adopt retry. The retry policy stays outside this skeleton.
+Q7 remains a lead item in the document. The approved additions already read in Round 2 remain the acceptance input.
+
+The reviewer sends the two remaining paths to P5 in `msg_plugin-w_1791849035_fd647e`.
+PC receives the API notice in `msg_plugin-w_1791849035_b7cc90`.
+Sol-B receives the same interface scope in `msg_plugin-w_1791849035_ca3c1e`.
+Findings 2 through 5, 7, and 8 close. Findings 1 and 6 remain open. No new finding is added.
+The reviewer ran no build, test, gate, or reproduction. This is a design verdict only.
+
+VERDICT: NOT CLEAN (2 open)
