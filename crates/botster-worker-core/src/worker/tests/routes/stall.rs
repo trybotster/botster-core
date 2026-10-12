@@ -675,3 +675,46 @@ fn a_failed_resume_of_a_closing_route_is_closed_by_the_close_step_with_its_first
         }]
     );
 }
+
+/// The order rule (R-90 follow-up; 0181's ST298-R4) on the `Output` paths: with an older `Output` report and an older
+/// progress report unwritten, a progress change and then a later output leave both new reports pending. When the link
+/// writes, the progress report goes first, then the `Output` report, one of each.
+#[test]
+fn a_pending_progress_report_goes_before_a_pending_output_report() {
+    let (mut w, _client, _write, mark) = waiting_route(3 * FRAME as usize);
+    w.instant_link = false;
+    let first = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    assert_eq!(progress(&w.reports(&first)), [(mark + 1, true)]);
+    let output = w.feed(Input::PtyOutput(b"a".to_vec()));
+    assert!(w.reports(&output).iter().any(|r| matches!(
+        r,
+        WorkerMsg::Observed {
+            observation: Observation::Output { .. }
+        }
+    )));
+    w.feed(Input::RouteWritable { route: RouteId(1) });
+    let change = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(1),
+    });
+    let later = w.feed(Input::PtyOutput(b"b".to_vec()));
+    assert!(w.reports(&change).is_empty() && w.reports(&later).is_empty());
+    let sent = w.sent;
+    let written = w.feed(Input::LinkWritten { total: sent });
+    let reports = w.reports(&written);
+    let kinds: Vec<&str> = reports
+        .iter()
+        .map(|r| match r {
+            WorkerMsg::RouteProgress { .. } => "progress",
+            WorkerMsg::Observed {
+                observation: Observation::Output { .. },
+            } => "output",
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(kinds, ["progress", "output"], "{reports:?}");
+    assert_eq!(progress(&reports), [(mark + 2, true)]);
+}

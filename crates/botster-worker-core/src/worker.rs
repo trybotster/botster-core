@@ -460,9 +460,11 @@ impl Worker {
         }
     }
 
-    /// Sends the `Output` report of the latest revision.
+    /// Sends the `Output` report of the latest revision, after the routes' waiting progress reports (the flush rule of the
+    /// stall clock, R-90; 0181's ST298-R4).
     fn report_output(&mut self) {
         self.output_unsent = false;
+        self.flush_route_progress();
         self.send_report(&WorkerMsg::Observed {
             observation: Observation::Output {
                 model_rev: self.model_rev,
