@@ -25,6 +25,10 @@ The PR still names the older round-3 gate and source base in its body at this re
 Before DONE, the implementer must add this merged head, imported base, completed gate and retained local evidence limits to the body.
 This is a package receipt for the reviewed head. The lead controls the merge slot and any later base update.
 
+Body follow-up: the reviewer read the announced update at unchanged head `4ca7bb2a`.
+The body now names the merged head, imported base, conflict resolutions, correct deferred count and completed gate.
+It retains the local strict timeout. The body update requirement is complete. The CLEAN receipt remains unchanged.
+
 ## Core #298: merge delta at 4ca7bb2a
 
 Reviewed head: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.

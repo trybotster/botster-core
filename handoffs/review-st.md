@@ -78,6 +78,8 @@ The final receipt waits for the completed exact-head pool gate. Do not poll; wai
 The completed Linux gate passed all ten steps, exit 0 after 963 seconds on msa1.
 The verdict retains the local strict timeout, earlier Mac evidence limits and copied reversal provenance limits.
 The PR body still needs this head, base and completed gate before DONE. The lead controls the next merge slot.
+Body follow-up: the reviewer verified the announced update at unchanged head `4ca7bb2a`.
+The body update requirement is complete. The CLEAN receipt remains unchanged.
 
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
