@@ -51,7 +51,7 @@ impl Drain {
         Ok(match self {
             _ if n == 0 => Drain::Done,
             Drain::Counted(left) if n < left => Drain::Counted(left - n),
-            Drain::Counted(_) => Drain::Flush,
+            Drain::Counted(_) => Drain::Done,
             Drain::Flush => Drain::asked(measure()?),
             Drain::Done => Drain::Done,
         })
