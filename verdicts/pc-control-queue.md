@@ -276,3 +276,44 @@ No final-slot authorization is inferred from the notice. No new final-import hea
 Lead receipt `msg_plugin-w_1791818308_100adb` announces inbox recovery and asks for important messages to be resent.
 The reviewer resends the matching #307 CLEAN receipt in `msg_plugin-w_1791818343_b236da`.
 The resend preserves the reviewed head, parent-gate scope, and pending final steps. It changes no verdict or authorization.
+
+## Round 4 inspection: current-base import; formal verdict pending
+
+Requested head: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Tree: `b117637b809c37c63b869e4da2696015dbdf5918`.
+Previously accepted head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+Delta request: `msg_plugin-w_1791819576_774597`.
+The lead handoff assigns the conflict repair after #307 leaves train 3 and before its train-4 candidacy.
+The reviewer read the brief first, current common rules, and BUILD.md's merge-train rules.
+
+Merge `ceb6b22e73034a281fe613338069d441c8fa5e05` has the accepted head and imported base as its parents.
+The complete conflict resolution retains `Faults.control_full`, `start_holds`, its methods, and `HeldLink`.
+It retains `Tap.control_full` and `op_holds`, including both constructor initializers.
+The reviewer read the auto-merged driver, engine, design, link message, control registry, real dispatch, and module changes.
+The imported scheduler filters held operation steps. It retains the driver's independent control-room check and budget accounting.
+The failed-write mark retirement and failed-side refusal exclusion remain unchanged.
+The imported stop-grace interface removes `LaunchSpec.stop_grace_ms` and uses Core's deadline for `KillPayload`.
+The only post-merge change removes that obsolete field from the own launch-size test.
+The test still supplies an oversized argv to the encoder. Its frame-bound assertion remains intact.
+
+The own changed-line patch against the imported base matches the accepted own patch, except that test-field removal.
+All changed non-own blobs match the imported base. The delta changes 75 paths, including 62 crate paths.
+The independent three-way pending-set check uses common ancestor `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+Ours removes the two IN-6 ids. The base removes `a2_1_attach_state_rules`, `a5_2_reads_match_atomic_transitions`,
+`dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`, and `tm_6_parked_work_does_not_spin`.
+The expected and actual pending sets each have 404 ids, with no missing or extra id.
+Eight other conformance text blobs match the imported base.
+The imported manifests, pin to contracts `.43`, and mutation profile match the imported base.
+
+The completed local record names this head and reports a clean marker at `2026-10-12T15:31:06Z`.
+It reports fmt success, ten xtask exits zero, and filtered clippy output with the existing Ghostty warning.
+It reports 356 host passes plus one ignored test, 54 link passes, 441 testkit passes, and 193 worker-core passes.
+Strict conformance at seeds 0-31 reports 263 passed, zero failed, and 428 ignored.
+The existing filtered-pipeline and numeric-clean-exit limits remain. These summaries are not a complete gate.
+
+No new source finding is identified. All three prior findings remain closed in the inspected source.
+The complete formal delta verdict remains pending. The reviewer has not read the running gate.
+The completed gate, current-head body, and implementer's base-merge-check record remain due.
+The observed live body still describes the previously accepted head. The reviewer requests its current-head correction.
+This inspection accepts no new head or train gate. No reviewer execution job ran. Wait for the doorbell. Never poll.

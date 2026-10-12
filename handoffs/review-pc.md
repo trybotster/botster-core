@@ -1902,3 +1902,20 @@ The reviewer resends the matching #307 CLEAN receipt in msg_plugin-w_1791818343_
 The resend names both formal verdict commits, exact head 50a50cff, source base e4f49504, and tree 90d10894.
 It preserves the parent gate's scope and the pending final-slot/import/check/gate/review/Q7 conditions.
 No new final-import head or completed final gate is supplied to this reviewer. No slot or merge approval is inferred.
+
+## #307 current-base delta inspection
+
+PC request msg_plugin-w_1791819576_774597 supplies head 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54, tree b117637b809c37c63b869e4da2696015dbdf5918.
+The accepted head is 50a50cff. Merge ceb6b22e73034a281fe613338069d441c8fa5e05 imports base 080987829a2e2245a7ea97606020400392c974d6.
+The lead handoff says #307 left train 3 after conflicts in core.rs and edge_tap.rs. PC resolves it for train 4.
+The complete conflict resolution keeps control_full and the imported start_holds/op_holds fields, methods, and initializers.
+The reviewer reads the overlapping auto-merges and the driver scheduler/control-room/failure composition. No source finding is identified.
+The own patch matches the accepted patch except that 2ed85f93 removes the deleted LaunchSpec.stop_grace_ms field from its launch-size test.
+Every changed non-own blob matches the imported base. Eight other conformance text blobs match it.
+The independent three-way pending-set check finds 404 expected and 404 actual ids, with no missing or extra id.
+Ours removes two IN-6 ids. The base removes the four a2_1/a5_2/dp_2/tm_6 ids. Imported manifests, .43 pin, and mutation profile match the base.
+The completed local record reports host 356 plus one ignored, link 54, testkit 441, worker 193, and strict conformance 263/0 at seeds 0-31.
+The clean marker is 15:31:06 UTC. Filtered-pipeline and numeric-clean-exit limits remain.
+The reviewer has not read the running gate. Its completed record, corrected current-head body, and base-merge-check record remain due.
+The live body still describes 50a50cff. PC receives the request for corrected current-head evidence and body labels.
+No formal delta CLEAN is issued. No later train head or gate is accepted. No reviewer job runs. Wait for the doorbell. Never poll.
