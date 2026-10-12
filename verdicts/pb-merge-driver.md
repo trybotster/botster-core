@@ -8,7 +8,13 @@ Core head: `797f090ac8fa8f182b4201d524e3add74d8d60e5`, unchanged.
 VERDICT: CLEAN
 
 This is the source verdict for the Core attributes and the shared tool at the hashes below.
-The implementer has not supplied READY or the Core gate log yet. This verdict does not authorize a merge without that evidence.
+The implementer supplied READY #326 on the same Core head. The reviewer checked the Linux pool gate log.
+The log names base `2683de7ccbb1360d124422b3b6a2dd196b046c7e` and the reviewed head.
+All ten steps report PASS. The gate exits 0 on `msa1`.
+Mutation and fuzz steps report no applicable source change; neither step is SKIPPED.
+Log: `~/botster-sessions/gates/botster-core-stage1-pb-merge-driver-797f090a-pool-20261012-123639-25455.log`.
+Log SHA256: `39242783c962df0b153adefa40d0253536ea7df35b2a2cbfd6bc49163708eed1`.
+The source verdict remains unchanged. The lead owns the merge train and its final gate.
 The reviewer built nothing locally.
 
 PB0-1 is closed. `git_text_merge` distinguishes clean output, conflict output, and command failure.

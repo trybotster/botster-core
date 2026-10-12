@@ -10,7 +10,10 @@ The reviewer waits for the implementer's design notes and READY messages.
 The reviewer builds nothing locally.
 Item 0 has a round 2 source verdict in `verdicts/pb-merge-driver.md`: CLEAN.
 PB0-1 is closed. The failed text fallback preserves ours and reports Git's error. Four focused tests passed.
-The implementer's first gate is running. The reviewer has not received READY or its gate log.
+The implementer supplied READY #326 at `797f090ac8fa8f182b4201d524e3add74d8d60e5`.
+The Linux gate reports ten PASS steps and exit 0. Its head matches the CLEAN source verdict.
+The verdict file records the gate log and its SHA256.
+The implementer sent FINAL-READY to the lead. The reviewer waits for B1's design note or a train review request.
 
 ## Review authority
 
