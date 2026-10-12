@@ -192,6 +192,125 @@ fn worker_exit_closes_the_link_and_posts_its_exit_once() {
     assert_eq!(peer.recv(&mut [0]).unwrap(), 0);
 }
 
+/// The workers of one worker with no host and no payload, on a manual clock: its own self-exit deadline (AD-7) is `after`
+/// from the returned start.
+fn workers_with_an_orphan_deadline(
+    after: Duration,
+) -> (Workers, Arc<Mutex<Instant>>, Instant, LinkEnd) {
+    let (edges, peer, _, now) = fixture(1024);
+    let mut config = WorkerConfig::new(InstanceId("1-1".into()), [1; TOKEN_LEN], 1);
+    config.startup = after;
+    let mut worker = SharedWorker(Arc::new(Mutex::new(Worker::new(config))));
+    worker.handle(now, Input::Timer);
+    while worker.poll_action().is_some() {}
+    let (clock, at) = WorkerClock::manual(now);
+    let workers = Workers::new(edges.scheduler.clone(), clock);
+    lock(&workers.sim).add(Box::new(MachineNode::new(worker, edges)));
+    assert_eq!(workers.next_deadline(), Some(now + after));
+    (workers, at, now, peer)
+}
+
+/// A host wake handle that records each wait, moves the workers' clock by it, and gives one answer. A wait that asks it
+/// more than eight times is a defect: the panic ends a loop that never moves the clock.
+struct RecordingWake {
+    waits: Mutex<Vec<Duration>>,
+    clock: Arc<Mutex<Instant>>,
+    answer: Wake,
+}
+
+impl WakeHandle for RecordingWake {
+    fn wait(&self, timeout: Duration) -> Wake {
+        let mut waits = lock(&self.waits);
+        waits.push(timeout);
+        assert!(waits.len() <= 8, "the wait never ends: {waits:?}");
+        *lock(&self.clock) += timeout;
+        self.answer
+    }
+
+    fn fd(&self) -> std::os::fd::RawFd {
+        42
+    }
+}
+
+/// A wait over a manual workers' clock: the host handle's answer is `answer`. Returns the wake, the host's waits and the
+/// workers' deadline after the wait.
+fn wait_with_an_orphan_deadline(
+    after: Duration,
+    timeout: Duration,
+    answer: Wake,
+) -> (Wake, Vec<Duration>, Option<Instant>, Instant) {
+    let (workers, clock, now, _peer) = workers_with_an_orphan_deadline(after);
+    let host = Arc::new(RecordingWake {
+        waits: Mutex::new(Vec::new()),
+        clock,
+        answer,
+    });
+    let wake = WorkerDeadlineWake {
+        host: host.clone(),
+        workers: workers.clone(),
+    };
+    let woke = wake.wait(timeout);
+    let waits = lock(&host.waits).clone();
+    (woke, waits, workers.next_deadline(), now)
+}
+
+/// R-97, the wake: a worker's deadline inside the wait splits it. The host waits until the deadline, the worker acts at it
+/// (its self-exit deadline is gone), and the host waits the rest of the timeout.
+#[test]
+fn a_worker_deadline_inside_the_wait_acts_and_the_wait_goes_on_to_its_timeout() {
+    let ms = Duration::from_millis;
+    let (woke, waits, deadline, _) = wait_with_an_orphan_deadline(ms(100), ms(300), Wake::TimedOut);
+    assert_eq!(woke, Wake::TimedOut);
+    assert_eq!(waits, [ms(100), ms(200)]);
+    assert_eq!(deadline, None, "the worker acted at its deadline");
+}
+
+/// R-97, the wake: a host signal during the wait for a worker's deadline ends the wait `Woken`, and the worker does not run.
+#[test]
+fn a_host_signal_before_the_worker_deadline_ends_the_wait() {
+    let ms = Duration::from_millis;
+    let (woke, waits, deadline, now) = wait_with_an_orphan_deadline(ms(100), ms(300), Wake::Woken);
+    assert_eq!(woke, Wake::Woken);
+    assert_eq!(waits, [ms(100)]);
+    assert_eq!(deadline, Some(now + ms(100)));
+}
+
+/// R-97, the wake: a worker's deadline after the timeout, or at it, does not lengthen or split the wait. The host waits
+/// once, for the timeout, and the next pump runs the deadline.
+#[test]
+fn a_worker_deadline_at_or_after_the_timeout_is_left_to_the_pump() {
+    let ms = Duration::from_millis;
+    for after in [ms(200), ms(500)] {
+        let (woke, waits, deadline, now) =
+            wait_with_an_orphan_deadline(after, ms(200), Wake::TimedOut);
+        assert_eq!(woke, Wake::TimedOut, "{after:?}");
+        assert_eq!(waits, [ms(200)], "{after:?}");
+        assert_eq!(deadline, Some(now + after), "{after:?}");
+    }
+}
+
+/// R-97, the wake: with no worker deadline the host waits once, for the whole timeout; the wake's descriptor is the host's.
+#[test]
+fn a_wait_with_no_worker_deadline_is_one_host_wait_on_the_hosts_descriptor() {
+    let ms = Duration::from_millis;
+    let (workers, clock, _, _peer) = workers_with_an_orphan_deadline(ms(10));
+    *lock(&clock) += ms(10);
+    workers.run_at_clock();
+    assert_eq!(workers.next_deadline(), None);
+    let host = Arc::new(RecordingWake {
+        waits: Mutex::new(Vec::new()),
+        clock,
+        answer: Wake::TimedOut,
+    });
+    let wake = WorkerDeadlineWake {
+        host: host.clone(),
+        workers,
+    };
+    assert_eq!(wake.wait(ms(300)), Wake::TimedOut);
+    assert_eq!(*lock(&host.waits), [ms(300)]);
+    assert_eq!(wake.fd(), 42);
+}
+
 /// A5-1: worker identities remain unique across repeated spawns in the shared process table.
 #[test]
 fn worker_identities_do_not_repeat() {
