@@ -25,6 +25,11 @@ The two failures remain recorded:
   #295 preserves delivery order for complete frames on a link. It adds no synchronization between route input and Detach.
   The cited P6 log at `9231c06d` has an earlier retirement failure, but its expected value differs from this failure.
   That log alone is not an exact-signature reproduction. The pinned transcript and R-66 support the attribution here.
+  The corrected evidence names the controlled v1 reproduction log `botster-core-detached-f68f26a7-f68f26a7-pool-20261011-150206-64641.log`.
+  It contains the matching step-28 `{activity_before_close: false, closed: true}` failure at seed 0.
+  Its header identifies a scratch snapshot, `9c44c653e9d71c32f276842b870a4c6a8a8dc203`, based on v1 `f68f26a7b12738f2b19ab39fe76a93f3d1a72f12`.
+  The reviewer inspected its route_io diff: it delays r2's read input and adds tracing. It is not a clean-v1 gate.
+  Sol-B reports that the controlled reproduction was accepted. The verdict retains the scratch qualification.
 - `conf::st_6_capture_is_frozen_at_model_rev`, seed 5, step 17:
   the revision inequality compared 1 with 1.
   The pinned transcript sends the second output at step 13 and uses only `await_quiet` before ReadScreen.
@@ -35,6 +40,8 @@ These diagnoses identify missing transcript fences outside #295's repair.
 The changed driver can change timing, but it supplies neither missing fence and does not change the required worker report order.
 The focused Mac checks and full-seed proofs required by ST295-E1 passed on the reviewed head.
 The separate full Linux gate remains green on that head.
+The implementer relays the lead's disposition: contracts #69 fixes the ev_5 fence; R-80 fixes the st_6 fence.
+Both fixes reach Core through RC's .42 pin. Neither live ID is re-pended.
 
 The reviewer ran no local build or test. This CLEAN covers #295's exact head and retains both broader-run failures as known limits.
 The normal final-gate and base-merge rules still apply before the lead merges the PR.
