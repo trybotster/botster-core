@@ -2124,3 +2124,11 @@ GitHub also reports #312 and #314 MERGED at the same time, at the accepted order
 All #307 FINAL review, combined review, exact gate, and published merge conditions close. All five findings remain closed.
 The reviewer owns no target to clean. The reviewer remains assigned to #319, whose one finding remains open.
 Wait for PC's completed corrected-head READY. No reviewer execution job runs. Never poll.
+
+Sol receipt msg_plugin-w_1791828457_7b7b67 adds R319-SI-1 MEDIUM on the unchanged #319 review head.
+The package reviewer independently confirms it and adopts alias CQ-RFT-2.
+The diag error path negates an unchecked i32 errno. A declared 20-byte error reply with i32::MIN at offset 16 can panic.
+R-93 condition (b) requires Err for this invalid reply. PC must check the negation or range and retain the boundary regression.
+Formal #319 Round 1 now has two open findings: CQ-RFT-1 and CQ-RFT-2. No new review round starts on the same head.
+The unpublished correction remains unreviewed. Sol's complete independent integration review remains due.
+No reviewer reproduction or other execution job runs. Wait for the completed corrected-head READY doorbell. Never poll.

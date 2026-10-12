@@ -1,6 +1,6 @@
 # PC package review: route_frames_taken (#319)
 
-## Round 1: VERDICT: NOT CLEAN (1 open)
+## Round 1: VERDICT: NOT CLEAN (2 open)
 
 Reviewed head: `ab9b223611978270179cb2c2f361f3a2becfbe65`.
 Source merge base: `080987829a2e2245a7ea97606020400392c974d6`.
@@ -40,6 +40,23 @@ Package notice to PC: `msg_plugin-w_1791828105_9d39a7`.
 Package notice to Sol: `msg_plugin-w_1791828105_c45109`.
 No reviewer execution job runs to prove this missing-harness finding; source and the completed log establish it.
 
+### CQ-RFT-2 / R319-SI-1: MEDIUM, open — an invalid errno can panic instead of returning a harness error
+
+Location: `crates/botster-core-testkit/src/real/rqueue.rs:135`.
+Sol source receipt: `msg_plugin-w_1791828457_7b7b67`.
+The reviewer independently confirms the decoded-value path in the reviewed source.
+
+An `NLMSG_ERROR` reply reads an arbitrary signed 32-bit errno at byte offset 16.
+The parser then calls `io::Error::from_raw_os_error(-errno)` without checking the negation.
+A 20-byte reply with declared length 20, message type 2, and `i32::MIN` at offset 16 reaches this expression.
+Negating `i32::MIN` overflows when overflow checks are enabled. The parser panics instead of returning `Err`.
+R-93 condition (b) requires a harness error when the platform reply cannot be parsed.
+The pure decoder must reject this invalid error value before conversion.
+
+Required change: use checked negation or validate the errno range before conversion.
+Retain the boundary reply as a regression in the new diag harness.
+This finding uses static source evidence. No reviewer reproduction runs.
+
 ### Source review
 
 The reviewer reads the binding PC brief first, the common instructions, BUILD.md, the plan, and the R-93 rulings.
@@ -67,7 +84,7 @@ No conformance list, facade snapshot, manifest, lockfile, mutation exclusion, or
 The two AM-2 ids remain pending. This review authorizes no removal.
 The source merges base `08098782` once in `a93d7d1e`, without conflicts.
 The body's Prior art note identifies the old reader-side `FIONREAD` code and rejects its unsafe access path.
-No other source finding is identified.
+No other source finding is identified after CQ-RFT-2.
 
 ### Completed gate evidence
 
@@ -128,7 +145,7 @@ The body labels the source merge base and gate base separately and preserves the
 
 ### Next step
 
-CQ-RFT-1 must close before package CLEAN. Sol's independent integration review remains due.
+CQ-RFT-1 and CQ-RFT-2 must close before package CLEAN. Sol's complete independent integration review remains due.
 Any changed head needs its delta review and required evidence.
 The current-base final slot, base check, final gate, final receipts, and lead Q7 remain due after both CLEANs.
 No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
