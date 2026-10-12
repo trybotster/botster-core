@@ -162,3 +162,72 @@ No later train head, contracts pin, status removal, or additional re-gate is acc
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-12: final #314 receipt on train 4b
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Gate base and merge base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Frozen #314 member: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead request: `msg_plugin-w_1791827181_aff3dc`.
+Scope: #314's final package receipt on this exact gated train head.
+
+Round 3's source delta remains unchanged. I confirm the exact train tree and the preserved test blob again.
+Blob: `0239e231ffea4525211d28bc753931e130506988`.
+The complete trace comparisons, non-empty assertions, and seed-variation assertion remain intact.
+The earlier shared-fixture, public-behavior, process-rule, and Prior-art conclusions retain their reviewed scope.
+No new source delta or package finding appears.
+
+### Completed final gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+I independently confirm the hash. I read the identity, conformance records, affected test result, mutation records, citations, summaries, fuzz completions, and exits.
+The header names the exact train head and base above. Lists reports that base as the merge base too.
+All ten steps PASS in 962.9 seconds.
+Default passes 1957 tests, with 427 skipped, in 12.302 seconds.
+Slow passes 633 tests, with 2058 skipped, in 43.673 seconds.
+The #314 test `one_seed_gives_the_same_choices_in_every_run` passes in 0.025 seconds.
+Strict conformance passes 264 with zero failures. Lists retains 403 pending and 34 real-pending identifiers.
+Those counts include the other train members' changes. This receipt accepts no additional status removal for #314.
+Held-full runs three budget identifiers at 32 seeds: 96 expected ignored trials, with zero failures.
+
+Stage 1 tests 65 mutants: 39 caught, 14 missed, 12 unviable, and zero timeout.
+The unmutated slow baseline passes 633 tests in 43.427 seconds. Its stage takes 61.1 seconds.
+Stage 2 catches the exact 14 stage-1 misses. I independently compare those identity sets; they match.
+The final result has 53 caught, 12 unviable, zero missed, and zero timeout.
+All 53 unique raw catch identities match their citations. Every cited catcher has a normal PASS.
+No FLAKY result appears. No runtime INCONCLUSIVE result appears.
+The log's single INCONCLUSIVE string belongs to the stored known-flake diagnosis, not a test result.
+
+The listed EV-2 test passes ordinary slow in 0.115 seconds and the unmutated baseline in 0.119 seconds.
+The stage-2 filter explicitly excludes its exact binary/test pair from mutation runs. No catch names that test.
+That ordinary PASS does not remove the known-flaky entry or close its structural fix.
+#314 adds no source mutant. Its earlier synthetic evidence retains the initial tree and three-file E1 scope.
+This train gate does not replace that evidence with a new mutation run of all E1 controls.
+
+Both decoder fuzz runs complete their 60-second limits in 61 seconds each.
+link_decoder runs 6143074 cases; msg_decoder runs 3614151 cases.
+No sanitizer failure or written crash artifact appears in the retained log.
+The job and wrapper exit zero after 1064 seconds: one second queued and 1063 seconds running.
+Train 4's earlier failed gate remains RED. This receipt accepts the completed fresh train-4b gate only.
+
+### Final evidence body and scope
+
+The initial live body omits the train gates. I ask P6 to add the final records before publication of this receipt.
+P6 reports the update in `msg_plugin-w_1791827312_16b460`.
+I read the complete earlier body and the complete body delta from the updated live PR.
+Updated body SHA256: `a63fe63ba3128b6843032bf86c0eebbdd54f6106b4085987e7f11d82f92e1c1f`.
+The member head remains unchanged. The new Train gates section names both train heads, their bases, and their logs.
+It retains train 4's nonzero exit and named EV-2 INCONCLUSIVE failure. It names train 4b's completed result and exact hash.
+Its member order, affected-test time, tier counts, and mutation summary match the reviewed source and final log.
+The original PR gate and synthetic mutation evidence keep their original scopes.
+No source, final-body, or supplied-evidence finding remains for #314 on this exact train head.
+
+This is #314's final package CLEAN receipt naming the completed train-4b gate.
+It does not replace the other members' package reviews or Sol's combined integration review.
+The integration final receipt and lead verification of the merged tree and push remain separate requirements.
+This receipt accepts no later head, contracts pin, status removal, or additional re-gate.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN
