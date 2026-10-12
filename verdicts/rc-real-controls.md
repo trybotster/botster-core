@@ -3376,3 +3376,15 @@ This delta CLEAN permits FINAL-READY after Sol-C's matching exact-head delta ver
 Applicable train reviews, combined review when required, final gate, member receipts, and equal-tree merge verification remain due.
 This verdict accepts no older gate as current-head acceptance, later head, or different source tree.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #312 — matching repaired-member integration delta
+
+Integration message: `msg_plugin-w_1791820778_0837c6`.
+Integration verdict: `4a0aaf50d2a45ba313de3d0ab5b8ce4d5161bd59`, Round 5 in `verdicts/stage1/rc-pin-44.md`.
+The reviewer reads the complete round.
+It is CLEAN for the source delta at `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`, base `080987829a2e2245a7ea97606020400392c974d6`, tree `e7324ae1ff712377222770843ea9dbe4caf64183`.
+Its five unchanged blobs, nine list formulas, R-92 removal proof, RC-PIN44-4 closure, and evidence limits match package receipt `101a3ac854f4cd0c5007e7cfda684b9cf10d0cce`.
+Both repaired-member delta reviews have zero open findings, including LOW findings.
+FINAL-READY may follow the lead's repair order. Final train reviews, composed gate, member receipts, and equal-tree merge verification remain due.
+The reviewer runs no execution job and waits for the next assigned review doorbell.
