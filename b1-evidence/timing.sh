@@ -4,7 +4,7 @@ set -u
 echo "B1 $(git rev-parse HEAD) $(uname -sr)"
 export BOTSTER_ONLY=conf::in_9_legacy_keys_table BOTSTER_SEEDS=0-31 BOTSTER_PENDING_STRICT=1
 bin() {
-  cargo test -p botster-core --test conformance --no-run --message-format=json 2>/dev/null \
+  cargo test -p botster-core --test conformance --no-run --message-format=json 2>/tmp/b1-build.err \
     | python3 -c 'import sys,json
 for l in sys.stdin:
     m=json.loads(l)
@@ -12,9 +12,11 @@ for l in sys.stdin:
 }
 measure() {
   local tag=$1 exe
-  exe=$(bin); echo "B1 $tag binary $exe"
+  exe=$(bin); echo "B1 $tag binary $exe"; [ -n "$exe" ] || { tail -30 /tmp/b1-build.err | sed "s/^/B1 $tag build | /"; return; }
   for i in 1 2 3; do
-    /usr/bin/time -p "$exe" 2>&1 | grep -E '^(real|test result|FAIL)' | sed "s/^/B1 $tag run$i | /"
+    /usr/bin/time -p "$exe" > "/tmp/b1-$tag-run$i.txt" 2>&1
+    grep -E '^(real|test result|FAIL)' "/tmp/b1-$tag-run$i.txt" | sed "s/^/B1 $tag run$i | /"
+    grep -q '^test result' "/tmp/b1-$tag-run$i.txt" || tail -15 "/tmp/b1-$tag-run$i.txt" | sed "s/^/B1 $tag run$i output | /"
   done
   "$exe" > /dev/null 2>&1 &
   local pid=$!
