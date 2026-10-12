@@ -44,9 +44,10 @@
 //!   testkit.
 //! - `worker_alive` (`{session}` → `{alive}`, Core AD-7; steward ruling R-46 follow-up, contracts `main` `bf55649`): the
 //!   recorded worker still runs: it matches its pid and start time (the inner edge's AD-6 check, the read of Core's own
-//!   re-check of a worker that it did not spawn), and it is live, not a zombie. On Linux a zombie keeps its pid and start
-//!   time until its reap; on macOS the kernel refuses the information of a zombie, so the check reads it as absent (bug
-//!   catalog B9). Either way a zombie does not run. It sends no signal. A session whose row names no worker has none that runs.
+//!   re-check of a worker that it did not spawn), and it is live, not a zombie. The AD-6 check reads a zombie as absent on
+//!   every platform: on Linux from the state field of `/proc/<pid>/stat`, and on macOS because the kernel refuses the
+//!   information of a zombie (bug catalog B9; steward ruling R-78 item 3) or answers with the zombie state. A zombie does
+//!   not run. It sends no signal. A session whose row names no worker has none that runs.
 //! - `impostor_worker` (`{session, field, script?}`, Core A10-1, A11-1), `announce_protocol` (`{session, protocol}`, Core
 //!   A6-2, AD-4) and `withhold_control_link` (`{session}`, Core A6-1): a stand-in at the endpoint path of the session's
 //!   worker (steward ruling R-49 Q4, [`crate::stand_in`]). The control only arms it, from the stored row (the recorded
@@ -97,7 +98,7 @@ use crate::crash::{CrashHandle, Crashable};
 use crate::edge_tap::{EdgeTap, Heard, Rows, Tap};
 use crate::harness::limits_of;
 use crate::process_controls::LoseReason;
-use crate::refusal::{arm_refusal, RefusalHandle, RefusalLayer};
+use crate::refusal::{arm_refusal, CoreRecord, RefusalHandle, RefusalLayer};
 use crate::stand_in::{self, StandIn};
 use crate::start_controls::{held_session, not_begun, row_report};
 use crate::worker::ImpostorField;
@@ -147,6 +148,9 @@ struct Handle {
     /// A duplicate of the poll descriptor of the handle's wake (`RealEdges::wake_descriptor`): `wake_fd` gives a
     /// duplicate of it while the Core is in its slot (steward ruling R-68).
     wake: OwnedFd,
+    /// What the handle's Core reported in its diagnostics, as the testkit's layer records it (`parked_work`, `op_posted`).
+    /// It goes with the handle, so a control that names a dropped or crashed handle is `Bad` (R297-F1).
+    record: CoreRecord,
 }
 
 /// The unrelated process of a `reuse_pid` (R-55 (2), (3)): the harness's own child, the leader of its own group, unreaped
@@ -198,6 +202,13 @@ type SharedTap = Arc<Mutex<Tap<RealEdges>>>;
 #[serde(deny_unknown_fields)]
 struct OfSession {
     session: SessionId,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfOp {
+    /// Not `op`: that key of a control object names the control. `for_op`, as the scheduler controls name an op.
+    for_op: OpId,
 }
 
 #[derive(Debug, Deserialize)]
@@ -554,6 +565,31 @@ impl RealCoreHarness {
             )));
         }
         Ok(json!({ "alive": !children.is_empty() }))
+    }
+
+    /// `{parked}`: the session's work waits only for mandatory-queue room (steward ruling R-87; Core EV-5b, TM-6), as Core's
+    /// diagnostics reported after its last call ([`CoreRecord`]). A session with no row is `Bad`.
+    fn parked_work(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfSession { session } = parse(args)?;
+        self.recorded(handle, &session)?;
+        let parked = self.record(handle)?.parked(&session);
+        Ok(json!({ "parked": parked }))
+    }
+
+    /// The record of the Core of `handle` while the handle is open: a dropped or crashed handle has none (R297-F1).
+    fn record(&self, handle: &str) -> Result<&CoreRecord, ControlError> {
+        self.handles
+            .get(handle)
+            .map(|h| &h.record)
+            .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))
+    }
+
+    /// `{posted}`: Core has posted the op's terminal `Completed`, polled or not (steward ruling R-88 (B)), as Core's
+    /// diagnostics reported after its last call ([`CoreRecord`]). An op that Core never minted is not posted.
+    fn op_posted(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let OfOp { for_op } = parse(args)?;
+        let posted = self.record(handle)?.op_posted(for_op);
+        Ok(json!({ "posted": posted }))
     }
 
     /// Core AD-7, R-46 follow-up: `{alive}`, whether the session's recorded worker still runs: it [`lives`], as a known
@@ -1110,6 +1146,7 @@ impl CoreHarness for RealCoreHarness {
                 Box::new(move || marks.next())
             });
             let (slot, crash) = Crashable::new(Box::new(layer));
+            let record = CoreRecord::default();
             self.handles.insert(
                 spec.handle.clone(),
                 Handle {
@@ -1118,10 +1155,11 @@ impl CoreHarness for RealCoreHarness {
                     resume,
                     crash,
                     wake,
+                    record: record.clone(),
                 },
             );
             let script = self.refusals.entry(spec.handle.clone()).or_default();
-            Box::new(RefusalLayer::new(Box::new(slot), script.clone()))
+            Box::new(RefusalLayer::new(Box::new(slot), script.clone(), record))
         } else {
             Box::new(botster_core::Core::open(config)?)
         };
@@ -1194,6 +1232,8 @@ impl CoreHarness for RealCoreHarness {
                     | "payload_alive"
                     | "lose_worker"
                     | "worker_alive"
+                    | "parked_work"
+                    | "op_posted"
                     | "impostor_worker"
                     | "announce_protocol"
                     | "withhold_control_link"
@@ -1234,6 +1274,8 @@ impl CoreHarness for RealCoreHarness {
             "payload_alive" if self.tapped => self.payload_alive(handle, args),
             "lose_worker" if self.tapped => self.lose_worker(handle, args),
             "worker_alive" if self.tapped => self.worker_alive(handle, args),
+            "parked_work" if self.tapped => self.parked_work(handle, args),
+            "op_posted" if self.tapped => self.op_posted(handle, args),
             "impostor_worker" if self.tapped => self.impostor_worker(handle, args),
             "announce_protocol" if self.tapped => self.announce_protocol(handle, args),
             "withhold_control_link" if self.tapped => self.withhold_control_link(handle, args),
@@ -1250,9 +1292,12 @@ impl CoreHarness for RealCoreHarness {
             "hold_handoff" if self.tapped => self.hold_handoff(handle, args),
             "release_handoff" if self.tapped => self.release_handoff(handle, args),
             "oracle_resume" if self.tapped => self.oracle_resume(handle, args),
+            "oracle_encode" if self.tapped => self.oracle_encode(handle, args),
+            "oracle_modes" if self.tapped => self.oracle_modes(handle, args),
             "oracle_query_reply" if self.tapped => self.oracle_query_reply(handle, args),
             "oracle_screen" if self.tapped => self.oracle_screen(handle, args),
             "oracle_screen_payload" if self.tapped => crate::oracle_controls::screen_payload(args),
+            "oracle_state" if self.tapped => self.oracle_state(handle, args),
             "host_crash" if self.tapped => self.host_crash(handle, args),
             "reuse_pid" if self.tapped => self.reuse_pid(args),
             "bystander_alive" if self.tapped => self.bystander_alive(args),
@@ -1455,9 +1500,10 @@ mod slow_controls {
 
     /// `worker_alive` and `payload_alive` (Core AD-7, EV-5(c)): a recorded process lives while it matches its pid and start
     /// time and runs. Core's reaper reaps every worker that it spawns as it ends, so a recorded worker is a zombie only for a
-    /// moment; this test holds its own children unreaped instead. On Linux a zombie still matches its pid and start time;
-    /// on macOS the kernel refuses the information of a zombie, so it reads as absent (bug catalog B9). On both, a zombie
-    /// does not live. An identity with another start time (a reused pid) does not live either.
+    /// moment; this test holds its own children unreaped instead. A zombie reads as absent on both platforms: Linux from its
+    /// state field, macOS because the kernel refuses its information (bug catalog B9; R-78 item 3), or answers with the zombie
+    /// state, which `start_time` refuses too. It does not live. An identity with another start time (a reused pid) does not
+    /// live either.
     #[test]
     fn a_recorded_process_that_ended_and_is_not_reaped_does_not_live() {
         let dir = Candidate::beside_test_binary().expect("the candidate directory");
@@ -1496,15 +1542,10 @@ mod slow_controls {
         assert!(ended_child
             .exited_within(Deadline::cleanup())
             .expect("the exit is observed"));
-        let zombie = if cfg!(target_os = "macos") {
-            IdentityState::Absent
-        } else {
-            IdentityState::Matches
-        };
         assert_eq!(
             lock(&tap).identity_state(ended),
-            zombie,
-            "a zombie keeps its pid and start time on Linux, and reads as absent on macOS (B9)"
+            IdentityState::Absent,
+            "a zombie is gone on every platform: its state field on Linux, the refused information on macOS (B9; R-78 item 3)"
         );
         assert!(
             !lives(&lock(&tap), ended).unwrap(),
@@ -1530,6 +1571,8 @@ mod slow_controls {
             "payload_alive",
             "lose_worker",
             "worker_alive",
+            "parked_work",
+            "op_posted",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",
@@ -1546,9 +1589,12 @@ mod slow_controls {
             "hold_handoff",
             "release_handoff",
             "oracle_resume",
+            "oracle_encode",
+            "oracle_modes",
             "oracle_query_reply",
             "oracle_screen",
             "oracle_screen_payload",
+            "oracle_state",
             "host_crash",
             "reuse_pid",
             "bystander_alive",
@@ -2109,6 +2155,26 @@ mod slow_controls {
         drop(core);
     }
 
+    /// `parked_work` (R-87) on the real tier: see the scenario.
+    #[test]
+    fn parked_work_reads_the_work_that_waits_for_room() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        crate::refusal::record_scenarios::a_stop_is_parked_work_until_a_poll_frees_room(
+            &mut harness,
+        );
+    }
+
+    /// `op_posted` (R-88 (B)) on the real tier: see the scenario.
+    #[test]
+    fn op_posted_reads_a_completion_before_its_poll() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        crate::refusal::record_scenarios::a_completion_is_posted_before_its_poll(&mut harness);
+    }
+
     /// Core AD-6, AD-2, A10-2, EV-5(c), on real sessions:
     /// - `lose_worker` signals only a recorded worker whose pid and start time match: an identity with another start time
     ///   (a reused pid) is refused, and the worker keeps running. The worker's group holds no payload, so the kill never
@@ -2332,6 +2398,11 @@ mod slow_controls {
             .is_socket());
         let held = Arc::downgrade(&tap);
         drop(tap);
+        // The first op, the `Create` of s1, completed: its completion is posted.
+        assert_eq!(
+            harness.control("a", "op_posted", &json!({"for_op": 1})),
+            Ok(json!({"posted": true}))
+        );
         assert_eq!(
             harness.control("a", "host_crash", &json!({})),
             Ok(Value::Null)
@@ -2339,6 +2410,11 @@ mod slow_controls {
         assert!(held.upgrade().is_none(), "the tap went with the Core");
         assert!(matches!(
             harness.control("a", "edges_quiet", &json!({})),
+            Err(ControlError::Bad(_))
+        ));
+        // R297-F1: the record of the crashed Core went with its handle.
+        assert!(matches!(
+            harness.control("a", "op_posted", &json!({"for_op": 1})),
             Err(ControlError::Bad(_))
         ));
         assert!(std::fs::symlink_metadata(&socket)
@@ -2688,6 +2764,8 @@ mod slow_tests {
             "payload_alive",
             "lose_worker",
             "worker_alive",
+            "parked_work",
+            "op_posted",
             "impostor_worker",
             "announce_protocol",
             "withhold_control_link",
@@ -2800,10 +2878,16 @@ mod slow_tests {
         );
     }
 
-    /// After the driver drops a handle, the harness no longer names its data directory.
+    /// After the driver drops a handle, the harness no longer names its data directory, and `op_posted` no longer reads the
+    /// record of its Core (R297-F1): the record went with the handle.
     #[test]
     fn a_dropped_handle_is_no_longer_open() {
         let mut harness = RealCoreHarness::new(nonexistent()).unwrap();
+        let (behind, _reached) = crate::refusal::tests::behind();
+        let diagnostics = behind.diagnostics_slot();
+        let record = CoreRecord::default();
+        let mut layer =
+            RefusalLayer::new(Box::new(behind), RefusalHandle::default(), record.clone());
         harness.handles.insert(
             "h".into(),
             Handle {
@@ -2812,14 +2896,28 @@ mod slow_tests {
                 resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
                 wake: OwnedFd::from(UnixStream::pair().unwrap().0),
+                record,
             },
         );
+        *diagnostics.lock().unwrap() = json!({"next_op": 2, "unposted_ops": []});
+        layer.pump(Now {
+            monotonic: std::time::Instant::now(),
+            unix: 0,
+        });
         assert_eq!(
             harness.data_dir_of("h"),
             Some(DataDirRef("/nonexistent/d/h".into()))
         );
+        assert_eq!(
+            harness.op_posted("h", &json!({"for_op": 1})),
+            Ok(json!({"posted": true}))
+        );
         harness.drop_handle("h");
         assert_eq!(harness.data_dir_of("h"), None);
+        assert!(matches!(
+            harness.op_posted("h", &json!({"for_op": 1})),
+            Err(ControlError::Bad(_))
+        ));
     }
 
     /// A route of an open handle serves `route_fill` and `route_stream_holders` (R-47 item 3, plan 23bf); a route of a
@@ -2835,6 +2933,7 @@ mod slow_tests {
                 resume: Weak::new(),
                 crash: Crashable::new(Box::new(crate::refusal::tests::behind().0)).1,
                 wake: OwnedFd::from(UnixStream::pair().unwrap().0),
+                record: CoreRecord::default(),
             },
         );
         let session = SessionId("s1".into());
