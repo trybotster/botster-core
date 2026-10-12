@@ -3868,3 +3868,15 @@ The reviewer reads the current BUILD Green rule. Sol sends the single final trai
 The package reviewer sends no duplicate final receipt for this unchanged member.
 This verdict accepts no later head, changed member, future pin, specific retry, or final train result.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — train 6 integration delta checked
+
+Message: `msg_plugin-w_1791832846_5d4354`.
+The reviewer reads the complete #309 train-6 section at `4dc077b6c534d2b509128c59e403e43dbe312516`, in `verdicts/stage1/rc-r100-frame-check.md`.
+Its exact head, base, tree, frozen member, and source scope match package delta `4b800553694f1a3043e9a036f1320ca200a880de`.
+Both #309 source deltas are CLEAN with zero open findings, including LOW findings.
+No final gate result is claimed. Combined review, the exact-head gate, Sol's single train receipt, and merge verification remain due.
+This check covers #309 only; it does not accept the separate #311 verdict in that commit.
+Under the corrected BUILD Green rule, the reviewer sends no message that only restates the integration receipt.
+The reviewer runs no execution check and waits for an assigned review doorbell.
