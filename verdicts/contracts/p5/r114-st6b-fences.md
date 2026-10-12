@@ -28,3 +28,11 @@ The READY names only local checks ("conformance crates green, the 4 xtask --chec
 
 - **Core PR (2).** R-114 makes this fence valid only with Core's `DESIGN.md` rule and its test. The body will name the Core PR when it opens. Per R-114, I check that the Core pin that takes these transcripts also carries that rule and its test.
 - **Main** is `11b2a5a8`. `git diff 67e36681 11b2a5a8` changes only `docs/steward-rulings.md` (R-115), a rulings-only move.
+
+## Final: CLEAN on 1c88e3b22986374c5a59554c30ea7a20d8a627e1 (F1 closed; the head is unchanged)
+
+- **F1: closed.** The head has a pool gate: `~/botster-sessions/gates/botster-contracts-p5-r114-st6b-fences-1c88e3b2-pool-20261012-123542-17516.log`. My `shasum -a 256` of it is `d8a42c2379e1de2cb7bb17c7b4cd9712e90b43a6d83c5b55d38df565633f144d`, the value that P5 sent. All ten steps PASS, exit 0 after 438 s on msa1, base main `216ea74e`. The six `st_6b` fake checks pass, including the three changed ids.
+- **Main** is `216ea74e`. `git diff 67e36681 216ea74e` changes only `docs/steward-rulings.md` (R-115 and its correction), a rulings-only move. No merge and no new gate is needed.
+- **The Core side.** The body now names Core PR trybotster/botster-core#325 ("worker-core: a read's reply follows the observations of the output before it (R-114)", OPEN at `aed0c8e1`), with the `DESIGN.md` rule and the worker-core test `a_reads_reply_follows_the_observations_of_the_output_before_it`. Per R-114, the Core pin that takes these transcripts must also carry #325. I check that at the pin. It is not a condition of this contracts PR.
+
+My finding F1 is closed. CLEAN on `1c88e3b22986374c5a59554c30ea7a20d8a627e1`.
