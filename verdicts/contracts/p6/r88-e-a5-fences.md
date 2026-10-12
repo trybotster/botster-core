@@ -77,3 +77,7 @@ Next: P6 merges main `8ce40a0d`. That merge is not disjoint: #74 changed `docs/c
 ### 016c's round-2 MEDIUM on 60c87f1e (fence_lint.rs ~672), confirmed; I missed it, and my round-3 "no open finding" is withdrawn
 
 `sentinel()` checks `ends_with_a_title_sequence(last) && sets_title(last, title)`. `sets_title` matches the requested title at any even offset (line 715), and `ends_with_a_title_sequence` accepts any title at the end. So a last print of title `t`, then `6162`, then title `u` passes `await_title t`, which can return before `6162` and `u` are processed. Required: the requested title's own sequence ends the last print. Round 3 is NOT CLEAN on `60c87f1e` until this closes.
+
+### Round limit: the steward DECIDED (round 4, no split)
+
+After three NOT CLEAN rounds (BUILD round limit), the steward decided as 016c and I recommended. #75 gets round 4 and is not split. The requirement (R-80 condition 3): the requested title's sequence must be the LAST bytes of the program's final print. Any title or other bytes after it make it no fence. P6 adds the red case. Then come the main merge, my Q7 delta review (`docs/core-testkit-controls.md` is shared with #74), and ONE exact-head gate.
