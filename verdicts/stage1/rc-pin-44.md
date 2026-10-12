@@ -80,3 +80,26 @@ I read the complete package delta section. The five #312 blobs retain their revi
 The lead removes #308 and #309 from this train in `msg_plugin-w_1791819182_21365e`. The replacement train requires its own exact-head delta verdict. This record accepts no gate or merge. I ran no execution job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 4: replacement train 3c source delta
+
+- Train head: `b78df725177d1a931e1eddb9bb67023e7e0ae645`.
+- Base: `080987829a2e2245a7ea97606020400392c974d6`.
+- Tree: `43cdf59980d93e0672423bedc0edf506405256be`.
+- Frozen #312 head: `54805661b93f7acc7c548d0a429d429247c54255`.
+- Reviewed delta: the .44 pin and conformance removals with #310's checkout resolver and test-tier changes.
+- Package verdict: `8afd00632950c0e2607e5e2dbc22c76f29ed48f4`, file `verdicts/rc-real-controls.md`, train 3c section.
+
+I read the complete package section for this exact head. Git records #310's merge first and #312's merge second. The train contains neither #308 nor #309.
+
+All five #312 blobs equal the reviewed member head. The seven direct dependencies, nine lock records, probe report arm, route-log test, and nine real-pending removals retain their source closures. I checked all nine conformance line-set formulas against the member base, member head, train base, and train head. Each formula passes. The real-pending list contains 34 IDs. No further removal appears.
+
+I read the imported checkout resolver and its callers. The default-tier check selects the checkout by the exact revision in Cargo.lock. It fails if no checkout matches or several checkouts match. The slow-tier check compares that checkout with Cargo metadata. The resolver therefore follows the .44 lock revision. The shared CI job copy equals the train base. The final gate must still exercise the slow comparison on this train head.
+
+RC-PIN44-TRAIN-1 does not apply to this replacement composition. The known-flaky file has no entry after #308 leaves. Its earlier finding remains recorded for the abandoned train. This closure grants no acceptance to a future #308 composition. The removed #309 member retains its separate composition finding.
+
+The pending list, mutation configuration, process-check allowlist, and known-flaky file equal the accepted train base. This delta adds no exclusion, private-state assertion, or production test branch. P3 print-history serving remains separate.
+
+Zero #312 integration delta findings remain. This CLEAN accepts the source delta only. The other train reviews, final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
