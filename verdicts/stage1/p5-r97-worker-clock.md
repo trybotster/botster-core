@@ -389,3 +389,38 @@ This verdict accepts no future source, gate, pin, status removal, or merge.
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; SLOT source delta only, train-6 acceptance remains due)
+
+## Round 4 — train-6 source delta CLEAN
+
+Train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+Frozen #303 member: `df461c83ffa8761c691e5ee07cf50f20784029f7`.
+The complete composition record is in `verdicts/stage1/train-6.md`, Round 1.
+
+The reviewer reads complete package Round 4 at `3cd1a853b2d5190452a70098c5bb4d5d9e527202`.
+Package file: `verdicts/p5-r97-worker-clock.md`. Receipt: `msg_plugin-w_1791832978_5ba3dd`.
+It is CLEAN on this exact train head, base, and tree.
+The earlier SLOT source round at `5554417547c27aadeefebecd99ae2189c680831d` remains applicable.
+
+The first merge has the same seven paths and every added and deleted line of the accepted #303 patch.
+The train retains all #303 added lines in both shared worker files after #311 enters.
+The imported core tests and harness retain the train-5 report hold and scheduler interfaces.
+The route client and start tests remain equal to the first merge.
+The later worker additions supply the resize result and event observation without replacing a clock function.
+The old fixture gains only `pty_resized: None` from #311.
+
+`run_ready` still advances the Sim to the worker clock without a program step or host pump.
+The wake wrapper still waits against that clock and forwards the host wake and descriptor.
+The host deadline query still excludes worker deadlines. Process exits still wake the host.
+The manual-clock orphan regression and both R-97 tests remain unchanged.
+The imported Reader node still ignores time and has no deadline.
+The no-grace worker behavior and host `KillPayload` signal path remain present.
+All nine conformance sets satisfy the composition formula after each merge. #303 removes no identifier.
+
+Zero #303 composition findings remain, including LOW. Earlier finding closures and evidence limits remain applicable.
+The combined review is CLEAN in the train record. The completed exact-head gate and single final train receipt remain due.
+The lead's pre-checks remain operator reports. They establish no completed train gate.
+The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; #303 train source delta only)
