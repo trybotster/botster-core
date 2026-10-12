@@ -855,7 +855,7 @@ mod tests {
             );
         }
         assert_eq!(
-            harness.control("h", "hold_start", &json!({})),
+            harness.control("h", "host_crash", &json!({})),
             Err(ControlError::Unsupported)
         );
         let nth = harness.control(

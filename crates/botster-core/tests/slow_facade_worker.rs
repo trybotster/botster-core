@@ -398,7 +398,8 @@ fn the_facade_reaches_a_host_with_a_worker_on_a_real_link() {
     stop_over_a_broken_link(running);
 }
 
-/// DP-2, steward ruling R-65: the host keeps its copy of a route's stream until the worker reports `RouteReceived`, then
+/// Core DP-2 (`conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy`, real-only `slow:fd-handoff`), steward
+/// ruling R-65: the host keeps its copy of a route's stream until the worker reports `RouteReceived`, then
 /// closes it. The worker side closes its received copy first. A one-byte write of the client must then succeed, because the
 /// host's copy keeps the peer open. After `RouteReceived`, the host has no copy: the client's read reports the close (EOF
 /// on macOS; `ECONNRESET` on Linux, because the closed end held the client's unread byte) and a write fails with `EPIPE`. The worker answers a capture after `RouteReceived` on the same link, so the capture's `Completed` event
@@ -476,7 +477,10 @@ fn the_host_keeps_its_copy_of_a_route_stream_until_the_worker_reports_it_receive
 /// successful `attach` the route's stream belongs to Core, the worker gets its own copy, and the host never reads, writes or
 /// relays a route byte. The client writes its bytes and ends its writing before the host hands the stream over. The worker
 /// reads exactly those bytes, up to EOF, from its own copy, so the host read none of them. Then the worker writes its bytes, and the client reads exactly
-/// those bytes first, so the host wrote none before them. The host's copy and its close are the R-65 test above.
+/// those bytes first, so the host wrote none before them. After the stop, when no copy of the stream is open, the client
+/// reads its end of file with no other byte, so the host wrote none after them either: also not in the window after the
+/// worker sends `RouteReceived` and before the host handles it and closes its copy. The host's copy and its close are the
+/// R-65 test above.
 #[test]
 fn the_worker_owns_the_route_stream_and_the_host_moves_no_byte_of_it() {
     const FROM_CLIENT: &[u8] = b"client bytes before the handoff";
@@ -523,13 +527,21 @@ fn the_worker_owns_the_route_stream_and_the_host_moves_no_byte_of_it() {
         Ok(FROM_CLIENT),
         "the worker's own copy has every byte of the client"
     );
-    let (_, line) = botster_test_process::first_line(client);
+    let (mut client, line) = botster_test_process::first_line(client);
     assert_eq!(
         line, FROM_WORKER,
         "the client's first bytes are the worker's"
     );
 
     stop_over_a_broken_link(running);
+    // Every copy of the worker end is closed now: the worker's after its write, the host's at `RouteReceived` or with `Core`.
+    assert_eq!(
+        client
+            .to_eof(Deadline::cleanup())
+            .map_err(|e| e.to_string()),
+        Ok(Vec::new()),
+        "the client gets no byte after the worker's, so the host wrote none"
+    );
 }
 
 /// A FIFO in `dir` that a fixture script writes and the test reads by deadlines. The test holds it open for reading and
