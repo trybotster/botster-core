@@ -735,3 +735,59 @@ This verdict accepts no final gate result, later import, different tree, new pin
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open integration delta findings; exact-head final gate remains due) at 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b against base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
+
+## Round 10 — completed final gate and body
+
+Head: `4ccd6a7da142331c2d35fa25f5f12914cdf2d22b`.
+Base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Tree: `ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be`.
+Completion receipts: `msg_plugin-w_1791774951_0642b9` and `msg_plugin-w_1791775019_52ed15`.
+The complete source review in Round 9 covers this unchanged head and its ordering resolution.
+Sol reads completed gate headers, all mutation outcomes and citations, relevant normal tests,
+baseline records, conformance results, step summary, and final exits.
+
+Gate: `gates/botster-core-stage1-pc-r78-stopping-4ccd6a7d-pool-20261011-195723-18711.log` under `~/botster-sessions`.
+SHA-256: `df19bcedaa620616b8e508ce399a9b60d4e0704c91443914b1bc3c2b88792171`.
+Its retained client output has identical bytes. The header names this exact head and base.
+It runs on structvr-MS-7C77, kernel 6.8.0-142-generic, with four CPUs. This is not an msa1 record.
+All ten steps PASS in 740.8 seconds. Job and wrapper exit zero after 854 seconds, with one second queued.
+Default: 1887 passed, 433 skipped, 25.174 seconds. Slow: 613 passed, 2042 skipped, 63.110 seconds.
+The unmutated slow baseline has 613 passed, eleven slow cases, and 2786 skipped, in 63.313 seconds.
+Both ordinary conformance summaries have 258 passed and zero failures.
+Held-full runs two budget identifiers at 32 seeds; all 64 expected ignored results have zero failures in 19.38 seconds.
+
+Sol independently parses 62 unique first outcomes: 58 caught, two missed, and two unviable, in 122.2 seconds.
+Stage 2 tests exactly those two missed identities and catches both in 79.7 seconds.
+All 60 unique raw catches equal all 60 named citations. Each catcher has a normal PASS record.
+Both slow catchers have baseline PASS and name the real unreaped-process test.
+There is no unmatched identity, remaining miss, timeout, or FLAKY token.
+The two unviable outcomes remain unviable; no executed catch is claimed for them.
+Fuzz PASS reports that no decoder harness changed.
+
+All eleven drain, nineteen handoff, and twenty-one deadline tests have normal PASS records.
+These cover empty drain, settle-time drain, both exit/send-error orders, held-frame backpressure,
+queued handoffs, and the exit/action/read ordering reviewed in Round 9.
+The real facade, socket-order, and unreaped-process evidence retains its earlier source scope.
+The facade uses its test-owned link; it does not alone prove production-worker route ordering.
+IN9 and ST6 normal results do not erase earlier A5-4 failures or replace their accepted controlled attribution.
+Sol independently verifies all 34 reported real-pending passes remain in the unchanged 44-entry list.
+This PR accepts no pending removal, new fence, or real-tier promotion.
+This gate supplies Linux evidence. Earlier Mac records and invalidated shared-target records keep their recorded limits.
+
+Sol reads the complete final body delta against the already reviewed body.
+GitHub reports this exact head and base. Live body SHA-256:
+`8e3ca6976c3a3c3af005d93bd1d09477f9536f6c682137b2ef22ea57ad817252`.
+Retained snapshot SHA-256: `6b490871e38bf73f49ee70848fd0d063e3cd64eae9f203aa1c3cbdcf943d45e8`.
+The snapshot equals the live body plus one final newline.
+The body replaces the pending gate with the completed result and preserves all older source and attribution limits.
+Sol reads the complete updated owner package, SHA-256
+`e2a9bcba7261aacf3d039bcf0f4c2d4ad78da7fd268c5309b7e0f995c6b4b46f`.
+Sol reads complete package Round 4 at `b29b6a853340d9f8dce05ceec3cfb1b6c4b5a3fd`.
+Its final CLEAN matches the source, evidence, body, and scope above.
+
+Both final reviews have zero open findings. The canonical check stays FAIL;
+both delta reviews address its shared paths and the explicit ordering resolution.
+Lead Q7 and an equal-tree merge receipt remain due. Any later source or import needs its applicable review and evidence.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open integration findings; final source, evidence, and body) at 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b against base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
