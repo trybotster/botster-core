@@ -60,6 +60,12 @@ New STDP8-D5 is HIGH: retained client observations can make the host's cached cl
 The lead assigned the smaller adopting-host frame bound to a separate ST item after DP-8.
 The verdict records the exact artifact, the size-proof condition and the required two-route revision proof.
 
+DP-8 design revision 5: SHA-256 `0860f14a407f812cd38424c9bcb917977946f407c932078e9af69ab46142e7b3`.
+Verdict: CLEAN. STDP8-D5 is closed; no design finding remains open.
+The worker sends its current client revision for retained and fresh observations, preserving nondecreasing host revisions.
+The implementation's size test must cover absent and present tags with the actual pinned serde types.
+This design CLEAN does not replace the lead's approval before code. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

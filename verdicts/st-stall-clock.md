@@ -1,6 +1,33 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (1 open; DP-8 design revision 4)
+VERDICT: CLEAN (DP-8 design revision 5)
+
+## DP-8 route adoption: design revision 5
+
+Artifact: `shared/core-stage1/handoffs/st-dp8-route-adoption-design.md`.
+SHA-256: `0860f14a407f812cd38424c9bcb917977946f407c932078e9af69ab46142e7b3`.
+Declared Core base: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Risk tier: HIGH. This is a design verdict, not an implementation verdict.
+The reviewer ran no local build or test. The #298 source verdict remains CLEAN.
+
+STDP8-D5: CLOSED. The worker retains an input flag per unmapped route instead of a historical revision.
+Every sent client observation carries the worker's current client revision at send time.
+The worker advances that revision, and the link preserves send order. The host therefore receives nondecreasing revisions.
+Each retained observation still names its own route for client activity.
+The planned two-route proof covers reversed input order and fresh input between mapping messages.
+STDP8-D1 through D4 remain closed. No design finding remains open.
+
+Section 4 now compares maximal `RouteLive` integers with a minimal attach message on the pinned contracts-v0.1.41 types.
+The implementation must verify the size inequality from the actual serde types, with both absent and present tags.
+Pinned `AttachOptions` omits absent `owner` and `route_tag`; the shown `RouteLive` fields do not specify that omission.
+The test must account for that difference instead of assuming identical shared encoding for absent tags.
+This check preserves the size inequality requirement; this verdict does not independently verify the stated 65-byte margin.
+The release fallback cannot replace the encoding proof.
+
+R-98 and R-99 remain applied. The completion barrier and adoption event phases remain accepted.
+The smaller adopting-host frame bound remains the lead's separate ST item after DP-8.
+The implementation still needs the specified driver proofs, full-seed conformance evidence, focused Mac evidence and full Linux gate.
+The lead gives approval before code starts. This CLEAN does not replace that approval.
 
 ## DP-8 route adoption: design revision 4
 
