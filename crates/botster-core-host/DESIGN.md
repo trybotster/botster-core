@@ -458,10 +458,10 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   - Other tests cover: no wake without a refusal; two refusals and one wake; the edge's room; and the production bound
     formula.
 - **Prior art (BUILD.md rule 0; old Core `72b2e335`).**
-  - The old daemon's `cancel` (`crates/botster-core-daemon/src/daemon.rs:1993`) returns `bool`. It has no control queue,
+  - The old daemon's `cancel` (the old daemon crate's `src/daemon.rs:1993`) returns `bool`. It has no control queue,
     no `Full` refusal and no wake.
-  - The old worker bounded its outbound stream to the host by class (`Egress::has_room`,
-    `src/bin/botster-session-worker.rs:243`, `:343`). That is the same shape (a byte-bounded stream with a room check) in the
-    other direction. It is kept as a lesson. No code is copied.
-  - Its tests set "full" through a test-only argument of the production binary (`test_egress_full_signal`, `:304`).
+  - The old worker bounded its outbound stream to the host by class (`Egress::has_room`, the old session-worker binary's
+    source, lines 243 and 343). That is the same shape (a byte-bounded stream with a room check) in the other direction. It
+    is kept as a lesson. No code is copied.
+  - Its tests set "full" through a test-only argument of the production binary (`test_egress_full_signal`, line 304).
     That is rejected: here the `link_room` edge is the only test seam.
