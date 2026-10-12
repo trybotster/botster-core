@@ -411,9 +411,22 @@ fn a_held_link_keeps_the_start_until_the_release() {
     );
     assert_eq!(held(&mut harness), json!(true), "the link is held");
     assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Starting);
+    let quiet = |harness: &mut TestkitHarness| {
+        control(harness, "edges_quiet", json!({})).unwrap()["quiet"].clone()
+    };
+    assert_eq!(
+        quiet(&mut harness),
+        json!(true),
+        "the held link's hello is no report: `await_quiet` ends"
+    );
     assert_eq!(
         link_hold(&mut harness, "a", "release_start"),
         Ok(Value::Null)
+    );
+    assert_eq!(
+        quiet(&mut harness),
+        json!(false),
+        "the same link, not held, holds its hello for the host"
     );
     match complete(core.as_mut(), &mut at, start) {
         OpResult::Ok(OpOutput::Record(record)) => assert_eq!(record.state, SessionState::Running),

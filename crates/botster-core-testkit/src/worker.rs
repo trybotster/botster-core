@@ -141,6 +141,7 @@ impl ProcessTable {
     /// True while the process edge holds a report that the host has not consumed: an exit that it has not polled, or the
     /// control link of a worker that it holds (spawned or adopted) with bytes or an end of file that the host has not read. A new worker's link holds its hello,
     /// so a link that the host has not accepted yet counts too. It reads the state and changes nothing (`edges_quiet`).
+    #[cfg(test)]
     pub(crate) fn holds_reports(&self) -> bool {
         self.holds_reports_but(&[])
     }
@@ -786,6 +787,7 @@ impl Workers {
     /// True when no edge toward the host of `table` holds a report that it has not consumed: no worker has ready work (input
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
+    #[cfg(test)]
     pub(crate) fn edges_quiet(&self, table: &ProcessTable) -> bool {
         self.edges_quiet_but(table, &[])
     }
