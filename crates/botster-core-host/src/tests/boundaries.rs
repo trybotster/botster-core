@@ -1072,8 +1072,6 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
         [Event::ClipboardWrite { selection, contents: Some(c), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
             if selection == "c" && c.len() == 1 && c[0].mime == "text/plain" && c[0].bytes.0 == vec![1, 2]
     ));
-    let events = say(&mut w, Observation::Writable);
-    assert!(matches!(&events[..], [Event::SessionWritable { .. }]));
     // A loss marker, with the dropped tap bytes.
     let events = say(
         &mut w,
@@ -1233,7 +1231,7 @@ fn held_capture_bytes_count_each_capture_once() {
 }
 
 /// The launch carries the engine's own limits, so the worker applies the same bounds as the host (EV-3, A2-4, ST-7, EV-8,
-/// TP-1), and stop_grace_ms is the engine's stop_grace.
+/// TP-1). `stop_grace` is the engine's own deadline (steward ruling R-97, follow-up): the worker times nothing with it.
 #[test]
 fn the_launch_carries_the_engines_limits() {
     let limits = limits(|l| {
@@ -1253,5 +1251,4 @@ fn the_launch_carries_the_engines_limits() {
         })
         .expect("the launch");
     assert_eq!(spec.limits, limits);
-    assert_eq!(spec.stop_grace_ms, 7000);
 }

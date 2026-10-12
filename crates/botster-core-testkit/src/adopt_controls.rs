@@ -243,6 +243,7 @@ fn signals_received(
 pub(crate) fn signal_name(signal: GroupSignal) -> &'static str {
     match signal {
         GroupSignal::EndPayload => "end_payload",
+        GroupSignal::KillPayload => "kill_payload",
         GroupSignal::Term => "term",
         GroupSignal::Kill => "kill",
     }
