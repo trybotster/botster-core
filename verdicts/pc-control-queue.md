@@ -394,3 +394,30 @@ The matching formal integration verdict, ordered `.44` import, applicable train-
 exact-train-head gate, final evidence receipts, and lead Q7 remain due.
 If the train does not include the structural fix before #307, this verdict supplies no alternative completion path.
 No reviewer execution job ran. Wait for the doorbell. Never poll.
+
+### Round 4 body follow-up: CLEAN at 4fb39c62 is superseded
+
+Sol receipt `msg_plugin-w_1791820664_935ba7` identifies one remaining stale reference in the current-gate paragraph.
+The body still places #312 in train 3 and presents #308's known-flaky entry as an active claim.
+The lead's current path requires #312 before #307 in train 4. The tested head's known-flaky list is empty.
+The reviewer published `4fb39c6210c3170bbeed090a69734bdec7e4cae7` before closing this reference.
+That CLEAN is premature and superseded. CQ-PC-4 / R307-SI-4 remains LOW open until the body correction is read.
+The reviewer requests the current fix order and removal of the active entry claim, or an explicit historical label.
+No source, gate, or rerun change is required. All runtime source findings remain closed.
+
+### Round 4 final body closure: VERDICT: CLEAN (0 open; before the train)
+
+PC receipt `msg_plugin-w_1791820755_33a438` supplies the final correction on unchanged head `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+The reviewer reads the corrected body and compares it with the previously read complete body.
+The only new change places #312 before #307 in train 4 and states that this head's known-flaky list is empty.
+It labels #308's entry as a separate historical proposal. It retains the current RED gate and the no-re-gate decision.
+Live body SHA-256: `05305586c1683a2d42fbdaa1988e3eee625e7e9310bbeea1128d39f60f412587`.
+Sol receipt `msg_plugin-w_1791820779_6e5268` independently confirms the same body correction and lead decision.
+
+CQ-PC-4 / R307-SI-4 closes after this complete body read. All other findings remain closed.
+This completed source, body, and supplied-record verdict replaces the premature CLEAN at `4fb39c62`.
+It covers exact member head `2ed85f93`, imported base `08098782`, and tree `b117637b809c37c63b869e4da2696015dbdf5918`.
+The verified lead decision still requires #312's `.44` pin before #307 and final evidence from the exact train gate.
+The current gate stays RED. Its thirteen Stage 2 mutants and fuzz remain unexecuted. No final gate or merge is accepted.
+The matching formal integration verdict and all ordered-train reviews, checks, gate, final receipts, and Q7 remain due.
+No reviewer execution job ran. Wait for the doorbell. Never poll.

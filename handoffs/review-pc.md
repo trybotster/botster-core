@@ -1952,3 +1952,17 @@ Tree b117637b809c37c63b869e4da2696015dbdf5918. Prior accepted head 50a50cff. The
 This verdict covers the exact member before train construction under the lead's completion decision. It accepts no RED gate or later train head.
 The matching formal integration verdict, ordered .44 import, applicable train-delta/combined reviews, exact train gate, final receipts, and Q7 remain due.
 Without the ordered structural fix, this CLEAN supplies no alternative completion path. No reviewer job runs. Wait for the doorbell. Never poll.
+
+Sol receipt msg_plugin-w_1791820664_935ba7 identifies a remaining stale body reference to #312 in train 3 and #308's active known-flaky entry.
+The reviewer published 4fb39c6210c3170bbeed090a69734bdec7e4cae7 before closing that reference. The premature CLEAN is superseded.
+CQ-PC-4 / R307-SI-4 LOW stays open until the body states #312 before #307 in train 4 and removes or labels the historical entry claim.
+PC and Sol receive this correction. No terminal CLEAN from 4fb39c62 is sent to the lead. Source findings remain closed.
+No source or gate change is requested. No reviewer job runs. Wait for the correction doorbell. Never poll.
+
+PC receipt msg_plugin-w_1791820755_33a438 supplies the final body correction on unchanged 2ed85f93.
+The reviewer reads the corrected body and compares its complete changes. It states #312 before #307 in train 4 and the empty current known-flaky list.
+The #308 entry is a separate historical proposal. The RED gate and no-re-gate decision remain explicit.
+Body hash 05305586c1683a2d42fbdaa1988e3eee625e7e9310bbeea1128d39f60f412587 matches Sol receipt msg_plugin-w_1791820779_6e5268.
+CQ-PC-4 / R307-SI-4 closes. Formal Round 4 is CLEAN with zero open findings on 2ed85f93, base 08098782, tree b117637b.
+This completed body closure replaces the premature 4fb39c62 CLEAN. The current RED gate is not accepted as green.
+The matching formal integration verdict and ordered .44/train reviews/checks/gate/final receipts/Q7 remain due. No reviewer job runs.
