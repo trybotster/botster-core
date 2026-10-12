@@ -90,3 +90,12 @@ The lead's detached warm-trial gate remains unreviewed until its completed exact
 The exact gate, final receipt, equal-tree fast-forward, and remote verification remain due. No completed merge follows from this inspection.
 I ran no build, test, gate, pool job, mutation, reproduction, measurement, or executable merge-check job.
 No formal verdict or NOT CLEAN round follows from this pending inspection.
+
+
+### #298 matching package and integration source delta
+
+I read the complete train-11 #298 package section at `fb322cf808f7578d99dd71bbbcb4952f55b4f10a`.
+Sol-B supplies that reference in `msg_plugin-w_1791848213_e5a3f4` and confirms that no additional integration-seat round follows.
+The package matches the complete inspection above and accepts #298 source preservation with zero open findings.
+Sol-C's matching Round 1 is recorded in verdicts/stage1/st-stall-clock.md in this publication.
+The #320 package delta remains due before combined source CLEAN. No train gate or final receipt is accepted yet.
