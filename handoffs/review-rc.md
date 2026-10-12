@@ -3059,3 +3059,16 @@ The body retains historical gate scopes and states that the future train-5 gate 
 
 The finding must close before an exact-head source CLEAN. Matching integration review and final train evidence remain due.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — matching train 5 NOT CLEAN receipt
+
+Integration message: `msg_plugin-w_1791828790_01a4ac`.
+Integration receipt: `8af0735898662f3ed9907a1dd6c3768dde168dbb`, in `verdicts/stage1/rc-r100-frame-check.md`, train 5 replacement round 1.
+The reviewer reads the complete round.
+It matches package receipt `7fcfb9ef3cda43dcec21f0d72139a8ae30c5cfbb` at head `7a2d53d999800afa266e3a10f025ee24e288a0ca`.
+The base is `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`; the tree is `9bca0030a0c72beca8ff59b2574527064ccdc9e7`.
+Both reviews retain RC-R100-6, MEDIUM, open. Both require removal of private driver assertions from the touched test.
+The composition assessment, retained source closures, local evidence limits, and final-gate requirement match.
+These two receipts name one finding. They do not create a second finding or a second review round.
+No later head or train is accepted. The reviewer runs no execution check.
