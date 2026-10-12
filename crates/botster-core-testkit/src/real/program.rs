@@ -38,11 +38,12 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::JoinHandle;
 
 /// The controls that this module serves.
-pub(super) const CONTROLS: [&str; 6] = [
+pub(super) const CONTROLS: [&str; 7] = [
     "program_ready",
     "pty_output",
     "pty_input",
     "pty_blocked",
+    "pty_queued",
     "pty_accept",
     "pty_chunk",
 ];
@@ -57,9 +58,11 @@ struct Probe {
     /// Every `pty_output` that the probe acknowledged, in order, each with its mark (`State::marks` before it): the
     /// session's output history (`oracle_resume`, R-62).
     output: Vec<(u64, Vec<u8>)>,
-    /// The requests sent and the acknowledgements received.
+    /// The requests sent and the acknowledgements received. A `Queued` report acknowledges its `Queued` request.
     sent: u64,
     acked: u64,
+    /// The count of the last `Queued` report: the bytes in the probe's stdin buffer that it has not read (R-74).
+    queued: u64,
     /// The socket ended: the probe exited.
     closed: bool,
 }
@@ -147,8 +150,14 @@ impl Hub {
 /// The harness's end of the probes' control sockets.
 pub(super) struct Programs {
     path: PathBuf,
-    hub: Arc<Hub>,
+    requests: Requests,
     threads: Vec<JoinHandle<()>>,
+}
+
+/// The requests to the probes, apart from the harness: a route's `route_fill` writes its session's output through it.
+#[derive(Clone)]
+pub(super) struct Requests {
+    hub: Arc<Hub>,
 }
 
 impl Programs {
@@ -166,9 +175,14 @@ impl Programs {
             .spawn(move || accept(&listener, &accepting))?;
         Ok(Programs {
             path,
-            hub,
+            requests: Requests { hub },
             threads: vec![accept],
         })
+    }
+
+    /// The requests to the probes, for a route of this harness (`route_fill`).
+    pub(super) fn requests(&self) -> Requests {
+        self.requests.clone()
     }
 
     /// The variables that the driver adds to each `Create` (`CoreHarness::probe_env`).
@@ -178,9 +192,59 @@ impl Programs {
 
     /// Signals `wake` whenever a probe reports input, while the handle that owns it lives.
     pub(super) fn watch(&self, wake: &Arc<dyn HostWake>) {
-        self.hub.lock().wakes.push(Arc::downgrade(wake));
+        self.requests.hub.lock().wakes.push(Arc::downgrade(wake));
     }
 
+    fn connected(&self, worker: ProcessIdentity) -> Result<MutexGuard<'_, State>, ControlError> {
+        self.requests.connected(worker)
+    }
+
+    fn request(&self, worker: ProcessIdentity, request: &Request) -> Result<(), ControlError> {
+        self.requests.request(worker, request)
+    }
+
+    /// Whether the probe of `worker` has connected (`program_ready`, R-60). It never waits.
+    fn has_connected(&self, worker: ProcessIdentity) -> bool {
+        self.requests.hub.lock().probes.contains_key(&worker)
+    }
+
+    /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
+    fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
+        let state = self.connected(worker)?;
+        Ok(state.probes[&worker].input.clone())
+    }
+
+    /// A handle on the probes' input logs, for a route of the session (`pty_input` on a route).
+    pub(super) fn inputs(&self) -> Inputs {
+        Inputs(Arc::clone(&self.requests.hub))
+    }
+
+    /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
+    pub(super) fn marks(&self) -> Marks {
+        Marks(Arc::clone(&self.requests.hub))
+    }
+
+    /// The output history of the probe of `worker`: every `pty_output` that it acknowledged, in order, with its mark. A
+    /// worker whose probe never connected has written none. It never waits.
+    pub(super) fn output(&self, worker: ProcessIdentity) -> Vec<(u64, Vec<u8>)> {
+        self.requests
+            .hub
+            .lock()
+            .probes
+            .get(&worker)
+            .map(|probe| probe.output.clone())
+            .unwrap_or_default()
+    }
+
+    /// The bytes that wait in the stdin buffer of the probe of `worker` and that it has not read (`FIONREAD`, R-74): the probe
+    /// answers a `Queued` request with them, in place of an acknowledgement.
+    fn queued(&self, worker: ProcessIdentity) -> Result<u64, ControlError> {
+        self.request(worker, &Request::Queued {})?;
+        Ok(self.requests.hub.lock().probes[&worker].queued)
+    }
+}
+
+impl Requests {
     /// Waits until the probe of the session whose worker is `worker` connected, by the cleanup bound. A worker that is no
     /// longer the live process of its identity (it exited, or its pid was reused) fails at once, and at the bound: a worker ends
     /// with its payload, so a probe that exited (69 included: it could not connect) never connects.
@@ -188,14 +252,13 @@ impl Programs {
         self.hub.connected(worker)
     }
 
-    /// A handle on the probes' input logs, for a route of the session (`pty_input` on a route).
-    pub(super) fn inputs(&self) -> Inputs {
-        Inputs(Arc::clone(&self.hub))
-    }
-
     /// Sends `request` to the probe of the session whose worker is `worker`, and returns when the probe acknowledged it. The
     /// write and the wait for the acknowledgement share one cleanup bound; the write holds no lock.
-    fn request(&self, worker: ProcessIdentity, request: &Request) -> Result<(), ControlError> {
+    pub(super) fn request(
+        &self,
+        worker: ProcessIdentity,
+        request: &Request,
+    ) -> Result<(), ControlError> {
         let pid = worker.pid;
         let deadline = Deadline::cleanup();
         let (requests, target) = {
@@ -233,42 +296,21 @@ impl Programs {
         }
     }
 
-    /// Whether the probe of `worker` has connected (`program_ready`, R-60). It never waits.
-    fn has_connected(&self, worker: ProcessIdentity) -> bool {
-        self.hub.lock().probes.contains_key(&worker)
-    }
-
-    /// The probe of `worker` acknowledged the output `bytes` (`pty_output`): it goes to the probe's output history with the
-    /// next mark.
-    fn wrote(&self, worker: ProcessIdentity, bytes: Vec<u8>) {
+    /// The real `pty_output` path (`pty_output`, `route_fill`): the probe of `worker` writes `bytes`, and once it acknowledges
+    /// them they go to its output history with the next mark ([`super::resume`], R-62).
+    pub(super) fn write_output(
+        &self,
+        worker: ProcessIdentity,
+        bytes: Vec<u8>,
+    ) -> Result<(), ControlError> {
+        self.request(worker, &Request::Output(HexBytes(bytes.clone()).to_hex()))?;
         let mut state = self.hub.lock();
         let mark = state.marks;
         state.marks += 1;
         if let Some(probe) = state.probes.get_mut(&worker) {
             probe.output.push((mark, bytes));
         }
-    }
-
-    /// The marks of the output history, for the capture layer of an open handle ([`super::resume`]).
-    pub(super) fn marks(&self) -> Marks {
-        Marks(Arc::clone(&self.hub))
-    }
-
-    /// The output history of the probe of `worker`: every `pty_output` that it acknowledged, in order, with its mark. A
-    /// worker whose probe never connected has written none. It never waits.
-    pub(super) fn output(&self, worker: ProcessIdentity) -> Vec<(u64, Vec<u8>)> {
-        self.hub
-            .lock()
-            .probes
-            .get(&worker)
-            .map(|probe| probe.output.clone())
-            .unwrap_or_default()
-    }
-
-    /// Every byte that the probe of the session whose worker is `worker` reported reading, in order.
-    fn input(&self, worker: ProcessIdentity) -> Result<Vec<u8>, ControlError> {
-        let state = self.connected(worker)?;
-        Ok(state.probes[&worker].input.clone())
+        Ok(())
     }
 }
 
@@ -300,7 +342,7 @@ impl Drop for Programs {
     /// then joins them. No other thread exists.
     fn drop(&mut self) {
         let connections = {
-            let mut state = self.hub.lock();
+            let mut state = self.requests.hub.lock();
             state.closing = true;
             std::mem::take(&mut state.connections)
         };
@@ -467,6 +509,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
             output: vec![],
             sent: 0,
             acked: 0,
+            queued: 0,
             closed: false,
         },
     );
@@ -487,6 +530,11 @@ fn serve(hub: &Hub, stream: UnixStream) {
                 true
             }
             Some(Report::Ack {}) => {
+                probe.acked += 1;
+                false
+            }
+            Some(Report::Queued { bytes }) => {
+                probe.queued = bytes;
                 probe.acked += 1;
                 false
             }
@@ -544,6 +592,9 @@ struct PtyBlocked {
     session: SessionId,
     #[serde(default = "on")]
     on: bool,
+    /// The real tier sends nothing for it: the kernel buffers the PTY (steward ruling R-74). The testkit queues this many bytes.
+    #[serde(default)]
+    kernel_bytes: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -607,9 +658,7 @@ impl RealCoreHarness {
                     return Err(ControlError::Bad("bytes_hex: no bytes".into()));
                 }
                 let worker = self.worker_of(handle, &args.session)?;
-                self.programs
-                    .request(worker, &Request::Output(HexBytes(bytes.clone()).to_hex()))?;
-                self.programs.wrote(worker, bytes);
+                self.programs.requests().write_output(worker, bytes)?;
                 Ok(Value::Null)
             }
             "pty_input" => {
@@ -620,9 +669,19 @@ impl RealCoreHarness {
             }
             "pty_blocked" => {
                 let args: PtyBlocked = parse(args)?;
+                if let (false, Some(_)) = (args.on, args.kernel_bytes) {
+                    return Err(ControlError::Bad(
+                        "kernel_bytes: only a block (on: true) takes it".into(),
+                    ));
+                }
                 let worker = self.worker_of(handle, &args.session)?;
                 self.programs.request(worker, &Request::Blocked(args.on))?;
                 Ok(Value::Null)
+            }
+            "pty_queued" => {
+                let args: Session = parse(args)?;
+                let worker = self.worker_of(handle, &args.session)?;
+                Ok(json!({ "bytes": self.programs.queued(worker)? }))
             }
             "pty_accept" => {
                 let args: Bytes = parse(args)?;
@@ -909,6 +968,26 @@ mod slow_tests {
         assert!(args.on);
         let args: PtyBlocked = parse(&json!({"session": "s1", "on": false})).unwrap();
         assert!(!args.on);
+        // R-74: the real tier takes `kernel_bytes` and sends nothing for it (the kernel buffers).
+        let args: PtyBlocked = parse(&json!({"session": "s1", "kernel_bytes": 1})).unwrap();
+        assert_eq!((args.on, args.kernel_bytes), (true, Some(1)));
+    }
+
+    /// R-74: the probe answers `Queued` with its count in place of an acknowledgement, and `pty_queued` returns that count.
+    /// Each answer is the one to its own request: a later request gets the later count.
+    #[test]
+    fn pty_queued_returns_the_count_of_the_probes_answer() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        std::thread::scope(|s| {
+            for bytes in [7, 0] {
+                let control = s.spawn(|| programs.queued(me));
+                assert_eq!(probe.next_request(), Request::Queued {});
+                probe.report(&Report::Queued { bytes });
+                assert_eq!(control.join().unwrap(), Ok(bytes));
+            }
+        });
     }
 
     /// A recorded worker that no longer runs gives `Bad` at once: its probe can never connect, and a reused pid is never
@@ -1065,6 +1144,7 @@ mod slow_tests {
             ("pty_output", json!({"session": "s1", "bytes_hex": "61"})),
             ("pty_input", json!({"session": "s1"})),
             ("pty_blocked", json!({"session": "s1"})),
+            ("pty_queued", json!({"session": "s1"})),
             ("pty_accept", json!({"session": "s1", "bytes": 1})),
             ("pty_chunk", json!({"session": "s1", "bytes": 1})),
         ] {

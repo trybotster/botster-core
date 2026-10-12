@@ -38,6 +38,9 @@
 //! must pass, and a real-only id (`core-real-only.txt`) does not run. The expected result reports itself ignored, so a
 //! pending id is still never a pass. The nextest tiers do not set the variable: there a pending trial stays ignored and does
 //! not run.
+//!
+//! With `BOTSTER_PENDING_HELD_FULL=1` as well (set by the `slow` step of `cargo xtask ci`), the strict run is the held-full
+//! run: each `budget` held id runs at every seed of the set, one trial a seed, and must pass at each; no other id runs.
 
 use botster_conformance::report::describe;
 pub use botster_conformance::Limits;
@@ -245,6 +248,60 @@ fn strict_trial(make: Factory, limits: Limits, transcript: &Transcript, class: C
     .with_kind("pending: strict")
 }
 
+/// The held-full run of the gate's slow step (`BOTSTER_PENDING_HELD_FULL=1` with the strict variable; lead, 2026-10-11): each
+/// selected `budget` held id runs at every seed of the set, one trial a seed, and must pass at each. A failed trial names its
+/// seed. No other id runs. The expected result reports itself ignored, as in the strict run. `cargo xtask ci` reads the
+/// report line: without it, the harness ignored the variable; with fewer ids or seeds, a selection narrowed the run.
+fn held_full(
+    name: &str,
+    make: Factory,
+    limits: Limits,
+    args: &Arguments,
+    held: &[pending::Held],
+    transcripts: &[Transcript],
+    selection: &Selection,
+) -> ! {
+    let seeds = selection.seeds(&SeedSet::from_env()).seeds;
+    let mut trials = Vec::new();
+    let mut ran = 0usize;
+    for entry in pending::budget(held) {
+        let Some(transcript) = transcripts
+            .iter()
+            .find(|t| t.id == entry.id && selection.selects(t))
+        else {
+            continue;
+        };
+        ran += 1;
+        for &seed in &seeds {
+            let (id, class, transcript) = (
+                entry.id.clone(),
+                Class::Held(entry.clone()),
+                transcript.clone(),
+            );
+            trials.push(
+                Trial::ignorable_test(format!("{id}@seed_{seed}"), move || {
+                    let outcome =
+                        outcome_at(make, limits, &transcript, |_| SeedSet { seeds: vec![seed] });
+                    pending::held_full_verdict(&id, seed, &class, outcome.is_pass())
+                        .map(Completion::ignored_with)
+                        .map_err(|error| {
+                            Failed::from(format!("{error}: {}", describe(&id, &outcome)))
+                        })
+                })
+                .with_kind("pending: held-full"),
+            );
+        }
+    }
+    let conclusion = libtest_mimic::run(args, trials);
+    if !args.list {
+        println!(
+            "{name} held-full: ran {ran} budget ids at {} seeds, one trial a seed",
+            seeds.len()
+        );
+    }
+    conclusion.exit()
+}
+
 /// The pass-through test (plan 23l): an id that passed on the wrapped composition passes on a plain `Core::open` too, unless
 /// it needs a control.
 fn pass_through(plain: Factory, limits: Limits, transcript: &Transcript) -> Result<(), String> {
@@ -313,6 +370,9 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     let real_only = pending::parse_real_only(REAL_ONLY).expect("core-real-only.txt parses");
     let proofs = pending::parse_real_proofs(REAL_PROOFS).expect("core-real-proofs.txt parses");
     let held = pending::parse_held(HELD).expect("core-held.txt parses");
+    if strict && std::env::var(pending::HELD_FULL_ENV).is_ok_and(|v| v == "1") {
+        held_full(name, make, limits, &args, &held, &transcripts, &selection);
+    }
     // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
     let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
 
