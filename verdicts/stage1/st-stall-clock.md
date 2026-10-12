@@ -154,3 +154,27 @@ This CLEAN covers this exact source head and its supplied initial evidence. The 
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open)
+
+## Round 4 — conflicting base import and completed evidence
+
+Exact head: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`. Imported and gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Tree: `5d8380121d25eadd25e7c5d896f869e81a695d5c`. Merge `24b5d65c374d2775b80b6024287a5974f66ad524` has parents reviewed head `76b369c7a39bec37a2bdb3c31110c887f60d4edb` and this imported base. The next commit supplies the mark-only test repair.
+
+The lead removed #298 from train 1 because its base import conflicts. Sol-B read the announced resolutions, relevant driver composition, complete own diff against the imported base, and the follow-up test change. This is a manual delta review, not automatic carryover from a conflict-free canonical PASS.
+
+The held file retains all three ST budget entries and the imported DP-5 budget entry. The host test module list retains both stall and stop_drain. The imported driver drain test receives mark: 0 in its RouteStalled construction. It registers no route and tests a frame blocked on mandatory room. The mark cannot arm a route clock in that scenario. Its original blocking, wake, exit, and drain assertions remain.
+
+The driver retains the imported drain logic and #298's DueStep order and budget rule. The frame and deadline changes inherited from #295 now belong to the imported base. Imported test modules and exit fixtures remain alongside the stall tests. The reviewed stall-post guard and resume-consumption rule remain unchanged.
+
+Sol-B independently compared the own patches and six three-way ID sets. The union formulas pass: held 7, pending 403, real-only 26, real-pending 49, real-proofs 3, deferred 2. The deferred file contains two IDs, not four. The implementer corrected that reported count. No ID or hold disappears through conflict resolution. No extra own status removal is approved.
+
+Local log: `/Users/jasonconigliari/botster-sessions/gates/st-298-merge-local-4ca7bb2a.log`, with script st-298-merge-local.sh. Sol-B read the script, identity, selected summaries, and exits. The log reports a target clean before the run. Selected packages pass 1,086 of 1,086. The broader strict default run at seeds 0-31 passes 594 of 595 and times out on in_9_legacy_keys_table at 2.019 seconds, exiting 100. The later isolated 1.758-second pass remains an implementer report. Neither result turns the broader run green.
+
+Completed pool gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-4ca7bb2a-pool-20261011-221430-25804.log`. SHA256: `68897193bd2a01c3c03527ea72fa75b57b91c68bd936d0880fc42745ac40778a`. The header names the exact head/base, and the lists step uses the same merge base. All ten steps PASS in 938.9 seconds. Default: 1,966 passed. Slow: 616 passed. Held-full runs six budget IDs at 32 seeds.
+
+The repaired stall-post, deferred-resume, and imported drain-room proofs pass. Mutation tests 241 mutants: 225 caught, 0 missed, 0 timeout, 16 unviable. Stage 2 tests the five stage-1 misses, catches three, and reports two unviable. Its unmutated baseline passes. Sol-B independently matched all 225 raw catches to citations and normal PASS records. No FLAKY result appears. The job exits 0 after 962 seconds; the wrapper exits 0 after 963 seconds on MS-A1.
+
+Package final CLEAN: `8b2d3a41af91a74386354fdd46a84e4feb6e47e7`, with body follow-up `a99f4beb5644dd9f4acabf432daa9148f3720168`, `verdicts/st-stall-clock.md`. Sol-B read both records. Sol-B read the complete updated PR body. It names the import, union resolutions, mark-only follow-up, correct counts, completed gate, and retained local timeout. The package body requirement is complete.
+
+All earlier findings remain closed. The earlier Mac failures, copied reversal provenance, adoption limit, and pending scope remain recorded at their original evidence scope. No source, evidence, or body finding remains on this exact head. This receipt accepts no later train composition or base update. The lead controls that next step and its applicable review and gate. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; reviewed import head and completed evidence)

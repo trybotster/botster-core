@@ -57,3 +57,21 @@ Package delta CLEAN: `7b98dfd7e7b5009641af8fee4edba3ebfbea1af4`, `verdicts/gs-ga
 The separate combined train review is in `verdicts/stage1/train-1.md`. This delta CLEAN accepts no train gate result. The final gate must run on the frozen train head after all required source reviews. Final evidence receipts and the base-tree verification remain due. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; source delta only, train evidence pending)
+
+## Train 1 — final evidence acceptance
+
+Exact train head remains `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Tree remains `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`. Gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`. SHA256: `1e84c3eb42a01cf5bf59dd1cbf88f440a3d6788fd40f11ae8eae42a438842705`. Sol-B read the completed identity, lists, tiers, proof records, mutation records, and final exits.
+
+All ten steps PASS in 520.5 seconds. Default: 1,920 passed. Slow: 617 passed. Each exact DP-2 test passes in the slow tier, and real-proofs credits all three. The lists step names the same base and merge base and reports 407 pending IDs. The accepted two-member removals remain.
+
+The train tests 29 mutants from #301: 21 caught, 8 unviable, 0 missed, 0 timeout. Sol-B independently matched all raw catches to their named citations. Every catcher has a normal PASS. Stage 2 does not run because stage 1 misses none. No FLAKY result appears. These results claim no new mutation proof for #304's test-only change.
+
+The job and wrapper exit 0 after 850 seconds on MS-A1, with 232 seconds queued and 618 running. The combined source review remains valid on this unchanged train tree.
+
+Package final CLEAN: `7163379f0a518d142425d4ae60fe8e9e2c617bd3`, `verdicts/gs-gate-speed.md`. Sol-B read the complete #304 final section. Sol-B also read the complete updated #304 body. Its train section names the frozen member, exact train head/tree/base, source receipts, completed log, and gate results. Original proof and provenance limits remain.
+
+This completes #304's final integration evidence receipt on the frozen train head. The combined acceptance is recorded in train-1.md. The lead must update the base under the train rule, verify the gated tree, and verify the push. This receipt claims no completed merge. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; #304 final train evidence accepted)

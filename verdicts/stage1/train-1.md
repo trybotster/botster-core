@@ -48,6 +48,26 @@ Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or exe
 
 VERDICT: CLEAN (0 open; combined source only, train evidence pending)
 
+## Final combined evidence acceptance
+
+Exact head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`. Tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`. Gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. The reviewed combined source is unchanged.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`. SHA256: `1e84c3eb42a01cf5bf59dd1cbf88f440a3d6788fd40f11ae8eae42a438842705`. Sol-B read its exact identity, base accounting, selected outcomes, tiers, mutation records, citations, and exits.
+
+All ten steps PASS. Default passes 1,920 tests; slow passes 617. The attach-state transcript passes in both normal tiers. The held-link quiet and release proof passes. All three exact DP-2 proofs pass, and the real-proofs check credits each one. Both members therefore have evidence through their separate accepted paths in the delivered train combination.
+
+The lists step uses the exact base as its merge base. It reports ledger 691, pending 407, real-pending 43, minimum 69, deferred 2, and withdrawn 18. The source review's exact two removals remain. Held-full runs three budget IDs at 32 seeds. Those results authorize no additional pending removal.
+
+The mutation baseline passes. There are 29 unique outcomes: 21 caught and 8 unviable, with no miss or timeout. Sol-B independently matched all 21 raw catches to their citations and normal PASS records. Stage 2 does not run. No FLAKY result appears. The fuzz step reports no changed decoder-harness crate. The job and wrapper exit 0 after 850 seconds on MS-A1: 232 queued and 618 running.
+
+Sol-B read #301 final integration receipt `bc068f71b5df0144e0bdc4eb805971519c0cafd4` and package receipt `a9e5aef8361c365f3e62a86ac45250c01594cb14`. Sol-B read #304 package final receipt `7163379f0a518d142425d4ae60fe8e9e2c617bd3`. All name this exact head, tree, base, and completed gate. Their evidence conclusions agree with this independent combined review.
+
+Sol-B also verified #304's updated train body. The member scopes and all original limits remain. No member or combined source/evidence finding remains. This receipt completes the required combined integration acceptance and #304's final receipt. It does not replace the lead's train record or base update.
+
+The lead must fast-forward the base to this train head, verify equality with the gated tree, and verify the push. This review claims no completed merge. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; combined train source and final evidence accepted)
+
 ## Completed #301 member delta receipts
 
 Sol-B read integration delta CLEAN `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`, `verdicts/stage1/p5-hold-start.md`, and package delta CLEAN `78a42cd654105b23aa7362cd81689cd54679242b`, `verdicts/p5-hold-start.md`. Both name this exact train head, tree, and base. Their source, list, and interaction conclusions agree with the combined review above.
