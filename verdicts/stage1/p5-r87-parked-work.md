@@ -300,3 +300,68 @@ The completed exact-head final gate, mutation result, final body receipts, and Q
 Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open source delta or body findings; final evidence remains due) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
+
+## Round 5 — completed exact-head final evidence
+
+Exact final head: `1ed69c709da7f75a7f90895ae36675f3e8702d84`.
+Reviewed base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+Tree: `8d370b057c8b25dcb05a8d31621b6db46e3066fc`.
+P5 supplies completed evidence in `msg_plugin-w_1791768207_72a302`.
+The complete source delta and corrected body reviews above remain applicable.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-p5-r87-parked-work-1ed69c70-pool-20261011-181050-68064.log`.
+SHA-256: `bd40d869be1dbb289cf2d23ca0c36edb7dbf2cc6b889e95993d940e9ecf0ce24`.
+The header names this exact head and base. The Linux job runs on msa1 with four CPUs.
+All ten steps PASS in 633.5 seconds.
+The job exits zero after 723 seconds, with zero queued seconds. The wrapper exits zero after 724 seconds.
+Default: 1851 PASS, 435 skipped, 17.327 seconds. Slow: 607 PASS, 2043 skipped, 44.688 seconds.
+The AdoptRow regression has normal PASS in the default tier.
+The testkit parked-work scenario passes in 0.010 seconds. Its real-process scenario passes in 0.054 seconds.
+These exact-head results cover the repaired row mapping, scenario deadline guard, and imported control composition.
+The older gates retain their own source scope.
+
+Both conformance runs report 256 PASS and zero failures, in 7.25 and 6.54 seconds.
+The strict report checks 324 of 342 pending transcripts, with eighteen real-only identifiers not run and three held entries.
+Minimum coverage is testkit-passing 65/69, real-passing 58/68, and real-accepted 59/69.
+All four named real-process proofs have normal PASS results.
+The held-full run checks two budget identifiers at 32 seeds, with one trial per seed.
+It reports 64 ignored expected held results, zero failures, and 19.28 seconds of run time.
+The status files retain 691 ledger identifiers, 412 testkit-pending identifiers, and 44 real-pending identifiers.
+Sol independently verifies that all 34 observed passing ignored real identifiers remain real-pending in this head.
+This PR changes no pending status or contract pin. It grants no acceptance for those ignored trials.
+
+### Complete mutation check
+
+Sol independently parses all 48 unique first-stage outcomes.
+Stage 1 has thirty caught, eight missed, zero timeout, and ten unviable, in 115.8 seconds.
+The unmutated slow baseline has 607 PASS, ten slow cases, and 2754 skipped, in 42.950 seconds.
+Its complete baseline interval is 57.7 seconds. Sol accepts no baseline retry from this log.
+Stage 2 examines exactly the eight first-stage missed identities.
+It has six caught, zero missed, zero timeout, and two unviable, in 110.4 seconds.
+The combined result is 36 caught and twelve unviable, with zero missed or timeout.
+Sol independently matches all 36 unique raw catches to all 36 unique citations.
+Every selected catcher has normal PASS before mutation. Each second-stage catcher also has unmutated baseline PASS.
+The deleted Work::Op arm is caught by the repaired AdoptRow regression.
+The other room decisions, per-handle record, testkit response, real response, and tapped dispatch retain their named catches.
+The two second-stage default-constructor mutants are unviable; they supply no behavior catch.
+The complete log contains no FLAKY line. Fuzz PASS reports no changed crate with a decoder harness.
+Sol claims no new Mac execution or future-fence transcript proof from this Linux gate.
+
+### Final body and package acceptance
+
+Sol reads the complete final body delta against the already-read corrected SLOT body.
+GitHub confirms this unchanged exact head and base.
+Final body SHA-256: `5f0f1c5fa88223ee961d9c0573dcba215fa7842127b5c68c58bb021a461d8474`.
+The final gate paragraph replaces RUNNING with the completed exact-head result and correct combined mutation counts.
+The body retains the canonical FAIL, explicit source delta, both metadata differences, imported .41 pin, and older evidence scopes.
+All historical unvalidated records remain unvalidated. The current green gate changes none of their cache provenance.
+The future .42 parked_work fences, separate op_posted implementation, and live am_4 condition remain separate obligations.
+
+Sol reads complete final package Round 5 at `67c05da047669e407bb40dea193b82d290677658`, verdicts/p5-r87-parked-work.md.
+Its CLEAN covers this exact head, base, tree, final gate, completed body, and all retained limits.
+Both final source, evidence, and body reviews have zero open findings.
+This completes Sol's #292 final acceptance. The lead's Q7 check before merge remains required.
+This verdict accepts no later source, base import, pin, pending removal, or different merge tree.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open; final source, evidence, and body) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
