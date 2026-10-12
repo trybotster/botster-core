@@ -648,3 +648,59 @@ This verdict accepts no train head, final mutation outcome, new pending removal,
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open integration findings; exact member before the ordered final train, under the explicit lead ruling) at 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54 against imported base 080987829a2e2245a7ea97606020400392c974d6
+
+## Round 4 complete — train 4 member source delta
+
+Exact train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Train base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Frozen #307 member: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Lead assignment: `msg_plugin-w_1791821464_d6faca`.
+
+I read the ordered merge objects, the complete train source delta, and the shared interfaces.
+The train imports #314 first, then #312 at `13fc69a0a196f75a6aaa1662c1deac1817e5dd88`, then #307.
+#312 pins contracts `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`, tag contracts-v0.1.44, before #307.
+This order satisfies the lead's explicit structural-fix condition. It supplies no execution result.
+
+The base move from 08098782 to 838e4bb0 changes only four xtask files.
+Every own added or deleted line at the #307 merge equals the accepted member patch.
+The full-index own delta SHA256 is `174f783bbb6afd333174de13812476977251389c6ae9ef031765f5e6879926ce`.
+All nineteen own source, test, and design blobs remain byte-identical to the accepted member.
+Only the own pending blob differs because #312 removes its deferred-completion id first.
+No extra path changes at the merge. No source resolution changes an accepted own behavior.
+
+Failed-write mark retirement, cancel precedence, failed-side refusal exclusion, frame-bound sizing, and the room wake retain their accepted source.
+Scheduler holds remain separate from control-room state in both testkit tiers.
+#314's trace fixture uses fresh state and no room override or cancel. The new room path does no work in that workload.
+#312's new Printed report arm does not enable print reports. The existing real harness does not set PRINTS_ENV.
+The route-log test finds its read step by key. The pinned transcript has exactly one such step, at index 13.
+The lock-based checkout resolver reads the new locked revision. Its slow metadata comparison remains a final-gate requirement.
+
+I read both complete IN-6 transcripts at .43 and .44. Both remain byte-identical.
+I read the complete .44 IN-8 mode-at-write-start transcript.
+It blocks the PTY with one kernel byte, fills 40960 bytes, then waits for pty_queued before the mode-sensitive write.
+The transcript retains the mode change, unblock, Written result, and PTY-byte assertion.
+The train already serves pty_queued. The pin contains the named R-74 structural fix without a control_queue override.
+
+I independently check all nine conformance text sets after each train merge. Every three-way formula passes.
+Pending moves from 406 to 406 to 405 to 403. Real-pending moves from 43 to 43 to 34 to 34.
+The #307 merge removes exactly in_6_cancel_result_kinds and in_6_refused_full_wakes_on_room.
+It retains #312's deferred-completion removal and nine real removals. It restores no base removal.
+Held remains four, real-only 26, real-proof entries seven, ledger 691, and minimum 69.
+No mutation exclusion, known-flaky entry, process allowance, or gate rule changes in the train.
+
+I read complete package Round 5 at `76ae3ad37fc67b47cf2fbaea794cb77554b526d1`.
+Package receipt: `msg_plugin-w_1791821869_ba8c75`.
+Both reviews accept the same train head, base, tree, source preservation, interfaces, transcripts, and list sets.
+All earlier findings remain closed. No new #307 source finding remains.
+
+The member body and historical evidence keep their original scopes.
+The exact 2ed85f93 gate stays RED. Its thirteen Stage 2 mutants and fuzz did not run.
+The earlier parent gate does not replace the exact train gate.
+The lead reports compile PASS and strict seeds 0-31 at 264/0. I have no retained pre-check log and accept these as operator reports only.
+The final train gate, final member evidence receipts, and lead Q7 merge/tree/push verification remain due.
+This source CLEAN accepts no final runtime result, later head, new removal, or merge.
+The combined source verdict is in `verdicts/stage1/train-4.md`.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; #307 source delta on exact train 4 head, final evidence pending)

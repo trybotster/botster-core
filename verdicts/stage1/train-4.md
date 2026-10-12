@@ -1,0 +1,122 @@
+# Train 4 combined integration review
+
+## Round 1 — combined source before the gate
+
+Exact head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Lead assignment: `msg_plugin-w_1791821464_d6faca`.
+
+### Delivery contract
+
+The required outcome is a reviewed composition of deterministic scheduler traces, the .44 contract pin, and bounded control-queue cancellation.
+The scope contains these ordered frozen members:
+
+1. #314: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+2. #312: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+3. #307: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+
+Sol owns #307's integration delta and the combined review.
+Sol-B owns #314's integration delta. Sol-C owns #312's integration delta. Each member retains its package reviewer.
+The lead owns train construction, the gate, and Q7 merge/tree/push verification.
+The review reuses the binding Stage 1 acceptance plan. It adds no separate acceptance plan or delegation.
+
+The invariants are the accepted member behaviors, public Scheduler observations, separate hold and room state, and exact three-way conformance sets.
+The real entry points are the host driver and the real testkit adapter under the pinned contracts.
+Decisive evidence must come from the completed gate on this exact train head and each member's final receipts.
+The remaining acceptance condition is that missing final evidence. The lead must run the authorized gate after the source reviews.
+The reviewers must read the retained gate and final member records before final acceptance.
+
+### Order and complete source audit
+
+I verify all three merge objects and their ordered first-parent chain.
+Merge `b3f7f39b72bc2a985634240573b2d08660b162c6` joins the exact base and frozen #314.
+Merge `13fc69a0a196f75a6aaa1662c1deac1817e5dd88` adds frozen #312.
+The exact final head adds frozen #307.
+The member merge bases with their prior train parents are `080987829a2e2245a7ea97606020400392c974d6`.
+
+The combined delta has 26 paths, 1019 added lines, and 97 deleted lines.
+Full-index diff SHA256: `aa5a215608ed07d9f894c6265a9eb56d1d7d3c7f908dc9aa25926a7d340cde6b`.
+Git diff --check passes. No execution check runs.
+I read all new #314 and #312 source changes. I reuse the complete accepted #307 review after independent blob and patch checks.
+At each merge, every own added and deleted line matches its frozen member patch. The merges change no extra path.
+The accepted #307 source, test, and design blobs remain identical. Its pending blob composes with #312's removal.
+The train base differs from the members' base only in four xtask files from accepted #310.
+
+### Shared interfaces
+
+#314 records the public Scheduler choice points, candidate counts or bounds, and answers.
+Each run creates a fresh recorder, policy, and Rig. Two complete traces must match and be non-empty.
+At least one trace must differ from seed zero. The test no longer claims equality with the historical pre-E1 golden trace.
+The lead's ruling permits this same-head determinism test. The earlier E1 migration and mutation records retain their historical scopes.
+
+#307 adds control-room service before the scheduler-hold and read paths. It retains the more_input budget term.
+Scheduler holds remain separate from control-full marks and start holds.
+The seeded trace workload sets no room override and makes no cancel request. Its new room path therefore does no work.
+The new tests add no shared recorder or global random state.
+Cancel precedence, failed-write mark retirement, failed-side refusal exclusion, frame-bound sizing, and room wakes remain accepted and unchanged.
+
+#312 pins all seven manifest dependencies and all nine lock sources to contracts-v0.1.44 at `99e5983befde9a96ca4cdb3faea0f7f9a4b930ea`.
+The Core contract and route-codec source have no .43-to-.44 delta.
+The real adapter adds only the Printed match arm. The harness does not enable PRINTS_ENV.
+The probe emits print reports only when that environment variable equals 1.
+This train does not add terminal-history service or change the control-queue wake through print reports.
+The route-log test selects route_expect_pty by key. Its pinned transcript contains exactly one such step, at index 13.
+
+The accepted #310 resolver reads botster-core-contract's git source from Cargo.lock.
+It matches the repository prefix and a hexadecimal checkout revision of at least seven characters against the locked revision.
+It rejects zero or multiple matches. The .44 lock therefore selects .44 rather than the earlier checkout.
+The default resolver starts no Cargo process. Its slow comparison with Cargo metadata remains required in the final gate.
+
+### Transcript and conformance composition
+
+I read the complete two own IN-6 transcripts at .43 and .44. Both remain byte-identical.
+Their SHA256 values are `4254018ed800f7213dee79ce27da39993d238f24ac4157cb6100613ba1181161` and `2c83010626e9bc0e7f6504dbfa0bd0e15e263b0433e8afd2e05d571c1f8947b3`.
+The complete .44 IN-8 mode-at-write-start transcript adds the R-74 held-write fence before the mode-sensitive write.
+It uses one kernel byte, a 40960-byte fill, and the already served pty_queued wait.
+It retains the mode change, unblock, Written outcome, and PTY-byte assertion. It adds no control_queue override.
+#312 precedes #307, as the lead requires after the member's RED baseline.
+This source evidence confirms the structural fix exists. It does not prove a successful run.
+
+I independently audit all nine conformance text-set formulas after each merge. All 27 checks pass.
+Pending counts are 406, 406, 405, and 403 across the base and three merge results.
+Real-pending counts are 43, 43, 34, and 34.
+#312 removes a5_2_deferred_completion_keeps_slot_until_polled and its obsolete comment, plus its nine accepted real-pending ids.
+#307 removes only in_6_cancel_result_kinds and in_6_refused_full_wakes_on_room.
+No removed base id returns. Held remains four, ledger 691, real-only 26, real-proof entries seven, and minimum 69.
+The train preserves the AM-2 fairness and EV-9 pending debt.
+The mutation, exclusion, known-flaky, CI, profile, and process-allowance files retain their base versions.
+#309 and #311 are absent. This review accepts no six-times frame bound or later status removal.
+
+### Complete member receipts
+
+I read the complete applicable source sections in these records:
+
+- #314 integration: `5c264269b979df1960afd06ceaeac43cc72ef7f1`, Round 2 in p6-seeded-trace-determinism.md.
+- #314 package: `f852df5d103aefa6f97ff1314083506a1845dc76`, Round 2 in p6-seeded-trace-determinism.md.
+- #312 integration: `cc05c841f4b02e096d4e72c1043b6b46aa8be9c3`, Round 6 in rc-pin-44.md.
+- #312 package: `a401c753c91855cc484db771539e11b395db1ca9`, train-4 section in rc-real-controls.md.
+- #307 package: `76ae3ad37fc67b47cf2fbaea794cb77554b526d1`, Round 5 in pc-control-queue.md.
+- #307 integration: Round 4 in this commit's verdicts/stage1/pc-control-queue.md.
+
+All six source reviews cover this exact train head, base, and tree. They have zero open findings.
+I also read the complete #312 repaired-member package section at `101a3ac854f4cd0c5007e7cfda684b9cf10d0cce`.
+The .44 deferred-completion removal retains its strict and focused real evidence scopes and its clean-output provenance limits.
+The original #314 and #307 mutation records keep their original heads and scopes. No historical record becomes a train execution result.
+
+### Verdict scope and next evidence
+
+No combined source, interface, or list finding remains.
+The lead reports compile PASS and strict seeds 0-31 at 264/0. No separate retained pre-check log is supplied.
+I treat those results as operator reports. I accept no completed train gate from them.
+The exact #307 member gate remains RED. Its unmutated real Stage 2 baseline failed; thirteen Stage 2 mutants and fuzz did not run.
+The empty known-flaky file grants no ordinary retry exception.
+The lead's explicit ruling requires .44 before #307 and selects the exact composed train gate as the completion path.
+The train contains that ordered fix. The gate must still supply the baseline, mutation recovery proof, and fuzz.
+
+The completed exact-head gate, all final member evidence receipts, and lead Q7 remain due.
+The lead must verify the final equal-tree merge and remote heads. This source verdict accepts no merge or later head.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; combined source on exact train 4 head, final train evidence pending)
