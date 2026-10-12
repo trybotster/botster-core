@@ -3235,3 +3235,57 @@ The gate is `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-r
 Applicable train and combined reviews, final gate receipts, and equal-tree merge verification remain due.
 No later head, #313/#308 composition, future control, PC driver fix, specific retry, or final train result is accepted.
 The reviewer runs no execution check.
+
+
+### Core #309 — train 6 source delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+Train base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Frozen #309 member: `cfcc438d8eac85108d64237bdc11fa215dc85104`.
+Source package receipt: `6b821a1614c9b6ea277a260d26016d298a88241c`.
+Matching integration source receipt: `5401783b50ead58d5aaaa1ff3cbe0bfb3ea7538a`.
+Lead request: `msg_plugin-w_1791832618_5babc0`.
+Lead completion correction: `msg_plugin-w_1791832646_017aa2`.
+Open #309 package delta findings: 0, including LOW findings.
+
+The reviewer independently reads the four ordered merges and their parents.
+#303 member `df461c83ffa8761c691e5ee07cf50f20784029f7` merges first at `3837b2c72f7eb4c961afa1cdc5ee3078f2dafe9f`.
+#309 merges second at `d5a59447fbd942c788a08c660cfaa07bf3dfcdf4`.
+#308 member `c3bd7fcd17861e6f164bbda5eb38638cab71f00e` merges third at `b40b5235a00fc3be951282f181bdb2cffc12ae44`.
+#311 member `2c5d09a0f3e29e443fd8b33d8406bb84cb37940d` merges last at the stated train head.
+The member heads stay frozen. The lead reports no conflict and rerere is off under the train rule.
+
+Eleven of #309's twelve own files equal their accepted member blobs.
+The only different own file is crates/botster-core-host/src/lib.rs. Its difference imports the base's built_in_test! macro.
+Against the new base, that file adds only pub mod frame_fit; it retains the base's macro invocation.
+The macro creates the required test name and calls assert_built_here with compile-time package and manifest identifiers.
+The macro remains test-only. The frame-fit module remains available to admission and launch construction.
+No R-100 production body, frame-fit test, queue-bound test, or design statement changes on this train.
+RC-R100-6's pure-function repair retains its exact reviewed blob. No new private-state assertion appears in #309's delta.
+
+The host link message types and LaunchSpec remain byte-identical to the member.
+The worker still learns spec.link_frame_bound when Launch arrives. The initial Launch check stays at DEFAULT_MAX_PAYLOAD.
+The imported worker resize path changes no host message representation used by the fit check.
+Its runtime size handling does not enlarge the checked host message or invalidate WORST_SIZE.
+#303 and #311 implementation findings belong to their assigned reviewers; this verdict accepts only #309's fit.
+The manifest, lock, and job-common.sh equal the member. The train remains on .44; #316 is absent.
+
+The reviewer checks all nine conformance set formulas after each of the four merges; every formula matches.
+No #309 list change appears. Other members own their removals and new real-pending entries.
+The mutation configuration differs from the member only by moving the existing LINK_CAPACITY exclusion from line 34 to line 35.
+The same positive tuning constant, expression, narrow mutant, and accepted equivalence reason remain.
+No new exclusion appears. All previous exclusion reviews retain their scopes.
+#308 adds the structured signature to the existing EV-2 entry without widening its recorded step-71 timeout scope.
+Its .45-or-later removal trigger is not satisfied by this .44 train. No new retry is accepted here.
+The normal slow and unmutated baseline requirements remain binding.
+
+The lead reports a test-target check and strict conformance at seeds 0–31: 281 passes and zero failures.
+These reports are supplementary. The reviewer runs neither check and claims no completed train gate.
+Matching integration delta, other required member deltas, combined review, final gate, and lead merge/tree/push verification remain due.
+The reviewer reads the current BUILD Green rule. Sol sends the single final train receipt when the unchanged member's train is GREEN.
+The package reviewer sends no duplicate final receipt for this unchanged member.
+This verdict accepts no later head, changed member, future pin, specific retry, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
