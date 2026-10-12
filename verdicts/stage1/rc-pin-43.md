@@ -190,3 +190,42 @@ one exact-final-head gate, both final reviews, and Q7 before merge.
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: NOT CLEAN (1 open acceptance condition: completed repaired-head gate; 0 open source or body findings) at d919844dfa2b74e768987c8cfb980fba0d25a8e8 against imported base b3cdfffbba353bf9cfc34f7d7f9b8daccc753035
+
+## Round 2 — surviving progress mutation and test-only repair
+
+Completion/repair receipt: `msg_plugin-w_1791775399_c56186`.
+Completed d919844d gate: `gates/botster-core-stage1-rc-pin-42-d919844d-pool-20261011-200604-66397.log` under `~/botster-sessions`.
+SHA-256: `25c4aa1c7be388f5a0bbb2cc68719428c9cfdf4b194d36e6a3ee7cc74a1ac9ba`.
+The header names head d919844dfa2b74e768987c8cfb980fba0d25a8e8 and gate reference bfef88653bb59ad8d3cd38da1e206f7aba64ce92.
+The imported ancestor remains b3cdfffb. The job runs on MS-A1, kernel 6.12.111+deb13-amd64.
+Eight steps PASS, mutants FAIL, and fuzz NOT RUN. Step total is 602.7 seconds.
+Job/wrapper exit one after 833/834 seconds, with 216 seconds queued and 617 seconds running.
+Default has 1855 passed and 434 skipped in 17.856 seconds. Slow has 611 passed and 2043 skipped in 44.772 seconds.
+The corrected resume test passes in the unmutated baseline: 611 passed, ten slow cases, 2755 skipped, in 43.226 seconds.
+
+Sol independently parses all 26 unique first outcomes: thirteen caught and thirteen missed, with no timeout or unviable.
+Stage 2 examines exactly those thirteen misses, catches twelve, and misses one, in 320.4 seconds.
+All 25 raw catches match the 25 named citations and normal PASS records; all twelve slow catchers also have baseline PASS.
+No FLAKY token occurs. The surviving mutant replaces + with - in TestkitRoute::progress at route_client.rs:359.
+The gate remains RED. A passing baseline does not close a surviving mutation.
+
+New head: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Sol reads the complete two-file test-only delta and reversal record.
+The new test gives the route eight bytes and reads ab from its peer before progress.
+The first flush moves ef; a test reader receives cdef during the real run_ready path; the second flush moves gh.
+The test observes progress and peer-read bytes, then false progress while the peer receives gh.
+It checks no private queue or worker-machine state. Workers::add_node is cfg(test), and the existing simulation step bound remains.
+Production progress, pending lists, pins, CI, and exclusions do not change.
+No new source finding is added. The completed new-head mutation result must close the remaining acceptance condition.
+
+Reversal SHA-256: `b188b4212859e8a2dfc452d673bdd3e1fa1df630aa216cf1763e4a4dbe45a11b`.
+The log names the exact head and targets/rc, retains four failed reversals, and ends with restored source status.
+The subtraction, >= comparison, always-false progress, and empty injection method fail this new behavior test.
+Multiplication passes this new test. Its earlier gate catch remains separate; the log claims no new multiplication catch.
+The filtered record supplies no per-command numeric exits, full build output, or complete target-clean history.
+Sol reads complete package repair receipt `2a79e846903e897dbb52f0eebf7adc3a2a001fcc`, including the d919 RED and limits.
+The source disposition matches. RC-PIN43-1 through -4 remain closed.
+Completed exact-head gate and matching final body remain due; no running 7c7dadd1 output is read.
+The final-slot import after merged #291 remains due. Sol runs no execution job. Never poll.
+
+VERDICT: NOT CLEAN (1 open acceptance condition: completed new-head mutation/gate closure and final body; 0 new source findings) at 7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a against imported base b3cdfffbba353bf9cfc34f7d7f9b8daccc753035

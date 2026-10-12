@@ -791,3 +791,11 @@ Lead Q7 and an equal-tree merge receipt remain due. Any later source or import n
 Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
 
 VERDICT: CLEAN (0 open integration findings; final source, evidence, and body) at 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b against base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
+
+### Round 10 supplement — equal-tree merge receipt
+
+Lead receipt: `msg_plugin-w_1791775517_31a0fa`; the lead reports Q7 complete and #291 merged.
+Sol independently reads merge `e4f495040a80b524a7ac9accba95272d5c2594fa` from origin/v1.
+Its exact parents are reviewed base bfef88653bb59ad8d3cd38da1e206f7aba64ce92 and accepted head 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b.
+Its tree is ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be, equal to the reviewed and gated tree.
+Final CLEAN 7b48c749 carries to this merge. No additional source or execution result is claimed.
