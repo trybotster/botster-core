@@ -401,7 +401,9 @@ pub fn run(name: &str, make: Factory, plain: Option<Factory>, limits: Limits) {
     // The strict run's own count: the pending ids that ran, and the real-only ones that it does not run.
     let (mut strict_ran, mut strict_real_only) = (0usize, 0usize);
 
-    let mut trials = Vec::new();
+    // The build-root trial of every test binary (bug catalog B13; `cargo xtask built-in` and the gate's presence check). The
+    // `LINKED` check above already refused a stale binary; the trial puts the name in this binary's list.
+    let mut trials = vec![botster_test_process::built_in_trial!()];
     let (mut pending_count, mut no_transcript_count, mut withdrawn_count) =
         (0usize, 0usize, 0usize);
     for id in &ledger {

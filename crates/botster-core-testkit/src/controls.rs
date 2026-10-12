@@ -57,6 +57,7 @@ pub(crate) fn registered_controls() -> ControlRegistry {
     crate::oracle_controls::register_controls(&mut registry);
     crate::route_controls::register_controls(&mut registry);
     crate::alloc_controls::register_controls(&mut registry);
+    crate::report_holds::register_controls(&mut registry);
     crate::op_holds::register_controls(&mut registry);
     registry
 }

@@ -27,7 +27,7 @@ fn within_term(msg: &HostMsg) {
     assert!(len <= term, "{len} > {term}: {msg:?}");
 }
 
-/// Limits with a small frame bound (1 MiB + 4 × 1024 bytes), so a string over it is quick to build.
+/// Limits with a small frame bound (1 MiB + 6 × 1024 bytes), so a string over it is quick to build.
 fn small() -> CoreLimits {
     limits(|l| {
         l.max_paste_bytes = 1024;

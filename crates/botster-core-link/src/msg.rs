@@ -302,6 +302,34 @@ impl HostMsg {
     pub fn decode(payload: &[u8]) -> Result<HostMsg, MsgError> {
         serde_json::from_slice(payload).map_err(|e| MsgError::from_decoder(&e))
     }
+
+    /// The length of [`HostMsg::encode`]'s output: the frame payload of this message. It encodes into a counter, so no buffer
+    /// of the encoded output is kept (steward ruling R-100: a call whose message can never fit the link frame is refused at
+    /// the call). The serializers can still allocate on their own (`HexBytes` makes its hex string).
+    pub fn encoded_len(&self) -> u64 {
+        json_len(self)
+    }
+}
+
+/// The length of `value`'s JSON form, as a host message carries it. It encodes into a counter and keeps no byte.
+pub fn json_len<T: Serialize + ?Sized>(value: &T) -> u64 {
+    let mut counter = Counter(0);
+    serde_json::to_writer(&mut counter, value).expect("a host message's value is JSON");
+    counter.0
+}
+
+/// A writer that counts the bytes that it is given.
+struct Counter(u64);
+
+impl std::io::Write for Counter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len() as u64;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 impl WorkerMsg {
@@ -408,6 +436,37 @@ mod tests {
             "{text}"
         );
         assert_eq!(HostMsg::decode(&bytes), Ok(msg));
+    }
+
+    /// R-100: the counted length is the encoded length, also for text that JSON escapes (a control byte takes six).
+    #[test]
+    fn the_encoded_len_is_the_length_of_the_encoding() {
+        let msgs = [
+            HostMsg::Stop,
+            HostMsg::Op {
+                req: u64::MAX,
+                op: Op::CaptureSnapshot {
+                    session: SessionId("s".into()),
+                    owner: ClientId("o\u{1}\"\\é".into()),
+                },
+            },
+            HostMsg::Launch(Box::new(LaunchSpec {
+                argv: vec!["/bin/sh".into(), "\u{7}".repeat(100)],
+                env: BTreeMap::new(),
+                cwd: "/".into(),
+                size: size(),
+                color_profile: None,
+                notification_policy: NotificationPolicy::All,
+                size_policy: SizePolicy::Latest,
+                link_frame_bound: 1 << 20,
+                limits: CoreLimits::default(),
+            })),
+        ];
+        for msg in msgs {
+            let mut bytes = Vec::new();
+            msg.encode(&mut bytes);
+            assert_eq!(msg.encoded_len(), bytes.len() as u64, "{msg:?}");
+        }
     }
 
     #[test]

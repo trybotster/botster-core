@@ -11,6 +11,7 @@
 use crate::entropy::SeededEntropy;
 use crate::net::LinkEnd;
 use crate::op_holds::SharedHolds;
+use crate::report_holds::SharedReportHolds;
 use crate::scheduler::SchedulerHandle;
 use botster_core_contract::prelude::*;
 use botster_core_edges::edges::{
@@ -191,9 +192,10 @@ pub trait Spawner: Send {
 }
 
 /// The scheduler of the testkit as a `Scheduler`: every choice draws from the one seeded stream. The holds of
-/// `scheduler_hold` are the host's own (op ids are numbered per host), and they draw nothing.
+/// `scheduler_hold` are the host's own (op ids are numbered per host), and they draw nothing. The report holds learn each
+/// pump start from it: the driver asks `PumpBound` once, first, in every pump (`scheduler_delay`, R-88 group E).
 #[derive(Debug, Clone)]
-struct HandleScheduler(SchedulerHandle, SharedHolds);
+struct HandleScheduler(SchedulerHandle, SharedHolds, SharedReportHolds);
 
 impl Scheduler for HandleScheduler {
     fn pick(&mut self, point: ChoicePoint, candidates: usize) -> usize {
@@ -201,6 +203,9 @@ impl Scheduler for HandleScheduler {
     }
 
     fn bound(&mut self, point: ChoicePoint, max: usize) -> usize {
+        if point == ChoicePoint::PumpBound {
+            crate::report_holds::lock(&self.2).pump_started();
+        }
         self.0.with(|s| s.bound(point, max))
     }
 
@@ -227,6 +232,8 @@ pub struct SimEdges {
     link_capacity: usize,
     /// The worker's route reports that the driver consumed (`route_reports`, R-66).
     reports: Arc<Mutex<crate::route_reports::RouteReports>>,
+    /// The holds of the worker's reports at this edge (`hold_worker_report`, `scheduler_delay`).
+    report_holds: SharedReportHolds,
 }
 
 impl SimEdges {
@@ -304,6 +311,9 @@ impl HostEdges for SimEdges {
             worker
         };
         let spawned = spawner.spawn(spec, &mut connect);
+        if let Ok(identity) = &spawned {
+            crate::report_holds::lock(&self.report_holds).spawned(*identity, spec.instance.clone());
+        }
         if let (Ok(identity), Some(Some(held))) = (
             &spawned,
             lock(&self.faults).start_holds.get_mut(&spec.instance),
@@ -325,8 +335,11 @@ impl HostEdges for SimEdges {
             .map_or(IdentityState::Absent, |s| s.identity_state(identity))
     }
 
+    /// The exit of a worker whose session has a report hold waits for the hold's end (`report_holds`).
     fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
-        self.spawner.as_mut().and_then(|s| s.poll_exit())
+        let spawner = &mut self.spawner;
+        crate::report_holds::lock(&self.report_holds)
+            .poll_exit(|| spawner.as_mut().and_then(|s| s.poll_exit()))
     }
 
     /// The first pending link that no `hold_start` holds: the links that are not held keep their order.
@@ -362,13 +375,17 @@ impl HostEdges for SimEdges {
         }
     }
 
+    /// The report holds stand between the link and the driver: a held report and every later byte wait (`report_holds`).
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize> {
         let mut reports = lock(&self.reports);
         reports.call(link);
-        let n = match self.links.get_mut(&link) {
-            Some(end) => end.recv(buf)?,
-            None => 0,
-        };
+        let links = &mut self.links;
+        let n = crate::report_holds::lock(&self.report_holds).recv(link, buf, |buf| match links
+            .get_mut(&link)
+        {
+            Some(end) => end.recv(buf),
+            None => Ok(0),
+        })?;
         reports.received(link, &buf[..n]);
         Ok(n)
     }
@@ -395,6 +412,7 @@ impl HostEdges for SimEdges {
 
     fn link_close(&mut self, link: LinkId) {
         lock(&self.reports).closed(link);
+        crate::report_holds::lock(&self.report_holds).closed(link);
         if let Some(mut end) = self.links.remove(&link) {
             end.close();
         }
@@ -509,6 +527,8 @@ pub struct Opened {
     pub wake: Arc<dyn HostWake>,
     /// The ops that `scheduler_hold` holds on this host, and the ops that Core admitted.
     pub holds: SharedHolds,
+    /// The holds of the worker's reports at the host's link edge (`hold_worker_report`, `scheduler_delay`).
+    pub report_holds: SharedReportHolds,
 }
 
 /// A reader of one stored row, held apart from the harness: it reads the row as the storage edge holds it now.
@@ -597,18 +617,20 @@ impl Directories {
         let faults = Arc::new(Mutex::new(Faults::default()));
         let reports = Arc::new(Mutex::new(crate::route_reports::RouteReports::default()));
         let holds = SharedHolds::default();
+        let report_holds = SharedReportHolds::default();
         let edges = SimEdges {
             registry,
             faults: Arc::clone(&faults),
             entropy: SeededEntropy::with_seed(seed),
             wake: Arc::new(SimHostWake::new(scheduler.clone())),
-            scheduler: HandleScheduler(scheduler, Arc::clone(&holds)),
+            scheduler: HandleScheduler(scheduler, Arc::clone(&holds), Arc::clone(&report_holds)),
             spawner,
             pending: VecDeque::new(),
             links: BTreeMap::new(),
             next_link: 1,
             link_capacity: LINK_CAPACITY,
             reports: Arc::clone(&reports),
+            report_holds: Arc::clone(&report_holds),
         };
         let identity = botster_terminal_ghostty::terminal_identity();
         let cfg = EngineConfig {
@@ -630,6 +652,7 @@ impl Directories {
             reports,
             wake,
             holds,
+            report_holds,
         })
     }
 }
