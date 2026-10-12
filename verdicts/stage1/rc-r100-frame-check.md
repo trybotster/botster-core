@@ -140,3 +140,13 @@ Job and wrapper exit zero after 394 seconds. The imported source base remains `a
 R100-E1 closes. Zero integration findings remain. This CLEAN accepts this exact PR head and completed READY gate. Applicable train delta reviews, combined review, final train gate, and member receipts remain required. The #307 composition remains subject to its delta review. The lead's inbox block supplies no merge approval. I ran no execution job.
 
 VERDICT: CLEAN (0 open)
+
+### Procedural correction: round limit
+
+I published Rounds 4 and 5 after three NOT CLEAN rounds without the decision that BUILD.md's round-limit rule requires. This was my review-process error. I retain every review result above; I do not rename or remove the earlier rounds.
+
+The source, body, and exact-head gate findings remain closed at `b920da760a8a643b199765d0a69f78533a9b3e45`. Their technical result does not resolve this procedural error. Final integration acceptance requires the lead's disposition. I sent the lead a QUESTION and will resend it after the inbox works. I will not assume a waiver or start another integration round by default.
+
+**R100-E2 — procedural acceptance pending.** The lead must decide how to handle the review that passed the round limit. This condition prevents use of Round 5's CLEAN as final integration acceptance until that disposition is recorded. No product or gate finding is reopened.
+
+VERDICT: NOT CLEAN (1 open)
