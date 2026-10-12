@@ -54,6 +54,12 @@ The next design must distinguish a live route draining output from a route past 
 The verdict records the required file and line citation and both tests. The reviewer accepts R3's completion barrier.
 The implementer must wait for the lead's design approval before code. Wait for a revised design doorbell.
 
+DP-8 design revision 4: reviewed SHA-256 `f9ec544e6608afdefd0d773e73d254ece86c4ca5f2c779d53643d26898a2e542`.
+Verdict: NOT CLEAN (1 open). STDP8-D1 through D4 are closed at design level.
+New STDP8-D5 is HIGH: retained client observations can make the host's cached client revision move backwards across routes.
+The lead assigned the smaller adopting-host frame bound to a separate ST item after DP-8.
+The verdict records the exact artifact, the size-proof condition and the required two-route revision proof.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

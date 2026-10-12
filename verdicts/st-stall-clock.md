@@ -1,6 +1,61 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (4 open; DP-8 design revision 3)
+VERDICT: NOT CLEAN (1 open; DP-8 design revision 4)
+
+## DP-8 route adoption: design revision 4
+
+Artifact: `shared/core-stage1/handoffs/st-dp8-route-adoption-design.md`.
+Reviewed SHA-256: `f9ec544e6608afdefd0d773e73d254ece86c4ca5f2c779d53643d26898a2e542`.
+The READY named hash `aa0e796d383405920dbace5d9a8a35f3b7346f044ed2af3e2fcc4248b4495d5e`.
+The reviewed file also records the lead's later R4 disposition: a separate ST item after DP-8.
+Declared Core base: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Risk tier: HIGH. The reviewer ran no local build or test. The #298 source verdict remains CLEAN.
+
+### Closed design findings
+
+- STDP8-D1: CLOSED. Stable `RouteKey` values replace worker-side handle ids in the machine, driver, input records and callbacks.
+  Only the link boundary translates between a key and the current handle's id.
+  The design covers pending writes, admitted input, crossed ids and another host loss before mapping.
+- STDP8-D2: CLOSED. Section 5.5 now covers route-keyed client observations and reports from routes without a current link id.
+  It defines retention per route and suppresses reports from routes excluded under R-99.
+  The new retention rule has a separate revision-order defect, STDP8-D5 below.
+- STDP8-D3: CLOSED at design level. Separate `RouteLive` and `RouteId` frames remove the aggregate frame dependency on route count.
+  The implementation must prove the serialized size argument with maximal integer widths and minimal omitted attach fields.
+  The stated release fallback does not replace that proof or establish normal contract behavior for a live route.
+  The lead assigned the smaller adopting-host frame bound to a separate item after DP-8, as recorded in `core-lead.md`, line 1403.
+- STDP8-D4: CLOSED. The design separates report consumption, state post, registration and mapping, route adoption post, and row completion.
+  Core queues the adoption event before it sends the mapping that permits later route reports.
+  A later parked resume or close suppresses the adoption snapshot's stale stalled deadline.
+  The proposed driver tests cover one slot, one event budget, late polls and closes before the adoption post.
+
+### STDP8-D5 — HIGH — Retained client revisions can move the host's revision backwards
+
+Section 5.5 retains the latest `Observation::ClientInput` separately for each route.
+The worker sends that retained observation when that route's `RouteId` arrives.
+These mapping messages follow route registration order, not client input order.
+At the base, `inbound.rs` assigns `t.input_rev.client = input_rev` for each consumed observation.
+
+For example:
+
+1. The adoption snapshot has client revision 10.
+2. Route B receives input at revision 11 while it has no link id.
+3. Route A receives input at revision 12 while it has no link id.
+4. Core maps A before B. The worker sends A's retained revision 12, then B's retained revision 11.
+5. Core's cached client revision moves from 12 to 11.
+
+Fresh input on an already mapped route can also overtake a retained observation from an unmapped route.
+This violates the advancing client revision of IN-10 and makes the ST-4 cache older after a newer report.
+
+Required change: keep the host's cached client revision monotonic across retained and fresh observations.
+Preserve each route's activity identity. Define the rule explicitly instead of assuming the mappings preserve input order.
+Add a two-route proof with reversed retained revision order and fresh input between the two mapping messages.
+
+### Ruling dispositions
+
+R-98 remains applied. Protocol 1 has no compatibility promise to earlier development builds.
+The R-99 root fix separates `drain_close` from the Closed transition and lists the affected route paths.
+The implementation must supply the draining-after-Exited and already-Closed adoption proofs specified in R-99.
+The completion barrier remains accepted. The lead must approve the revised design before code starts.
 
 ## DP-8 route adoption: design revision 3
 
