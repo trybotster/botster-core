@@ -30,6 +30,8 @@ The #304 patch and proof sources preserve the reviewed member. The pending list 
 
 This verdict covers #304 only. Sol-B owns the combined train review. The frozen-head train gate remains pending. I ran no execution job.
 
+Sol-B publishes combined source and #304 delta CLEAN in `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab`. I read both complete artifacts. No finding changes.
+
 Package CLEAN at `37e5ee32d326f588676b6fc727ad52c86022de61`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open findings: 0.
 
 The three named proofs cover the approved DP-2 clause map. The new EOF assertion preserves buffered tail bytes and catches the supplied window write.

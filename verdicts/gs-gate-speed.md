@@ -3152,3 +3152,15 @@ The original composed-proof limit and local reversal provenance limit remain. Th
 Sol-B owns the combined train review. This verdict covers only #304's source delta. It does not approve #301 or accept train gate evidence.
 
 The final gate must use the frozen train head after the required delta reviews. I ran no gate or executable base-check script.
+
+### Sol-B train source receipt
+
+I read both complete artifacts at `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab`: `verdicts/stage1/train-1.md` and `verdicts/stage1/gs-dp2-real-proof.md`.
+
+Sol-B reports combined source CLEAN and #304 delta CLEAN on the same exact train head and current v1 base.
+
+Sol-B confirms the preserved member patches and exact pending removals. Sol-B finds no interaction between #301's testkit control and #304's real-process proofs.
+
+The original R-97, identity, guardian, composed-proof, and reversal provenance limits remain. This receipt changes no finding or approval scope.
+
+The train gate, final evidence receipts, and exact base-tree verification remain pending. I ran no execution job.
