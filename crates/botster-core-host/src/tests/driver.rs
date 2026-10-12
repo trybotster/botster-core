@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod api;
+mod control_term;
 mod deadlines;
 mod drain;
 mod handoff;
@@ -1261,18 +1262,20 @@ fn the_link_edge_room_bounds_the_control_queue_too() {
     assert_eq!(rig.driver.cancel(write), CancelResult::Admitted);
 }
 
-/// DESIGN.md "The control queue": the production bound is the input that one session may retain, one non-input frame for
-/// each pending op and each input op of a session, and four cancels.
+/// DESIGN.md "The control queue": the production bound is the input that one session may retain, one largest frame of the
+/// link (its 5-byte header and the frame bound) for each pending op and each input op of a session, and four cancels.
 #[test]
 fn the_control_queue_bound_is_the_admitted_traffic_and_four_cancels() {
     let rig = Rig::new(CoreLimits::default());
     let l = CoreLimits::default();
     let message = rig.driver.control_message;
     assert!(message > 0 && message < 64, "{message}");
+    let frame_bound = rig.driver.engine().link_frame_bound();
+    assert_eq!(frame_bound, 65 << 20, "4 x max_snapshot_bytes + 1 MiB");
     assert_eq!(
         rig.driver.control_bound,
         l.input_retained_bytes as usize
-            + (l.pending_ops + l.input_ops_per_session) as usize * 4096
+            + (l.pending_ops + l.input_ops_per_session) as usize * (5 + frame_bound as usize)
             + 4 * message
     );
 }

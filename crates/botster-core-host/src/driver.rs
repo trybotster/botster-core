@@ -18,7 +18,7 @@ use botster_core_edges::edges::{
 };
 use botster_core_edges::scheduler::{ChoicePoint, Scheduler};
 use botster_core_edges::Machine;
-use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType};
+use botster_core_link::frame::{encode_frame, FrameDecoder, FrameType, HEADER_LEN};
 use botster_core_link::hello::Hello;
 use botster_core_link::msg::{HostMsg, WorkerMsg};
 use botster_core_link::proof::TOKEN_LEN;
@@ -202,20 +202,23 @@ pub struct HostDriver<E: HostEdges> {
     pub(crate) control_message: usize,
 }
 
-/// The size that the control queue's bound counts for one host message with no input payload (DESIGN.md "The control
-/// queue"). It is a sizing estimate, not a maximum: an `AttachRoute` or an `UpdateMetadata` can be larger. Only `cancel`
-/// refuses, so an estimate that is too small makes a cancel `Full` earlier, and the drain still wakes the host.
-const NON_INPUT_FRAME_BYTES: usize = 4096;
+/// The largest frame that a link takes: its header and the link's frame bound (`HostEngine::link_frame_bound`). It is the
+/// control queue's term for one host message with no input payload (steward rulings R-91 and R-100; DESIGN.md "The control
+/// queue"). It is a true bound: `encode_frame` refuses a larger payload, so no host message is queued larger. Some of those
+/// messages carry strings that no `CoreLimits` value bounds (R-100), so the frame bound is the only bound for them.
+pub(crate) fn largest_frame(frame_bound: u32) -> usize {
+    HEADER_LEN + frame_bound as usize
+}
 
 /// The bound of a link's control stream (DESIGN.md "The control queue"): the input that one session may retain (IN-5), one
-/// non-input message for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four
-/// cancels. With messages of the estimated size, admission keeps the admitted messages under it, so a cancel finds room
-/// unless the link stops draining.
-fn control_bound(limits: &CoreLimits, control_message: usize) -> usize {
+/// largest frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four cancels.
+/// With the default limits it is far above what a link holds in practice: the link edge's room (`HostEdges::link_room`) is
+/// the limit that binds.
+fn control_bound(limits: &CoreLimits, frame_bound: u32, control_message: usize) -> usize {
     let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
     usize::try_from(limits.input_retained_bytes)
         .unwrap_or(usize::MAX)
-        .saturating_add(ops.saturating_mul(NON_INPUT_FRAME_BYTES))
+        .saturating_add(ops.saturating_mul(largest_frame(frame_bound)))
         .saturating_add(4 * control_message)
 }
 
@@ -252,7 +255,7 @@ impl<E: HostEdges> HostDriver<E> {
         encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame)
             .expect("a cancel frame is within every frame bound");
         let control_message = frame.len();
-        let control_bound = control_bound(&engine.limits(), control_message);
+        let control_bound = control_bound(&engine.limits(), frame_bound, control_message);
         Ok(HostDriver {
             engine,
             edges,
