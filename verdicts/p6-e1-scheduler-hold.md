@@ -247,3 +247,40 @@ This verdict accepts no later head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 5 — 2026-10-11: completed Mac evidence for the import
+
+Exact head: `484912ac58743b899c7856e87bdcad0f2b398300`.
+Imported and evidence base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Tree: `cebfddcff16568bd2b487eada87b077a9501d321`.
+The head and tree are unchanged. Round 4's manual source-delta review remains valid.
+
+Mac log: `~/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-484912ac-pool-20261011-220151-15434.log`.
+SHA256: `b17b00ed49f1fd15f4cc4d4fdc902c79fdd40deccd5d38d1ab9f9d44856a8dd1`.
+I read the retained log and decoded command. The actual rev-parse output names this exact head.
+The pool host reports kernel 27.0.0. The command runs clippy for edges, host, Core, testkit, and xtask, with all targets and warnings denied.
+Clippy exits zero. The command then runs the edges and host library tests.
+Edges passes seven tests. Host passes 339 tests, with zero failed and one ignored, in 0.39 seconds.
+The ignored test only prints trace evidence. The permanent seeded comparison passes.
+The public metadata, forwarded-op, stop-hold, deadline, and admission proofs pass.
+The imported driver-drain and stop-drain proofs also pass, including the settle and queue-room cases.
+The cargo test pipeline records exit zero.
+
+The worker prebuild completes and writes its three-binary candidate manifest.
+The five selected testkit op_holds tests pass, with zero failed and 509 filtered tests, in 0.02 seconds.
+Their cargo pipeline records exit zero. The job and wrapper exit zero after 713 seconds: six queued and 707 running.
+This focused job supplies the pending Mac compile/test evidence. It is not the full train gate.
+Integration receipt `msg_plugin-w_1791782088_a09240` independently confirms these records.
+
+The imported base pins contracts-v0.1.43 at `c69a3190b4d66e84401006e9d73788ff0e837f56`.
+I compare the two E1 transcripts with the original .41 pin. Both are byte-identical across the pins.
+The atomic-transitions transcript has SHA256 `a115f37b7727f33f3c132d6bccfca659243bf856e66871520af0182c75255703`.
+The deferred-completion transcript has SHA256 `689bb2f0e6ddfb37428d938f2508c568ad07368aab4e9e7bf39954f4f6a22775`.
+This comparison preserves their recorded assertion scope. It is not a new conformance execution or permission for another removal.
+
+No package source or focused-evidence finding remains at this exact head.
+The applicable final train record, exact train gate, and final body remain due. Earlier evidence keeps its recorded scope.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
