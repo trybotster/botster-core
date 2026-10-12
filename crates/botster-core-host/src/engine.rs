@@ -578,7 +578,7 @@ impl HostEngine {
         }
     }
 
-    /// The numbers of the ops whose progress this work makes, for `Scheduler::defer` (A5-2: the scheduler defers the progress
+    /// The numbers of the ops whose progress this work makes, for `Scheduler::held` (A5-2: the scheduler defers the progress
     /// of an operation; steward ruling R-88, group E): the op of an op step; for a session's flow, the flow's op and the ops
     /// that wait for the flow (the `Stop` ops). Empty when the step makes no op's progress: a session with no flow, a
     /// deadline, a `Silent`, parked route work.

@@ -15,6 +15,7 @@ mod deadlines;
 mod handoff;
 mod holds;
 mod observations;
+mod seeded_trace;
 
 #[derive(Default)]
 struct TestWake {
