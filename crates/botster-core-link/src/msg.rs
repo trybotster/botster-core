@@ -432,7 +432,6 @@ mod tests {
                 notification_policy: NotificationPolicy::All,
                 size_policy: SizePolicy::Latest,
                 link_frame_bound: 1 << 20,
-                stop_grace_ms: 250,
                 limits: CoreLimits::default(),
             })),
         ];
