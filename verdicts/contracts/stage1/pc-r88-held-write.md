@@ -23,3 +23,10 @@ R-74 (`docs/steward-rulings.md:313`): "FakeCore stays frozen … The held-write 
 - **The Linux real-tier job** that the READY announces, with its log in the body.
 - **#73 overlap.** #73 (CLEAN on `69301401`) has R-88 `debt:` lines owned by PC for `tm_6_begin` (steps 20-23) and `in_6_refused_full` (step 9). This PR fences them. Whichever of #73 and #77 merges second removes them (Q7 delta review).
 - `in_6_refused_full` stays UNSUPPORTED_CONTROL (`control_queue`) on both Core tiers, as before. It is pre-existing and owned by PC, so there is no run evidence for its new form.
+
+## Round 2: no open finding on c284e82c51aaaed2e1d14f66a1510c3931a6bf97 (final CLEAN when the Linux per-seed log is in the body)
+
+- **F1: closed.** `d9cb11be` changes only `"ruling"` to `R-74` in in_9 and in_6_refused_full, and their README rows to `R-74`.
+- **Merge of main `6fdfc413` (Q7): disjoint, no finding.** The tree `cf1acb6862cd46f3b38e9499bd55c3da1550e4d9` equals `git merge-tree d9cb11be 6fdfc413`. `git patch-id --stable` of the PR's own diff is `3420b363255c39afc72a38e24f1817cf8742e3a7` against both bases. PC's script and log: `shared/core-stage1/evidence/pc-r88-held-write/q7-merge-main-6fdfc413.log`.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 410 s on msa1, base main `6fdfc413` (current main): `~/botster-sessions/gates/botster-contracts-stage1-pc-r88-held-write-c284e82c-pool-20261011-175745-13986.log`.
+- **Still to come:** the Linux per-seed Core job (in_9 and tm_6_begin, seeds 0-7, and the in_9 red-on-revert) with `c284e82c`'s transcripts, which the READY announced. in_9 is live on both Core tiers, so I give the final CLEAN when its log is in the PR body.
