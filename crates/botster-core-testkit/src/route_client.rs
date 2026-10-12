@@ -346,6 +346,17 @@ impl RouteClient for TestkitRoute {
         }
     }
 
+    /// Steward ruling R-86: the client is an independent actor. Sends the waiting bytes that the stream takes now, runs the
+    /// workers' ready route work (the in-process workers run only when the testkit runs them), and sends again into the
+    /// room that the work made. A full stream keeps the rest in order. True when a byte moved.
+    fn progress(&mut self) -> bool {
+        let waiting = self.unsent.len();
+        self.flush();
+        self.workers.run_ready();
+        self.flush();
+        self.unsent.len() < waiting
+    }
+
     fn has_control(&self, op: &str) -> bool {
         ROUTE_CONTROLS.contains(&op) || SESSION_CONTROLS_ON_ROUTE.contains(&op)
     }

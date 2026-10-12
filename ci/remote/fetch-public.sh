@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Per project, not a byte copy of botster-contracts' ci/remote/fetch-public.sh (job-common.sh is the shared copy): Core's
+# gate needs the submodules and the Zig packages below; contracts' fetches cargo's crates and the npm packages of its ts/.
 # The public fetch step of a gate (botster-gate). It brings the public sources that the gate needs and that come from
 # third-party code, with network and without any GitHub token:
 #   - the git submodules (libghostty's source, trybotster/ghostty, public), through a mirror per submodule in
