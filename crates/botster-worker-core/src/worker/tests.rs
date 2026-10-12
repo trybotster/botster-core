@@ -1618,9 +1618,9 @@ fn reads_come_from_the_model() {
     assert_eq!(modes.model_rev, screen.model_rev);
 }
 
-/// R-114 (DESIGN.md, "A read's reply follows the observations of the output before it"): the worker sends a read's reply
-/// only after the output observations of every byte that it applied before it took the read. The host is slow here, so
-/// the `Output` report of the second read waits; the reply sends it first.
+/// R-114 (worker-core `design/read-reply-order.md`): the worker sends a read's reply only after the output observations of
+/// every byte that it applied before it took the read. The host is slow here, so the `Output` report of the second read
+/// waits; the reply sends it first.
 #[test]
 fn a_reads_reply_follows_the_observations_of_the_output_before_it() {
     let mut w = World::running();
