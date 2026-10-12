@@ -106,3 +106,21 @@ The corpus test requires the exception list to equal the findings. #73 lists R-8
 I check all four, with their regression cases, on the next head, together with my F1 and F2.
 5. MEDIUM (an extension of item 1): `RouteClosed`, `RouteStalled` and `RouteResumed` clear route causes by the text of the route variable, with no handle filter (lines 486-489). 016c's fifth proof reuses `r1` on h2 and waits for h2's `RouteClosed`. That clears h's `Detach` cause: the result is `[]`, not `[5]`. **My round 1 saw this code and assumed that route names are unique per transcript. That was wrong.**
 6. LOW (016c F5): the debt owners for `a2_3_close_first_reason_wins_with_new_reasons` and `tm_6_begin_and_attach_signal_wake` differ from R-88's explicit PC assignment.
+
+## Round 2: NOT CLEAN on 2b4cad9269dcd42f3b434279c108afa390cf1fd7 (016c's MEDIUM; F1 partly open)
+
+Delta from `39cc39dd`: `2dbf8495` and `6a639013` (lint fixes), `5b14c815` (merge of main `28e05487`, #71 and #74; tree `e54e1ef6` equals `git merge-tree`), `2b4cad92` (exceptions reconciled, am_4 test). Gate PASS on `2b4cad92`, base main `28e05487` (P3's log `botster-contracts-p3-r88-lint-2b4cad92-pool-20261011-170302-7028.log`).
+
+Closed:
+- **F2 (as asked):** `parked_work {parked: true}` now clears only the earliest armed life cause of its session. Test `a_parked_frame_clears_only_the_earliest_armed_life_cause` (two causes, both fenced, an unarmed cause). But see 016c's MEDIUM below: one observation per fence is still not enforced.
+- **My correction (`op_posted` has no handle filter):** `.filter(|op| op.handle == h)`; test `an_op_posted_fence_is_on_its_own_handle`.
+- **016c's route-handle MEDIUM:** each `attach_route` gets a binding `r#n` per handle (`State::attach`, `route_on`). `Client` activity, `RouteClosed`/`RouteStalled`/`RouteResumed` and `route_reports` clear only causes on the fence's handle and current binding. Test `a_route_fence_names_its_handle_and_its_binding`.
+- **016c's other round-1 MEDIUMs and its owner LOW:** a non-terminal state proves only a `Start` (`a_state_that_is_not_terminal_proves_only_a_start`); `ends_session` needs every alternative (`a_completed_ends_the_session_only_when_every_alternative_does`); the held write needs `HELD_WRITE_FILL_BYTES`; the owners move to PC for `a2_3_close_first` and `tm_6_begin` (R-88 C/B as reassigned). 016c reports its F1-F5 closed.
+- **am_4 s25 `exception:` line: confirmed.** #74's s11 `op_posted {for_op: $w2}` proves that `$w2`'s `Completed` is posted before `$w1` (s15) and `$w3` (s20) begin, so `poll_events {max: 1}` reads `$w2` first in every order. The lint cannot encode queue order. The renamed test checks the s11 fence and is red without it (`[14]`). This matches my #74 review.
+- The e3_1 lines of #71's title fences (step 17) and the fenced reads of ev_5/tm_6 go. The file only shrinks: 13 lines added, 30 removed, and each added line replaces a removed or renumbered one.
+
+Open:
+- **016c's MEDIUM (report.rs ~657), confirmed.** Each `parked_work {parked: true}` clears the earliest remaining armed life cause. Two waits with no poll and no room freed between them can observe the same parked frame, so the second wait clears a second cause that it does not prove. 016c's exact-head case returns `[]` where `[6]` is due. A repeated observation must not clear another cause until something can change the parked set (a poll, or another step that frees room). This extends my F2: I asked for "earliest" and did not ask for one cause per parked frame.
+- **F1 (LOW), partly open.** P3's READY says "e3_1_carried's lines go, because #71's `parked_work {s2}` fences them". Only steps 27 and 32 go. Steps 28-31 stay, with the old debt text: "an R-57 title sentinel on s17's output and await_title s1 before s18, then await_control parked_work {s1} {parked: true}". The title fence has landed (#71, s18), #71 proved s2 parked in 32 of 32 and s1 INCONCLUSIVE, and the s32 fence comes after these reads. So these four lines prescribe the fence that F1 asked to remove. Please give them the same form as the eventless/runnable_silent lines (the session that per-seed runs prove parked, a fence before the read, at the un-pend), or an `exception:` with a reason, and correct the READY text.
+
+Still to do after the next head: the second merger reconciles with #75 if it lands first.
