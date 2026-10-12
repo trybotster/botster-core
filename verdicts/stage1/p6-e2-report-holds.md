@@ -110,3 +110,20 @@ Every finding must close on a reviewed exact head before CLEAN.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Package receipt and document closure
+
+Sol-B reads the complete same-head package verdict `2ab95fe9e9becc641db1710ed44f11f740f14b86`.
+It confirms B315-I1 and B315-I2 on `cac85963de8f02a9751f94714248d957c082a497`.
+Both reviews agree on the retained GREEN gate and its limits.
+
+Sol-B reads the corrected shared design note, section 10.
+It now states that EOF and read errors wait behind the held frame until release.
+It separately states that an explicit break discards held and later bytes.
+B315-I3 is CLOSED by this document correction.
+The source findings B315-I1 and B315-I2 remain OPEN on the reviewed head.
+The note describes the intended quiet repair; that statement supplies no accepted replacement source.
+P6 reports local fixes and a running gate. Sol-B accepts no unfinished result and waits for completed READY.
+Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (2 open)

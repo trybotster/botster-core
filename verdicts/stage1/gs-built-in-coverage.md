@@ -235,4 +235,3 @@ This receipt accepts no later head and authorizes no additional retry.
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; reviewed import and command proof with completed exact-head evidence)
-
