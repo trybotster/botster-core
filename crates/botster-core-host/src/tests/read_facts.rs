@@ -1,5 +1,6 @@
-//! The cursor ordinal of an instance (steward ruling R-101 Q6 and its follow-up): a durable counter of the data directory,
-//! reserved in the registry by each `Start` before anything runs, and carried to the worker in its launch only.
+//! The host's part of `ReadFacts` (Core ST-7). The cursor ordinal of an instance (steward ruling R-101 Q6 and its
+//! follow-up) is a durable counter of the data directory, reserved in the registry by each `Start` before anything runs, and
+//! carried to the worker in its launch only. The end of a client input raises the keyed `Activity` edge again (EV-6).
 
 use super::*;
 use crate::session::ORDINAL_KEY;
@@ -148,4 +149,39 @@ fn a_counter_at_the_largest_number_is_exhaustion_not_a_wrap() {
         ErrorCode::RegistryFailed { uncertain: false }
     );
     assert_eq!(launched_ordinals(&w), Vec::<u64>::new());
+}
+
+/// Core ST-7, EV-6: the end of a client input's transaction raises the keyed `Activity{Client(route)}` edge again, and
+/// changes no revision.
+#[test]
+fn the_end_of_a_client_input_raises_the_activity_edge_and_changes_no_revision() {
+    let mut w = World::default();
+    w.autopilot = Autopilot::Silent;
+    w.running("s1");
+    w.unix = 5000;
+    w.feed(Input::Clock(5000));
+    w.engine.poll_events(64);
+    let before = w.engine.terminal_state(&sid("s1")).unwrap().input_rev;
+    w.worker_says(
+        "s1",
+        WorkerMsg::Observed {
+            observation: Observation::ClientInputEnded { route: RouteId(4) },
+        },
+    );
+    let events = w.engine.poll_events(64);
+    assert!(
+        matches!(
+            &events[..],
+            [Event::Activity {
+                source: ActivitySource::Client(RouteId(4)),
+                at: 5000,
+                ..
+            }]
+        ),
+        "{events:?}"
+    );
+    assert_eq!(
+        w.engine.terminal_state(&sid("s1")).unwrap().input_rev,
+        before
+    );
 }
