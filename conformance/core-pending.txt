@@ -146,9 +146,9 @@ conf::a4_1_unknown_or_removed_service
 conf::a5_1_deterministic_under_script_and_seed
 conf::a5_1_edges_scripted
 conf::a5_1_testkit_is_real_core_one_worker_code_path
+# conf::a5_2_deferred_completion_keeps_slot_until_polled: step 10 expects PendingLimit with pending_ops 2, but only the Stop $a holds a slot then (steps 1 and 3 polled the Create and Start completions; EV-5(a)). Core admits the Create ({"ok":4}, E1 c0c86a58, seed 0); FakeCore frees slots at the same poll (fake structural, not run). Steward ruling R-92: the transcript changes to pending_ops 1 (P6 contracts PR); the id un-pends after the pin that contains it.
 conf::a5_2_deferred_completion_keeps_slot_until_polled
 conf::a5_2_each_section_11_variation_has_a_source
-conf::a5_2_reads_match_atomic_transitions
 conf::a5_3_async_failure_only_through_edges_and_real_completion
 conf::a5_3_every_code_reachable_or_listed_real_only
 conf::a5_4_hub_tests_on_testkit_under_seeds
