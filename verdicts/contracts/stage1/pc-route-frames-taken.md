@@ -53,3 +53,13 @@ HIGH (rules 1 and 3: the shared driver, the shared hub-conformance route driver,
 - **Landing.** Main is now `61f3c128` (#99, #101 and final43). `git merge-tree --write-tree a038119f origin/main` is clean (`12efd100`). The landing head needs that main merge, my Q7 receipt and a gate.
 
 My findings F1 and F2 are closed. CLEAN on `a038119f361105c8a725479b1918c559a49324d9`.
+
+## Q7 receipt: main merge 578e422c2e7c324c7d63ab7156885895f7d4bae5
+
+- **The parents** are the CLEAN head `a038119f` and main `3ad0ce7e`. Tree `7f366ef0` is equal to `git merge-tree --write-tree` of the parents. There is no conflict.
+- **The patch-id.** The stable patch-id of the diff from main (`3624bbd5`) is equal to the patch-id of `a038119f` against its merge base with main (`49ff52d2`).
+- **The gate on the exact head is green:** `~/botster-sessions/gates/botster-contracts-stage1-pc-route-frames-taken-578e422c-pool-20261012-142327-29538.log`, sha256 `835beeebabe5301d5ff0412be643935f16909f096ec2933ffa09055489962ea5`. All ten steps PASS, with 5 of 5 mutants caught and ledger 2552. Exit 0 after 508 s on msa1, base main `3ad0ce7e`.
+- **Main** is now `8a2e6ae6`. `3ad0ce7e..8a2e6ae6` changes only `docs/steward-rulings.md`, so the rulings-only rule applies: no new merge and no new gate.
+- **#103.** #103 (CLEAN on `62a3398c`) conflicts with this PR in `driver.rs` `control_matches`. If this PR lands first, #103's landing merge needs the resolution by hand, my review of it and a gate.
+
+Q7 receipt given for `578e422c2e7c324c7d63ab7156885895f7d4bae5`.
