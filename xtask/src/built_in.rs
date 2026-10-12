@@ -147,20 +147,28 @@ fn root_test_calls(text: &str) -> bool {
         return false;
     };
     file.items.iter().any(|item| match item {
+        // An attribute on the call (`#[cfg(any())]`) can remove it, so the call has none (Sol-B, round 3).
+        // An inner attribute of the body applies to the function, so the body has none.
         syn::Item::Fn(function) if function.sig.ident == TEST_NAME => {
+            let inner = function
+                .attrs
+                .iter()
+                .any(|attr| matches!(attr.style, syn::AttrStyle::Inner(_)));
             match function.block.stmts.as_slice() {
-                [syn::Stmt::Expr(syn::Expr::Call(call), _)] => match call.func.as_ref() {
-                    syn::Expr::Path(path) => {
-                        let names: Vec<String> = path
-                            .path
-                            .segments
-                            .iter()
-                            .map(|s| s.ident.to_string())
-                            .collect();
-                        names.ends_with(&TEST_CALL.map(str::to_string))
+                [syn::Stmt::Expr(syn::Expr::Call(call), _)] if !inner && call.attrs.is_empty() => {
+                    match call.func.as_ref() {
+                        syn::Expr::Path(path) if path.attrs.is_empty() => {
+                            let names: Vec<String> = path
+                                .path
+                                .segments
+                                .iter()
+                                .map(|s| s.ident.to_string())
+                                .collect();
+                            names.ends_with(&TEST_CALL.map(str::to_string))
+                        }
+                        _ => false,
                     }
-                    _ => false,
-                },
+                }
                 _ => false,
             }
         }
@@ -468,6 +476,10 @@ mod tests {
             // A call after an early return, and a call with another statement before it.
             format!("#[test]\nfn {TEST_NAME}() {{\n    return;\n    {call}\n}}\n"),
             format!("#[test]\nfn {TEST_NAME}() {{\n    if false {{\n        {call}\n    }}\n}}\n"),
+            // An attribute can remove the call (Sol-B, round 3): on the statement, and as an inner attribute of the body.
+            format!("#[test]\nfn {TEST_NAME}() {{\n    #[cfg(any())]\n    {call}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{\n    #[allow(unused)]\n    {call}\n}}\n"),
+            format!("#[test]\nfn {TEST_NAME}() {{\n    #![cfg(any())]\n    {call}\n}}\n"),
             // A method or macro of that name is not the call.
             format!("#[test]\nfn {TEST_NAME}() {{\n    x.assert_built_here(\"x\", BUILT_IN);\n}}\n"),
         ] {
