@@ -265,3 +265,10 @@ The reviewer reads its Round 2 verdict and verifies publication on `origin/stage
 Both formal CLEANs cover `50a50cff3fcdbbba1976c3194e0b49183726dbc8`, source base `e4f495040a80b524a7ac9accba95272d5c2594fa`, and tree `90d10894ec8b19da48921f176abae1baaba771e5`.
 Both close the same three findings and retain the parent-head gate and evidence limits.
 The matching formal review condition closes. The authorized final import and all final checks remain due.
+
+### Lead inbox notice
+
+Lead receipt `msg_plugin-w_1791787683_b8c46e` states that the lead can send messages but cannot read its inbox.
+The published CLEAN verdicts remain available in the verdict files. This notice changes no reviewed head or review result.
+The reviewer will resend the important CLEAN receipt when the lead announces that its inbox works again.
+No final-slot authorization is inferred from the notice. No new final-import head or completed final gate has been supplied to this reviewer.

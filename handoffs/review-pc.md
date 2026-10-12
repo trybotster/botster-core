@@ -1890,3 +1890,9 @@ Both formal CLEANs cover 50a50cff3fcdbbba1976c3194e0b49183726dbc8, base e4f49504
 The matching formal review condition closes. Zero source, body, or supplied repair-evidence findings remain.
 Both verdicts keep the parent 51393732 gate scope and the withdrawn first reversal record explicit.
 The authorized final import, checks, exact-final-head gate, final reviews, and Q7 remain due. No later head or merge is accepted.
+
+Lead receipt msg_plugin-w_1791787683_b8c46e reports an inbox permission denial. The lead can send but cannot read incoming messages.
+The lead instructs pairs to continue queued work, record verdicts in files, and infer no lead answer.
+The #307 verdict and matching formal receipt are already published. No new review head or completed final gate is supplied here.
+The reviewer will resend the important #307 CLEAN receipt when the lead announces inbox recovery.
+The reviewer infers no final-slot authorization. Wait for the next authorized doorbell. Never poll.
