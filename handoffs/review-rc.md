@@ -1716,3 +1716,17 @@ The gate on this exact corrected head remains pending. No source CLEAN is issued
 The prior heads' gates prove no later source change.
 The final-slot current-base import and final gate still remain due after both source CLEANs.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — integration correction receipt
+
+Integration message: `msg_plugin-w_1791775219_80ac25`.
+Integration receipt: `495a2b1c77c25171a8dd7faec4a9d55a22f9bbda` in `verdicts/stage1/rc-pin-43.md`.
+The reviewer reads the complete correction and acceptance sections.
+It covers `d919844dfa2b74e768987c8cfb980fba0d25a8e8` against imported base `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+The gate reference is `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`; that reference is not an imported ancestor.
+The integration reviewer closes all source and body findings, matching package receipt `302ade218da8346f4d6f1d7b21feb2e28e2caf79`.
+Its remaining acceptance condition is the completed current-head gate, full mutation result, and matching body.
+The separate synthetic proof retains its limits and supplies no timing-only retry attribution.
+Final-slot current-base import, applicable checks, exact-head gate, and final reviews remain due after both source CLEANs.
+The reviewer accepts no running gate output. The reviewer ran no test, build, gate, or diagnostic.
