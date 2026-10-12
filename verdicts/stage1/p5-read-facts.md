@@ -510,3 +510,101 @@ The supplied above-cap deferral remains explicit. Its amendment is assigned but 
 The reviewer runs no build, test, gate, mutation, fuzz, reproduction, or executable base-check job.
 
 VERDICT: CLEAN (0 open; complete #320 integration review on aeffbde6, within the lead's R320-Q4 scope).
+
+## Round 5 — complete current-base merge delta CLEAN
+
+Head: `48ff7a038d7c466776ae114acf32fd4f2f6d22da`.
+Tree: `5b0908bfefc6bf3e79dbd588d5a5fa5ef6beb550`.
+Reviewed parent: `aeffbde6b393eb583f4363bd812fb2d64af0a057`.
+Imported v1 parent: `644f632f194f62ad7fe14e66482ee01083706e30`, train 10.
+Prior source merge base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Request: `msg_plugin-w_1791845122_a10eaa`.
+The owner reports the lead's post-CLEAN import order and train 11 assignment. No member gate is supplied or required here.
+The reviewer reads the complete matching package Round 5.
+Package CLEAN: `39bbf0f9d277673587c40d6047f696ff3112aa91`, `verdicts/p5-read-facts.md`.
+Receipt: `msg_plugin-w_1791845409_30f4ca`. Its head, tree, imported base, body, and evidence limits match this review.
+
+### Merge and source preservation
+
+The commit has exactly the two supplied parents. It introduces no separate correction commit.
+The reviewer reads the complete independently generated remerge diff.
+Only two conflict resolutions appear: the worker topic index and the worker test modules.
+The index keeps read-facts.md and read-reply-order.md in filename order.
+The module list keeps exit_watch and read_facts. Neither test module loses its inclusion.
+The remaining merged files match Git's automatic result.
+All 34 changed non-own blobs also equal the imported v1 blobs exactly. The whitespace check passes.
+
+The reviewer compares all 47 own paths against the prior and current bases.
+Every own added/removed line sequence remains exact except the topic index header that v1 already supplies.
+That index now needs only the read-facts line from #320. Its existing paste rule stays exact.
+The lockfile retains the new bolero dependency for host and worker-core alongside the imported pin.
+No production correction or finding closure is lost.
+
+The facts, model, input, receipt, route, link message, host inbound, and facts-control blobs remain exact from aeff.
+Worker report, send_report, send_frame, on_output, output_advanced, and report_output also remain exact.
+The imported exit-watch path adds its failure action and worker termination path without changing ReadFacts dispatch or result construction.
+The testkit applies that imported failure at its edge and retains the #320 measure_sent implementation.
+The imported output drain continues to feed the model through the existing ordered report path.
+The imported read-reply-order topic and proof remain present. #320 preserves the actual ordered read reply path.
+The fuzz table retains both #320 harnesses and both imported testkit harnesses.
+The new properties still execute the reviewed decoder functions. No test branch is introduced in the production machine.
+
+The merged Cargo.toml, mutation configuration, and known-flaky data equal the imported v1 blobs exactly.
+The lockfile's only own changes remain the two bolero dependency lines.
+No new exclusion, retry, or flaky authority belongs to this merge delta.
+
+### Pin and conformance
+
+The imported pin is contracts .46 at `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`.
+The reviewer compares the .44 and .46 read.rs, input.rs, limits.rs, route codec, and frozen Core text.
+Those relevant files stay exact. The Core type change concerns RouteResumed event tags, which #320 does not construct.
+Every ST-7-named path is byte-identical between those pins. The .46 fence exception list has no ST-7 entry. The six finding closures and the explicit R320-Q4 limitation remain applicable.
+
+All ten three-way conformance id formulas pass across old base, reviewed parent, imported v1, and merged head.
+The row-only pending formulas also pass: core pending 367 and real pending 38.
+No id removed by either parent is restored. #320 still removes the same 18 ST-7 default ids and keeps its byte-cost real exception.
+Ledger 692, minimum 69, real-only 26, and held 4 remain consistent with the imported status sets.
+The seven real-proof rows stay unchanged. Deferred runtime 2 and withdrawn runtime 18 remain distinct from textual reference counts.
+No new status removal or acceptance count follows from the local run.
+
+### Body and retained local evidence
+
+The reviewer reads the complete body delta and the complete earlier body.
+Current body SHA-256: `d4e137ba0c3e46df85a35b2d6b616c5e090b6942d99a565efc980a66f5a7ebbf`.
+It names the exact merged head, both conflicts, imported base, local checks, and the pending train 11 gate.
+It preserves the aeff READY gate at its actual head and states that it is not final current-base acceptance.
+
+Checks log: `evidence/p5-read-facts/checks-48ff7a03.log`.
+SHA-256: `2ec4bb242c5987096c16880f83bb8cb34bc14f7c42ce78dbf9bc01953eb4747a`, 2610 lines.
+The retained producer records this exact clean head, then cargo clean with exit zero.
+Fmt, nine-crate clippy with slow/all-targets, selected unit tests, strict seeds 0-31, and lists each record exit zero.
+Worker-core reports 282 passed. Local strict reports 299 passed, 0 failed, and 394 ignored.
+Lists records imported base and merge base 644f632f, ledger 692, pending 367, real-pending 38, and minimum 69.
+These Mac results remain supplementary under pair-common. They are not pool timing or final train proof.
+
+Locked-check log: `evidence/p5-read-facts/check-locked-48ff7a03.log`.
+SHA-256: `d2f995b1132102650b24502637623546c5c42ef72b69f2572112628ea1faaa05`, 49 lines.
+It shows the .46 dependencies, all workspace crates, test compilation warnings, and Finished after 8.15 seconds.
+It omits a command header, head, clean marker, and numeric exit. The exact workspace/locked/tests command and exit 0 remain owner reports.
+The prior clean and full local clippy/test log support the compilation context. The train gate remains decisive for the merged combination.
+The dead-code warnings occur in unchanged testkit report_holds.rs and stand_in.rs.
+
+Taint log SHA-256: `5d2886a97c6abc1a07ece7f6e40f40e9125a0f624596f13a574ce7e3e1321fc4`.
+It reports the taint job PASS in 26.5 seconds. It is local supplementary evidence, not a complete merging gate.
+
+### Scope
+
+No new integration source or body finding appears in this merge delta.
+The complete matching package delta is CLEAN. All six prior findings stay closed, including LOW.
+The old aeff gate retains its exact head and .44 scope. No .46 mutation, fuzz, or final gate acceptance is inferred.
+Train 11 combined review, the exact train gate, one final receipt, and lead Q7 remain due.
+This seat owns #320's integration delta. It does not infer ownership of the combined train or duplicate its final receipt.
+The above-cap limitation and separate A26 hold remain explicit.
+No reviewer build, test, gate, mutation, fuzz, reproduction, or executable base check runs.
+
+Hashes:
+- Prior full-index own diff: `0bc8a7af43dabc604742765214c2cd2510a9db0cb5c3e03fab7f88af6cb1ced3`.
+- Current full-index own diff: `abfb214921c1f1aa1be3a5290c95735fff9124079f4c19780007cb39932b5856`.
+- Imported delta: `286cedef7f627371cbf926623eef2ed5a397cbd1925b8b2f14ab65c3b3bd5548`.
+
+VERDICT: CLEAN (0 open; complete #320 integration source, body, and current-base merge delta on 48ff7a03).
