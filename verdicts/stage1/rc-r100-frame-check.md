@@ -178,3 +178,30 @@ The production shared Launch constructor correctly removes the field. That chang
 The lead removes #309 from train 3 in `msg_plugin-w_1791819182_21365e`. Removal prevents this defect from entering the replacement train; it does not repair #309. A corrected composition requires an exact-head review. I ran no compiler or execution job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Replacement member delta: stale-field repair
+
+- Head: `f41b7e82ba98e76f2487185eba0af2a3a0de8918`.
+- Tree: `9d8580367fe0852fc82b4847880a8738fa75c1d0`.
+- Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+- Previous source head: `b920da760a8a643b199765d0a69f78533a9b3e45`.
+- Reviewed delta: the accepted train-2 import and one-line fixture repair.
+- Package verdict: `ade8bbee15558c8c592e0eec573e91d43afa8a6f`, file `verdicts/rc-real-controls.md`, replacement member sections.
+
+I read the complete same-head package review. It reports zero open findings and checks the updated body, local evidence, and deferred train-gate scope.
+
+Merge `b77fe261f5e77b387320c07ed20f439523c64b53` has the previous source head and imported base as its parents. The next commit removes only `stop_grace_ms: 250` from the encoded-length fixture. The fixture keeps all nine current LaunchSpec fields explicit and retains its encoding comparison.
+
+**RC-R100-TRAIN-1 — HIGH — closed.** The repaired fixture now agrees with LaunchSpec. T3-I1 names the same repaired defect. The shared Launch constructor also agrees with that type. The field removal reduces encoded size and preserves the conservative initial decoder bound. Frame-fit code, admission checks, and host boundary tests retain their reviewed source. The modifier-vector, pending-setter, refusal-order, documentation, and procedural closures remain valid.
+
+I checked the imported host changes against the earlier composed train source. Those host files match. I checked all nine conformance line-set formulas; each passes. Their files equal the imported base. The mutation configuration, process-check allowlist, and known-flaky file also equal that base. No new exclusion or pending removal appears.
+
+Retained local evidence: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-r100/local-f41b7e82-20261012-153649.log`.
+
+The header names this head and tree. The log retains Cargo clean removal output, fmt exit zero, 55 link-test passes, and nineteen frame-fit passes with numeric test exits zero. The clean output has no separately printed numeric exit. This record supplies local repair evidence only. It proves no other target-writer history or full train gate.
+
+The lead's repair order requires compile/tests, delta reviews, then FINAL-READY for train 4. The same-head package verdict verifies that the body states this order and claims no replacement-head pool gate. This review accepts no historical gate as final evidence for this new head.
+
+Zero integration delta findings remain. This CLEAN accepts source only at the stated head. FINAL-READY can follow the matching source delta receipts. Applicable train delta and combined reviews, final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
