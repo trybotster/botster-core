@@ -1,6 +1,97 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (Core #298 at 4ca7bb2a)
+VERDICT: NOT CLEAN (1 open; Core #313)
+
+## Core #313: DP-8 route adoption, round 1
+
+Reviewed head: `d1f414362a6be86eb25d84a168782ebeb7380b23`.
+Declared PR base: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6` (#298).
+Imported v1 and gate comparison base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Approved design SHA-256: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.
+Risk tier: HIGH. The reviewer ran no local build or test.
+The #298 source verdict and DP-8 design verdict remain CLEAN at their recorded artifacts.
+
+### ST313-R1 — HIGH — A session-end flow can remove a route before its adoption event posts
+
+Evidence at the reviewed head: `inbound.rs:347`, `inbound.rs:412`, `run.rs:245`, `flows.rs:502`, and `run.rs:724`.
+
+The new `route_ended_with_session` parks a delivered close only when the adopted session already shows Exited without a stop flow.
+While `Flow::Stop` runs, it records delivery and leaves the close to `StopPhase::Finish`.
+That flow calls `close_route` directly. `close_route` posts the close and removes the route entry.
+The scheduler lists session work before parked route work.
+If the route's adoption event still waits, `post_route_adopted` finds no entry and marks that event done without posting it.
+
+A legal sequence is:
+
+1. Core adopts a Running session with a live route. Its Running event fills the one mandatory slot.
+2. Core registers the route and sends its mapping. `ParkedRoute::Adopted` waits for a poll.
+3. The worker reports `Exited`, then `RouteClosed{SessionEnded}` after delivering the route's queue.
+4. A poll frees room. Core consumes these frames and records delivery while the stop flow runs.
+5. Session work posts Exited before the parked adoption event and fills the slot again.
+6. Another poll frees room. `StopPhase::Finish` posts the route close before the parked adoption event and removes the entry.
+7. The parked adoption work later skips `RouteAdopted` and allows adoption to complete.
+
+DP-8 requires one `RouteAdopted` for the route that was live at adoption.
+The approved design section 6.4 also requires the entry to remain until its close posts after its adoption event.
+The current `PeerClosed` test uses `route_close`, which parks behind adoption. It does not cover the session-end flow.
+
+Required change: preserve the adoption event and its ordering across session-end, loss and removal paths that close route entries.
+Do not let a close remove a reported route before its required adoption event posts.
+Do not count a silently skipped adoption event as a completed post.
+Keep the pump event budget, mandatory-room behavior and wake rules.
+Ensure that a flow blocked by this ordering does not repeatedly run ahead of the parked event.
+Add a production-driver proof for the Running adoption followed by Exited and a delivered session-end close before the adoption post.
+Use queue backpressure and delayed polls. Verify exactly one adoption event, then exactly one close with the new id.
+Verify that adoption completes only after the required adoption event posts.
+
+### Contract question ST313-Q1 — Absent attach tags
+
+The PR maps absent `AttachOptions.route_tag` and `owner` to empty strings in `RouteAdopted`.
+The PR explicitly says that no ruling covers this case. The event fields are String; the attach fields are optional.
+The reviewer sent the question to the lead with the exact head. The contract disposition remains pending.
+The reviewer does not invent the expected value for absent tags.
+
+### Source and design checks
+
+The stable worker key reaches the route machine, pending input, real driver and testkit edge.
+The link table clears at adoption and controls translation in both directions.
+The worker retains bounded closes and client-input flags while mappings wait.
+Current client revisions preserve the approved monotonic rule across mappings.
+The size test uses the pinned serde types with maximal integers and absent, short and long tags.
+The worker separates the session drain intent from its Closed state under R-99.
+The reported limits, stall mark and stable tags reach the host's new route entries.
+The ordinary resume and peer-close paths preserve the parked adoption event and its deadline guard.
+The source finding concerns the separate session-end flow above.
+
+The PR removes three DP-8 ids from pending. All three pass on both tiers in the supplied full-seed evidence.
+The two epoch-fence ids remain pending under the lead's stated follow-up: `lose_host` control and real proof.
+The imported #301 and #304 changes belong to the supplied v1 base; the review does not claim them as new DP-8 behavior.
+
+### Completed evidence
+
+Linux gate: `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-d1f41436-pool-20261011-231400-62724.log`.
+Its header names this exact head and comparison base `be95ef13`.
+All ten steps passed. The wrapper reports exit 0 after 940 seconds on msa1, including queue time.
+Mutation result: 325 tested, 301 caught, 0 missed, 0 timeout and 24 unviable. Three catches came from stage 2.
+The held-full run covers six budget ids at 32 seeds, one trial per seed.
+
+Focused Mac log: `~/botster-sessions/gates/botster-core-stage1-st-dp8-route-adoption-d1f41436-pool-20261011-233012-34556.log`.
+Its header names the same head and base. The command sets `BOTSTER_SEEDS=0-31 BOTSTER_PENDING_STRICT=1`.
+The five selected packages passed 1114 tests. The selected real conformance run passed 19/19, including the three removed DP-8 ids.
+The wrapper reports exit 0 after 131 seconds. This is focused Mac evidence, not a full Mac gate.
+
+Local log: `~/botster-sessions/gates/st-dp8-local-d1f41436.log`.
+The strict real DP-8 run passes all three removed ids at seeds 0-31.
+
+Reversal logs: `~/botster-sessions/gates/st-dp8-reversals/`.
+The reviewer inspected each scratch change, failed assertion, summary and supplied restoration record.
+The r1-r7 logs name earlier head `6ff9dbb7ed7ac079a9395e27ac819245039e3e8e` and record one target clean before the sequence.
+They cover drain state, unchecked reads, retained input, table clearing, completion, delivered closes and deadline arming.
+The r4 waiting-route test passes on its reversal; the other two tests fail, as the PR correctly states.
+The s1 and s2 logs name this exact head. Each new test fails on its own scratch change while the other eight tests pass.
+The supplied script restores the edited files and records git status after each run.
+These are retained run logs, unlike #298's copied excerpts. The reviewer did not execute the reversals or independently check the worktree cleanup.
+The earlier red gates and their repairs remain named in the PR body.
 
 ## Core #298: completed merged-head receipt
 

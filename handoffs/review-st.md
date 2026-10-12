@@ -81,6 +81,15 @@ The PR body still needs this head, base and completed gate before DONE. The lead
 Body follow-up: the reviewer verified the announced update at unchanged head `4ca7bb2a`.
 The body update requirement is complete. The CLEAN receipt remains unchanged.
 
+#313 DP-8 implementation round 1: `d1f414362a6be86eb25d84a168782ebeb7380b23`.
+PR base: #298 `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`; imported v1 and gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Verdict: NOT CLEAN (1 open). ST313-R1 is HIGH: the session-end flow can close an adopted route before its adoption event posts.
+ST313-Q1 asks the lead for the absent-tag contract disposition. The reviewer does not invent that value.
+The exact-head Linux gate passed all ten steps. Focused Mac packages passed 1114 tests and selected real ids passed 19/19.
+All three removed DP-8 ids pass at seeds 0-31 on both tiers. Two epoch-fence ids remain pending under the lead's follow-up.
+The verdict records the retained reversal logs and their provenance limits. The reviewer builds nothing locally.
+Wait for the next revised-head doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
