@@ -197,3 +197,74 @@ The completed exact-train-head gate, all final receipts, base-tree verification,
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open #301 source-delta findings; train evidence pending) at be95ef13edc6d9eccf87a8c0b2c09b9cf820963a against base ae49bbec2d1086f918341bc596bf8560ba27bcd1
+
+## Round 3 — #301 final train evidence receipt
+
+Train head: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Train base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Train tree: `456fdd44172ee85eb58ad443ec1e3dbf9f1dd2bc`.
+Frozen #301 member: `403bbf689cc9f745a9552cc518374a6a8f2cdb32`.
+Source delta verdict: `34e2fb9d9b5232238b2d5829364cae6ed1b835f1`.
+Lead completion message: `msg_plugin-w_1791783035_162c42`.
+
+This receipt names the completed gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-1-be95ef13-pool-20261011-221548-42911.log`.
+Log SHA256: `1e84c3eb42a01cf5bf59dd1cbf88f440a3d6788fd40f11ae8eae42a438842705`.
+
+### Exact head and completed gate
+
+The log names the exact reviewed train head and base. I independently verify the train tree from its Git object.
+The pool job runs on msa1 / MS-A1, kernel 6.12.111+deb13-amd64, with four CPUs.
+All ten CI steps PASS. Their reported total is 520.5 seconds.
+The job exits zero after 850 seconds: 232 seconds queued and 618 seconds running.
+The gate wrapper also exits zero after 850 seconds. These durations describe different intervals.
+The Linux platform limit remains: this gate does not compile the listed macOS-only paths.
+The accepted initial platform evidence and Round 2 source composition remain applicable.
+
+The default tier reports 1920 passed and 431 skipped in 11.613 seconds.
+The slow tier reports 617 passed and 2064 skipped in 40.906 seconds.
+I independently audit every PASS row in both tiers. Each expected ordinal occurs exactly once, with the correct denominator.
+I find no failed, timeout, or FLAKY test result.
+The prebuild step writes a candidate manifest with three binaries.
+Both strict summaries report 260 passed and zero failures, in 7.29 and 6.08 seconds.
+The strict check runs 320 of 337 pending ids; 17 real-only ids do not run, and four ids remain held.
+Held-full runs three budget ids at 32 seeds. It reports 96 ignored results, zero failures, and 22.08 seconds.
+Those held results do not remove a pending id.
+
+### #301 proof and conformance accounting
+
+All eight start-control unit tests PASS in the default tier.
+The removed `conf::a2_1_attach_state_rules` passes in the normal testkit tier in 0.355 seconds.
+It passes in the normal real tier in 0.141 seconds.
+These results support #301's sole pending removal on the exact final train head.
+The gate reports ledger 691, pending 407, real-pending 43, and minimum 69.
+It validates the lists against base ae49bbec and its equal merge base.
+The source review already verifies every list through both ordered member merges.
+The gate reports 35 passes among the 43 real-pending ids. I independently verify that all 35 remain in the train's real-pending file.
+The minimum summary reports testkit-passing 67/69, real-passing 61/68, and real-accepted 62/69.
+The gate checks seven named real proofs, including #304's three DP2 proofs.
+Sol-B retains ownership of #304's proof review and the combined train review.
+
+### Mutation evidence
+
+The unmutated baseline passes. Stage 1 tests 29 unique mutants: 21 caught and eight unviable.
+It reports zero missed and zero timeout results, in 105.2 seconds.
+I independently match all 29 raw mutation outcomes with the summary.
+Every one of the 21 raw catches has exactly the corresponding cited test.
+Every cited test has a normal PASS in this gate.
+There is no FLAKY result. Stage 2 does not run because Stage 1 misses no mutant.
+The fuzz step reports that the diff changes no crate with a decoder harness.
+
+### Receipts and remaining merge duties
+
+The complete package source verdict at `78a42cd654105b23aa7362cd81689cd54679242b` remains the same-head package review.
+Matching package message `msg_plugin-w_1791782091_cd1126` confirms zero findings from both source reviews on this exact head, base, and tree.
+The complete combined source verdict at `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab` remains applicable.
+This receipt completes Sol's #301 final evidence review. It accepts no separate R-97 clock fix, identity hold, or guardian-exit work.
+The initial local provenance, body, platform, and evidence limits remain recorded in the earlier rounds.
+Each other required reviewer must send its own final receipt naming this gate.
+The lead must then fast-forward the base, verify equality with the gated tree, and verify the push under the train rule.
+This receipt does not claim that the train has merged.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open #301 integration findings; final train evidence accepted) at be95ef13edc6d9eccf87a8c0b2c09b9cf820963a against base ae49bbec2d1086f918341bc596bf8560ba27bcd1
