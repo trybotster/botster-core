@@ -2,6 +2,14 @@
 
 ## Current Core PR #293 result
 
+The final-slot import is package source CLEAN at `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`, base `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+
+All 26 own patches are unchanged after metadata normalization. The nine linked libraries are unchanged. All imported non-own blobs and conformance files equal the base.
+
+The canonical check requires explicit delta reviews for the shared mutation file, lockfile, and suite. The package delta has zero findings.
+
+Sol-B's same-head receipt, the completed final gate, and final body remain due. Read no running gate output.
+
 Package CLEAN at split head `652d0034a0a1da4145723b1b421c9b2c28de0239`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`. Open retained findings: 0.
 
 The coverage visitor and wiring are removed. The lead's separate design item owns the coverage guarantee and GS-B13-R1-2.

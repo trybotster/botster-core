@@ -2815,3 +2815,41 @@ The twelve root tests and runtime checks add no timeout, budget, seed, or verdic
 Sol-B must publish the same-head integration verdict. Then FINAL-READY and the lead's SLOT precede the current-base import, required check, and exact-head final gate.
 
 This CLEAN applies only to the exact split head and retained scope. It approves no future import or coverage design. I ran no execution job.
+
+### Core PR #293: final-slot import delta
+
+- Head: `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`.
+- Base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+- Reviewed parent: `652d0034a0a1da4145723b1b421c9b2c28de0239`.
+- VERDICT: CLEAN (package source delta).
+- Open findings in retained scope: 0.
+
+The lead's handoff confirms SLOT authorization. I verified the merge parents and the live PR head and base.
+
+I read the complete canonical check. Ancestry, condition (1), and both pending-file conditions pass. Conditions (2) and (3) fail on shared paths.
+
+The shared paths are `.cargo/mutants.toml`, `Cargo.lock`, and `tests/suite/mod.rs`. This record supplies the required explicit delta review; it does not relabel the canonical result.
+
+Check: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-029a740b-base-merge-check.log`.
+
+I compared all 26 own patches. Every patch is identical after removing only blob-index and hunk-location metadata.
+
+Every imported non-own blob equals the imported base. Every conformance file also equals that base. The PR adds no conformance id or list change.
+
+I read the base's three overlapping deltas. The mutation file imports the already-reviewed held-full shell reasons and exclusions. It preserves this PR's worker-shell exclusion.
+
+The lockfile imports the contracts pin from v0.1.39 to v0.1.41. The PR's workspace dependency additions remain unchanged.
+
+The suite imports held-full. Its B13 `check_here(&LINKED)` remains the first operation, before arguments, list processing, and held-full dispatch.
+
+The nine linked workspace libraries are identical before and after the import. I derived both sets from the manifests. No new LINKED entry is required.
+
+The per-root worker and anchor build paths, candidate record, runtime checks, and crate root tests retain their approved source.
+
+The coverage visitor remains absent. Its finding stays transferred to the lead's separate design item. The in_8 disposition remains closed in this PR's scope.
+
+The earlier source, bootstrap, compilation-count, Mac, and disk evidence retains its exact earlier-head scope. It is not new execution evidence for this import.
+
+The live body still records the earlier reviewed heads and results. The completed exact-head final gate and final body remain due.
+
+Sol-B must publish its same-head delta verdict. I read no running gate output and ran no execution job.
