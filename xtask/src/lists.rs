@@ -10,7 +10,9 @@
 //! - `core-real-pending.txt` (plan 23l): its ids are Core ledger ids that are not pending, deferred, withdrawn, real-only
 //!   (a `slow:*` proof in the contracts' replacement map) or testkit-proven (Core A20-1, `TESTKIT_PROVEN`). The harness PR
 //!   initializes it (the base has no such file); after that an id enters only in the pull request that removes it from
-//!   `core-pending.txt`, or as a new ledger id.
+//!   `core-pending.txt`, or as a new ledger id, or with a re-entry tag ([`re_entries`]; lead, 2026-10-12): a comment line
+//!   directly above the id that names the authority, the diagnosed cause and the owner of the structural fix. The plan
+//!   calls the file "a work list, not an exemption", so the tag makes the debt visible; the PR of the fix removes it.
 //! - `minimum-core.txt` (plan section 1, revision 23q): the canonical list of the minimum Core. Each id is listed once and
 //!   is a Core ledger id; an id that the contracts withdrew fails the check by name (a withdrawn minimum id goes to the lead).
 
@@ -372,6 +374,102 @@ pub fn check_minimum(
     problems
 }
 
+/// The start of a re-entry tag line in `core-real-pending.txt`.
+const RE_ENTRY: &str = "# re-entry";
+
+/// The fields of a re-entry tag, in their order on the line.
+const RE_ENTRY_FIELDS: [&str; 3] = ["re-entry", "cause", "fix"];
+
+/// A re-entry tag of `core-real-pending.txt` (lead, 2026-10-12): an id that comes back to the file without leaving
+/// `core-pending.txt` and without a pin move. The tag is the comment line directly above the id:
+///
+/// `# re-entry: <R-n | lead YYYY-MM-DD> | cause: <the diagnosed cause> | fix: <the owner of the structural fix>`
+///
+/// The tag is a comment, so every other reader of the file (the conformance suite, `ci`, `base_merge`, `slow_coverage`)
+/// reads the id line as before.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReEntry {
+    /// A steward ruling (`R-<n>`) or a lead decision (`lead YYYY-MM-DD`, a date line of `core-lead.md`).
+    pub authority: String,
+    pub cause: String,
+    pub fix: String,
+}
+
+/// A steward ruling `R-<digits>`, or a lead decision `lead YYYY-MM-DD`.
+fn authority_is_valid(authority: &str) -> bool {
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    if let Some(n) = authority.strip_prefix("R-") {
+        return digits(n);
+    }
+    authority.strip_prefix("lead ").is_some_and(|date| {
+        let parts: Vec<&str> = date.split('-').collect();
+        parts.len() == 3
+            && [4, 2, 2]
+                .iter()
+                .zip(&parts)
+                .all(|(len, part)| part.len() == *len && digits(part))
+    })
+}
+
+/// The re-entry tags of `core-real-pending.txt`, by id. Every comment line that starts with `# re-entry` is a tag, so a
+/// tag with a missing, empty, unknown or repeated field, an authority of another form, or no id directly below it is an
+/// error, never a plain comment.
+///
+/// # Errors
+/// The first tag that breaks a rule, by its line number (from 1).
+pub fn re_entries(text: &str) -> Result<BTreeMap<String, ReEntry>, String> {
+    let lines: Vec<&str> = text.lines().map(str::trim).collect();
+    let mut tags = BTreeMap::new();
+    for (index, line) in lines.iter().enumerate() {
+        if !line.starts_with(RE_ENTRY) {
+            continue;
+        }
+        let at = format!("{REAL_PENDING_FILE}: line {}", index + 1);
+        let id = match lines.get(index + 1) {
+            Some(next) if !next.is_empty() && !next.starts_with('#') => *next,
+            _ => {
+                return Err(format!(
+                    "{at}: a re-entry tag needs its id on the next line"
+                ))
+            }
+        };
+        let mut fields: BTreeMap<&str, &str> = BTreeMap::new();
+        for part in line.trim_start_matches('#').split(" | ") {
+            let (key, value) = part
+                .split_once(':')
+                .ok_or_else(|| format!("{at}: `{}` is not `<field>: <value>`", part.trim()))?;
+            let (key, value) = (key.trim(), value.trim());
+            if !RE_ENTRY_FIELDS.contains(&key) {
+                return Err(format!("{at}: unknown field `{key}`"));
+            }
+            if value.is_empty() {
+                return Err(format!("{at}: `{key}` is empty"));
+            }
+            if fields.insert(key, value).is_some() {
+                return Err(format!("{at}: `{key}` is given twice"));
+            }
+        }
+        if let Some(missing) = RE_ENTRY_FIELDS.iter().find(|f| !fields.contains_key(*f)) {
+            return Err(format!("{at}: the re-entry tag of {id} has no `{missing}`"));
+        }
+        let authority = fields["re-entry"];
+        if !authority_is_valid(authority) {
+            return Err(format!(
+                "{at}: `re-entry` is `{authority}`; it names a steward ruling `R-<n>` or a lead decision `lead YYYY-MM-DD`"
+            ));
+        }
+        tags.insert(
+            id.to_string(),
+            ReEntry {
+                authority: authority.to_string(),
+                cause: fields["cause"].to_string(),
+                fix: fields["fix"].to_string(),
+            },
+        );
+    }
+    Ok(tags)
+}
+
 /// What the checks of `core-real-pending.txt` read (plan 23l).
 pub struct RealInput<'a> {
     /// The Core ids of the ledger at the pinned tag.
@@ -384,6 +482,8 @@ pub struct RealInput<'a> {
     /// The ids that Core A20-1 proves on the testkit only (`TESTKIT_PROVEN`): the real tier lists them and never runs them.
     pub testkit_proven: &'a BTreeSet<String>,
     pub real_pending: &'a BTreeSet<String>,
+    /// The re-entry tags of the file ([`re_entries`]).
+    pub re_entries: &'a BTreeMap<String, ReEntry>,
     /// The base ref's files. `None`: the base has no `core-real-pending.txt` (initialization).
     pub base: Option<RealBase<'a>>,
 }
@@ -420,10 +520,12 @@ pub fn check_real(input: &RealInput<'_>) -> Vec<String> {
         let new_in_ledger: BTreeSet<&String> = input.ledger.difference(base.ledger_file).collect();
         for id in input.real_pending.difference(base.real_pending) {
             let leaves_pending = base.pending.contains(id) && !input.pending.contains(id);
-            if !leaves_pending && !new_in_ledger.contains(id) {
+            if !leaves_pending && !new_in_ledger.contains(id) && !input.re_entries.contains_key(id)
+            {
                 problems.push(format!(
                     "{REAL_PENDING_FILE}: {id} is new; an id enters only in the pull request that removes it from \
-                     {PENDING_FILE}, or as a new ledger id"
+                     {PENDING_FILE}, or as a new ledger id, or with a re-entry tag on the line above it \
+                     (`{RE_ENTRY}: <R-n | lead YYYY-MM-DD> | cause: <cause> | fix: <owner>`)"
                 ));
             }
         }
@@ -579,7 +681,9 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
         base,
         tag_moved,
     }));
-    let real_pending = parse_ids(&read(REAL_PENDING_FILE)?).map_err(anyhow::Error::msg)?;
+    let real_pending_text = read(REAL_PENDING_FILE)?;
+    let real_pending = parse_ids(&real_pending_text).map_err(anyhow::Error::msg)?;
+    let re_entries = re_entries(&real_pending_text).map_err(anyhow::Error::msg)?;
     let map = std::fs::read_to_string(meta.contracts_root.join("conformance/replacement-map.json"))
         .context("read the pinned replacement map")?;
     let no_ids = BTreeSet::new();
@@ -595,6 +699,7 @@ pub fn command(root: &Path, args: &[String]) -> Result<()> {
             .map(|id| id.to_string())
             .collect(),
         real_pending: &real_pending,
+        re_entries: &re_entries,
         base: files.real_pending.as_ref().map(|real_pending| RealBase {
             real_pending,
             pending: files.pending.as_ref().unwrap_or(&no_ids),
@@ -1263,6 +1368,7 @@ mod tests {
             real_only: &w.real_only,
             testkit_proven: &w.testkit_proven,
             real_pending: &real_pending,
+            re_entries: &BTreeMap::new(),
             base: base_sets.as_ref().map(|(r, p, l)| RealBase {
                 real_pending: r,
                 pending: p,
@@ -1339,6 +1445,121 @@ mod tests {
         // `c` is new in the ledger (a pin move): it may enter.
         let old_ledger: &[&str] = &["a", "b", "d", "s", "t", "x"];
         assert!(real_check(&w, &["b", "c"], Some((&["b"], &["a"], old_ledger))).is_empty());
+    }
+
+    /// `check_real` on the file `text` (its ids and its re-entry tags), after initialization with the base `b` (real
+    /// pending), `a` (pending) and the full ledger.
+    fn real_check_text(w: &RealWorld, text: &str) -> Vec<String> {
+        let real_pending = parse_ids(text).unwrap();
+        let tags = re_entries(text).unwrap();
+        let (base_real, base_pending) = (set(&["b"]), set(&["a"]));
+        let ledger = set(&["a", "b", "c", "d", "s", "t", "x"]);
+        check_real(&RealInput {
+            ledger: &w.ledger,
+            pending: &w.pending,
+            deferred: &w.deferred,
+            withdrawn: &w.withdrawn,
+            real_only: &w.real_only,
+            testkit_proven: &w.testkit_proven,
+            real_pending: &real_pending,
+            re_entries: &tags,
+            base: Some(RealBase {
+                real_pending: &base_real,
+                pending: &base_pending,
+                ledger_file: &ledger,
+            }),
+        })
+    }
+
+    const TAG: &str = "# re-entry: R-109 | cause: edges_quiet does not fence the progress report | fix: steward fence, then the pin owner";
+
+    /// Lead, 2026-10-12: an id that does not leave core-pending.txt enters with a complete re-entry tag directly above it,
+    /// and is refused without one. The other readers of the file see only the id.
+    #[test]
+    fn after_initialization_an_id_enters_with_a_complete_re_entry_tag_and_not_without_one() {
+        let w = real_world();
+        let untagged = real_check_text(&w, "b\nc\n");
+        assert_eq!(untagged.len(), 1, "{untagged:?}");
+        assert!(
+            untagged[0].contains("c is new") && untagged[0].contains("re-entry tag"),
+            "{untagged:?}"
+        );
+        let tagged = format!("b\n{TAG}\nc\n");
+        assert!(real_check_text(&w, &tagged).is_empty());
+        assert_eq!(
+            re_entries(&tagged).unwrap()["c"],
+            ReEntry {
+                authority: "R-109".into(),
+                cause: "edges_quiet does not fence the progress report".into(),
+                fix: "steward fence, then the pin owner".into(),
+            }
+        );
+        let by_lead = "b\n# re-entry: lead 2026-10-12 | cause: c | fix: o\nc\n";
+        assert!(real_check_text(&w, by_lead).is_empty());
+        // The tag is a comment: the ids are the same as without it.
+        assert_eq!(parse_ids(&tagged).unwrap(), set(&["b", "c"]));
+        // A tag on an id that was in the file already is valid too.
+        assert!(real_check_text(&w, &format!("{TAG}\nb\n")).is_empty());
+    }
+
+    /// A tag with a field missing, empty, unknown or repeated, an authority of another form, or no id directly below it is
+    /// refused: the whole check fails, so a partial tag never reads as a plain comment.
+    #[test]
+    fn a_re_entry_tag_without_all_three_fields_or_with_a_bad_field_is_refused() {
+        for (tag, why) in [
+            ("# re-entry: R-109 | fix: o", "has no `cause`"),
+            ("# re-entry: R-109 | cause: c", "has no `fix`"),
+            (
+                "# re-entry | cause: c | fix: o",
+                "is not `<field>: <value>`",
+            ),
+            ("# re-entry:  | cause: c | fix: o", "`re-entry` is empty"),
+            ("# re-entry: R-109 | cause:  | fix: o", "`cause` is empty"),
+            ("# re-entry: R-109 | cause: c | fix:  ", "`fix` is empty"),
+            (
+                "# re-entry: R-109 | cause: c | fix: o | why: w",
+                "unknown field `why`",
+            ),
+            (
+                "# re-entry: R-109 | cause: c | cause: d | fix: o",
+                "`cause` is given twice",
+            ),
+        ] {
+            let error = re_entries(&format!("b\n{tag}\nc\n")).unwrap_err();
+            assert!(
+                error.contains("line 2") && error.contains(why),
+                "{tag}: {error}"
+            );
+        }
+        for authority in [
+            "R-",
+            "R-10a",
+            "r-109",
+            "lead 2026-10",
+            "lead 26-10-12",
+            "lead 2026-10-1x",
+            "the steward",
+        ] {
+            let error = re_entries(&format!("# re-entry: {authority} | cause: c | fix: o\nc\n"))
+                .unwrap_err();
+            assert!(
+                error.contains("names a steward ruling"),
+                "{authority}: {error}"
+            );
+        }
+        for text in [
+            format!("{TAG}\n\nc\n"),
+            format!("{TAG}\n# another comment\nc\n"),
+            format!("b\n{TAG}\n"),
+        ] {
+            let error = re_entries(&text).unwrap_err();
+            assert!(
+                error.contains("needs its id on the next line"),
+                "{text}: {error}"
+            );
+        }
+        // A comment that does not start with the tag is a plain comment.
+        assert!(re_entries("# re-entered later\nb\n").unwrap().is_empty());
     }
 
     #[test]
@@ -1461,6 +1682,7 @@ mod tests {
             real_only: &w.real_only,
             testkit_proven: &w.testkit_proven,
             real_pending: &real_pending,
+            re_entries: &BTreeMap::new(),
             base: files.real_pending.as_ref().map(|r| RealBase {
                 real_pending: r,
                 pending: files.pending.as_ref().unwrap_or(&no_ids),
