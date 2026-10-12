@@ -273,6 +273,8 @@ This question identifies a source fact; it does not diagnose a second observed f
 The old source CLEAN stays valid. Future known-flaky and train-4b reviews remain unstarted pending exact-head READY.
 I ran no execution job.
 
+STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
+
 ## R107-SI-1 resolved by the corrected ruling
 
 Lead receipt: `msg_plugin-w_1791823877_c463c0`.
@@ -398,6 +400,3 @@ Sol-B and Sol-C independently confirm source equality in `msg_plugin-w_179182557
 Their complete same-head package/integration receipts remain required.
 This inspection accepts no gate, final mutation result, retry, later source, status removal, or merge.
 I ran no execution job.
-
-STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
-
