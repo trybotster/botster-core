@@ -121,3 +121,98 @@ The reviewer changes no product code and runs no build, test, gate, mutation, re
 or executable base check.
 
 VERDICT: CLEAN (0 open; combined source only, final train receipt remains due)
+
+## Round 2 — ONE final whole-train receipt
+
+Train head: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Train tree: `4b7ace5012cf0543ed64dea143e5db5932c500c2`.
+Train base and BOTSTER_CI_BASE_REF: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Completed-gate request: `msg_plugin-w_1791834743_9279f8`.
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-6-3e655eff-pool-20261012-123257-88248.log`.
+Independently verified SHA-256: `4237d5aadea652758d6040dce166067584356a8addcbf088c667364851aaba5d`.
+
+The combined source review and all eight applicable member source verdicts remain CLEAN at Round 1.
+Source record: `a3250c8cb1a1b2ceb34eae8d2a6c4f5c1bffb8be`.
+The reviewer verifies all four GitHub member heads once before this receipt.
+They equal the frozen heads in Round 1, and each PR still targets v1.
+No member changed after its applicable source CLEAN. The updated Green rule requires no separate package final receipt.
+The reviewer independently verifies remote train-6 equals this head and remote v1 equals this base.
+The base is an ancestor of the train head, and the local train tree equals the reviewed tree.
+The frozen order, complete composition hash, interface checks, and all 36 list formulas remain applicable without a source change.
+
+### Completed gate evidence
+
+The retained 29593-line log names this exact head, base, msa1, and both concurrency caps at four.
+All ten CI steps PASS. CI total is 1057.4 seconds.
+The job exits zero after 1147 seconds: one queued second and 1146 running seconds.
+The wrapper exits zero after 1148 seconds.
+
+Default reports 2078 passes, 411 skips, and 14.117 seconds.
+Normal slow reports 677 passes, 2078 skips, and 44.324 seconds.
+The unmutated Stage 2 baseline reports 687 passes, 2902 skips, and 44.586 seconds; its complete baseline step takes 68.0 seconds.
+The reviewer independently parses every PASS identity and ordinal in these three sections.
+Each has the complete expected ordinal set, unique identities, and its stated denominator.
+The slowest default test takes 1.221 seconds, below the two-second individual budget.
+No FLAKY, failure, timeout, panic, SIGSEGV, or SIGABRT result occurs in these unmutated runs.
+The printed known-flaky signature is configuration text, not an observed INCONCLUSIVE result.
+
+Both strict summaries report 281 passes, zero failures, and 411 ignored.
+Strict conformance runs 300 of 317 pending identifiers with transcripts; seventeen real-only identifiers do not run and four remain held.
+The branch sets default/strict seeds to 0–31 and normal real-process seeds to zero.
+Held-full runs three budget identifiers at 32 seeds each: 96 ignored, zero failures, and 22.36 seconds.
+Minimum accounting reports testkit-passing 68/69, real-passing 66/68, and real-accepted 67/69.
+
+All sixteen removals from core-pending have normal default PASS records.
+Twelve also have normal real conformance PASS records.
+The remaining four retain real-pending status: dp3 route codec, dp4 write-time modes, dp5 no success acknowledgement, and dp5 optional op.
+The train adds those four to real-pending and removes no identifier from that set.
+The ignored real run retains 38 real-pending identifiers and reports 29 passes, with zero failures.
+It does not count those passes as active conformance completion.
+
+The current `.44` ignored real run now reports dp3 route codec PASS.
+This supplies current-pin pool evidence after the fences reviewed in Round 1.
+The normal real tier uses seed zero; this receipt makes no full-seed real-tier claim.
+The lead assigns dp3's possible removal to a follow-up PR. The train keeps its current status unchanged.
+The two dp5 fence exceptions remain. No removal, new pin, or additional control is accepted by this receipt.
+
+The R-97 deadline tests, worker wake tests, no-grace assertion, and combined resize regressions have normal PASS records.
+The real PTY resize test passes in `slow_session` and `slow_driver` in normal slow and the unmutated baseline.
+This gate supplies no execution of #322's separate FIFO patch or #323's separate status-entry patch.
+
+### Mutation and fuzz audit
+
+Stage 1 reports 212 mutants: 186 caught, one missed, zero timeout, and 25 unviable, in 383.9 seconds.
+The reviewer independently parses all 212 unique raw mutant identities.
+The Stage 2 identity set equals the Stage 1 miss set exactly.
+Stage 2 catches its one mutant, with zero miss, timeout, or unviable result, in 36.5 seconds.
+The recovered mutant replaces `Payload::resize` with `Ok(())`.
+Its catch is `botster-worker::bin/botster-worker slow_driver::sz_1_resize_sets_the_real_pty_size`.
+That test passes in normal slow and the unmutated Stage 2 baseline.
+
+All 186 Stage 1 raw catches match unique citations. Each cited test passes in the normal gate.
+The one Stage 2 raw catch also matches its unique citation and both unmutated PASS records.
+Final mutation accounting is 212 total, 187 caught, zero missed, zero timeout, and 25 unviable.
+Unviable mutants supply no behavioral catch. No FLAKY result or retry-based catch is credited.
+
+The Stage 2 selection omits the named EV-2 real trial through the reviewed known-flaky entry.
+The entry prints its structured step, reason, seed, text, owner RC, and #316 removal condition.
+EV-2 passes normal slow at 0.129 seconds and the unmutated baseline at 0.126 seconds.
+EV-2 supplies no mutation catch citation. The exclusion does not suppress an unmutated failure or authorize a re-gate.
+The later `.45`-or-newer pin must still remove the entry and restore the empty-list assertion under the reviewed R107-SI-2 disposition.
+
+Both changed-package decoder fuzz harnesses finish successfully.
+`link_decoder` completes 7184664 runs in 61 seconds. `msg_decoder` completes 3881449 runs in 61 seconds.
+No crash or failure appears in their retained output.
+
+### Final disposition
+
+Zero composition or gate findings remain, including LOW.
+This is the single final receipt for all four frozen members and this exact gated train head.
+The lead may apply the Green rule to fast-forward v1 to this head.
+The lead must verify the resulting base tree equals the gated tree and verify the remote push with `git ls-remote`.
+Those merge verifications remain due; this receipt does not claim that the merge occurred.
+No future source, gate, retry, status removal, or pin is accepted.
+The reviewer changes no product code and runs no build, test, gate, mutation, reversal, reproduction, measurement,
+or executable base check.
+
+VERDICT: CLEAN (0 open; FINAL whole train)
