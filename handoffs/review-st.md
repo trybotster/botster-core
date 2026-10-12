@@ -141,6 +141,15 @@ The reviewer verified both text resolutions and the DueStep scheduler-hold exemp
 The exact-head Linux gate passes all ten steps, exit 0 after 1238 seconds on msa1. The PR body records the same head and gate.
 No source finding remains open. The lead controls the next train and any later base update. Wait for the next doorbell.
 
+#298 rounds 6 and 7: CLEAN at `8f070c492c17d0be727b914f74edce626065b7f2`.
+Final imported v1 and gate base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+The reviewer checked all three merge resolutions and six conformance sets at each merge. All sets match.
+The modes repair preserves started frames, replaces an unstarted modes frame and makes that frame droppable.
+R-109 authorizes the recorded ou_3 real re-entry. Its earlier RED gate remains in the verdict.
+The exact-head Linux gate passes all ten steps, exit 0 after 824 seconds on msa1. The PR body names the same head and evidence.
+The verdict records the inherited known-flaky exclusion, local Mac results and modes reversal limits.
+No source finding remains open. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.

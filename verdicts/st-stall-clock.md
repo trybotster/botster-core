@@ -1,6 +1,73 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (Core #298 at 5d5d4eef)
+VERDICT: CLEAN (Core #298 at 8f070c49)
+
+## Core #298: import and modes repair, rounds 6 and 7
+
+Reviewed head: `8f070c492c17d0be727b914f74edce626065b7f2`.
+Previous source CLEAN: `5d5d4eefd5872864a972bc248f415f9cf6673ef3`.
+Final imported v1 and gate base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+VERDICT: CLEAN. No source finding remains open. The reviewer ran no local build or test.
+
+### Source and merge checks
+
+The reviewer inspected the remerge diffs for `c1c6363d`, `ae9d4ced` and `8f070c49`.
+The first merge retains the host stall section and imported control-queue section.
+The second merge retains the worker's stall/history fields and imported size/report/activity fields in both route constructors.
+It also retains both test modules and both groups of real-pending ids.
+The final merge retains the three ST budget entries and takes the imported DP-5 budget description with its GS owner.
+
+The modes repair at `393b64f0` adapts the imported coalescing code to the classed queue.
+It inspects each entry's bytes, removes only an unstarted modes frame, and subtracts that frame's full queued length.
+It queues the replacement as droppable and outside the exempt baseline sequence.
+The started-frame rule preserves a frame with an outstanding write or accepted bytes.
+The stall code drops the unstarted modes frame; the resumed baseline carries the current size and modes.
+The worker DESIGN.md now states that rule.
+The new proof checks a queued resize, a stall and a resumed baseline at 30 by 100.
+The existing modes tests retain partial writes, outstanding writes and coalescing behavior.
+
+The final imported exit-watch failure path ends the worker through `end_with`; it does not alter the route queue or stall clock.
+The imported testkit changes use the hex form of the PTY input log. The reviewed route-report control remains present.
+The host's imported control-room and frame-fit paths retain the reviewed due-step budget and scheduler exemption.
+
+The reviewer independently checked all six conformance sets at each merge against its actual parents and merge base.
+Every set matches the three-way union-minus-removals rule.
+The final sets contain held 7, pending 379, real-only 26, real-pending 45, real-proofs 4 and deferred 2.
+The explicit real-pending re-entry is a separate authorized change, not an id lost in a merge.
+
+### R-109 and retained earlier failure
+
+The reviewer read R-109 in contracts `docs/steward-rulings.md`.
+It authorizes re-pending `ou_3_progressing_reader_lossless` on the real tier until the progressed fences are pinned and pass.
+The reviewed re-entry line names R-109, its cause, contracts #99 and the removal trigger in the required comment form.
+The head pins contracts-v0.1.46. This verdict does not claim the missing fenced transcript has been proved on that pin.
+
+The earlier gate at `c1c6363d` remains RED, exit 1 after 437 seconds.
+Its real slow run fails `ou_3_progressing_reader_lossless`, seed 0, step 48: Core receives RouteStalled while the transcript expects none.
+R-109 identifies the missing progress-consumption fences after route_accept; the later pending disposition follows that ruling.
+The earlier local timeout claims remain unclassified local evidence. This review does not turn those runs green.
+
+### Completed evidence
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-8f070c49-pool-20261012-142423-35272.log`.
+The header names this exact head and final imported base. All ten steps pass.
+The wrapper reports exit 0 after 824 seconds on msa1.
+Mutation result: 248 tested, 232 caught, 0 missed, 0 timeout and 16 unviable. Three catches came from stage 2.
+The normal default run passes 2148 tests, and the slow run passes 679 tests.
+The gate retains its inherited KSTATE-1 known-flaky exclusion for `in_8_mode_checked_at_write_start_by_worker`; the stage-2 log explicitly records that skip.
+The new modes test passes in the final gate.
+
+Local Mac log: `~/botster-sessions/gates/st-298-r7/local-8f070c49.log`.
+It names this head and records the target clean at `2026-10-12T21:14:37Z`.
+All 15 checks exit 0. Selected packages pass 1227/1227, including the new modes test; strict default conformance passes 595/595 at seeds 0-31.
+The new semantic change concerns queue classes and adds no platform operation. The earlier focused Mac limits remain recorded for the unchanged stall transport paths.
+
+Reversal: `~/botster-sessions/gates/st-298-r6/reversal-modes-kept.log`, at repair head `393b64f0`.
+The reviewer inspected its scratch diff and full failed assertion. Keeping the modes frame fails the new stall proof; the other eight selected tests pass.
+The log reports an incremental build in the same worktree since its last clean. The reviewer did not run the reversal or independently verify cleanup.
+
+The reviewer verified the updated PR body at this exact head. It retains the earlier RED gate and names both later rounds, the re-entry and completed final gate.
+This is the matching package delta receipt. The lead controls the next train and any later base update.
 
 ## Core #298: train-2 merge delta, round 5
 
