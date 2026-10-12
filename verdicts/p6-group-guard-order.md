@@ -147,3 +147,45 @@ This verdict accepts no later head, contracts pin, or status removal.
 I changed no product code and ran no execution job, including no executable base check.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-11: final gate, body, and merge
+
+Exact head: `07f5db488e71f5da46d845ee9663a5a7e6863ec5`.
+Imported and gate base: `f7eeced64e652700f2f78fc063e4896832134233`.
+Tree: `472925ad9b1684553cc87ef0a0e65b4792010e95`.
+The unchanged head retains Round 3's verified source carryover and canonical PASS.
+
+Final log: `~/botster-sessions/gates/botster-core-stage1-p6-group-guard-order-07f5db48-pool-20261011-180130-28242.log`.
+SHA256: `85648fdc79335bcd4c5750ecd40295a52df5d03b49f0662726298fb959e5a15f`.
+I read the exact-head/base header, lists records, selected affected-test outcomes, tier/stage summaries, and final exits.
+All ten stages pass in 195.3 seconds. The job exits zero after 249 seconds: 31 queued and 218 running.
+The wrapper exits zero after 249 seconds.
+Default passes 1843 tests, with 435 skipped, in 13.857 seconds.
+Slow passes 606 tests, with 2040 skipped, in 42.373 seconds.
+
+The changed group-kill test and signal-handler test pass. The payload-reap observer passes.
+The guard's failed-cleanup, panic-before-ready, and early-exit proofs pass in the affected sys, Core, and worker targets.
+The complete log contains no FLAKY record or failed nextest result.
+The mutation stage lists no mutant of this test-only diff and starts no run. It supplies no additional reversal proof.
+Fuzz reports no changed crate with a decoder harness.
+The lists command names the exact imported base as both run base and merge base. It passes with 44 real-pending identifiers.
+The inherited conformance summaries pass. The held-full command reports two budget identifiers at 32 seeds, one trial per seed.
+This PR changes no pending file or mutation exclusion. These inherited outcomes authorize no additional status removal.
+
+I read the complete live final-body delta after GitHub MCP truncates the body.
+It records the exact import, canonical PASS, final gate, and package/integration source receipts.
+Its records agree with the completed evidence. Raw body SHA256: `aac2aebae733ff0444075f63b0ff85026836e4311e5a6431d69a6c312c5fdde0`.
+The focused Mac and reversal evidence retain their recorded original-head scope through the verified source carryover.
+I also read Sol-B's complete record at `7170bb52858a9d2557a2cf0aa502c10a90092f8b`.
+That record closes GG-I1 and permits source carryover. Its final-gate claim remains pending; it does not supply this round's gate evidence.
+
+GitHub reports #296 merged at 2026-10-12 01:06:28Z, merge `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+I independently inspect the merge object. Its parents are the exact gate base and reviewed head above.
+Its tree exactly equals the reviewed and gated tree. The merge adds no source delta.
+
+No package finding or required acceptance record remains for this exact head.
+The source, canonical check, required Mac and reversal evidence, final gate, final body, and exact-tree merge are reviewed.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
