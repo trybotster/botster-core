@@ -2804,3 +2804,99 @@ fn modes_coalesce_to_one_latest_unstarted_frame_per_route() {
     two.take_all(&mut w, RouteId(2), held);
     assert_eq!(modes_sizes(&two), [(25, 90)]);
 }
+
+/// The bytes of the one `RouteWrite` of route 1 in `actions`.
+fn route_write(actions: &[Action]) -> Vec<u8> {
+    let writes: Vec<&Vec<u8>> = actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::RouteWrite {
+                route: RouteId(1),
+                bytes,
+            } => Some(bytes),
+            _ => None,
+        })
+        .collect();
+    let [bytes] = writes[..] else {
+        panic!("one write: {actions:?}");
+    };
+    bytes.clone()
+}
+
+/// DP-5, OU-4: a `modes` frame that has started completes. The front `modes` frame, while its write is out, stays when the
+/// size changes again, and the new size follows it.
+#[test]
+fn a_modes_frame_whose_write_is_out_completes_and_the_new_size_follows() {
+    let (mut w, mut client, _) = attached(limits());
+    let mut actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    route_write(&actions);
+    actions.extend(w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    }));
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(modes_sizes(&client), [(30, 100), (40, 120)]);
+}
+
+/// DP-5, OU-4: a `modes` frame that is partly written has started: it stays when the size changes again, the rest of it is
+/// written, and the new size follows it.
+#[test]
+fn a_partly_written_modes_frame_completes_and_the_new_size_follows() {
+    let (mut w, mut client, _) = attached(limits());
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    let frame = route_write(&actions);
+    client.reader.push(&frame[..3]);
+    let rest = w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(3),
+    });
+    assert_eq!(route_write(&rest), frame[3..]);
+    // The transport takes nothing more now: no write is out, and 3 bytes of the frame are written.
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    });
+    let mut actions = w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    });
+    actions.extend(w.feed(Input::RouteWritable { route: RouteId(1) }));
+    assert_eq!(
+        route_write(&actions),
+        frame[3..],
+        "the rest of the started frame"
+    );
+    client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(modes_sizes(&client), [(30, 100), (40, 120)]);
+}
+
+/// DP-5: a `modes` frame whose write took no byte has not started, so the next size replaces it. When the queue is written,
+/// the read budget is the one of an empty queue again: the replaced frame left the count of queued bytes.
+#[test]
+fn a_modes_frame_that_the_transport_did_not_take_is_replaced() {
+    let (mut w, mut client, attach) = attached(limits());
+    let empty = budgets(&attach).last().copied().flatten();
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    route_write(&actions);
+    w.feed(Input::RouteWritten {
+        route: RouteId(1),
+        result: Ok(0),
+    });
+    let actions = w.send(&HostMsg::Op {
+        req: 4,
+        op: resize_op(40, 120),
+    });
+    let all = client.take_all(&mut w, RouteId(1), actions);
+    assert_eq!(modes_sizes(&client), [(40, 120)]);
+    assert!(empty.is_some());
+    assert_eq!(budgets(&all).last().copied().flatten(), empty);
+}

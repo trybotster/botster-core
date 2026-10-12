@@ -119,18 +119,24 @@ impl Routes {
     /// DP-6 `Latest`: the last size of the open route with the most recent activity, among the routes that reported a size
     /// (the receive order has no ties). It is `Some` when it differs from the last size that the policy gave, or when a
     /// route reported a size since the last call: that report is newer than any host `Resize`. With no such route the
-    /// size stays (`None`). A closing route applies no more input, so it is not a candidate.
+    /// size stays (`None`). A closing route applies no more input, so it is not a candidate. The policy runs after each
+    /// route read, so a route that reported since the last call is the one with the most recent activity: the report that
+    /// counts is the winner's.
     pub(super) fn policy(&mut self) -> Option<(u32, u32)> {
-        let reported = self.routes.values_mut().fold(false, |any, route| {
-            std::mem::take(&mut route.reported) | any
-        });
-        let latest = self
+        let winner = self
             .routes
             .values()
             .filter(|route| route.closing.is_none())
-            .filter_map(|route| route.size.map(|size| (route.activity, size)))
-            .max_by_key(|&(activity, _)| activity)
-            .map(|(_, size)| size)?;
+            .filter_map(|route| {
+                route
+                    .size
+                    .map(|size| (route.activity, size, route.reported))
+            })
+            .max_by_key(|&(activity, ..)| activity);
+        for route in self.routes.values_mut() {
+            route.reported = false;
+        }
+        let (_, latest, reported) = winner?;
         if !reported && self.computed == Some(latest) {
             return None;
         }
