@@ -427,8 +427,9 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   decides from Core's own state, and Core (not the worker) posts `SessionWritable`. The link message
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
-  the link's frame bound `F` (`HostEngine::link_frame_bound`: `4 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB`)
-  and one control message `c` (the largest `Cancel` frame):
+  the link's frame bound `F` (`HostEngine::link_frame_bound`:
+  `min(4 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
   - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame
     bound. It is a true upper bound, not an estimate: `encode_frame` refuses a larger payload, so no host message is
