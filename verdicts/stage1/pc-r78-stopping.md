@@ -337,3 +337,176 @@ R291-SI-3 remains closed at design level. R291-SI-2 and revised source/evidence 
 Sol accepts no new execution result or source head in this design round. Sol runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open design findings) for revision-4 delta bb550e41 against base 5e953398925351c12e463a7b0a946b79d9841edc; #291 source remains NOT CLEAN
+
+## Round 8 — repaired source and current evidence inspection
+
+READY head: `8ac717c7d94560bf1f82a5975bb45162ba0b88da`.
+Reviewed source base: `f6025aed4cdf7da836e835e0040fc128b7e8f32f`.
+Head tree: `07a89c69acd600e65d27c7b536d30908831f816c`.
+Gate comparison reference: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+Sol verifies that the comparison reference is not an ancestor of this head.
+It supplies first-READY evidence, not final-slot acceptance against current v1.
+Plan 23cm governs. The accepted revision-4 design hash remains bb550e41 above.
+
+Sol reads the complete repaired production delta and all changed tests after 79f31be3.
+Sol also reads the complete affected input, action, read, held-frame, pump, close, and request-completion paths.
+The earlier review covers the unchanged original production paths and their worker callers.
+Sol independently checks the f6025aed import: all imported non-own blobs match that base.
+All non-overlapping own blobs match 2bc8b247 at merge 2eee84ba.
+The overlapping real.rs merge preserves every own added and deleted line.
+The only subsequent production change restores the first pump `more` expression and adds its explanatory comment.
+The own diff changes no pending list or contract pin.
+
+### Original source findings close
+
+R291-SI-1 remains closed. The probe and EndPayload paths both require a worker that is not gone.
+The World records identity probes. The combined-order and known-gone tests assert that no probe occurs.
+
+R291-SI-2 closes in source. `on_process_exited` retains an open link for Idle and Stop, including a chosen end.
+It emits LinkPeerEnded instead of closing the link or failing in-flight requests.
+An Absent or Reused stop-probe answer uses the same drain action while a link remains open.
+The driver consumes complete frames within its existing budget and preserves an unaccepted held frame.
+The driver closes an ended link at EOF, a read error, or the first would-block.
+It treats a trailing partial frame as a truncated link. It adds no timer or limit.
+The close classifies WorkerGone only when no end is chosen. In-flight requests retain their chance to receive Done.
+The updated OU-7 cases distinguish a written RouteClosed behind Exited from no written close.
+The first case produces SessionEnded once. The second case produces SessionLost once.
+The production-driver case checks Done, RouteClosed, the chosen exit code, and host closure without peer EOF.
+The combined-order case queues all frames before exit and delays delivery across the grace with the pump budget.
+It checks both exit-report/write-failure orders without early request failure or classification.
+
+R291-SI-3 remains closed. `draining()` requires `peer_ended && held.is_none()`.
+A held frame without mandatory room leaves `more=false` until poll frees room and restores the link.
+A budget-limited drain preserves `more_input`. The bound test checks eventual closure over successive pumps.
+The settle-time case checks that an exit taken after the last link read leaves runnable work.
+The first `more` expression matches plain base. Only the post-settle expression adds `draining()`.
+There are eleven driver-drain tests. The updated body corrects its earlier count of twelve.
+Sol establishes no additional source defect on this head.
+The future ST driver import still requires composition review at the final slot.
+
+Package message `msg_plugin-w_1791763913_35c121` confirms closure of both original source findings on 8ac717c7.
+The new formal same-head package verdict remains due. Sol does not infer it from that message.
+
+### Exact-head Linux gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-pc-r78-stopping-8ac717c7-pool-20261011-165822-79584.log`.
+SHA-256: `0bfc1d41038bd978bd0a91bf4547acb5b371bf63cf1886f9f0d9e8ac11723e2f`.
+All ten steps PASS in 284.9 seconds on msa1 with four CPUs.
+The job and wrapper exit zero after 468 seconds: 173 queued and 295 running.
+Default: 1822 PASS, 460 skipped, 13.035 seconds. Slow: 600 PASS, 2025 skipped, 43.186 seconds.
+The unmutated slow baseline has 600 PASS, ten slow cases, and 2757 skipped, in 42.275 seconds.
+Stage 1 has 62 mutants: 58 caught, two missed, two unviable, zero timeout, in 73.2 seconds.
+Stage 2 handles exactly those two first-stage misses and catches both in 39.8 seconds.
+Sol independently matches all sixty unique raw catches to all sixty named catches and their selected normal PASS results.
+No FLAKY line occurs. Fuzz reports no changed decoder harness.
+The current Linux facade test passes in both the normal slow run and unmutated baseline.
+
+The prior 2eee84ba gate remains RED: eight PASS steps, mutants FAIL, fuzz NOT RUN.
+Its SHA-256 is `d2248a5a28a85cd6a25e2a6ea97e0c90c03ed9c640adbc8b85169ebfeb2ebd04`.
+Stage 1 has 58 caught, four missed, two unviable, and zero timeout.
+Stage 2 catches two and misses the two first-pump `||` to `&&` mutations.
+8ac717c7 removes the redundant first-pump drain term instead of repeating that same head's gate.
+The retained current post-settle operator reversal fails four tests; the restored host tree passes 320 tests.
+That filtered log has SHA-256 `ff4a800f793a09b2cee0203c6a73e80b0c146937a673548f6068b7112a6438b6`.
+Its clean sequence relies on PC's explicit same-worktree statement. It does not supply a full decoded command.
+
+### Reversal and Mac cache records
+
+The old-head driver reversal has SHA-256 `1fb0d0de515a18a6e87214a10b9c3390dd34780890e7793a09007c5a842b17dd`.
+Five of eight new tests fail against 79f31be3 production code, including the written RouteClosed case.
+PC records a clean immediately before that detached worktree's run, with no other target writer.
+The filtered record retains no complete command or all panic messages. Sol preserves those limits.
+
+PC receipt `msg_plugin-w_1791763865_4af065` establishes a B13 gap in the older 1ff76822 reversals and 2eee84ba Mac runs.
+Those records reused targets/pc after another worktree's build without a clean.
+Their valid source labels and observed outcomes remain historical, unvalidated evidence.
+Lead receipt `msg_plugin-w_1791764208_f9121a` requires replacement reversals and Mac test 13 with a recorded clean.
+PC supplies replacements in `msg_plugin-w_1791764392_6e1179`.
+Sol reads every replacement record in full and verifies each hash.
+
+All replacement paths are in `~/botster-sessions/shared/core-stage1/evidence/pc-r78/`:
+
+- `rev4-reversals-clean-8ac717c7.log`: `ddfa762de9915a973aa0f54add562925390277cce1dcdf41ad08aac0ef2ef18b`.
+- `prebuild-clean-8ac717c7.log`: `4b2b6a02ff2be0453bd95319c5807105db3cb1fa97c4bc4fd136b37744cab0e2`.
+- `t13-mac-clean-8ac717c7-run1.log`: `20b97989952ae726977c6113731c7441c692eb155b10f1fd879e7a919ed75acb`.
+- `t13-mac-clean-8ac717c7-run2.log`: `fb892f05b1150587cf3a3caea0a420b3e4ab8394696a127001531108dbcfdbe3`.
+- `t13-mac-clean-8ac717c7-run3.log`: `d1a3b44923fa02524efc148a73fa8d2d218bd1805f3b408e629f62bb1712e661`.
+
+The first header records exact head, clean worktree, no other target process, and cargo clean removing 10.0 GiB.
+It records that targets/pc is absent after the clean.
+PC states that only the R-78 worktree builds there through the final facade run.
+The five reversals fail eight, one, one, ten, and one tests respectively. The restored tree passes 320 of 320.
+The prebuild record names all three candidate binaries and their manifest hashes.
+Each facade header names 8ac717c7, a clean worktree, the same clean sequence, and that candidate build.
+The facade test passes three of three runs, in 0.395, 0.323, and 0.366 seconds.
+These filtered records do not contain complete decoded commands or reversal patches.
+Sol accepts their named outcome and cache scope from the retained headers and PC's explicit statement.
+The replacement records close the recorded B13 gap. They do not validate the superseded runs retroactively.
+The PR body snapshot below predates these replacements; the final body must cite the accepted replacement records.
+
+### Current A5-4 comparison
+
+The lead requires a new comparison with plain f6025aed before and 8ac717c7 after.
+Both tiers use the same four-job script and table version 2 on msa1 Linux 6.12.111+deb13-amd64.
+Testkit uses explicit seeds 0–31. Real uses default seeds 0–7.
+Sol independently parses every raw result and every table cell, without running PC's scripts.
+Each table contains exactly 690 unique identifiers. Every count, status, and failure detail matches the raw records.
+There are no missing cells, extra cells, false PASS cells, or mismatches.
+
+- Before raw SHA-256: `1d1f752e7f95ad2583fd21f42629bf665bea532937057a7f535e3dc440b6cbbc`.
+- After raw SHA-256: `f3426eb9e0baf6a10e732e9cb871f4c0915a5481b8b980e8881a3114cbc17391`.
+- Real table SHA-256: `b7504020fa7d79fca6d9995e256407a2939ef1aea62b53c91f15e8db4f320719`.
+- Testkit table SHA-256: `2aa5f64fdb8075e1809974d5da36701e1e91cfe9af8d12c3df6bc01962a670b8`.
+
+Testkit has 230 must-pass PASS results before and after, with zero changed cells.
+Real has 205 must-pass PASS results before and 203 after; pending-real PASS results change from ten to nine.
+Real has six changed cells. The after run has two raw must-pass failures despite its job and wrapper exit zero.
+The filtered command pipelines mask those failure exits; wrapper zero is not a PASS verdict.
+
+The six real changes are:
+
+- dp_5_bytes_and_text_reach_the_pty_exactly: pending PASS becomes pending FAIL at seed 0, step 18, with empty PTY segments.
+- dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing: pending FAIL changes from seed 0 to seed 4, both at step 13.
+- ev_2_drop_oldest_with_marker: pending FAIL changes from step 67 to step 66 at seed 0, with the same one-event lag.
+- in_9_modes_read_at_write_start: must-pass PASS becomes INCONCLUSIVE at seed 4, step 8, limit step_timeout.
+- st_6_capture_is_frozen_at_model_rev: must-pass PASS becomes FAIL at seed 2, step 17, expected ne[1,1].
+- tm_6_begin_and_attach_signal_wake: pending FAIL changes from seed 1, step 21, to seed 0, step 21, with one unexpected event.
+
+The four pending changes retain their existing pending status. This PR changes no list.
+
+### ST-6 attribution and R291-SI-4 — MEDIUM, open: IN9 must-pass flip lacks accepted attribution
+
+Lead receipt `msg_plugin-w_1791764208_f9121a` attributes ST-6 to v1 through #288's accepted controlled reproduction.
+Sol supplies the required source-disjoint assessment: ST-6 reaches its failing step without Stop, exit, send failure, or link loss.
+The added R-78 stop and exit branches therefore do not act in that transcript prefix.
+The new link flags start false. Without a worker end or send failure, they remain false and their new guards do not change delivery.
+The first pump `more` expression matches base; the new post-settle drain term remains false on that live link.
+The own diff changes no worker production code, PTY output control, model feed, or ReadScreen implementation.
+The Linux zombie check still returns the same identity for a live worker.
+Both ST-6 output steps use await_quiet instead of an output fence before their model reads.
+These source facts support the same missing-fence mechanism accepted for #288.
+The accepted plain-f6025aed diagnostic reproduction has seed 0, step 17, and the same ne[1,1] failure.
+Its log hash is `a21e40b2b2db7710acd8cc0eb3572a726cd27f3720debcdde6db0f49e7428c09`.
+Sol's acceptance commit is `5fa42e4aa2dbf186fdf7ad9a7c4308af4ca2210f`.
+This assessment does not claim a controlled seed-2 run, an original-gate trace, or an uninstrumented-v1 reproduction.
+RC owns the future .42 fence import. This READY still uses .39.
+
+IN9 remains unattributed under the same lead receipt. Source-disjoint reasoning alone cannot close this flip.
+Its transcript blocks the PTY, begins focused input, enables focus reporting, releases the PTY, then awaits written completion at step 8.
+It has no Stop, exit, send failure, or link loss before the timeout.
+Sol reads the complete current IN9 record; it supplies no earlier plain-v1 failure witness.
+PC owns the diagnosis. The lead requires a plain-v1 failure log or an accepted 23bl(A) controlled reproduction.
+Until that evidence exists, the lead treats this as a #291 flip and a merge blocker.
+Do not remove the identifier, change its status, or use a passing normal gate to erase the A5-4 failure.
+
+### Body and remaining acceptance
+
+Sol reads the complete updated body at exact head 8ac717c7 and GitHub base f6025aed.
+Raw body SHA-256: `39ca6b22325c3d73718ac453542db40d2f753682bfbc1f759957174a7395fbe0`.
+It corrects the driver test count, preserves the withdrawn transfer, names the new A5-4 failures, and marks the old B13 records unvalidated.
+It must incorporate the replacement records and final lead disposition in the next acceptance body.
+The final slot still requires current-v1 and ST imports, applicable base checks and delta reviews, and one exact-final-head gate.
+The complete new package verdict and final acceptance remain due.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base check. Never poll.
+
+VERDICT: NOT CLEAN (1 MEDIUM evidence finding: R291-SI-4; 0 open source findings) at 8ac717c7d94560bf1f82a5975bb45162ba0b88da against source base f6025aed4cdf7da836e835e0040fc128b7e8f32f
