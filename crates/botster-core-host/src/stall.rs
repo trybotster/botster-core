@@ -6,8 +6,8 @@
 //!
 //! - **Arming.** The reader deadline runs from the pump that consumes the worker's `RouteProgress{waiting: true}` with a new
 //!   mark, and ends with `waiting: false`. The pump that consumes a report is never earlier than the progress, so Core
-//!   never stalls a reader early (OU-3). The close deadline runs from the pump that consumes `RouteStalled` (OU-2: no route
-//!   closes by the stall alone before `stall_close_after`).
+//!   never stalls a reader early (OU-3). The close deadline runs from the pump that posts `RouteStalled` (OU-2: no route
+//!   closes by the stall alone before `stall_close_after`), and ends at the pump that consumes `RouteResumed`.
 //! - **The due step** is one atomic step with a mandatory event (E3-1 item 2), as a due `Silent` is: it runs only in a
 //!   pump with event budget (otherwise it is carried, and `more` is true), only with mandatory room (otherwise it is parked:
 //!   it is absent from `ready()` and from `next_deadline()`, and a poll that frees room wakes the handle), and in due order
@@ -42,7 +42,7 @@ pub(crate) struct RouteClock {
     stall_close_after: Duration,
     /// The mark of the last `RouteProgress{waiting: true}` that the host consumed, and the pump that consumed it.
     waiting: Option<(u64, Instant)>,
-    /// The mark of the stall, and the instant of its close (`stall_close_after` after the pump that consumed `RouteStalled`).
+    /// The mark of the stall, and the instant of its close (`stall_close_after` after the pump that posted `RouteStalled`).
     stalled: Option<(u64, Instant)>,
     /// The due step that was sent and is not answered.
     asked: Option<Due>,
@@ -217,27 +217,42 @@ impl HostEngine {
         }
     }
 
-    /// `RouteStalled` (OU-2): the close deadline runs from this pump, and the reader deadline ends. The event goes into the
-    /// slot that the due step held. False when the report is not this route's (`clock_takes_reports`): it posts no event.
-    pub(crate) fn route_stalled(&mut self, session: &SessionId, route: RouteId, mark: u64) -> bool {
+    /// `RouteStalled` (OU-2): the reader deadline ends, and the event goes into the slot that the due step held. The close
+    /// deadline runs only from the pump that posts the event (`route_stall_posted`): an event that waits behind older parked
+    /// route events (EV-6) has no close deadline yet, so Core never sends `RouteCloseDue` before the host has `RouteStalled`
+    /// (R-90 Q1 condition 1; 0181's ST298-R5). False when the report is not this route's (`clock_takes_reports`): it posts no
+    /// event.
+    pub(crate) fn route_stalled(&mut self, session: &SessionId, route: RouteId) -> bool {
         if !self.clock_takes_reports(session, route) {
             return false;
         }
         self.release_route_slot(route);
-        let now = self.now;
         if let Some(entry) = self.routes.get_mut(&route) {
             entry.clock.waiting = None;
             entry.clock.parked = false;
+        }
+        true
+    }
+
+    /// `RouteStalled` at `mark` posted: the close deadline runs from this pump. A resume or a close of the route that waits
+    /// behind the event already ended the stall in the worker, so it arms nothing.
+    pub(crate) fn route_stall_posted(&mut self, route: RouteId, mark: u64) {
+        if self.parked.iter().any(|p| p.route() == route) {
+            return;
+        }
+        let now = self.now;
+        if let Some(entry) = self.routes.get_mut(&route) {
             entry.clock.stalled = now.and_then(|now| {
                 now.checked_add(entry.clock.stall_close_after)
                     .map(|at| (mark, at))
             });
         }
-        true
     }
 
-    /// `RouteResumed` (OU-2): the close deadline ends. The worker's next progress report arms the reader deadline again.
-    /// False when the report is not this route's: it posts no event.
+    /// `RouteResumed` (OU-2): the close deadline ends when Core consumes the report, also when the event waits behind older
+    /// parked route events. The worker left the stall: a close step after this point would send a `RouteCloseDue` that the
+    /// worker declines with no answer, and its slot would never come back. The worker's next progress report arms the reader
+    /// deadline again. False when the report is not this route's: it posts no event.
     pub(crate) fn route_resumed(&mut self, session: &SessionId, route: RouteId) -> bool {
         if !self.clock_takes_reports(session, route) {
             return false;

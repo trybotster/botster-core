@@ -28,6 +28,14 @@ fn start(rig: &mut Rig, name: &str, link: LinkId) {
 
 /// A route of `session`, whose worker on `link` bound it.
 fn attach(rig: &mut Rig, session: &str, link: LinkId) -> RouteId {
+    let route = attach_only(rig, session);
+    rig.worker_says(link, WorkerMsg::RouteReceived { route });
+    rig.pump();
+    route
+}
+
+/// A route of `session` that the driver hands off in the next pump.
+fn attach_only(rig: &mut Rig, session: &str) -> RouteId {
     let route = rig
         .driver
         .attach(
@@ -52,9 +60,29 @@ fn attach(rig: &mut Rig, session: &str, link: LinkId) -> RouteId {
         .unwrap()
         .route;
     rig.pump();
-    rig.worker_says(link, WorkerMsg::RouteReceived { route });
-    rig.pump();
     route
+}
+
+/// Fills the queue of one slot with the worker's close of `other`, then parks an older route event: the close of a new
+/// route whose handoff fails (DP-2) while the queue has no room. The poll after it frees the slot, and the parked close
+/// waits for the next pump that has room.
+fn park_a_close(rig: &mut Rig, other: RouteId) {
+    rig.worker_says(LinkId(1), closed(other));
+    rig.pump();
+    rig.mock
+        .lock()
+        .unwrap()
+        .links
+        .get_mut(&LinkId(1))
+        .unwrap()
+        .fail_descriptor = vec![DescriptorSendError::Failed];
+    attach_only(rig, "s1");
+    assert_eq!(parked_work(rig), serde_json::json!(["s1"]));
+    let events = rig.drain_events();
+    assert!(
+        matches!(&events[..], [Event::RouteClosed { route, .. }] if *route == other),
+        "{events:?}"
+    );
 }
 
 fn waiting(rig: &mut Rig, link: LinkId, route: RouteId, mark: u64) {
@@ -210,4 +238,124 @@ fn several_due_routes_reserve_every_slot_and_a_frame_ahead_still_passes() {
     );
     rig.pump();
     assert_eq!(rig.drain_events(), [Event::RouteStalled { route: a }]);
+}
+
+/// 0181's ST298-R5: an older parked route event (a failed handoff's close), the last slot reserved by a due stall step,
+/// and a late poll. The step's answer releases the slot, and the older close posts into it; `RouteStalled` waits behind
+/// it (EV-6). The close deadline runs only from the pump that posts `RouteStalled`, with the worker's mark: before that
+/// post the host has no close deadline, and a late poll never lets `RouteCloseDue` go first (R-90 Q1 condition 1).
+#[test]
+fn a_stall_event_behind_an_older_parked_close_arms_the_close_deadline_at_its_post() {
+    let mut rig = rig(1);
+    start(&mut rig, "s1", LinkId(1));
+    let route = attach(&mut rig, "s1", LinkId(1));
+    let other = attach(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    waiting(&mut rig, LinkId(1), route, 3);
+    park_a_close(&mut rig, other);
+    // The due stall step runs first in its pump and reserves the slot that the poll freed.
+    rig.now += STALL;
+    rig.pump();
+    assert_eq!(
+        dues(&rig, LinkId(1)),
+        [HostMsg::RouteStallDue { route, mark: 3 }]
+    );
+    assert_eq!(parked_work(&rig), serde_json::json!(["s1"]));
+    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route, mark: 3 });
+    rig.pump();
+    assert_eq!(
+        rig.driver.next_deadline(),
+        None,
+        "no close deadline before RouteStalled posts"
+    );
+    // The poll comes late, after the close interval from the consumed answer.
+    rig.now += CLOSE_AFTER + STALL;
+    let events = rig.drain_events();
+    assert!(
+        matches!(
+            &events[..],
+            [Event::RouteClosed {
+                reason: RouteCloseReason::HandoffFailed,
+                ..
+            }]
+        ),
+        "{events:?}"
+    );
+    rig.pump();
+    let posted = rig.now;
+    assert_eq!(rig.drain_events(), [Event::RouteStalled { route }]);
+    assert_eq!(
+        dues(&rig, LinkId(1)),
+        [HostMsg::RouteStallDue { route, mark: 3 }]
+    );
+    assert_eq!(rig.driver.next_deadline(), Some(posted + CLOSE_AFTER));
+    // The full close interval runs from the post.
+    rig.now = posted + CLOSE_AFTER - Duration::from_millis(1);
+    rig.pump();
+    assert_eq!(dues(&rig, LinkId(1)).len(), 1);
+    rig.now = posted + CLOSE_AFTER;
+    rig.pump();
+    assert_eq!(
+        dues(&rig, LinkId(1)).last(),
+        Some(&HostMsg::RouteCloseDue { route, mark: 3 })
+    );
+}
+
+/// The deferred resume: a due close step holds the last slot, the worker's resume takes it over, and the older parked
+/// close posts into it, so `RouteResumed` waits behind it (EV-6). The close deadline ends when Core consumes the resume, not
+/// at the event's post: a close step at the old deadline would send a `RouteCloseDue` that the resumed worker declines
+/// with no answer, and its slot would never come back. A late poll posts `RouteResumed`, and the next stall step finds its
+/// slot.
+#[test]
+fn a_resume_behind_an_older_parked_close_ends_the_close_deadline_and_keeps_the_slots() {
+    let mut rig = rig(1);
+    start(&mut rig, "s1", LinkId(1));
+    let route = attach(&mut rig, "s1", LinkId(1));
+    let other = attach(&mut rig, "s1", LinkId(1));
+    rig.drain_events();
+    waiting(&mut rig, LinkId(1), route, 3);
+    rig.now += STALL;
+    rig.pump();
+    rig.worker_says(LinkId(1), WorkerMsg::RouteStalled { route, mark: 3 });
+    rig.pump();
+    assert_eq!(rig.drain_events(), [Event::RouteStalled { route }]);
+    let stalled = rig.now;
+    park_a_close(&mut rig, other);
+    rig.now = stalled + CLOSE_AFTER;
+    rig.pump();
+    assert_eq!(
+        dues(&rig, LinkId(1)),
+        [
+            HostMsg::RouteStallDue { route, mark: 3 },
+            HostMsg::RouteCloseDue { route, mark: 3 }
+        ]
+    );
+    rig.worker_says(LinkId(1), WorkerMsg::RouteResumed { route, mark: 4 });
+    rig.pump();
+    assert_eq!(parked_work(&rig), serde_json::json!(["s1"]));
+    assert_eq!(rig.driver.next_deadline(), None);
+    // The poll comes late.
+    rig.now += CLOSE_AFTER + STALL;
+    let events = rig.drain_events();
+    assert!(
+        matches!(
+            &events[..],
+            [Event::RouteClosed {
+                reason: RouteCloseReason::HandoffFailed,
+                ..
+            }]
+        ),
+        "{events:?}"
+    );
+    rig.pump();
+    assert_eq!(rig.drain_events(), [Event::RouteResumed { route }]);
+    assert_eq!(dues(&rig, LinkId(1)).len(), 2, "no second RouteCloseDue");
+    assert_eq!(parked_work(&rig), serde_json::json!([]));
+    waiting(&mut rig, LinkId(1), route, 5);
+    rig.now += STALL;
+    rig.pump();
+    assert_eq!(
+        dues(&rig, LinkId(1)).last(),
+        Some(&HostMsg::RouteStallDue { route, mark: 5 })
+    );
 }

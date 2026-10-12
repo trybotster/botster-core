@@ -140,8 +140,19 @@ pub(crate) struct RouteEntry {
 #[derive(Debug)]
 pub(crate) enum ParkedRoute {
     Close(RouteId, RouteCloseReason),
-    /// `RouteStalled` (true) or `RouteResumed` (false).
-    Progress(RouteId, bool),
+    /// `RouteStalled` at the worker's mark: the close deadline runs from the pump that posts it (R-90; 0181's ST298-R5).
+    Stalled(RouteId, u64),
+    Resumed(RouteId),
+}
+
+impl ParkedRoute {
+    pub(crate) fn route(&self) -> RouteId {
+        match *self {
+            ParkedRoute::Close(route, _)
+            | ParkedRoute::Stalled(route, _)
+            | ParkedRoute::Resumed(route) => route,
+        }
+    }
 }
 
 /// Who a ticket belongs to.
@@ -636,10 +647,11 @@ impl HostEngine {
                 Work::Session(id) => {
                     out.insert(id);
                 }
-                Work::Parked => out.extend(self.parked.iter().filter_map(|p| {
-                    let (ParkedRoute::Close(route, _) | ParkedRoute::Progress(route, _)) = p;
-                    self.routes.get(route).map(|r| r.session.clone())
-                })),
+                Work::Parked => out.extend(
+                    self.parked
+                        .iter()
+                        .filter_map(|p| self.routes.get(&p.route()).map(|r| r.session.clone())),
+                ),
                 _ => {}
             }
         }
