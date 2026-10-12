@@ -164,3 +164,28 @@ This inspection completes no CLEAN round and grants no final acceptance.
 The current-base/train review, completed merging gate, final receipt, and Q7 remain due.
 Package closure notice: `msg_plugin-w_1791835703_e7372a`.
 The reviewer runs no execution job. Wait for the complete package verdict doorbell. Never poll.
+
+## Round 2 — corrected source and body CLEAN
+
+Head: `c3e1b41fb04a334eb9c5b864a6d3c68904743954`.
+Tree: `97b65724575fb74d83c742af7e0de855b4a5a64a`.
+Source base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Previous head: `aed0c8e188d778960376b9a684741e9080feaa08`.
+
+The reviewer reads complete matching package Round 2 at `77bb78765226124d7de68090019e9be5dbdd4cd0`.
+File: `verdicts/p5-reply-order.md`. Receipt: `msg_plugin-w_1791835726_c5a718`.
+It is CLEAN on the exact corrected head and agrees with the independent source and body correction inspection.
+The complete correction inspection at `98583e1092ace5df9bd944203b6eb59d70f7eac3` remains applicable.
+R325-F1 is CLOSED in both reviews. Zero source or body findings remain, including LOW.
+
+The reply rule, test code, production machine paths, and real-resume fix retain the complete initial source conclusions.
+The topic link, identical rule words, line width, comment, and body references satisfy the documentation correction.
+No new execution was requested or supplied for this correction.
+The retained READY gate, reversal, and local observations stay scoped to the previous aed0c8e1 head.
+This CLEAN accepts corrected source and body. It does not relabel that gate as execution of this head.
+The current-base/train delta review, completed exact merging-head gate, final receipt, and Q7 remain due.
+The pin that takes contracts #97 must retain the lead's #325 ordering requirement.
+This verdict accepts no future source, gate, pin, status removal, retry, or merge.
+The reviewer changes no product code and runs no execution job.
+
+VERDICT: CLEAN (0 open; corrected source and body only)
