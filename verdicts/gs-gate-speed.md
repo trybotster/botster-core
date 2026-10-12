@@ -3212,3 +3212,40 @@ This failed result remains failed. It supplies no acceptance evidence. The imple
 The complete live PR body still records the earlier gates and pending timing. The final body and required evidence remain due.
 
 I ran no build, test, gate, diagnostic, mutation job, or executable base check.
+
+## Core #306 — repaired slow fixture and base receipt
+
+- Exact head: `c69cbcb85e5d173468703bdea45bb3a325e87366`.
+- Base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+- VERDICT: CLEAN (source delta only; gate evidence pending).
+- Open source findings: 0.
+
+I read the complete repair and its net delta from the imported head. Only the slow fixture test changes.
+
+GS-BC-R3-1 HIGH is closed. The repair removes both runtime injections. It creates no reserved-name test or trial outside the approved macros.
+
+The tracked fixture files equal current v1. The copied fixture retains its missing-root entries. The existing module rename remains part of the slow-filter cases.
+
+The `checked` closure calls the real list checker. It partitions tier-prefixed presence violations from the other violations.
+
+Each call asserts exactly three missing-root entries with the expected binary and tier. An extra, missing, or changed presence entry fails that assertion.
+
+The closure returns the other violations to the original assertions. The unselected test, proof selection, renamed module, and ignored pending trial keep their earlier checks.
+
+This partition occurs only inside the slow test. The production presence check, gate decisions, slow filter, root macros, and candidate checks do not change.
+
+I read both retained canonical base-check logs. Their SHA-256 values match the implementer's supplied values.
+
+`gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-354c59e7-to-ee61090e.log` reports PASS and exit 0.
+
+It confirms conflict-free ancestry, disjoint base paths, unchanged own patch, and preservation of the base's pending lists. The prior source review carries to the import.
+
+`gates/botster-core-stage1-gs-built-in-coverage-base-merge-check-354c59e7-to-c69cbcb8.log` reports FAIL only at condition 3.
+
+The new slow test changes the own patch. Conditions 1, 2, and 4 pass. This explicit source delta review covers that change.
+
+The imported-head failed gate remains recorded. The implementer reports stopping the c20029a6 gate and starting a new gate on this repaired head.
+
+No completed repaired-head gate result is accepted here. Local checks remain implementer reports. Timing, required evidence, final body, and integration receipt remain pending.
+
+The lead's accepted manual name rule and mixed stale-library limit remain. I ran no execution job or executable base-check script.

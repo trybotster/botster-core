@@ -2,6 +2,14 @@
 
 ## Current Core PR #306 result
 
+Source delta CLEAN at `c69cbcb85e5d173468703bdea45bb3a325e87366`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open source findings: 0.
+
+GS-BC-R3-1 is closed. The test removes the runtime injections and asserts all three missing-root violations before the original slow-coverage cases.
+
+The canonical import check passes. The repaired-head check fails only condition 3 for this reviewed test change. Both complete logs are read.
+
+The repaired-head gate, timing, final body, required evidence, and integration receipt remain pending. I ran no execution job.
+
 NOT CLEAN at `c20029a68cbb80612d242e7ce8560260bb7460e4`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. GS-BC-R3-1 HIGH remains open.
 
 The repair creates an empty reserved-name test outside the approved macro. The mandatory manual rule requires rejection. The complete finding is in the verdict.
