@@ -435,3 +435,34 @@ This inspection completes no CLEAN round and supplies no train final receipt.
 Combined review, completed exact-train-head gate, Sol-C's one final receipt, and merge verification remain due.
 Package source-audit notice: `msg_plugin-w_1791836532_ffd4e9`.
 The reviewer runs no execution job. Wait for the package verdict doorbell. Never poll.
+
+## Round 4 — train-7b source delta CLEAN
+
+Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Frozen member: `953aa2ba300df85bff1df7a8be15f5214b6ca67b`.
+
+The reviewer reads complete matching package Round 200 at `715ec92e58205a6530bce7d0f504c5b51bdf6dc7`.
+File: `verdicts/p3-worker.md`. Receipt: `msg_plugin-w_1791836687_e3a985`.
+It is CLEAN on this exact train identity. It agrees with the empty insertion, both common bases, retained source,
+obsolete-comment disposition, status accounting, dependency interface, and pre-check limits.
+The complete independent source inspection at `56f6db60a152feef89522891d6319d9725bb9915` remains applicable.
+
+The #302 insertion changes no tree content. It supplies ancestry for the frozen member.
+Its accepted semantic input source already reaches this train through #311 in the train-6 base.
+No older resize refusal or removed pending identifier returns.
+All three affected source/test files equal the reviewed base. The twelve added #302 functions remain exact.
+All nine list formulas pass against both common bases. No additional removal is granted.
+The dp3 identifier remains real-pending, and its old unsupported-resize comment remains correctly absent from core-pending.
+The proposed #328 real-pending removal is separate and is not accepted here.
+The `.46` route-codec and core-contract comparison preserves every #302 input interface.
+Zero #302 composition findings remain, including LOW. Earlier findings retain their closures and evidence limits.
+
+This is the requested member source delta only. The lead's pre-checks remain operator reports.
+Sol-C owns combined review and the one final train receipt under the current Green rule.
+The completed exact-train-head gate and equal-tree/remote merge verification remain due.
+No historical gate becomes execution of this train. No future head, pin, status removal, retry, or merge is accepted.
+The reviewer changes no product code and runs no execution job.
+
+VERDICT: CLEAN (0 open; #302 train-7b source delta only)
