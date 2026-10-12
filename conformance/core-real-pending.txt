@@ -148,3 +148,18 @@ conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_kitty_modifier_keys_need_flag_8
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
+
+# ReadFacts (ST-7, P5) makes them pass on the testkit (strict, BOTSTER_SEEDS=0-31). On the real tier at contracts-v0.1.43
+# (macOS, ~/botster-sessions/shared/core-stage1/evidence/p5-read-facts/st7-real-probe-bbdd39c2.log), each R-95 id is INCONCLUSIVE
+# at seed 0 (limit step_timeout: completion_appends, incremental_reader_sees_completion, record_is_created_at_receipt and
+# tail_holds_only_written_bytes at step 14; completion_raises_the_keyed_activity_edge at step 15; facts_are_read_at_one_ordering_point
+# and new_client_rev_is_never_visible at step 16), and events_bounded is UNSUPPORTED_CONTROL op=input_records_cost (no real form).
+# Re-check on the real tier after the contracts-v0.1.44 pin (#312, train 3) lands (lead, 2026-10-12). Owner: P5.
+conf::st_7_completion_appends_a_status_update_with_a_new_cursor
+conf::st_7_completion_raises_the_keyed_activity_edge
+conf::st_7_events_bounded_by_records_and_bytes
+conf::st_7_facts_are_read_at_one_ordering_point
+conf::st_7_incremental_reader_sees_completion_of_a_pending_record
+conf::st_7_new_client_rev_is_never_visible_without_its_record
+conf::st_7_record_is_created_at_receipt_with_pending_state
+conf::st_7_tail_holds_only_written_bytes_pending_is_flagged
