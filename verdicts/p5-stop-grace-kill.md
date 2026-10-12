@@ -141,3 +141,74 @@ The separate #303 worker-clock change remains outside this review.
 I changed no product code and ran no build, test, gate, mutation, reproduction, measurement, or executable merge check.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-11 — train-2 source composition
+
+- Train head: `080987829a2e2245a7ea97606020400392c974d6`.
+- Train tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+- Train base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+- First member: #300, `484912ac58743b899c7856e87bdcad0f2b398300`.
+- Second member: #305, `655bb3ab16d34f1bc14991aed6c1a41fbb785dc3`.
+- Lead request: `msg_plugin-w_1791783838_4313c1`.
+- Initial package CLEAN: `f522c0f41df069875b7c5aba46f8fec287e15fed`.
+- Matching initial integration CLEAN: `d5706cd94a07cc923dc5b0a38dbf864966fe5fca`.
+
+This round reviews #305's source composition under the approved train rule. No train gate has completed.
+Sol-C owns #305's integration delta. Sol-B owns the combined review.
+
+The first merge is `872c7eeb66ca0cbe174b619014fc64100953a6f9`.
+Its parents are the train base and frozen #300 member. Its tree is `023396d9c774dc6f736406424356a9283b402d49`.
+The train head's parents are that first merge and frozen #305 member. The order matches the lead's instruction.
+The complete train diff has 38 paths, 1268 additions, and 216 deletions.
+Its full-index SHA256 is `ac758612339be0554f9cc89648dd5b5eb568e4065b8e4e8bab3e1129981ab3b6`.
+The #305 merge diff has SHA256 `80fe3c1e4e5495af083cd3a7ba48705032df0183313d8a8d233217e0b7c4ec24`.
+The Git whitespace check reports no error.
+
+### Own patch preservation
+
+The second merge changes exactly #305's 22 own paths. It changes no outside-own path from the first merge.
+Every own patch has exactly the accepted added and removed lines. Patch indices and locations can differ.
+Nineteen own-path blobs exactly equal their accepted member blobs.
+Only `.cargo/mutants.toml`, testkit `worker.rs`, and worker `tests/common/session.rs` have imported content in addition to #305's patch.
+I read each complete imported delta and the relevant final contexts.
+
+The worker import retains #301's held-control-report filter and quiet-check wrappers.
+It changes no KillPayload flag, signal translation, input selection, worker timer removal, or group-kill behavior.
+The quiet check still counts ready worker work, exits, other connections, and unheld worker control reports.
+The #301 report filter does not suppress the worker's pending KillPayload input.
+The session-test import adds only #304's DP-2 proof comment. It changes no signal test or launch constructor.
+The removed launch field remains removed. The separate test-process guard parameter retains its existing purpose.
+
+The mutation import moves the existing capacity exclusion to its changed source line.
+It also retains #300's two exclusions for equivalent provided defaults: Scheduler::held returning false and Scheduler::admitted returning unit.
+I read the final source sites and reasons. The hold override and admission override remain subject to mutation.
+The import adds no exclusion for #305's signal handler, host kill, worker kill, or timer behavior.
+#305's own mutation change remains a comment update only.
+
+### Scheduler and deadline interaction
+
+I read #300's scheduler interface, host driver, engine operation mapping, testkit scheduler binding, and real tap changes.
+I read its accepted import section at `3deaf0a165eb877a4a6fc29b8afe87b6ff2daeab` and relevant final driver context.
+The driver never holds Work::Deadline or Work::Silent. It also bypasses holds when a clause fixes the operation's timing.
+The StopGrace deadline still runs through the accepted host deadline path and #305's unchanged kill_payload implementation.
+The scheduler admission report and hold filter add no worker timer and change no KillPayload signal destination.
+Both tiers retain the shared worker machine and the identity-verified system signal path.
+This interaction review does not replace #300's member review or Sol-B's combined review.
+
+### Conformance composition and disposition
+
+I independently compare all nine conformance text sets using the members' merge bases.
+Every set equals the train base plus the member's own additions, minus its own removals.
+Every set after #305's merge exactly equals the corresponding first-merge set. #305 changes no identifier or proof entry.
+The train retains the two train-1 removals and #300's sole removal, `conf::a5_2_reads_match_atomic_transitions`.
+No base removal returns. The pending set has 406 identifiers.
+
+Zero #305 source-composition findings remain on this exact train head.
+R305-F1 remains closed. Initial source, body, compatibility, comparison, provenance, and platform limits remain recorded in Round 1.
+The initial READY gate does not establish a train-2 gate result.
+Matching member delta reviews and Sol-B's combined review remain required before the train gate.
+The completed exact-train-head gate and final member evidence receipts remain required before merge.
+The separate #303 clock change remains outside this train review.
+I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
+
+VERDICT: CLEAN
