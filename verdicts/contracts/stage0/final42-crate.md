@@ -28,3 +28,17 @@ Checked against A25 candidate 1 (`frozen/current/core-contract-v1.17-amendment-2
 Fix: run one pool evidence job on this exact head, with no code change. The job runs the three later checks with the gate's base, and each check continues after a failure: `cargo xtask clause-lint`; `cargo xtask crate-symbols --check --base origin/main`; `cargo xtask replacement-map --check`. The log must show that `clause-lint` passes, and that the other two report only A23 items 3 and 2. Put the log path in the body. The head stays the same, so the gate need not run again.
 
 016c's package review is in progress, and I do not review its scope.
+
+## Final: CLEAN on 9075126660a24491624b1df33f6707b54d31e2bf (F1 closed by #93's gate)
+
+- **F1: closed, with no new job.** P6's A23 PR #93 (`4e6f725f761b8ca74300658a1543f333cabd2ab9`) has this head as its parent and adds one commit. Its gate is fully green and runs the whole `ledger` job, with the same base, main `32d36828`: "clause-lint: 448 citation(s) checked", "crate-symbols: 59 table(s), 19428 symbol(s) resolved; PENDING checked against 32d36828…", and "replacement-map: 2550 ids … docs/fake-replacement-map.md up to date" (`~/botster-sessions/gates/botster-contracts-p6-a23-ou7-tail-on-a25-4e6f725f-pool-20261012-110146-72292.log`).
+- `git diff --name-only 9075126 4e6f725f` gives the A23 transcript, the A23 crate-symbols table, one added line each in `README.md` and `conformance/replacement-map.json`, and the regenerated `docs/fake-replacement-map.md`. None changes an A25 line. So, on this head:
+  - `clause-lint` passes (the A23 commit removes no citation);
+  - `crate-symbols` resolves the A25 table, and the only problem is the A23 table (item 3);
+  - `replacement-map` lacks only the `ou_7` id, and so its generated document is stale (item 2).
+  These are exactly the steward's three items.
+- The merge into `steward/final42` is staging only, and the branch then takes #93, whose head is fully green.
+
+016c's package review: CLEAN on A25's source and its retained exception evidence (016c's message).
+
+My finding F1 is closed. CLEAN on `9075126660a24491624b1df33f6707b54d31e2bf`, for the staging merge under the steward's ruling.
