@@ -329,3 +329,37 @@ fn a_lost_row_registers_no_route() {
     assert_eq!(route_ids(&w), vec![]);
     assert!(w.engine.routes.is_empty());
 }
+
+/// DP-8: the report counts two routes, and the link ends after one `RouteLive`. No more records come, so the row does not
+/// wait for the second one: `AdoptAll` completes when the link ends.
+#[test]
+fn a_link_that_ends_before_every_route_live_ends_the_wait_for_them() {
+    let mut w = adopting_routes(running_payload(), vec![live(1, true, None)], 100);
+    for endpoint in w.endpoints.values_mut() {
+        endpoint.unsent_routes = 1;
+    }
+    let op = until_state_posted(&mut w);
+    let completed = |events: &[Event]| {
+        events
+            .iter()
+            .any(|e| matches!(e, Event::Completed { op: o, .. } if *o == op))
+    };
+    let mut events = Vec::new();
+    for _ in 0..5 {
+        events.extend(poll_then_pump(&mut w));
+    }
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::RouteAdopted { .. })),
+        "{events:?}"
+    );
+    assert!(!completed(&events), "the row waits for the second record");
+    let link = w.link_of("s");
+    w.feed(Input::LinkClosed { link });
+    let mut events = Vec::new();
+    for _ in 0..5 {
+        events.extend(poll_then_pump(&mut w));
+    }
+    assert!(completed(&events), "{events:?}");
+}

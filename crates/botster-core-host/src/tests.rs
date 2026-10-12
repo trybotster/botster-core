@@ -95,6 +95,8 @@ pub(crate) struct Endpoint {
     pub payload: Option<AdoptedPayload>,
     /// The live routes that the worker reports after its report, one `RouteLive` each (DP-8).
     pub routes: Vec<botster_core_link::msg::RouteLive>,
+    /// Routes that the report counts but whose `RouteLive` the worker never sends (its link ends first).
+    pub unsent_routes: u32,
 }
 
 /// What a scripted worker does when the engine speaks to it.
@@ -444,7 +446,7 @@ impl World {
             link,
             msg: WorkerMsg::Adopted {
                 report: Box::new(AdoptReport {
-                    routes: endpoint.routes.len().try_into().unwrap(),
+                    routes: u32::try_from(endpoint.routes.len()).unwrap() + endpoint.unsent_routes,
                     payload,
                     features: BTreeSet::from([Feature::FocusReport]),
                     terminal: launched.then(terminal_state),

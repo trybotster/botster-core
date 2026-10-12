@@ -52,6 +52,7 @@ fn with_endpoint(first: &World, name: &str, payload: Option<AdoptedPayload>) -> 
             protocol: HELLO_PROTOCOL,
             payload,
             routes: Vec::new(),
+            unsent_routes: 0,
         },
     );
     again
@@ -941,6 +942,7 @@ fn endpoint_here(w: &mut World, name: &str, payload: AdoptedPayload) {
             protocol: HELLO_PROTOCOL,
             payload: Some(payload),
             routes: Vec::new(),
+            unsent_routes: 0,
         },
     );
 }

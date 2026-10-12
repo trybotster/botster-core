@@ -371,3 +371,19 @@ fn a_route_set_larger_than_one_frame_adopts_fully() {
         .sum();
     assert!(total > 1 << 16, "{total}");
 }
+
+/// STDP8-D3, defence only: a `RouteLive` that the link's bound cannot carry is found before the report. The bound shrinks
+/// after the attach here, which no link does, so the debug assertion fires (a release build closes the route
+/// `HandoffFailed` and does not count it).
+#[test]
+#[should_panic(expected = "a RouteLive over the frame bound")]
+fn a_route_live_over_the_frame_bound_is_found_before_the_report() {
+    let mut w = World::running();
+    let mut options = options();
+    options.route_tag = Some("t".repeat(4 * 1024));
+    let mut client = Client::default();
+    let actions = attach(&mut w, DescriptorId(1), RouteId(1), options, limits());
+    client.take_all(&mut w, RouteKey(1), actions);
+    w.worker.frame_bound = 1024;
+    adopt(&mut w, EPOCH + 1);
+}

@@ -900,8 +900,10 @@ impl Worker {
             // `Detached`; the enum is non-exhaustive, so a later reason closes the route as a plain detach (as the host does).
             _ => RouteCloseReason::Detached,
         };
+        // A pair of the link table names a route that this worker holds: `end_route`, the only removal, reports the close,
+        // and the `RouteClosed` ends the pair (`report_route`).
         match self.route_key(route) {
-            Some(id) if self.routes.routes.contains_key(&id) => self.close_healthy(id, close),
+            Some(id) => self.close_healthy(id, close),
             _ => self.report(&WorkerMsg::RouteClosed {
                 route,
                 reason: close,
