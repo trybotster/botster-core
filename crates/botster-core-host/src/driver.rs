@@ -89,6 +89,11 @@ pub trait HostEdges: Send {
     /// `Ok(0)` means that the peer closed the link.
     fn link_recv(&mut self, link: LinkId, buf: &mut [u8]) -> io::Result<usize>;
     fn link_send(&mut self, link: LinkId, bytes: &[u8]) -> io::Result<usize>;
+    /// The bytes that the link's control stream may still take, beyond the driver's own count (IN-6, steward ruling R-91).
+    /// The production edge sets no bound of its own: the driver's bound decides. The testkit's `control_queue` answers 0.
+    fn link_room(&self, _link: LinkId) -> usize {
+        usize::MAX
+    }
     fn link_close(&mut self, link: LinkId);
     /// Write interest follows the outbound buffer (plan 2.5): on while bytes wait, off when none do.
     fn set_write_interest(&mut self, link: LinkId, on: bool);
@@ -178,6 +183,38 @@ pub struct HostDriver<E: HostEdges> {
     /// Routes whose handoff failed, or whose held stream closed with its link (`HandoffLost`): each one is fed to the engine
     /// in a step of its own, within the budget of a pump (9B).
     failed_handoffs: std::collections::VecDeque<Input>,
+    /// The bound of each link's control stream, its unsent bytes (IN-6, steward ruling R-91; DESIGN.md "The control
+    /// queue").
+    pub(crate) control_bound: usize,
+    /// One control message: the size of the largest `Cancel` frame (SV-3: the refused cost).
+    pub(crate) control_message: usize,
+}
+
+/// The largest host message frame that carries no input payload, as the control queue's bound counts it (DESIGN.md "The
+/// control queue"): an `Op` with no payload, `AttachRoute` with a route tag of `max_route_tag_bytes`, `Detach`, `Stop`,
+/// `Kill`, `Remove` or `Cancel`.
+const NON_INPUT_FRAME_BYTES: usize = 4096;
+
+/// The bound of a link's control stream (DESIGN.md "The control queue"): the input that one session may retain (IN-5), one
+/// non-input frame for each op that may be pending and each input op of the session (AM-3, IN-5), and room for four
+/// cancels. Admission keeps the admitted messages under it, so a cancel finds room unless the link stops draining.
+fn control_bound(limits: &CoreLimits, control_message: usize) -> usize {
+    let ops = limits.pending_ops as usize + limits.input_ops_per_session as usize;
+    usize::try_from(limits.input_retained_bytes)
+        .unwrap_or(usize::MAX)
+        .saturating_add(ops.saturating_mul(NON_INPUT_FRAME_BYTES))
+        .saturating_add(4 * control_message)
+}
+
+/// The room of a link's control stream: the bound less its unsent bytes, and never more than the link edge allows.
+fn control_room<E: HostEdges>(
+    links: &BTreeMap<LinkId, LinkState>,
+    edges: &E,
+    bound: usize,
+    link: LinkId,
+) -> usize {
+    let unsent = links.get(&link).map_or(0, |s| s.out.len());
+    bound.saturating_sub(unsent).min(edges.link_room(link))
 }
 
 impl<E: HostEdges> HostDriver<E> {
@@ -196,6 +233,13 @@ impl<E: HostEdges> HostDriver<E> {
         let engine = HostEngine::new(cfg, registry_ids);
         let frame_bound = engine.link_frame_bound();
         let wake = edges.wake();
+        let mut payload = Vec::new();
+        HostMsg::Cancel { req: u64::MAX }.encode(&mut payload);
+        let mut frame = Vec::new();
+        encode_frame(FrameType::HOST_MSG, &payload, frame_bound, &mut frame)
+            .expect("a cancel frame is within every frame bound");
+        let control_message = frame.len();
+        let control_bound = control_bound(&engine.limits(), control_message);
         Ok(HostDriver {
             engine,
             edges,
@@ -203,6 +247,8 @@ impl<E: HostEdges> HostDriver<E> {
             wake,
             frame_bound,
             failed_handoffs: std::collections::VecDeque::new(),
+            control_bound,
+            control_message,
         })
     }
 
@@ -544,9 +590,25 @@ impl<E: HostEdges> HostDriver<E> {
         let ids: Vec<LinkId> = self.links.keys().copied().collect();
         for link in ids {
             self.flush(link);
+            self.control_room(link, budget);
             self.retry_held(link, budget);
             self.read_link(link, budget);
         }
+    }
+
+    /// After a flush: a control stream with room for one control message lets a session whose `cancel` was refused `Full`
+    /// post `SessionWritable` (IN-6, SV-3). The event counts against the pump (9B); with no budget left it waits for the
+    /// next pump.
+    fn control_room(&mut self, link: LinkId, budget: &mut Budget) {
+        if control_room(&self.links, &self.edges, self.control_bound, link) < self.control_message {
+            return;
+        }
+        if budget.exhausted() {
+            budget.more_input = true;
+            return;
+        }
+        self.engine.control_room(link);
+        budget.account(&mut self.engine);
     }
 
     /// Gives the engine the exits that the process edge reaped, while the pump has budget (9B `pump_events`).
@@ -854,9 +916,17 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
     }
 
     /// The cancel's message to the worker is queued, and the next `pump` sends it (OR-1, TM-6, IN-6: `Admitted` is "admitted to
-    /// the worker stream").
+    /// the worker stream"). A control stream with no room for one control message refuses it `Full` (IN-6, R-91).
     fn cancel(&mut self, op: OpId) -> CancelResult {
-        let result = self.engine.cancel(op);
+        let (links, edges, bound, need) = (
+            &self.links,
+            &self.edges,
+            self.control_bound,
+            self.control_message,
+        );
+        let result = self
+            .engine
+            .cancel_with_room(op, |link| control_room(links, edges, bound, link) >= need);
         self.sync_wake();
         result
     }

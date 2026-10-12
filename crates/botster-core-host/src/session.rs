@@ -232,6 +232,9 @@ pub struct WorkerHandle {
     /// The worker process ended (the exit watch reported it), or the AD-6 check refused the process at its endpoint (AD-2
     /// `WorkerGone`). The host never signals a gone worker.
     pub gone: bool,
+    /// A `cancel` was refused `Full` because this worker's control stream had no room: `SessionWritable` follows when a
+    /// drain gives the stream room for one control message again (IN-6, SV-3, steward ruling R-91).
+    pub refused_full: bool,
 }
 
 /// A live session: the row, the two states, and the machines that work on it.

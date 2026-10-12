@@ -573,9 +573,6 @@ impl HostEngine {
             } => self
                 .queue
                 .post_lost(&sid, &instance, kind, tap_dropped_bytes),
-            Observation::Writable => self
-                .queue
-                .post_keyed(Event::SessionWritable { id: sid, instance }),
             // The enum is non-exhaustive: an observation that a later worker adds is ignored by this host.
             _ => {}
         }

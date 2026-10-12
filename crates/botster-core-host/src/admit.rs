@@ -7,6 +7,7 @@
 
 use crate::engine::{new_session, HostEngine, Next, PendingOp, Step, Wait};
 use crate::flow::*;
+use crate::io::LinkId;
 use crate::session::Admit;
 use botster_core_contract::prelude::*;
 use std::collections::BTreeSet;
@@ -813,8 +814,18 @@ impl HostEngine {
             .expect("an ended session shows its end")
     }
 
-    /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled.
+    /// `cancel` (IN-6, A2-1) with a control stream that always has room.
     pub fn cancel(&mut self, op: OpId) -> CancelResult {
+        self.cancel_with_room(op, |_| true)
+    }
+
+    /// `cancel` (IN-6, A2-1): only a `WriteInput` can be cancelled. `room` tells whether the control stream of a link has
+    /// room for one control message (the driver's count and the link edge, steward ruling R-91).
+    pub fn cancel_with_room(
+        &mut self,
+        op: OpId,
+        room: impl FnOnce(LinkId) -> bool,
+    ) -> CancelResult {
         // An id that this handle never minted is `UnknownOp` (IN-6).
         if op.0 == 0 || op.0 >= self.next_op {
             return CancelResult::UnknownOp;
@@ -839,6 +850,14 @@ impl HostEngine {
         }
         let req = pending.req;
         let session = pending.session.clone();
+        // IN-6: a full control queue refuses the cancel before its sent or not-sent branch, and nothing changes (steward
+        // ruling R-91 Q2). The mark makes the drain that gives the stream room post `SessionWritable`.
+        if let Some(s) = session.as_ref().and_then(|id| self.sessions.get_mut(id)) {
+            if s.worker.link.is_some_and(|link| !room(link)) {
+                s.worker.refused_full = true;
+                return CancelResult::Refused(CancelRefusal::Full);
+            }
+        }
         let sent = req.is_some();
         self.ops.get_mut(&op).expect("read above").cancelled = true;
         match (sent, session, req) {
