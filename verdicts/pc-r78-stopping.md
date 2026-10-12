@@ -467,3 +467,63 @@ Thus the additional initial action pass supplies no new cancel, handoff, or exit
 This strengthens the written non-interference condition for the carried ST-6 and IN-9 attribution.
 It is source reasoning, not a new-head A5-4 run or a recovered event trace.
 One exact-head final gate, mutation audit, final body and evidence reviews, and the lead's Q7 check remain due. Never poll.
+
+## Round 4: completed exact-head final gate and body
+
+VERDICT: CLEAN (0 open package findings)
+
+Head: `4ccd6a7da142331c2d35fa25f5f12914cdf2d22b`.
+Base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+Tree: `ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be`.
+Completed gate receipt: `msg_plugin-w_1791774951_db0090`.
+Completed body receipt: `msg_plugin-w_1791775019_655e5a`.
+The complete source reviews above cover this unchanged head. This round checks the completed gate and final body.
+No reviewer build, test, gate, mutation, reproduction, or executable base check runs.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-pc-r78-stopping-4ccd6a7d-pool-20261011-195723-18711.log`.
+SHA-256: `df19bcedaa620616b8e508ce399a9b60d4e0704c91443914b1bc3c2b88792171`.
+The header names the exact head and base. The Linux job runs on structvr-MS-7C77 with four CPUs and kernel 6.8.0-142-generic.
+This gate is not an msa1 record.
+All ten steps PASS in 740.8 seconds. The job and wrapper exit zero after 854 seconds: one queued and 853 running.
+Default: 1887 passed, 433 skipped, 25.174 seconds.
+Slow: 613 passed, 2042 skipped, 63.110 seconds.
+The unmutated slow baseline reports 613 passed, eleven slow cases, and 2786 skipped, in 63.313 seconds.
+Both conformance summaries report 258 passed and zero failures.
+The list step retains the imported base's counts. This PR changes no list or pin.
+
+Stage 1 has 62 mutants: 58 caught, two missed, zero timeout, and two unviable, in 122.2 seconds.
+Stage 2 tests exactly the two first-stage missed identities and catches both, in 79.7 seconds.
+The reviewer independently matches all 60 unique raw catches to all 60 unique named citations.
+Every cited catcher has a normal PASS record. Neither raw nor named sets have an unmatched identity.
+Both Stage-2 catches are in the real unreaped-zombie test.
+The two unviable identities remain `flow_spawned` addition changed to multiplication and `identity_state` changed to Default.
+Their earlier unchanged source reasons remain applicable. This gate claims no executed catch for either unviable mutation.
+The log contains no FLAKY line. Fuzz PASS reports no changed decoder harness.
+
+All eleven drain tests and the named handoff/deadline exit cases have normal default PASS records.
+These include the kept exit, same-pump empty drain, both exit/send-error orders, chosen-end route close, held-frame backpressure, and settle-time drain.
+The real facade, both socket-order tests, and zombie test PASS in the slow run and its unmutated baseline.
+The facade still uses a test-owned link with a real worker process. It does not prove the production worker's later route-frame order alone.
+The reviewed production source and driver tests supply that order check.
+This gate supplies new Linux evidence, not new Mac execution or a new repeated-proof campaign.
+The earlier Mac records retain their source and platform limits. The invalidated shared-target records remain unvalidated.
+
+IN-9 and ST-6 PASS on both testkit and real tiers in this gate.
+Those normal results do not erase their earlier A5-4 failures or replace the accepted controlled-attribution records.
+The real-pending report observes 34 passing trials. The reviewer independently verifies that all 34 remain real-pending in this head.
+This PR accepts no additional pending removal, contract fence, or real-tier promotion.
+
+The reviewer reads the complete final body change against the already reviewed body.
+GitHub reports exact head 4ccd6a7d and base bfef8865. Remote delivery head and v1 match those identities at this check.
+Live final body SHA-256: `8e3ca6976c3a3c3af005d93bd1d09477f9536f6c682137b2ef22ea57ad817252`.
+Retained snapshot `evidence/pc-r78/pr-body-4ccd6a7d-final.md` SHA-256: `6b490871e38bf73f49ee70848fd0d063e3cd64eae9f203aa1c3cbdcf943d45e8`.
+They match except for one final newline: live has two and retained has three.
+The body replaces “not run yet” with the completed ten-step gate, exact base, mutation totals, and final review scope.
+Its linked client output retains the same completed summary and wrapper exit.
+It keeps the old gate, merge-plus-fix failed run, historical script, corrected IN-9 inference, and controlled attribution tied to their own sources.
+The final body makes no new execution claim for those older records.
+
+The package source, completed final evidence, and final body are CLEAN on this exact head.
+The canonical base check remains FAIL; both required delta reviews address its shared paths and resolution.
+Sol's matching final evidence verdict and the lead's Q7 check remain due before merge.
+This verdict accepts no later head, base import, pending removal, or evidence substitution. Never poll.

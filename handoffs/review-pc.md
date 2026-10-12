@@ -1770,3 +1770,17 @@ The formal matching delta condition closes. Zero source or body findings remain.
 Both failing prefixes are checked at .41: no Cancel, Attach, exit, failed send, or lost link precedes either failure.
 The initial whole-action pass therefore supplies no new relevant action on those prefixes. This is source reasoning, not new execution.
 One exact-head final gate, mutation audit, final body/evidence reviews, and lead Q7 remain due. Never poll.
+
+## #291 completed final package CLEAN
+
+PC receipts msg_plugin-w_1791774951_db0090 and msg_plugin-w_1791775019_655e5a supply the completed final gate and body.
+Exact head 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b, base bfef88653bb59ad8d3cd38da1e206f7aba64ce92, tree ed7ce2ee718c20284fbb1543f6567ce5e6e9c7be.
+The final Linux gate runs on structvr-MS-7C77, not msa1. All ten steps PASS; job and wrapper exit zero after 854 seconds.
+Default 1887 PASS, slow 613 PASS, mutation total 62 with 60 caught, zero missed/timeout, and two unchanged unviable identities.
+The two first-stage misses exactly match the two second-stage catches. All 60 raw catches match named citations and normal PASS records.
+All named drain, handoff, and deadline exit tests PASS. Real facade, both socket-order tests, and zombie proof PASS in slow and baseline.
+All 34 once-passing pending-real trials remain pending. IN-9/ST-6 gate PASS does not erase their old A5-4 failures.
+The final body is read; live hash 8e3ca6976c3a3c3af005d93bd1d09477f9536f6c682137b2ef22ea57ad817252.
+Retained snapshot 6b490871 differs only by one final newline. The body names the completed gate and preserves all older source limits.
+Verdict CLEAN, zero open package findings, in verdicts/pc-r78-stopping.md Round 4.
+Sol's matching final evidence receipt and lead Q7 remain due. No later source head or final merge is approved. Never poll.
