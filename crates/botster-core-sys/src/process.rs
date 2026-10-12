@@ -7,11 +7,11 @@
 
 use crate::signal::{signal_group, signal_process};
 use botster_core_edges::edges::{
-    ExitStatus, GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec,
+    GroupSignal, IdentityState, ProcessIdentity, SpawnError, SpawnSpec,
 };
 use rustix::process::Signal;
 use std::collections::{BTreeSet, VecDeque};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Condvar, Mutex};
@@ -74,8 +74,13 @@ pub fn identity_state(identity: ProcessIdentity) -> IdentityState {
     }
 }
 
+/// An exit that a reaper thread reaped: the identity of the child, and the status that `wait` gave, or `None` when `wait` failed. The status
+/// is the operating system's own value; no code is made for a failed wait (finding PB-W1). The `Process` edge gives only the
+/// identity: no host decision reads a status.
+pub type Exit = (ProcessIdentity, Option<std::process::ExitStatus>);
+
 /// The exits that the reaper threads reaped, and a condition variable for the callers that wait for one.
-type Exits = Arc<(Mutex<VecDeque<(ProcessIdentity, ExitStatus)>>, Condvar)>;
+type Exits = Arc<(Mutex<VecDeque<Exit>>, Condvar)>;
 
 /// Called by a reaper thread after it queued an exit: the host wakes and polls (TM-6).
 pub type Notify = Arc<dyn Fn() + Send + Sync>;
@@ -87,7 +92,9 @@ fn reap(take: &Receiver<(Child, ProcessIdentity)>, exits: &Exits, notify: Option
     let Ok((mut child, identity)) = take.recv() else {
         return;
     };
-    let status = child.wait().map_or(ExitStatus::Code(-1), exit_status);
+    // `wait` retries EINTR. Its other failure (`ECHILD`: the child is not ours to wait for) leaves no status, and no process
+    // with this identity to wait for, so the exit is queued with no status.
+    let status = child.wait().ok();
     let (queue, ready) = &**exits;
     queue
         .lock()
@@ -96,14 +103,6 @@ fn reap(take: &Receiver<(Child, ProcessIdentity)>, exits: &Exits, notify: Option
     ready.notify_all();
     if let Some(notify) = notify {
         notify();
-    }
-}
-
-fn exit_status(status: std::process::ExitStatus) -> ExitStatus {
-    match (status.code(), status.signal()) {
-        (Some(code), _) => ExitStatus::Code(code),
-        (None, Some(signal)) => ExitStatus::Signal(signal),
-        (None, None) => ExitStatus::Code(-1),
     }
 }
 
@@ -180,7 +179,7 @@ impl Children {
     }
 
     /// The next child that has ended, reaped, or `None`. It never blocks.
-    pub fn poll_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    pub fn poll_exit(&mut self) -> Option<Exit> {
         let exit = self
             .exits
             .0
@@ -193,7 +192,7 @@ impl Children {
 
     /// Waits for the exit of the child `pid`. It blocks until the child ends: a caller that must not block uses
     /// [`Children::poll_exit`]. `None` when `pid` is not a live child.
-    pub fn wait_exit(&mut self, pid: u32) -> Option<(ProcessIdentity, ExitStatus)> {
+    pub fn wait_exit(&mut self, pid: u32) -> Option<Exit> {
         if !self.live.contains(&pid) {
             return None;
         }
@@ -329,25 +328,13 @@ mod tests {
         assert!(Children::new().notify.is_none());
         assert!(Children::with_notify(Arc::new(|| {})).notify.is_some());
     }
-
-    /// An exit is a code or a signal.
-    #[test]
-    fn an_exit_is_a_code_or_a_signal() {
-        assert_eq!(
-            exit_status(std::process::ExitStatus::from_raw(3 << 8)),
-            ExitStatus::Code(3)
-        );
-        assert_eq!(
-            exit_status(std::process::ExitStatus::from_raw(9)),
-            ExitStatus::Signal(9)
-        );
-    }
 }
 
 #[cfg(test)]
 #[cfg(feature = "slow")]
 mod slow_tests {
     use super::*;
+    use std::os::unix::process::ExitStatusExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc::sync_channel;
 
@@ -387,7 +374,10 @@ mod slow_tests {
         reaper.join().expect("the reaper returns");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "one notify");
         let queued: Vec<_> = exits.0.lock().unwrap().drain(..).collect();
-        assert_eq!(queued, [(identity, ExitStatus::Code(3))]);
+        assert_eq!(
+            queued,
+            [(identity, Some(std::process::ExitStatus::from_raw(3 << 8)))]
+        );
     }
 
     /// When `spawn` could not start the child, the sender is dropped: the body returns with no exit and no notify.

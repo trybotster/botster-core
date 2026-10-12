@@ -85,12 +85,12 @@ struct Mock {
     spawns: Vec<WorkerSpawn>,
     send_cap: Option<usize>,
     /// The exits that the process edge reports, first first.
-    exits: Vec<(ProcessIdentity, ExitStatus)>,
+    exits: Vec<ProcessIdentity>,
     /// Bytes that arrive on a link when the pump settles the wake: the readiness that the poll reports late.
     late: Vec<(LinkId, Vec<u8>)>,
     /// Exits that the process edge reports when the pump settles the wake: a reaper that queued an exit after the pump took
     /// the exits, and whose wake the settle consumed.
-    late_exits: Vec<(ProcessIdentity, ExitStatus)>,
+    late_exits: Vec<ProcessIdentity>,
     /// The processes whose exit the process edge reported.
     ended: Vec<ProcessIdentity>,
     /// The scheduler's choices in the current pump: a pump that never ends fails the test at once (as `World::pump`).
@@ -174,13 +174,13 @@ impl HostEdges for Edges {
 
     fn signal_group(&mut self, _identity: ProcessIdentity, _signal: GroupSignal) {}
 
-    fn poll_process_exit(&mut self) -> Option<(ProcessIdentity, ExitStatus)> {
+    fn poll_process_exit(&mut self) -> Option<ProcessIdentity> {
         let mut mock = self.0.lock().unwrap();
         if mock.exits.is_empty() {
             None
         } else {
             let exit = mock.exits.remove(0);
-            mock.ended.push(exit.0);
+            mock.ended.push(exit);
             Some(exit)
         }
     }
