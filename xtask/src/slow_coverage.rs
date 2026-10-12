@@ -94,16 +94,24 @@ struct Listed {
     selected: bool,
 }
 
-/// The tests of the JSON output of `cargo nextest list --message-format json`.
+/// A nextest list: every listed binary, also one with no test (review B306-I1), and the tests.
+#[derive(Debug, PartialEq)]
+struct List {
+    binaries: BTreeSet<String>,
+    tests: BTreeMap<Key, Listed>,
+}
+
+/// The binaries and tests of the JSON output of `cargo nextest list --message-format json`.
 ///
 /// # Errors
 /// The output is not such a list: a field is missing or has an unknown value, or a binary was not listed.
-fn parse_list(json: &str) -> Result<BTreeMap<Key, Listed>, String> {
+fn parse_list(json: &str) -> Result<List, String> {
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("the list is not JSON: {e}"))?;
     let suites = value["rust-suites"]
         .as_object()
         .ok_or("the list has no rust-suites")?;
+    let binaries = suites.keys().cloned().collect();
     let mut tests = BTreeMap::new();
     for (binary, suite) in suites {
         if suite["status"] != "listed" {
@@ -124,7 +132,7 @@ fn parse_list(json: &str) -> Result<BTreeMap<Key, Listed>, String> {
             tests.insert((binary.clone(), name.clone()), Listed { ignored, selected });
         }
     }
-    Ok(tests)
+    Ok(List { binaries, tests })
 }
 
 /// The slow-only tests of the slow list that no tier runs, each with the reason. `pending` holds the pending-real ids, and
@@ -184,8 +192,33 @@ fn slow_only(default: &BTreeMap<Key, Listed>, slow: &BTreeMap<Key, Listed>) -> u
         .count()
 }
 
+/// The binaries of `list`, the list of the tier named `tier`, that do not run the build-root test (bug catalog B13; design
+/// `design-gs-built-in-coverage.md`): each binary of the list must list `test_budget::BUILT_IN_TEST`, not
+/// ignored and selected by the tier's filter. The list comes from cargo and nextest, so a binary that the tier builds
+/// cannot be left out, and a `cfg` that removes the test on one OS fails that OS's list. The binaries come from the list's
+/// suites, not from its tests: a binary with no test at all fails too (review B306-I1).
+fn presence(tier: &str, list: &List) -> Vec<String> {
+    use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
+    let mut found = Vec::new();
+    for binary in &list.binaries {
+        let why = match list.tests.get(&(binary.clone(), TEST_NAME.to_string())) {
+            None => "does not list",
+            Some(Listed { ignored: true, .. }) => "ignores",
+            Some(Listed {
+                selected: false, ..
+            }) => "does not select",
+            Some(_) => continue,
+        };
+        found.push(format!(
+            "{tier} tier: {binary} {why} the build-root test `{TEST_NAME}`: add `botster_test_process::built_in_test!();` \
+             (or `built_in_trial!()` with its own harness) (bug catalog B13)"
+        ));
+    }
+    found
+}
+
 /// The tests that `cargo nextest list <selection>` lists in `root`, built in `target`.
-fn list(root: &Path, target: &Path, selection: &[String]) -> Result<BTreeMap<Key, Listed>> {
+fn list(root: &Path, target: &Path, selection: &[String]) -> Result<List> {
     let mut command = Command::new("cargo");
     command
         .current_dir(root)
@@ -205,11 +238,11 @@ fn list(root: &Path, target: &Path, selection: &[String]) -> Result<BTreeMap<Key
         .output()
         .context("start cargo nextest list")?;
     let json = crate::tools::stdout_of(&output, "cargo nextest list")?;
-    let tests = parse_list(&json).map_err(anyhow::Error::msg)?;
-    if tests.is_empty() {
+    let list = parse_list(&json).map_err(anyhow::Error::msg)?;
+    if list.tests.is_empty() {
         bail!("cargo nextest list {} lists no test", selection.join(" "));
     }
-    Ok(tests)
+    Ok(list)
 }
 
 /// The tests (binary id and name) that `cargo nextest list <selection>` lists in `root`, built in `target`: a mutation
@@ -222,7 +255,7 @@ pub fn tests(
     target: &Path,
     selection: &[String],
 ) -> Result<crate::known_flaky::Tests> {
-    Ok(list(root, target, selection)?.into_keys().collect())
+    Ok(list(root, target, selection)?.tests.into_keys().collect())
 }
 
 /// The violations of the workspace at `root`, built in `target`, whose members with a `slow` feature are `slow_packages`;
@@ -239,30 +272,33 @@ pub fn check(
     flaky: &[crate::known_flaky::Entry],
     proofs: &[RealProof],
 ) -> Result<Vec<String>> {
-    let default = list(
+    let default_list = list(
         root,
         target,
         &crate::test_budget::tier_selection(false, slow_packages),
     )?;
-    let slow = list(
+    let slow_list = list(
         root,
         target,
         &crate::test_budget::tier_selection(true, slow_packages),
     )?;
-    let count = slow_only(&default, &slow);
+    let (default, slow) = (&default_list.tests, &slow_list.tests);
+    let count = slow_only(default, slow);
     if count == 0 {
         bail!("no test is slow-only: the slow features build no test that the default features do not");
     }
     println!("slow-coverage: {count} slow-only tests checked");
-    let mut found = violations(&default, &slow, pending, &ignorable_real_only(proofs));
-    found.extend(proof_violations(&slow, proofs));
+    let mut found = violations(default, slow, pending, &ignorable_real_only(proofs));
+    found.extend(proof_violations(slow, proofs));
+    found.extend(presence("default", &default_list));
+    found.extend(presence("slow", &slow_list));
     let keys = |tests: &BTreeMap<Key, Listed>| -> crate::known_flaky::Tests {
         tests.keys().cloned().collect()
     };
     found.extend(crate::known_flaky::absent(
         flaky,
-        &keys(&default),
-        &keys(&slow),
+        &keys(default),
+        &keys(slow),
     ));
     Ok(found)
 }
@@ -331,12 +367,80 @@ mod tests {
     #[test]
     fn a_list_gives_each_test_its_ignored_flag_and_whether_the_filter_selects_it() {
         assert_eq!(
-            parse_list(LIST),
+            parse_list(LIST).map(|list| list.tests),
             Ok(tests(&[
                 ("a", "plain", false, false),
                 ("a", "tests::ig", true, false),
                 ("a::slow_x", "s", false, true),
             ]))
+        );
+    }
+
+    /// Red on revert of the slow filter's last term (lead, 2026-10-12): a slow-tier artifact whose build-root test the filter
+    /// does not select, or that lists no such test, fails; so does an ignored one. A list where every binary runs it passes.
+    #[test]
+    fn every_binary_of_a_tier_must_run_the_build_root_test() {
+        use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
+        let listed = |tests: BTreeMap<Key, Listed>| List {
+            binaries: tests.keys().map(|(binary, _)| binary.clone()).collect(),
+            tests,
+        };
+        let good = listed(tests(&[
+            ("a", "plain", false, false),
+            ("a", TEST_NAME, false, true),
+            ("a::slow_x", "s", false, true),
+            ("a::slow_x", TEST_NAME, false, true),
+        ]));
+        assert_eq!(presence("slow", &good), Vec::<String>::new());
+        let nested = format!("tests::{TEST_NAME}");
+        let bad = listed(tests(&[
+            // The binary of the library, built again with the slow features: the old filter did not select its test.
+            ("a", TEST_NAME, false, false),
+            ("a::slow_x", "s", false, true),
+            ("a::slow_y", TEST_NAME, true, true),
+            ("a::slow_z", &nested, false, true),
+        ]));
+        let found = presence("slow", &bad);
+        let starts: Vec<&str> = found
+            .iter()
+            .map(|line| line.split(" the build-root").next().unwrap())
+            .collect();
+        assert_eq!(
+            starts,
+            [
+                "slow tier: a does not select",
+                "slow tier: a::slow_x does not list",
+                "slow tier: a::slow_y ignores",
+                // A test of that name inside a module is not the root test.
+                "slow tier: a::slow_z does not list",
+            ]
+        );
+        assert!(
+            found[0].contains("botster_test_process::built_in_test!();"),
+            "{}",
+            found[0]
+        );
+    }
+
+    /// Review B306-I1: a listed binary with no test (its only test was the build-root test, and the macro line was removed)
+    /// stays in the list and fails the presence check; the valid binary beside it passes.
+    #[test]
+    fn a_listed_binary_with_no_test_fails_the_presence_check() {
+        use crate::test_budget::BUILT_IN_TEST as TEST_NAME;
+        let json = format!(
+            r#"{{"rust-suites": {{
+                "anchor": {{"binary-id": "anchor", "status": "listed", "testcases": {{}}}},
+                "b": {{"binary-id": "b", "status": "listed", "testcases": {{
+                    "{TEST_NAME}": {{"kind": "test", "ignored": false, "filter-match": {{"status": "matches"}}}}}}}}}}}}"#
+        );
+        let list = parse_list(&json).unwrap();
+        assert_eq!(list.binaries, ids(&["anchor", "b"]));
+        let found = presence("default", &list);
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].starts_with("default tier: anchor does not list the build-root test"),
+            "{}",
+            found[0]
         );
     }
 
@@ -618,10 +722,30 @@ mod slow_tests {
         let pending = ids(&["conf::pending_id"]);
         let unrun = "botster-core tests::runs_only_under_slow: only the slow features build it, and the slow filter \
                      does not select it, so no tier runs it";
-        assert_eq!(
-            check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap(),
-            [unrun]
-        );
+        // The fixture has no build-root test: no test or trial with that name is made outside the macros (pair-common,
+        // #306). So every check also names each binary of each tier, on the real nextest lists; `checked` asserts those
+        // lines and returns the others.
+        let checked = |pending: &BTreeSet<String>, proofs: &[RealProof]| -> Vec<String> {
+            let found = check(dir.path(), &target, &packages, pending, &[], proofs).unwrap();
+            let (presence, other): (Vec<String>, Vec<String>) =
+                found.into_iter().partition(|line| {
+                    line.starts_with("default tier: ") || line.starts_with("slow tier: ")
+                });
+            let starts: Vec<&str> = presence
+                .iter()
+                .map(|line| line.split(" the build-root").next().unwrap())
+                .collect();
+            assert_eq!(
+                starts,
+                [
+                    "default tier: botster-core does not list",
+                    "slow tier: botster-core does not list",
+                    "slow tier: botster-core::slow_conformance does not list",
+                ]
+            );
+            other
+        };
+        assert_eq!(checked(&pending, &[]), [unrun]);
 
         let lib = dir.path().join("src/lib.rs");
         let source = std::fs::read_to_string(&lib).unwrap();
@@ -632,40 +756,21 @@ mod slow_tests {
             binary: "botster-core".into(),
             test: test.into(),
         };
-        let unselected = check(
-            dir.path(),
-            &target,
-            &packages,
-            &pending,
-            &[],
-            &[proof("tests::runs_only_under_slow")],
-        )
-        .unwrap();
+        let unselected = checked(&pending, &[proof("tests::runs_only_under_slow")]);
         assert_eq!(unselected.len(), 2, "{unselected:?}");
         assert!(unselected[1].ends_with(
             "the slow filter does not select the test, so the slow tier does not run it"
         ));
         std::fs::write(&lib, source.replace("mod tests", "mod slow_tests")).unwrap();
-        assert_eq!(
-            check(dir.path(), &target, &packages, &pending, &[], &[]).unwrap(),
-            Vec::<String>::new()
-        );
+        assert_eq!(checked(&pending, &[]), Vec::<String>::new());
         // Renamed, the filter selects it, so a proof line may name it.
         assert_eq!(
-            check(
-                dir.path(),
-                &target,
-                &packages,
-                &pending,
-                &[],
-                &[proof("slow_tests::runs_only_under_slow")]
-            )
-            .unwrap(),
+            checked(&pending, &[proof("slow_tests::runs_only_under_slow")]),
             Vec::<String>::new()
         );
 
         assert_eq!(
-            check(dir.path(), &target, &packages, &ids(&[]), &[], &[]).unwrap(),
+            checked(&ids(&[]), &[]),
             [
                 "botster-core::slow_conformance [pending-real] conf::pending_id: only the slow features build it, and it \
                  is ignored; only a listed trial of botster-core::slow_conformance may be ignored there"

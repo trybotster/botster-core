@@ -73,10 +73,23 @@ fn break_control(
             args.session.0
         ))
     })?;
-    harness
-        .workers()
-        .break_link(worker.identity())
-        .map_err(ControlError::Bad)?;
+    // A held report stays unread (`hold_worker_report`, Core A12-1a): the host's link edge drops every byte that it holds
+    // of the link and every later one, up to the link's end.
+    let (holds, wake) = harness
+        .report_holds_of(handle)
+        .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
+    let held = crate::report_holds::lock(&holds).broken(&row.instance);
+    let identity = worker.identity();
+    // A worker that ended after its held report has no end of the link left to break: the edge's break is the break.
+    if !(held && !harness.workers().worker_alive(identity)) {
+        harness
+            .workers()
+            .break_link(identity)
+            .map_err(ControlError::Bad)?;
+    }
+    if held {
+        wake.signal();
+    }
     Ok(Value::Null)
 }
 

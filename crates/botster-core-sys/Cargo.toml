@@ -41,3 +41,22 @@ kqueue = "1.2.1"
 # libc names the zombie state: `start_time` (R-78 item 3) and the guard fixture (tests/common/process_guard.rs), which ends
 # every member of a group (libproc lists them, kqueue awaits their exits).
 libc = "0.2"
+
+# The slow tier's integration tests. Each file is `#![cfg(feature = "slow")]`, so without the feature its binary holds no
+# test. `required-features` keeps cargo from building that empty binary in the default tier: every test binary that a
+# tier builds lists the build-root test (bug catalog B13, #306).
+[[test]]
+name = "slow_data_dir_lock"
+required-features = ["slow"]
+
+[[test]]
+name = "slow_link_order"
+required-features = ["slow"]
+
+[[test]]
+name = "slow_payload"
+required-features = ["slow"]
+
+[[test]]
+name = "slow_process"
+required-features = ["slow"]

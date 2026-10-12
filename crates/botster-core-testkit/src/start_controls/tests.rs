@@ -3,7 +3,7 @@ use botster_core_conformance::{
     normalize_op, CoreHarness, DataDirRef, OpenSpec, WorkerBuild, WorkerRef,
 };
 use botster_core_contract::prelude::*;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// The most pumps that a test gives Core to reach an event: far above what these sessions need.
 const PUMPS: usize = 50;
@@ -523,4 +523,135 @@ fn a_link_hold_is_scoped_to_its_host() {
         json!(false)
     );
     assert_eq!(a.get(&sid("s1")).unwrap().state, SessionState::Starting);
+}
+
+/// A harness with no spurious wakes and a Core on handle `a` whose `startup` is `startup_ms`, with `s1` created; its program
+/// holds.
+fn created_with_startup(startup_ms: u64) -> (TestkitHarness, Box<dyn CoreApi>, Instant) {
+    let mut harness = TestkitHarness::new(0);
+    assert_eq!(
+        harness.control("a", "no_spurious_wakes", &json!({})),
+        Ok(Value::Null)
+    );
+    let mut core = harness
+        .open(&OpenSpec {
+            limits: json!({ "startup": startup_ms }),
+            ..spec()
+        })
+        .expect("open");
+    let mut at = Instant::now();
+    let mut create = json!({"Create": {"session": "s1", "request": {"program": [{"hold": {}}]}}});
+    normalize_op(&mut create, &harness.probe_binary());
+    let create = core.begin(serde_json::from_value(create).unwrap()).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, create),
+        OpResult::Ok(_)
+    ));
+    (harness, core, at)
+}
+
+/// A start held at the accept: the worker runs with no host and no payload, so its own `startup` deadline is armed (AD-7).
+fn held_at_the_accept(harness: &mut TestkitHarness, core: &mut dyn CoreApi, at: Instant) -> OpId {
+    assert_eq!(link_hold(harness, "a", "hold_start"), Ok(Value::Null));
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    settle(harness, core, at);
+    assert_eq!(held(harness), json!(true));
+    start
+}
+
+/// Steward ruling R-97 (b), (c), as `conf::a2_1_no_deadline_code_exists` reads it: the worker's own deadlines run on the
+/// worker's clock. Core's `next_deadline` names only Core's own start deadline (LC-4), never the worker's. The injected clock
+/// moves past `startup`, and the start ends by Core's deadline, `StartFailed(StartupTimeout)`; the held worker did not end
+/// first by its own `startup`.
+#[test]
+fn the_injected_clock_never_reaches_a_workers_own_deadline() {
+    let (mut harness, mut core, at) = created_with_startup(10_000);
+    let start = held_at_the_accept(&mut harness, core.as_mut(), at);
+    let startup = Duration::from_secs(10);
+    assert_eq!(
+        core.next_deadline(),
+        Some(at + startup),
+        "only Core's own start deadline (LC-4), on the injected clock"
+    );
+    let mut later = at + 2 * startup;
+    match complete(core.as_mut(), &mut later, start) {
+        OpResult::Err(error) => assert_eq!(
+            error.code,
+            ErrorCode::StartFailed(StartFailReason::StartupTimeout)
+        ),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// R-97 (c): with no deadline of Core's own, `next_deadline` is `None` while a worker has one.
+#[test]
+fn next_deadline_never_names_a_workers_deadline() {
+    let (mut harness, mut core, at) = created_with_startup(10_000);
+    let start = held_at_the_accept(&mut harness, core.as_mut(), at);
+    assert_eq!(
+        link_hold(&mut harness, "a", "release_start"),
+        Ok(Value::Null)
+    );
+    assert!(matches!(
+        complete(core.as_mut(), &mut at.clone(), start),
+        OpResult::Ok(_)
+    ));
+    // A connection to the worker's endpoint that sends no hello: the worker arms its hello deadline, Core arms nothing.
+    let key = start_key(
+        &harness,
+        "a",
+        session_row(&harness, "a", &sid("s1")).unwrap().instance,
+    )
+    .unwrap();
+    let _silent = harness
+        .workers()
+        .connect_endpoint(&key)
+        .expect("the worker listens");
+    core.pump(now(at));
+    assert!(
+        harness.workers().next_deadline().is_some(),
+        "the worker's hello deadline"
+    );
+    assert_eq!(core.next_deadline(), None);
+}
+
+/// R-97, the wake: a worker's own deadline that passes while the host waits ends the wait `Woken`, by the worker's report
+/// (its exit), and the next pump takes that report. The held worker ends at its own `startup`, on the real clock.
+#[test]
+fn a_workers_deadline_during_a_host_wait_wakes_the_host_with_its_report() {
+    let (mut harness, mut core, at) = created_with_startup(100);
+    let start = held_at_the_accept(&mut harness, core.as_mut(), at);
+    let waited = Instant::now();
+    assert_eq!(core.wake_handle().wait(Duration::from_secs(5)), Wake::Woken);
+    assert!(
+        waited.elapsed() < Duration::from_secs(5),
+        "woken before the timeout"
+    );
+    assert_eq!(
+        harness
+            .control("a", "worker_alive", &json!({"session": "s1"}))
+            .unwrap()["alive"],
+        json!(false),
+        "the worker ended at its own startup"
+    );
+    let events = settle(&mut harness, core.as_mut(), at);
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, Event::SessionState { .. })
+                || completes(std::slice::from_ref(e), start)),
+        "the pump took the worker's exit: {events:?}"
+    );
+}
+
+/// R-97, the wake: with no worker deadline and no signal, a wait ends at its timeout, never early.
+#[test]
+fn a_wait_with_no_worker_deadline_ends_at_its_timeout() {
+    let (mut harness, mut core, at) = created_with_startup(10_000);
+    settle(&mut harness, core.as_mut(), at);
+    assert!(harness.workers().next_deadline().is_none());
+    let timeout = Duration::from_millis(200);
+    let waited = Instant::now();
+    assert_eq!(core.wake_handle().wait(timeout), Wake::TimedOut);
+    assert!(waited.elapsed() >= timeout, "never early");
 }
