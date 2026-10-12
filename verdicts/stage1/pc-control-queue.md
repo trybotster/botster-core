@@ -504,3 +504,67 @@ The package reviewer requests the completed gate, updated current-head body, and
 I request those same remaining artifacts in `msg_plugin-w_1791819916_470cdf`.
 Both reviews remain inspections until the required artifacts and formal package verdict arrive.
 No running gate is read and no reviewer execution job runs.
+
+### Completed RED gate and canonical base-merge-check FAIL
+
+Owner receipt: `msg_plugin-w_1791820358_624012`. Head remains `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+I read the complete retained base-merge-check record `base-merge-check-50a50cff-2ed85f93.txt`.
+SHA256: `b7c456a63285744e1cffadbd4d95bf6d5d9c8e100613d3dfc80fed05d08f4f6d`.
+The owner names command `cargo xtask base-merge-check 50a50cff3fcdbbba1976c3194e0b49183726dbc8 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+The record names current HEAD 2ed85f93 and base origin/v1 08098782.
+Both ancestry checks PASS. The four disjoint-carry checks FAIL:
+
+1. The merge has conflicts in testkit core.rs and edge_tap.rs.
+2. Eleven base-changed paths overlap the own diff.
+3. The own full-index patch differs, first at DESIGN.md index metadata.
+4. The own pending-file change includes a comment change and is not a pure id removal.
+
+The result is explicitly FAIL: both reviewers must perform delta rounds.
+The exit line is empty. The owner records a wrapper defect that lost PIPESTATUS; no numeric command exit is inferred.
+My manual source and set inspection above covers the required delta. It does not turn this canonical FAIL into PASS.
+
+I read the completed exact-head gate identity, normal results, mutation records, baseline failure, and final exits.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-pc-control-queue-2ed85f93-pool-20261012-083921-28034.log`.
+SHA256: `76c3d6ab0c431804b61587cf62bd3b587c1b5c0b91c2f46ff3c5613cd10dd805`.
+The header and lists step use the exact new head and imported base 08098782, also its merge base.
+Eight steps PASS. Mutants FAIL; fuzz does not run. The reported CI total is 525.1 seconds.
+The job exits one after 708 seconds on msa1, with 150 queued and 558 running seconds.
+The wrapper exits one after 709 seconds.
+
+Default: 1955 PASS, 429 skipped, 12.335 seconds. Normal slow: 621 PASS, 2067 skipped, 41.119 seconds.
+Both strict summaries report 263 PASS and zero failures, in 6.00 and 5.25 seconds.
+Lists report pending 404, real-pending 43, ledger 691, and minimum 69.
+Held-full reports 96 ignored, zero failures, and 22.90 seconds.
+Stage 1 has 64 unique mutation identities: 39 caught, thirteen missed, and twelve unviable, in 175.7 seconds.
+I independently match every raw catch to its citation and a normal PASS.
+Stage 2 mutations do not start because the unmutated slow baseline fails.
+Its summary is 620 PASS, eleven slow, one failure, and 2844 skipped in 46.705 seconds.
+The failed test is `botster-core::slow_conformance conf::in_8_mode_checked_at_write_start_by_worker`.
+Its retained diagnostic is `INCONCLUSIVE`, seed 0, step 8, `step_timeout`; the test fails in 10.150 seconds.
+The baseline step reports failure after 69.9 seconds. The thirteen Stage 1 misses therefore have no current Stage 2 recovery proof.
+Normal testkit IN-8 passes in 0.131 seconds. Normal real IN-8 passes in the slow step; those distinct outcomes do not close the baseline failure.
+
+The owner attributes this failure to the known IN-8 real-tier transcript race and its separate contracts fix through #312.
+The lead's earlier handoff records that race and its planned pin fix. This inspection does not invent a new Core source defect.
+The current tested head's `ci/known-flaky.toml` contains only comments and no entries.
+It therefore does not satisfy the ordinary known-list re-gate exception on its own.
+The owner has requested the lead's explicit decision between a re-gate and later train-import evidence.
+I assume no exception, replacement gate, or green acceptance. The current gate remains RED.
+
+### Updated body and R307-SI-4 — LOW — open
+
+I read the current body's complete delta from the previously read body, including the new base-import and RED-gate sections.
+GitHub names exact head 2ed85f93 and base 08098782.
+Raw JSON SHA256: `90a3b1b9af28e37067153ef12531b7f6d17e9b5755270486186539e8daa9e862`.
+Body text SHA256: `1c0e08fd1bc1341eaba98177709e77abeeef354e7a50d3b014a7c9e429faace7`.
+The body corrects start_holds to #301 and op_holds to #300.
+It preserves the canonical FAIL, both source inspections, current gate RED, and historical evidence scopes.
+
+The body says eleven other paths automatically merged, but it lists nine.
+The canonical check names eleven shared paths total, including the two conflicted files.
+Required change: state nine automatically merged paths, or eleven shared paths including those two conflicts.
+Also label the normal IN-8 positive outcomes by their testkit and real tiers before the failed real baseline.
+Request messages: `msg_plugin-w_1791820499_10986a` and `msg_plugin-w_1791820499_985ae5`.
+The old three findings stay closed in source. This LOW body correction and the unresolved gate acceptance condition remain.
+The formal package delta verdict and lead's gate disposition remain pending. This inspection completes no formal delta round.
+I ran no execution job.
