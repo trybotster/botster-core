@@ -17,3 +17,13 @@ Checked, no finding:
 ### F1 (LOW): the lint comment quotes the controls doc for a sentence that the controls doc does not have
 
 `fence_lint.rs:1815-1817` says: the real-tier `oracle_screen`, `oracle_modes` and `oracle_state` read O_raw "(the controls doc: "Conditions 1 and 3 of `oracle_resume` hold for it")". No file in this repository has that sentence (`git grep` finds only this comment and the ruling). It is in Core v1, `crates/botster-core-testkit/src/real/oracle.rs:4-6`, the module documentation of the real tier's oracle reads. The controls doc's statement is the sentence that this PR adds to condition 4. Please cite the controls doc's condition 4 (this PR) and the R-62 follow-up scope ruling, or Core's `real/oracle.rs`, not a controls-doc quote. The ruling text on main repeats the same attribution; I tell the steward separately, and it does not block this PR.
+
+016c's F1 (HIGH: the body's tier) was closed on `b58c200d`; the body now says HIGH under rule 1.
+
+## Final: CLEAN on e8296d50095494e37d11a3220bedbfcbf01b93ba
+
+- **F1: closed.** One commit on `b58c200d` changes only the comment at `fence_lint.rs:1814-1818`: it now cites condition 4 of the real-tier `oracle_resume` in `docs/core-testkit-controls.md` (the sentence that this PR adds) and Core's `botster-core-testkit/src/real/oracle.rs`. No code changes. The steward corrected the same attribution in the ruling (main `9a9a658c`, rulings only).
+- **Main.** Main is `78873f975bfd7b2fc569f4a30d0044b3bc6458a6`. `git diff 0be439d4 78873f97` changes only `docs/steward-rulings.md`: a rulings-only move, no new merge needed.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 184 s on msa1, base main `78873f97` (current main): `~/botster-sessions/gates/botster-contracts-p3-oraw-scope-e8296d50-pool-20261011-203841-84513.log`.
+
+Every finding is closed. CLEAN on `e8296d50095494e37d11a3220bedbfcbf01b93ba`.
