@@ -21,6 +21,6 @@ cargo xtask prebuild-worker 2>&1 | tail -1
 run after
 for t in testkit real; do
   echo "B1 diff $t:"; diff <(sort "/tmp/b1-before-$t.txt") <(sort "/tmp/b1-after-$t.txt"); echo "B1 diff $t exit: $? (0 = identical)"
-  grep -E '^test result|^conformance' "/tmp/b1-after-$t.txt" | sed "s/^/B1 after $t | /"
+  for w in before after; do grep -E "^test result|^conformance" "/tmp/b1-$w-$t.txt" | sed "s/^/B1 $w $t | /"; done
 done
 echo "B1 end"
