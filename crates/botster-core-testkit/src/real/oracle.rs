@@ -13,11 +13,20 @@ use super::RealCoreHarness;
 use crate::capture_layer::lock;
 use crate::controls::parse;
 use crate::oracle_compare::raw_oracle;
-use crate::oracle_controls::{screen, QueryReply, Screen};
+use crate::oracle_controls::{modes, screen, state, Encode, QueryReply, Screen, SessionArg};
 use botster_core_conformance::ControlError;
+use botster_core_contract::prelude::SessionId;
+use botster_terminal_ghostty::Terminal;
 use serde_json::Value;
 
 impl RealCoreHarness {
+    /// `oracle_encode` (steward ruling R-84): the size of the session's stored row; the modes are the call's own.
+    pub(super) fn oracle_encode(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let args: Encode = parse(args)?;
+        let (_, row) = self.stored(handle, &args.session)?;
+        args.encode(&row.request.size)
+    }
+
     /// `oracle_query_reply` (Core EV-8): the size of the session's stored row.
     pub(super) fn oracle_query_reply(
         &self,
@@ -32,7 +41,24 @@ impl RealCoreHarness {
     /// `oracle_screen` (Core ST-2, A2-1): see the module documentation.
     pub(super) fn oracle_screen(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
         let Screen { session, history } = parse(args)?;
-        let (_, row) = self.stored(handle, &session)?;
+        screen(&self.raw(handle, &session)?, history)
+    }
+
+    /// `oracle_modes` (note (1) of the controls doc): the modes of O_raw, as `oracle_screen` reads it.
+    pub(super) fn oracle_modes(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let SessionArg { session } = parse(args)?;
+        Ok(modes(&self.raw(handle, &session)?))
+    }
+
+    /// `oracle_state` (R-84 (5)): the modes of O_raw, and the last title and cwd that its replay reported.
+    pub(super) fn oracle_state(&self, handle: &str, args: &Value) -> Result<Value, ControlError> {
+        let SessionArg { session } = parse(args)?;
+        state(&mut self.raw(handle, &session)?)
+    }
+
+    /// O_raw of `session`: see the module documentation.
+    fn raw(&self, handle: &str, session: &SessionId) -> Result<Terminal, ControlError> {
+        let (_, row) = self.stored(handle, session)?;
         if !known_output_history(&row.request) {
             return Err(ControlError::UnsupportedFor(
                 "unknown_output_history".into(),
@@ -43,7 +69,7 @@ impl RealCoreHarness {
             .get(handle)
             .and_then(|open| open.resume.upgrade())
             .ok_or_else(|| ControlError::Bad(format!("the handle '{handle}' is not open")))?;
-        lock(&shared).check(&session)?;
+        lock(&shared).check(session)?;
         let worker = row.worker.ok_or_else(|| {
             ControlError::Bad(format!("the session {} has no worker process", session.0))
         })?;
@@ -53,9 +79,8 @@ impl RealCoreHarness {
             .into_iter()
             .flat_map(|(_, bytes)| bytes)
             .collect();
-        let raw = raw_oracle(&row.request.size, row.request.color_profile.as_ref(), &all)
-            .map_err(|e| ControlError::Bad(format!("oracle_screen: no oracle terminal: {e:?}")))?;
-        screen(&raw, history)
+        raw_oracle(&row.request.size, row.request.color_profile.as_ref(), &all)
+            .map_err(|e| ControlError::Bad(format!("O_raw: no oracle terminal: {e:?}")))
     }
 }
 
@@ -183,6 +208,27 @@ mod slow_tests {
             }))
         );
 
+        // `oracle_modes` and `oracle_state` read the same O_raw; the expected values come from an independent terminal and
+        // from OUTPUT's own title (R-84 (5)).
+        let session = json!({"session": "s1"});
+        assert_eq!(
+            harness.control("a", "oracle_modes", &session),
+            Ok(json!({"flags": expected.modes()}))
+        );
+        assert_eq!(
+            harness.control("a", "oracle_state", &session),
+            Ok(json!({"modes": expected.modes(), "title": "oracle-1"}))
+        );
+        // `oracle_encode` reads no session modes: `{}` is a fresh terminal's modes (R-84 (1)).
+        let up = json!({"key": {"named": "arrow_up"}, "mods": [], "event": "press"});
+        let key: KeyInput = serde_json::from_value(up.clone()).unwrap();
+        let fresh = Terminal::new(&SIZE, History::Off).unwrap().modes();
+        let encode = json!({"session": "s1", "kind": "key", "input": up, "modes": {}});
+        let encoded = Ok(json!(hex_encode(
+            &botster_terminal_ghostty::encode_key_with_modes(&fresh, &key).unwrap()
+        )));
+        assert_eq!(harness.control("a", "oracle_encode", &encode), encoded);
+
         core.begin(Op::Resize {
             session: sid("s1"),
             size: Size {
@@ -199,6 +245,20 @@ mod slow_tests {
             ))
         );
         assert!(cpr(&mut harness).is_ok(), "no history, no refusal");
+        for control in ["oracle_modes", "oracle_state"] {
+            assert_eq!(
+                harness.control("a", control, &session),
+                Err(ControlError::UnsupportedFor(
+                    "size_or_profile_changed".into()
+                )),
+                "{control}"
+            );
+        }
+        assert_eq!(
+            harness.control("a", "oracle_encode", &encode),
+            encoded,
+            "no history, no refusal"
+        );
 
         let print = json!({ "program": [{ "print": "x" }, { "hold": {} }] }).to_string();
         let mut request = harness.stored("a", &sid("s2")).unwrap().1.request;
