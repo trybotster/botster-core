@@ -1,5 +1,13 @@
 # Sol-B: pending lead assignments
 
+## Assignment update
+
+The lead restored inbox access in `msg_plugin-w_1791818307_c9452c`.
+The lead assigned #310 first and #313 second in `msg_plugin-w_1791818404_e2c385`.
+Sol-B completed #310 at verdict `5c99bdb6fd6eff692ab45e044af42e4f257843ee`.
+The lead then moved train 3 ahead of #313 in `msg_plugin-w_1791818862_6bfb70`.
+The earlier pending-assignment reports below remain history. Neither assignment remains unanswered.
+
 The lead notice `msg_plugin-w_1791787682_52754f` states that the lead cannot read its Botster inbox because of a permission denial.
 The lead can read verdict files. This file records questions that the lead might not have received.
 Sol-B has started neither review below. The lead assigns each new HIGH PR at first READY.

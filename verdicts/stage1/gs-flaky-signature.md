@@ -96,3 +96,25 @@ The matcher remains proposed follow-up work. This verdict grants no retry author
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; exact PR head and initial evidence, import/train evidence pending)
+
+## Round 3: train 3 source delta
+
+Exact train head: `3435a6d2ce981ec5c06a888ba907667938f50137`.
+Tree: `787fc74f540d554f8e28070456d3cc5feeaa19b2`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+Frozen member: `2ac0be6fddd37b540bbe7845ae975499a58eaf57`.
+
+Sol-B independently compared the three accepted member patches with their train merge patches.
+All added and deleted lines match. The later #309 merge changes none of these files.
+The signature schema and report retain their accepted behavior and limits.
+
+T3-I2 HIGH is OPEN in `verdicts/stage1/train-3.md`.
+The preceding #312 member applies contracts-v0.1.44, which is this entry's approved removal trigger.
+The train retains both the in_8 entry and the repository test that requires it.
+Byte preservation does not justify that stale exclusion. The delivered head must retire the entry and update the test.
+017c independently confirms the same defect as GS-FS-T3-1.
+
+This delta accepts no train gate and remains NOT CLEAN. The earlier LOW findings remain closed.
+Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (1 HIGH open)
