@@ -47,6 +47,7 @@ impl HostEngine {
                 }
             }
             Input::LinkClosed { link } => self.on_link_closed(link),
+            Input::LinkWriteFailed { link } => self.on_link_write_failed(link),
             Input::HandoffFailed { route } => {
                 self.route_close(route, RouteCloseReason::HandoffFailed);
             }
@@ -63,7 +64,9 @@ impl HostEngine {
             },
             Input::IdentityState { identity, state } => {
                 if !self.adopt_probed(identity, state) {
+                    // One session has the identity: only its own waiting flow takes the answer.
                     self.flow_remove_probed(identity, state);
+                    self.flow_stop_probed(identity, state);
                 }
             }
         }
@@ -216,6 +219,7 @@ impl HostEngine {
         let s = self.sessions.get_mut(&id).expect("found above");
         s.worker.link = Some(link);
         s.worker.link_failed = false;
+        s.worker.write_failed = false;
         s.worker_protocol = Some(hello.protocol);
         if let Flow::Start(f) = &mut s.flow {
             if f.phase == StartPhase::AwaitHello {
@@ -657,6 +661,16 @@ impl HostEngine {
             }
             // The link of an adoption ended before the row's state was posted: the worker may live (AD-2).
             Flow::Adopt(_) => self.adopt_link_closed(&id),
+            // R-78 item 4: the link of a gone worker was drained (`LinkPeerEnded`: the first would-block or the end of file
+            // closed it). A frame read in the drain (`Exited`) began the end already; otherwise the worker is gone with no
+            // word.
+            Flow::Idle | Flow::Stop(StopFlow { end: None, .. })
+                if self.sessions[&id].worker.gone =>
+            {
+                if self.drain_classifies(&id) {
+                    self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
+                }
+            }
             Flow::Stop(f) if f.end.is_none() && f.phase != StopPhase::RowWrite => {
                 // LC-5: a session whose control link is broken still ends: the host signals the verified worker (pid and
                 // start time, AD-6), which ends its payload group. The host never signals a bare payload group.
@@ -688,7 +702,6 @@ impl HostEngine {
             return;
         };
         self.sessions.get_mut(&id).expect("found above").worker.gone = true;
-        let shown = self.sessions[&id].shown;
         let flow = self.sessions[&id].flow.clone();
         // During a `Remove` the worker writes its cleanup result, closes the link and only then ends (LC-7 step 3), but the
         // host can see the exit before it reads the link (the edges report them independently). The link stays open, so
@@ -708,6 +721,18 @@ impl HostEngine {
             self.remove_progress(&id);
             self.fail_inflight(&id);
             return;
+        }
+        // R-78 item 4 and the steward's follow-up: a running or stopping worker may have written its `Exited`, a `Done` or a
+        // `RouteClosed` before it ended, and the edges report the exit and the link's bytes independently. The driver drains
+        // the link without waiting (`LinkPeerEnded`): every complete frame is handled, also when the end is already chosen
+        // (an `Exited` read before the exit report), and the first would-block or the end of file closes the link. No end of
+        // file is awaited and no timer is added. The drain's close classifies the session only if no end is chosen yet
+        // (`on_link_closed`); the in-flight requests wait for that close too.
+        if matches!(&flow, Flow::Idle | Flow::Stop(_)) {
+            if let Some(link) = self.sessions[&id].worker.link {
+                self.act(Action::LinkPeerEnded { link });
+                return;
+            }
         }
         // The worker is gone: its link is gone with it.
         if self.sessions[&id].worker.link.is_some() {
@@ -733,17 +758,34 @@ impl HostEngine {
             // The worker ended before the row's state was posted (AD-2).
             Flow::Adopt(_) => self.adopt_end(&id, End::Lost(LostReason::WorkerGone), ""),
             _ => {
-                if matches!(
-                    shown,
-                    Some(SessionState::Running | SessionState::Starting | SessionState::Stopping)
-                ) && self.sessions[&id].pending_end.is_none()
-                    && !matches!(&flow, Flow::Stop(f) if f.phase == StopPhase::PostEnd || f.phase == StopPhase::Finish)
-                {
+                if self.drain_classifies(&id) {
                     self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone));
                 }
             }
         }
         self.fail_inflight(&id);
+    }
+
+    /// Whether the loss of `id`'s worker still decides its end: the session shows a live state, and no end is under way.
+    fn drain_classifies(&self, id: &SessionId) -> bool {
+        let s = &self.sessions[id];
+        matches!(
+            s.shown,
+            Some(SessionState::Running | SessionState::Starting | SessionState::Stopping)
+        ) && s.pending_end.is_none()
+            && !matches!(&s.flow, Flow::Stop(f) if f.phase == StopPhase::PostEnd || f.phase == StopPhase::Finish)
+    }
+
+    /// The driver could not write to `link` (R-78 item 4). Nothing more is sent on it (`send_msg`), and a new op fails at
+    /// once (`forward`). The read side stays open: the requests in flight wait for their `Done` or the end of file, and a
+    /// stop's grace probes the worker (`kill_payload`).
+    fn on_link_write_failed(&mut self, link: LinkId) {
+        let Some(id) = self.links.get(&link) else {
+            return;
+        };
+        if let Some(s) = self.sessions.get_mut(id) {
+            s.worker.write_failed = true;
+        }
     }
 
     /// The wake of a parked route event: it posts when the queue has room again (EV-5d).
