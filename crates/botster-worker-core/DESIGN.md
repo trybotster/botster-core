@@ -215,7 +215,9 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
 - **The order rule.** A progress report of a change goes on the link before every report that the worker sends after the
   change, even when an earlier progress report is not written yet. So a title or output report that the change caused
   never overtakes it, and the R-57 title sentinel is a fence for it (the R-88 lint pair `pty_output` → `advance_clock`).
-  Test: `a_waiting_report_goes_before_the_title_of_the_output_that_caused_it`.
+  Every report path flushes first: `report`, and the `Output` report in `report_output`, also when `LinkWritten` sends a
+  waiting `Output` report (0181's ST298-R4). Tests: `a_waiting_report_goes_before_the_title_of_the_output_that_caused_it`,
+  `a_pending_progress_report_goes_before_a_pending_output_report`.
 - **The bound.** Progress changes alone queue at most one unwritten progress report per route. While one is unwritten,
   a later change is marked; when the driver reports the link write (`LinkWritten`), the worker sends the latest state,
   once. Test: `progress_changes_alone_queue_one_unwritten_report`.
@@ -230,7 +232,10 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
   after its point `R` (`unfed` included) and inserts them after the `resync` entry, which becomes droppable with them: a
   second stall before a byte of it is written drops it with its baseline, and its own `resync` replaces both. A sequence
   that cannot be formed, or a frame of it over its bound on the route (a `baseline_begin` grows with the modes), closes
-  the route `SnapshotTooLarge` (healthy close, OU-9). The worker sends `RouteResumed{route, mark}`.
+  the route `SnapshotTooLarge` (healthy close, OU-9), or keeps the healthy close that began first (OU-2). Then the route
+  did not resume: it stays `Stalled` at the stall's mark, as the host sees it, and the worker sends no `RouteResumed`. If
+  the close is not delivered before the host's close step, that step ends the route with the first reason (0181's
+  ST298-R2). Otherwise the worker sends `RouteResumed{route, mark}`.
 - **`RouteCloseDue{route, mark}`.** At the stall's mark, the route closes with its first reason, or `StallTimeout`. At
   another mark (the route resumed, and maybe stalled again) it changes nothing.
 - **Adoption (R-90 Q3).** No stall deadline runs while no host is connected. At the adoption, the worker forgets what it
