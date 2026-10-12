@@ -57,8 +57,8 @@ pub(super) mod diag {
     const NLMSG_ERROR: u16 = 2;
     const NLMSG_DONE: u16 = 3;
     const AF_UNIX: u8 = 1;
-    const UDIAG_SHOW_PEER: u32 = 0x4;
-    const UDIAG_SHOW_RQLEN: u32 = 0x10;
+    /// `UDIAG_SHOW_PEER | UDIAG_SHOW_RQLEN` (0x4 and 0x10): the peer's inode and the receive queue.
+    const UDIAG_SHOW: u32 = 0x4 | 0x10;
     const UNIX_DIAG_PEER: u16 = 2;
     const UNIX_DIAG_RQLEN: u16 = 4;
     /// `INET_DIAG_NOCOOKIE`: the lookup names the socket by its inode alone.
@@ -93,7 +93,7 @@ pub(super) mod diag {
         out.extend_from_slice(&[AF_UNIX, 0, 0, 0]); // sdiag_family, sdiag_protocol, pad
         out.extend_from_slice(&u32::MAX.to_ne_bytes()); // udiag_states: every state
         out.extend_from_slice(&ino.to_ne_bytes());
-        out.extend_from_slice(&(UDIAG_SHOW_PEER | UDIAG_SHOW_RQLEN).to_ne_bytes());
+        out.extend_from_slice(&UDIAG_SHOW.to_ne_bytes());
         out.extend_from_slice(&NO_COOKIE.to_ne_bytes());
         out.extend_from_slice(&NO_COOKIE.to_ne_bytes());
         out
@@ -352,11 +352,11 @@ mod slow_tests {
             .unwrap_err()
             .to_string()
             .contains("no peer"));
+        // The error message carries the negative errno, and the error names it (ENOENT is os error 2).
         let enoent = message(2, &(-2i32).to_ne_bytes());
-        assert!(diag::parse(&enoent, 9)
-            .unwrap_err()
-            .to_string()
-            .contains("not found"));
+        let error = diag::parse(&enoent, 9).unwrap_err().to_string();
+        assert!(error.contains("not found"), "{error}");
+        assert!(error.contains("os error 2)"), "{error}");
         assert!(diag::parse(&message(3, &[]), 9).is_err());
         assert!(
             diag::parse(&both[..both.len() - 1], 9).is_err(),
