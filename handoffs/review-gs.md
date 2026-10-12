@@ -20,9 +20,9 @@ The final-slot import is `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`, base `9053b
 
 The source delta has zero findings. The canonical check requires delta reviews because the held-file text conflicts.
 
-GS-HF-R3-1 LOW remains open: the body still describes imported #284 and its dp_5 budget line as future work.
+GS-HF-R3-1 LOW is closed. The body now describes both current budget ids and the final head and base.
 
-The body must describe both current budget ids and the final head and base. The final gate and Sol's delta review remain pending.
+The package source delta is CLEAN with zero findings. The final gate and Sol's delta review remain pending.
 
 PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 

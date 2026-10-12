@@ -2516,3 +2516,17 @@ The implementer reports a clean local build and a 64-trial held-full run. I did 
 The source delta has zero findings. The LOW body finding remains open. Sol must complete the HIGH delta review, and the exact-head final gate remains pending.
 
 I ran no gate, build, test, base-check script, or executable probe.
+
+### Core PR #286: final-import body correction
+
+VERDICT: CLEAN (package source delta) at `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`, base `9053b1df868bbec2d62977660f44907e73323c55`. Open findings: 0.
+
+GS-HF-R3-1 LOW is closed. I read the complete live body and verified the unchanged head and base.
+
+The new final-head section names both budget ids, the conflict resolution, and the three-way id/class sets. It identifies #284 as imported scope.
+
+The body ties the earlier one-id evidence to `34b47734`. It describes the final gate as running and claims no completed result.
+
+The package source delta has no remaining finding. Sol's delta review and the exact-head final gate remain pending.
+
+This CLEAN accepts the source delta only. It does not approve a merge before the required final evidence completes. I ran no execution job.
