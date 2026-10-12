@@ -154,8 +154,8 @@ The worker holds no transport object. The driver keeps each received descriptor 
 - a `Stalled` route does not count (OU-3b: Core stops holding the PTY for it); with no `Open` route the budget is the read
   chunk;
 - a drain (`DrainPty`) obeys the budget, so the exit tail is lossless for a progressing route. A route that makes no
-  progress for `reader_progress_deadline` becomes `Stalled`, stops counting, and the drain continues (OU-7: it is
-  skipped).
+  progress for its `stall_deadline` (default `reader_progress_deadline`) becomes `Stalled` at the host's due step (the
+  stall clock below), stops counting, and the drain continues (OU-7: it is skipped).
 - The worker computes the budget again when a route's write progresses (`RouteWritten`), when a route becomes `Stalled`,
   and when a route closes. Each of these can release a budget of `0`.
 
@@ -163,12 +163,12 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
 - States: `Open`, `Stalled`, `Closed`. One `Route` per route id holds the state, the negotiated format and features, the
   options, a bounded output queue (`route_queue_bytes`) with the written offset of its first frame, a codec `StreamReader`
-  bounded by the route limits, the last progress instant, and the latest `focus` input (DP-12).
-- `Open → Stalled`: frames wait and no byte is accepted for `reader_progress_deadline`. The droppable frames that are not
-  started are dropped (OU-3b), each affected query is retired (EV-8(i), below), the kept frames stay, and the worker
-  sends `RouteStalled`.
+  bounded by the route limits, the stall clock (below), and the latest `focus` input (DP-12).
+- `Open → Stalled`: at the host's `RouteStallDue{route, mark}`, when the route waits and its mark is `mark` (the stall
+  clock below). The droppable frames that are not started are dropped (OU-3b), each affected query is retired (EV-8(i),
+  below), the kept frames stay, and the worker sends `RouteStalled{route, mark}`.
 - `Stalled → Open`: a write is accepted again; the worker runs the resync sequence below (reason per the extract) and
-  sends `RouteResumed`.
+  sends `RouteResumed{route, mark}`.
 - `→ Closed` at the first close reason of OU-2. The first reason is kept; a later reason is ignored. The worker emits
   `RouteClose` once and sends `WorkerMsg::RouteClosed{route, reason, route_tag}` once, with the first reason, after
   `RouteClose`. Two paths:
@@ -184,19 +184,60 @@ The worker holds no transport object. The driver keeps each received descriptor 
 
     The stall rules stay in force while a healthy close delivers. A stall alone never closes a route before
     `stall_close_after` (OU-2):
-    - no byte accepted for `reader_progress_deadline`: the route becomes `Stalled` as above (droppable frames dropped,
+    - the host's `RouteStallDue` at the route's mark: the route becomes `Stalled` as above (droppable frames dropped,
       affected queries retired, `RouteStalled`);
     - a write is accepted again: the resync sequence, then the rest of the queue, then `route_closed`;
-    - `Stalled` for `stall_close_after`: the worker emits `RouteClose` with no more frames. The report keeps the first
-      reason (for example `SessionEnded`), not `StallTimeout`;
+    - the host's `RouteCloseDue` at the stall's mark (`stall_close_after` after the host consumed `RouteStalled`): the
+      worker emits `RouteClose` with no more frames. The report keeps the first reason (for example `SessionEnded`), not
+      `StallTimeout`;
     - a terminal transport error: a failed close as below. The report keeps the first reason;
   - **failed close** (the failed-route reasons of OU-2b; the route has no `route_closed`, and the host reports
     `route_ended`): the worker emits `RouteClose` at once and writes nothing more. The reasons are distinct:
     - `PeerClosed` (read `Ok(0)`, a reset or a read error; wire `transport_lost`);
     - `WriteFailed` (a write returned an error; wire `write_failed`);
-    - `StallTimeout` (`Stalled` for `stall_close_after` with no close reason before it; wire `stalled`);
+    - `StallTimeout` (the host's `RouteCloseDue` at the stall's mark, with no close reason before it; wire `stalled`);
     - `HandoffFailed` is the host's (the handoff above), and `SessionLost` is the host's when the worker is lost (wire
       `session_lost`). The worker never sends these two.
+
+### The stall clock (OU-2, OU-3; steward ruling R-90 and its follow-up; `src/worker/route/stall.rs`)
+
+The host owns both deadlines on its injected clock (TM-3): `stall_deadline` (per route, default
+`reader_progress_deadline`) and `stall_close_after`. The worker owns the route machine and makes each transition only when
+no progress came after the host's view (OU-3: a progressing reader never loses output).
+
+- **The mark.** Each route counts its writes that the transport accepted bytes of (`RouteWritten{Ok(n)}` with `n > 0`,
+  the progress point of OU-3a). A readiness or a write that takes no byte is not progress (OU-6). A `Stalled` route
+  resumes at its first progress.
+- **The report.** A route *waits* when it is not `Stalled` and holds queued bytes. At the end of each step the worker
+  sends `RouteProgress{route, mark, waiting}` for each route whose state changed since its last report: `waiting`
+  changed, or the mark changed while the route waits. A progress that leaves the route not waiting before and after the
+  step is not reported (no stall deadline runs for it).
+- **The order rule.** A progress report of a change goes on the link before every report that the worker sends after the
+  change, even when an earlier progress report is not written yet. So a title or output report that the change caused
+  never overtakes it, and the R-57 title sentinel is a fence for it (the R-88 lint pair `pty_output` → `advance_clock`).
+  Test: `a_waiting_report_goes_before_the_title_of_the_output_that_caused_it`.
+- **The bound.** Progress changes alone queue at most one unwritten progress report per route. While one is unwritten,
+  a later change is marked; when the driver reports the link write (`LinkWritten`), the worker sends the latest state,
+  once. Test: `progress_changes_alone_queue_one_unwritten_report`.
+- **`RouteStallDue{route, mark}`.** The worker stalls the route only if it waits and its mark is `mark`; otherwise it
+  declines: nothing changes and nothing is sent, and its newer report (already sent or marked) releases the host's slot.
+  At the stall, a frame with a write out, or with bytes written, is started and completed (OU-4). The droppable frames
+  after it are dropped, and a `resync{stalled}` entry goes right after the started frame, before the kept frames. The
+  route leaves the PTY read budget (OU-3b), takes no output while `Stalled` (OU-7), and the worker sends
+  `RouteStalled{route, mark}`.
+- **The resume.** At the first progress of a `Stalled` route, the worker builds the baseline sequence and the output
+  after its point `R` (`unfed` included) and inserts them after the `resync` entry, which becomes kept. A sequence that
+  cannot be formed closes the route `SnapshotTooLarge` (healthy close, OU-9). The worker sends `RouteResumed{route, mark}`.
+- **`RouteCloseDue{route, mark}`.** At the stall's mark, the route closes with its first reason, or `StallTimeout`. At
+  another mark (the route resumed, and maybe stalled again) it changes nothing.
+- **Adoption (R-90 Q3).** No stall deadline runs while no host is connected. At the adoption, the worker forgets what it
+  reported to the old host, sends the adoption report and closes the unchecked routes first, then reports each route's
+  state again, so the new host arms from the pump that consumes it.
+- **No feature gate.** An older worker never sends `RouteProgress`, so the host never arms a deadline for its routes and
+  sends no due message; an older worker also ignores an unknown host message. The two messages need no negotiated
+  feature (a deviation from the design note's feature gate).
+- **No affected query yet.** The worker sends no `terminal_query` and no `modes` frame on a route yet, so a stall discard
+  retires no query today. When those frames come, the stall applies EV-8(i) as below.
 
 ### The output queue and the resync sequence (OU-4, OU-9, DP-5)
 
@@ -265,7 +306,8 @@ The resync sequence (at `Stalled → Open`, OU-9):
   held suffix included. `attached` is ahead of the sequence, not behind it, so it does not count either. The PTY read
   budget is the free payload space under the threshold, so no output is added past it, and a route that is behind stops
   the PTY (OU-3d). A route over the threshold only because of its baseline is not "not progressing" (9B) and has no stall
-  clock of its own; OU-3b(b) alone makes it `Stalled` (the stall clock is a later P4a PR). A resync starts a new sequence
+  clock of its own; OU-3(b) alone makes it `Stalled` (the stall clock above: frames pending and no byte accepted). A resync
+  starts a new sequence
   (at most one per route, because a resync drops the unstarted baseline frames) and sets its exempt bytes the same way.
 - PTY output goes to each `Open` route unchanged and in order (OU-12). The worker splits it into `output` frames whose size
   is within the route's `max_frame_bytes`, as the codec measures a frame (`bound_of`).
@@ -304,7 +346,9 @@ The resync sequence (at `Stalled → Open`, OU-9):
   than the free queue space.
 - Baseline cut: attach and resync while the model holds an `unfed` suffix, including a lone ESC.
 - Close: a partly written frame, then a write failure (`WriteFailed`, no `route_closed`); a route that is not writable at
-  the `stall_close_after` deadline (`StallTimeout`).
+  the host's `RouteCloseDue` (`StallTimeout`).
+- Stall clock (`tests/routes/stall.rs`): the waiting report, the order rule, the bound, the stall and the resume, a
+  declined due step, the close due, and the first reason of a closing route.
 - Limits: a snapshot over `max_snapshot_bytes` is refused although the frame limit would take it.
 - Resync: a partly written `output` frame, and kept `input_refused`, `input_done` frames, across a resync.
 

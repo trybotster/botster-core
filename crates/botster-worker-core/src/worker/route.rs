@@ -12,9 +12,9 @@
 //! dropped. The baseline goes whole into the route's empty queue at the bind. Steward ruling R-45: the one baseline
 //! sequence in delivery (the attach frames through `live`, with their stream prefixes) is exempt from the threshold, and
 //! only the frames behind it count (the output after `R`, the held suffix included). A route over the threshold only
-//! because of its baseline is not "not progressing" (9B) and gets no stall clock of its own (this PR has no stall clock).
-//! While the frames behind the sequence are at the threshold, the budget is 0 and no PTY byte is read. A resync (a later
-//! PR) starts a new sequence and must set its exempt bytes the same way.
+//! because of its baseline is not "not progressing" (9B): it stalls only by OU-3(b), when frames are pending and the
+//! transport accepts no byte (the stall clock, `stall.rs`). While the frames behind the sequence are at the threshold, the
+//! budget is 0 and no PTY byte is read. A resync starts a new sequence and sets its exempt bytes the same way.
 //!
 //! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
 //! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
