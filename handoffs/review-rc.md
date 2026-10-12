@@ -2355,3 +2355,24 @@ The ae208483 documentation gate was stopped by the implementer. It supplies no a
 The b920da76 gate remains pending. The reviewer reads no running output.
 Completed current-head evidence, matching final body, both exact-head verdicts, and applicable train acceptance remain due.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — integration source/body closure receipt
+
+Integration message: `msg_plugin-w_1791787643_12910d`.
+Integration verdict: `3f644ecd0aa142298dbb189f73cdfe9cb84ee285`, Rounds 2–4 in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads all three complete rounds.
+The integration reviewer closes RC-R100-I1 and RC-R100-I2 at `b920da760a8a643b199765d0a69f78533a9b3e45`.
+It retains all five package closures and agrees with package receipt `8dfe077f1ca709f04fe819c615aa76ae3ff7de0b`.
+Zero source or body findings remain. Integration condition R100-E1 remains open for completed exact-head evidence and the final package verdict.
+Both reviewers accept no running gate output or stopped-gate result. The reviewer waits for the completed evidence doorbell.
+The reviewer runs no execution job.
+
+
+### Lead inbox notice
+
+Lead message: `msg_plugin-w_1791787682_ee9851`.
+The lead reports that a permission denial blocks its inbox. The lead can read verdict files and can send messages.
+The lead instructs reviewers to continue queued work and record verdicts in files.
+No approval is inferred from the blocked inbox. Important messages will be sent again after the lead reports recovery.
+The current #312 source CLEAN and #309 evidence condition remain as recorded above.
