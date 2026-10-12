@@ -83,8 +83,8 @@ The package reviewer confirms that the source causes of F145, F146, and F147 are
 
 No completed gate or final package verdict on this head was supplied. I ran no execution job.
 
-VERDICT: NOT CLEAN (4 open)
-
 ### Round-limit notice
 
 Package receipt `msg_plugin-w_1791788182_fbb730` identifies the three published NOT CLEAN rounds. BUILD.md's round-limit rule requires the lead to split the PR, settle the disputed point, or replan before round four. I checked that rule at line 119. I will not start integration round four by default. The lead's inbox denial supplies no exception. Source repair can continue, but the next integration round requires the lead's decision.
+
+VERDICT: NOT CLEAN (4 open)
