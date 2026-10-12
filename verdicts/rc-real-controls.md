@@ -3461,3 +3461,56 @@ Both #312 train source delta reviews have zero open findings.
 Sol owns the combined review. Other member reviews, final train gate, member receipts, and equal-tree merge verification remain due.
 No #309, #311, or future frame-bound composition is accepted here.
 The reviewer runs no execution job and waits for the next assigned review doorbell.
+
+
+### Core #312 — train 4b base delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Train base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Train tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Previously reviewed train: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Frozen #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+Lead assignment: `msg_plugin-w_1791825491_3f9582`.
+Open #312 package delta findings and conditions: 0, including LOW findings.
+
+The reviewer independently reads all three ordered merges: #314, #312, then #307, with the same frozen member heads.
+The complete difference from the previously reviewed train is byte-identical to #317's difference from the former base.
+Only ci/known-flaky.toml and its repository-list test change, with seventeen additions and four deletions.
+Every #312 own blob equals its previous train blob. All nine conformance files are unchanged.
+The combined list formula still matches. Core-pending contains 403 IDs; core-real-pending contains 34.
+The R-92 removal, nine real-pending removals, earlier body closures, and all accepted imported interfaces retain their scopes.
+No #309 or #311 composition is added.
+
+The reviewer reads the completed train-4 RED log at the old head.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4-03709a0c-pool-20261012-092150-15636.log`.
+The first seven steps pass. Slow fails with real ev_2_mandatory_and_keyed_never_dropped at seed zero, step 71, limit step_timeout.
+Mutants and fuzz do not run. Jobq exits 1 after 418 seconds; the wrapper exits 1 after 419 seconds.
+The old gate remains RED and supplies no final train acceptance. This review claims no re-gate of that old head.
+
+The imported #317 entry names only that real EV-2 test and its recorded INCONCLUSIVE step-71 timeout signature.
+The seed may vary. RC owns its removal through #316, the planned pin to .46.
+The current .44 pin is before .45, so that removal trigger is not satisfied in this train.
+This differs from the earlier obsolete in_8 entry, whose removal trigger was the already applied .44 pin.
+The repository-list test now requires exactly this one entry. No production parser or filter implementation changes.
+
+The reviewer reads R107-SI-2 at contracts `28275d852946ee187a16d8543b2c260facba14b8`.
+It corrects the earlier acknowledgement premise and confines this EV-2 entry to Core pins before .45.
+Contracts #89 supplies the await_title TB fence before Stop. A31's exit-tail proof remains a separate amendment and ID.
+The reviewer reads complete #317 integration acceptance at `ee3dd333685af0bca99a8e879db78cebe620690f`, in `verdicts/stage1/p3-known-flaky-ev2.md`.
+That record accepts the same #317 head, corrected owner and removal scope, and completed exact-head gate.
+This delta accepts neither the future #316 implementation nor A31 evidence.
+
+The known-flaky list removes the named test from mutation stages only when that stage builds its binary.
+The normal slow tier and unmutated second-stage baseline still run it. An unmutated failure remains RED.
+No other test, step, or failure limit is covered by this entry. The Stage 1 exit still requires an empty list.
+The mutation configuration and every exclusion are unchanged from the previous reviewed train.
+No conformance status, terminal expectation, probe protocol, control model, private-state assertion, or budget changes in this base delta.
+
+The lead reports a local xtask test-target check. This report is supplementary and supplies no completed train gate.
+A fresh exact-head train gate and matching final body/evidence records remain due.
+This source delta CLEAN satisfies the requested #312 package base-change review.
+Matching integration delta, required combined review, other member reviews, final gate, member receipts, and equal-tree merge verification remain due.
+This verdict accepts no later head, different tree, specific retry, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
