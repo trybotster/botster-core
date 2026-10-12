@@ -729,4 +729,5 @@ mod queue_pressure;
 mod ready;
 mod registry;
 mod remove;
+mod stall;
 mod worker_link;
