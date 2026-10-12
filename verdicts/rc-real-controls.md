@@ -2341,3 +2341,17 @@ The completed new-head gate must confirm the surviving mutant is caught and supp
 No new source finding is added by this test correction. RC-PIN43-1 through RC-PIN43-4 remain closed.
 Final source CLEAN still awaits completed exact-head evidence and the matching body result.
 The reviewer ran no test, build, gate, or diagnostic.
+
+
+### Core #299 — integration two-send proof receipt
+
+Integration message: `msg_plugin-w_1791775791_32c124`.
+Integration receipt: `500639cb61565a1a42adadf7e46938728fdb6d81`, Round 2 in `verdicts/stage1/rc-pin-43.md`.
+The reviewer reads that complete round.
+It covers `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a` against imported base `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+The gate reference remains `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+The integration reviewer verifies the d919 red gate's exact mutation sets and the new test-only proof without a new source finding.
+Its filtered reversal and multiplication-PASS limits match package receipt `2a79e846903e897dbb52f0eebf7adc3a2a001fcc`.
+One acceptance condition remains: the completed new-head gate, full mutation closure, and matching body.
+Final-slot import and final evidence remain due after source CLEANs.
+The reviewer reads no running output and runs no test, build, gate, or diagnostic.
