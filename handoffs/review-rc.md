@@ -2731,3 +2731,69 @@ Both reviewers close RC-R100-TRAIN-1 and retain all earlier technical and proced
 Both repaired-member source delta reviews have zero open findings.
 FINAL-READY may follow the lead's repair order. Applicable train reviews, final gate, member receipts, and equal-tree merge verification remain due.
 The reviewer runs no execution job and waits for the next assigned review doorbell.
+
+
+### Core #312 — repaired member delta verdict after train 3c RED
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact head: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+Source tree: `e7324ae1ff712377222770843ea9dbe4caf64183`.
+READY message: `msg_plugin-w_1791820382_487972`.
+Open package delta findings and conditions: 0, including LOW findings.
+The earlier source, removal, and body closures retain their recorded scopes.
+
+The reviewer reads the completed train-3c RED log at the previously reviewed b78df725 head.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-3c-b78df725-pool-20261012-083917-27480.log`.
+Fmt, clippy, and taint pass. Lists fails because a5_2_deferred_completion_keeps_slot_until_polled is pending and passes on the testkit.
+All later steps do not run. Jobq exits 1 after 462 seconds; the wrapper exits 1 after 463 seconds.
+That gate supplies no final train acceptance. The lead removes #312 from the train and directs the member repair.
+The lead attributes the pass to .44's R-92 transcript with #300's E1 scheduler hold on the new base.
+The reviewer verifies that the transcript uses pending_ops 1 and scheduler hold/release controls.
+R-92 requires removal after both tiers pass. This review accepts no weakened transcript, budget, or expected result.
+
+The reviewer reads merge `717276302460f3f3bd10d74fbfd6080c51d75b21` and its exact 54805661/08098782 parents.
+The following repair removes the one a5_2 ID and its obsolete pending comment, with no other source edit.
+All five earlier #312 own blobs equal the source CLEAN member head.
+The pin, probe report arm, route-log behavior, and nine real-pending removals retain their reviewed versions.
+All nine conformance line-set formulas pass after the declared a5_2 removal.
+Core-pending contains 405 IDs. Core-real-pending retains 34 IDs. No further removal or restored ID appears.
+The mutation file equals the imported base, with the previously reviewed narrow equivalent exclusions.
+No private-state assertion, control model, or mutation exception enters this list repair.
+The a5_2 transcript has no .44 fence exception and adds no terminal-history measurement.
+
+Local evidence:
+`/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-pin-44/strict-c0f8a09c-20261012-154821.log`.
+The reviewer reads strict-merged.sh, the exact header, commands, exits, summaries, and a5_2 results.
+The header names this exact head, tree, imported base, and RC target directory, with no tracked diff.
+The script sets both parallelism caps to four, unsets the toolchain override, and calls cargo clean before the checks.
+The clean has a time marker but no numeric exit or retained removal output. No other target-writer history is inferred.
+Fmt, lists, ledger-ids, and prebuild exit zero. The candidate manifest has three binaries.
+Strict testkit at seeds 0-31 reports 262 passes and no failure, with exit zero.
+It checks 318 of 335 pending IDs; seventeen are real-only and four are held under their separate pass rules.
+The un-pended a5_2 ID has a normal testkit PASS in that run.
+The focused real trial under nextest's slow profile passes in 2.187 seconds, with command exit zero.
+The script sets no seed override for that real command; the pinned runner's local default is seeds 0-7.
+No full-seed real run is claimed. The final train gate must supply the completed composed acceptance evidence.
+The real PASS and absent fence exception justify keeping a5_2 out of core-real-pending.
+
+RC-PIN44-4 — LOW, closed in the published body.
+The initial repair says no other pending ID passes, without distinguishing held IDs that must pass and remain pending.
+The reviewer requests an unheld qualification in both strict-run descriptions.
+The first correction says held IDs are not checked. The reviewer corrects its own earlier loose description and requests the held-rule wording.
+Final correction: `msg_plugin-w_1791820627_c15bcd`.
+The body now says that unheld pending IDs fail while the four named held IDs pass under their held rules and retain their status.
+The reviewer verifies this wording against core-held.txt and the suite's strict-run rules.
+The correction changes no source head or test evidence. All earlier body findings remain closed.
+
+The reviewer reads the complete updated body and verifies GitHub's exact head and imported base.
+The repair section records the failed train, new import, one-ID removal, local checks, and current six-file scope.
+The historical gate and evidence records keep their original scopes.
+The body explicitly claims no pool gate on this member head under the lead's repair order.
+The final composed train gate remains due after delta reviews and FINAL-READY.
+
+This delta CLEAN permits FINAL-READY after Sol-C's matching exact-head delta verdict, as directed.
+Applicable train reviews, combined review when required, final gate, member receipts, and equal-tree merge verification remain due.
+This verdict accepts no older gate as current-head acceptance, later head, or different source tree.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
