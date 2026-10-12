@@ -16,8 +16,27 @@ type Trace = Arc<Mutex<Vec<(ChoicePoint, usize, usize)>>>;
 /// The seeds of the comparison.
 const SEEDS: u64 = 16;
 
-/// `(trace length, FNV-1a digest)` per seed `0..SEEDS`, from `print_the_seeded_traces` on v1 `1b984f06`.
-const BEFORE_E1: [(usize, u64); SEEDS as usize] = [(0, 0); SEEDS as usize];
+/// `(trace length, FNV-1a digest)` per seed `0..SEEDS`, from `print_the_seeded_traces` on v1 `1b984f06` (pool evidence job
+/// on E1 `1d1d7fc9`, which ran the same file on both commits; log
+/// `botster-core-stage1-p6-e1-scheduler-hold-1d1d7fc9-pool-20261011-200116-36766.log`).
+const BEFORE_E1: [(usize, u64); SEEDS as usize] = [
+    (207, 16081904804330880812),
+    (193, 14999279856648310390),
+    (230, 10601161564193167726),
+    (229, 8461361969394252691),
+    (208, 13394400034927130325),
+    (248, 4822766342596046137),
+    (219, 1766076094699244872),
+    (293, 4616665827199621369),
+    (221, 1538455162258642356),
+    (213, 12098497657580199005),
+    (173, 11502032415553900377),
+    (206, 641723253192062702),
+    (231, 5545640914891194933),
+    (261, 7983905030523437726),
+    (201, 5681368860853910093),
+    (235, 13479727771670637969),
+];
 
 /// A policy that varies every choice from a seeded xorshift64* stream.
 struct Seeded {
