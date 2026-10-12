@@ -161,7 +161,6 @@ fn a_launch_over_the_frame_bound_is_refused() {
             notification_policy: NotificationPolicy::All,
             size_policy: SizePolicy::Latest,
             link_frame_bound: 0,
-            stop_grace_ms: 0,
             limits: CoreLimits::default(),
         }))
     });
