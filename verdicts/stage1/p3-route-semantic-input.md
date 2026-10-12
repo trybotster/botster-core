@@ -1,0 +1,160 @@
+# Integration review — #302, route semantic input
+
+## Round 1 — source boundaries, conformance, and first gate
+
+PR: https://github.com/trybotster/botster-core/pull/302. HIGH: worker-core behavior.
+Head: `c4ea4032456ed26605da3efb6fbabf1ba1061b6d`.
+Parent: `8c7cfa75180689ad568823078ee4e598eadb7a19`.
+Tree: `563e5850ec0690a1386c6cacb47e57befce66e72`.
+Actual source merge base: `bfef88653bb59ad8d3cd38da1e206f7aba64ce92`.
+GitHub/gate base reference: `e4f495040a80b524a7ac9accba95272d5c2594fa`; it is not an imported ancestor.
+READY: `msg_plugin-w_1791777045_d571b5`.
+The package reviewer is 0165, per the lead's correction relayed in `msg_plugin-w_1791777192_efcb77`.
+017e withdraws from this PR and retains #299. Sol remains the integration reviewer.
+
+Sol reads the complete five-file diff: 207 additions and thirteen deletions.
+Full-index SHA-256: `5acb9b24f5a296799b169a1456f1aa379c16c84fbd804de4564574f2515e16a6`.
+Sol reads affected route decoding, receipt, admission, encoding, retention, refusal reservation, and allowance paths.
+Sol reads the codec's key validation, UnsupportedWhat serialization, CoreLimits delivery, host key admission,
+pinned DP-5/IN-9, amendment-15 A15-1, R-53, R-75, and the lead's PR A/PR B scope.
+No reviewer build, test, gate, mutation, reversal, measurement, or executable base check runs.
+
+### Interfaces and intended behavior
+
+Route::decide now maps Key, Mouse, and Focus into the existing InputPayload forms.
+It preserves the frame's optional op and every applicable semantic field. A route key has no host-only repeat.
+These inputs use the same ordered admission point as host input and model replies.
+The worker encodes at the start of the transaction through the existing libghostty model path.
+No second terminal encoder, handwritten expected terminal sequence, test branch in production, or new mode tracker appears.
+start_route omits NotReported with no write or frame. Unsupported preserves the encoder's serialized what and the route op.
+ModePreconditionFailed remains unchanged. View-only, before-live, stopping, and ended-session checks remain before encoding.
+Resize remains outside PR A, as the lead approved. PR B and the separate DP-12 focus-state gap remain due.
+
+Four new behavior tests cover a written key, omitted mouse/focus, an encoded mouse, and an unsupported coordinate.
+Expected terminal bytes come from the existing model encoder. The unapplied-kind test now uses resize.
+These tests do not cover the two size/retention defects below. The body reports old-source reversals,
+but the named evidence directory contains no retained four-test reversal record. Sol claims no independent runtime reversal proof.
+
+### R302-SI-1 — HIGH, open: queued semantic input bypasses the input-byte bound
+
+This finding matches package F142. Sol independently identifies the accounting gap before the package receipt.
+At input.rs:72–77, payload_len counts only Bytes, Text, and Paste. It returns zero for Key, Mouse, and Focus.
+The new Route::decide branches place these semantic inputs in Pending::Route.
+At input.rs:141–155, route_bytes uses that zero for every queued semantic input.
+At route.rs:789–802, read_allowances subtracts route_bytes and the reader's pending bytes from the effective input bound.
+Once a complete key frame is decoded and queued behind a blocked host write, its text remains retained,
+but the reader no longer holds its frame and route_bytes charges zero. The input allowance returns.
+Repeated queued key frames can therefore exceed DP-5/R-53's input-byte bound while Core continues to read.
+The separate refusal reservation counts queued transactions. It does not enforce their retained input bytes.
+The codec limits a key's scalar fields and modifier set, but its Key.text remains an allocated String.
+This is a source finding. Sol runs no runtime reproduction.
+
+Required change: account for retained semantic input when it waits at admission.
+Preserve encoding with the modes at transaction start; do not encode early to compute the charge.
+Add a behavior regression that blocks a preceding write, fills semantic input to the effective bound,
+observes input backpressure, then releases the write and observes resumed input with exact order and no loss.
+The byte bound and the refusal reservation must both remain effective.
+
+### R302-SI-2 — HIGH, open: the route bypasses the configured key-text bound
+
+This finding matches package F144. Sol independently checks its source and contract chain.
+Pinned amendment-15 A15-1 limits key text to CoreLimits.max_key_text_bytes of UTF-8.
+A route key over the bound must receive input_refused{too_large}, with no effect and the route open.
+The bound applies before other key size work. A key at the configured bound is admitted.
+Worker::on_launch receives CoreLimits through LaunchSpec.limits, so the worker has the configured value.
+The host's begin path checks this bound in admit.rs, but route input bypasses host begin.
+The new decide -> enqueue -> start_route -> model::encode path has no max_key_text_bytes check.
+Sol verifies that worker-core has no reference to max_key_text_bytes.
+The codec's Input::check validates key scalars and modifiers, but it checks no text length.
+The frame bound is a different bound and can permit text above the configured key limit.
+The new route path can therefore reach encoding without the required too_large refusal.
+This is separate from R302-SI-1's retained queue accounting. Sol runs no runtime reproduction.
+
+Required change: enforce the configured key-text byte bound on route input before other key size work.
+Preserve the optional op, send too_large with zero effect, and keep the route open.
+Add configured-boundary and one-byte-over behavior tests. The over-bound case must write nothing.
+
+### Conformance accounting and retained local evidence
+
+Sol independently compares identifier sets against the actual bfef8865 source base.
+Three identifiers leave pending on both-tier proof: dp_5_not_reported_sends_no_frame,
+dp_5_silent_not_reported_is_omitted_not_written, and in_1_host_write_and_route_frames_share_payload_kinds.
+dp_4_worker_encodes_route_frames_with_write_time_modes leaves testkit pending and enters real-pending.
+No other identifier enters pending or leaves real-pending. Counts are 406 pending and 45 real-pending.
+The dp_3 route-codec identifier stays pending for the separate resize path.
+The first source commit is 28c7be7737c5ab36c3e93f2424ab5c79d2f95e10 on bfef8865.
+Its three worker source/test blobs equal this reviewed head; the two later commits change lists only.
+
+Sol reads all four local scripts, completed logs, relevant raw failure context, and three removal transcripts.
+Sol independently matches all 46 after cells and all eight before cells to their raw summaries and numeric command exits.
+The after run covers 23 identifiers. The before run covers only four identifiers.
+Each run records a target clean with exit zero and its own source and worktree.
+The script patches seven contracts crates to the clean .41 tree at 2fcd7739708fe6de1390ff9bd9f90da5a8bc6d87,
+sets both parallelism caps to four, sets seeds 0–31, unpends the selected identifiers, and restores tracked files.
+Sol matches all 23 printed transcript hashes to that tree. No modified transcript is accepted.
+
+All three removal identifiers have before FAIL on both tiers and after PASS on both tiers.
+dp4 has testkit before FAIL/after PASS and real before FAIL/after INCONCLUSIVE at step 20.
+The raw after totals are seven PASS, twenty-one FAIL, fifteen INCONCLUSIVE, and three unsupported-control results.
+Each of the fourteen a3_2/dp_12 cases has testkit FAIL and real INCONCLUSIVE.
+The remaining dp4 real result supplies the fifteenth INCONCLUSIVE.
+dp3 has after FAIL at step 23 on both tiers; its before cells were not run.
+The dp4 transcript has the recorded R-56 step-24, R-57 step-9, and R-60 step-12 exceptions.
+Its blocked two-byte host write also lacks the R-74 hold. The body assigns its fence repair to P3 with PC.
+These records establish the current pending disposition; they do not supply an original event-order trace or a new fence repair.
+DP-12, pty_fail_after, control_queue, success-acknowledgement, and optional-op failures stay outside this source repair.
+
+After log SHA-256: `dd79e0144ea6deff4d71399faaa656a96a8f836470bacef4b4bee54aa83321ce`.
+Before log SHA-256: `45c1f095b6c5d5652ab791b4f8819717008f68d959347df82279eb82997075e2`.
+Local check SHA-256: `7cbf2f13ad20d17f364c2b432cfc7a0952e9e383279e2d490ecb98d6798bc24b`.
+The local check names 8c7cfa75, records a clean exit zero, 1202 nextest passes and exit zero,
+then strict 261 PASS/one FAIL and exit 101 because dp4 is pending but passes.
+The c4 list-only commit moves dp4. Its unretained terminal rerun remains an owner report, not this log's result.
+The exact-head completed gate supplies the later strict proof.
+
+### Completed first gate
+
+Gate: `gates/botster-core-stage1-p3-route-semantic-input-c4ea4032-pool-20261011-204236-1219.log` under `~/botster-sessions`.
+SHA-256: `3eb7c10edc4e03c4cbaf3eb2b9880ac5baba0fd23f28ca23932540a2a4c35fca`.
+Sol reads exact headers, list/coverage results, all mutations and citations, relevant normal tests,
+conformance summaries, step summary, and final exits. The lists step names the actual bfef8865 merge base.
+All ten steps PASS in 313.7 seconds on MS-A1, kernel 6.12.111+deb13-amd64.
+Job and wrapper exit zero after 412 seconds, with one second queued and 411 running.
+Default: 1869 PASS, 429 skipped, 14.945 seconds. Slow: 613 PASS, 2039 skipped, 42.298 seconds.
+Both strict summaries have 262 passed and zero failures. Held-full has 64 expected ignored results,
+zero failures, two budget identifiers at 32 seeds, in 19.27 seconds.
+Coverage checks 1076 slow-only tests and four named real proofs.
+
+Sol independently parses five unique mutation identities: four caught and one unviable, in 5.3 seconds.
+All four raw catches equal their citations and have normal PASS. No miss, timeout, or FLAKY token occurs.
+Stage 2 does not run because stage 1 has no miss. Fuzz reports no changed decoder harness.
+All four new worker tests PASS. All three both-tier removal identifiers PASS in normal testkit and real trials.
+dp4 has normal testkit PASS. All 34 observed real-pending passes remain in the 45-entry list.
+This green gate does not exercise or close either HIGH source finding and does not carry to a repair head.
+
+### R302-SI-3 — LOW, partially closed: body source and outcome precision
+
+Initial live body SHA-256: `d4db44f93ea6160d87c9bb18ac6f6ca24c8072f585d3b77efdf3328264d762eb`.
+Sol reports the baseline/local/base conditions in `msg_plugin-w_1791777180_de1c9d` and relays them to 0165.
+Owner correction receipt: `msg_plugin-w_1791777212_5ff211`.
+Sol reads the complete published delta, SHA-256 `8e2fc72a5eaefaccfb5d52de45ac9fc6bdd626882a4d1f034c56cfac4417d272`.
+The corrected body names 0165, limits before coverage to four identifiers, and marks dp3 before cells not run.
+It preserves the 8c strict FAIL and marks the c4 rerun as an unretained terminal result.
+It distinguishes the actual parent 8c, source merge base bfef, and GitHub/gate reference e4f49504.
+Those subconditions close without source change or new execution.
+
+One LOW condition remains: the body describes all fourteen focus cases as the same FAIL/no-matching-event result.
+Their real-tier raw results are INCONCLUSIVE under step_timeout; their testkit raw results are FAIL.
+Sol independently verifies that tier split and requests it in `msg_plugin-w_1791777256_197c75` and `_97c492`.
+Required change: preserve the exact outcome on each tier. No new execution is requested.
+Package F143 covers this same body condition and the corrected subconditions above.
+
+The two HIGH source findings and the remaining LOW body condition block CLEAN.
+Sol reads complete package Round 188 at `1528ccab0b63581d17d8080b9d9989ac5f356a76`, verdicts/p3-worker.md.
+Package receipt: `msg_plugin-w_1791777531_413f66`.
+Its three open findings, matching F142/F144/F143, and evidence limitations agree with this review.
+After repair, the applicable source/mutation evidence, completed exact-head gate, and both reviews remain required.
+The final-slot current-v1 import/checks, exact-final-head gate, final reviews, and Q7 remain due before merge.
+Sol runs no execution job. Never poll.
+
+VERDICT: NOT CLEAN (3 open: 2 HIGH source findings and 1 LOW body condition) at c4ea4032456ed26605da3efb6fbabf1ba1061b6d against source base bfef88653bb59ad8d3cd38da1e206f7aba64ce92
