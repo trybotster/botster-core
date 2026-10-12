@@ -141,3 +141,31 @@ VERDICT: CLEAN (0 open; import source and focused evidence only, train evidence 
 Sol-B read package receipt `be0a893b2b0dd989ccd7128a8bf32fa4b4008611`, `verdicts/p6-e1-scheduler-hold.md`, Round 5. It names the unchanged import head and accepts the same completed Mac job. Its evidence conclusions agree with the focused receipt above. No finding changes. The final train gate and body remain due. Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; import source and focused evidence only, train evidence pending)
+
+## Round 5: train 2 source delta
+
+Exact train head: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+Base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Frozen #300 member: `484912ac58743b899c7856e87bdcad0f2b398300`.
+
+Sol-B independently compared all 17 own patches at the first train merge with the accepted import patches.
+Every added and deleted line matches after excluding diff headers and hunk coordinates. No extra path changes.
+The later #305 merge changes none of the 15 owned source/test entries.
+The three testkit auto-merges retain the per-host operation-hold object beside the separate start-hold storage.
+Both held-aware more calls and the settle-only drain term remain intact.
+
+Sol-B independently checked all nine conformance sets and the mutation exclusion set.
+Each set matches the base plus both members' own additions, minus their own removals.
+Core-pending has 406 identifiers. The train retains #301 and #304 removals.
+#300 still removes only a5_2_reads_match_atomic_transitions. Deferred-completion remains pending.
+
+Sol-B read the exact-train-head package verdict `6d0c68a105350e5ef3101220a6071dc324ee599b`, Round 6.
+It agrees with these checks. No #300 package or integration source finding remains.
+Both earlier integration findings remain closed with their original proof scope.
+The combined review is in `verdicts/stage1/train-2.md`.
+
+This verdict accepts the exact train source delta. It accepts no running or future gate result.
+The completed train gate and final evidence body remain due. Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; train source delta only, final train evidence pending)
