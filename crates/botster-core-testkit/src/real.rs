@@ -1826,6 +1826,81 @@ mod slow_controls {
         drop(core);
     }
 
+    /// R107-SI-1, on a real session with the real probe, through the control:
+    /// - The probe's own `print` (an OSC 2 title) is not counted: once Core shows its title, the count is still 0.
+    /// - After each `pty_output`, the count reaches the total of the `pty_output` bytes once the probe's writer returned
+    ///   from `write_all` and `flush` (the acknowledgement comes first, so the test pumps until the count is there). It never
+    ///   goes past the total.
+    #[test]
+    fn pty_output_written_counts_the_written_pty_output_bytes_and_not_the_prints() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        // The program prints the title "p" (OSC 2, 7 bytes), then holds.
+        let program =
+            json!({ "program": [{ "print": { "bytes_hex": "1b5d323b701b5c" } }, { "hold": {} }] });
+        let request = SpawnRequest {
+            argv: vec![harness.probe_binary(), program.to_string()],
+            env: harness.probe_env(),
+            cwd: "/".into(),
+            size: Size {
+                rows: 24,
+                cols: 80,
+                cell_px: None,
+            },
+            labels: BTreeMap::new(),
+            color_profile: None,
+            notification_policy: None,
+            size_policy: None,
+        };
+        core.begin(Op::Create {
+            session: sid("s1"),
+            request,
+        })
+        .expect("create");
+        pump_until(core.as_mut(), |c| c.get(&sid("s1")).is_ok());
+        core.begin(Op::Start { id: sid("s1") }).expect("start");
+        pump_until(core.as_mut(), |c| {
+            c.terminal_state(&sid("s1"))
+                .is_ok_and(|t| t.title.as_deref() == Some("p"))
+        });
+        let written = |h: &mut RealCoreHarness| {
+            h.control("a", "pty_output_written", &json!({ "session": "s1" }))
+        };
+        assert_eq!(
+            written(&mut harness),
+            Ok(json!({ "bytes": 0 })),
+            "the print is not counted"
+        );
+        for (hex, total) in [("6162", 2), ("63", 3)] {
+            assert_eq!(
+                harness.control(
+                    "a",
+                    "pty_output",
+                    &json!({ "session": "s1", "bytes_hex": hex })
+                ),
+                Ok(Value::Null)
+            );
+            pump_until(core.as_mut(), |_| {
+                let bytes = written(&mut harness).unwrap()["bytes"].as_u64().unwrap();
+                assert!(bytes <= total, "{bytes} bytes counted of {total}");
+                bytes == total
+            });
+        }
+        assert!(matches!(
+            harness.control("a", "pty_output_written", &json!({ "session": "s9" })),
+            Err(ControlError::Bad(_))
+        ));
+        drop(core);
+    }
+
     /// `scheduler_hold` and `scheduler_release` on the real tier (Core A5-2; steward ruling R-88, group E):
     /// - A `Resize` of a running session to its own size has fixed timing (SZ-2, R-20), so its hold is refused.
     /// - A held `Stop` makes no progress: the pump ends with the session `Running`, and the wake stays quiet.

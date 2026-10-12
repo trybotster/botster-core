@@ -1,5 +1,5 @@
 //! The program controls of the testkit (`docs/core-testkit-controls.md`, `docs/fake-core-notes.md`): `pty_output`,
-//! `pty_blocked`, `pty_queued`, `pty_input`, `pty_chunk`, `pty_accept` and `pty_fail_after` act at the program edge of a session's payload
+//! `pty_output_written`, `pty_blocked`, `pty_queued`, `pty_input`, `pty_chunk`, `pty_accept` and `pty_fail_after` act at the program edge of a session's payload
 //! only (Core A5-1), never in the worker machine or the host (plan 2.1).
 
 use crate::controls::{parse, session_row, ControlRegistry};
@@ -17,6 +17,7 @@ pub(crate) fn register_controls(registry: &mut ControlRegistry) {
     registry.register("pty_output", pty_output);
     registry.register("pty_blocked", pty_blocked);
     registry.register("pty_queued", pty_queued);
+    registry.register("pty_output_written", pty_output_written);
     registry.register("pty_input", pty_input);
     registry.register("pty_chunk", pty_chunk);
     registry.register("pty_accept", pty_accept);
@@ -167,6 +168,19 @@ fn pty_queued(
     let args: Session = parse(args)?;
     let (program, _) = program_of(harness, handle, &args.session)?;
     Ok(json!({ "bytes": program.queued() }))
+}
+
+/// The total of the session's `pty_output` bytes that reached the PTY (steward ruling R107-SI-1). The program edge writes
+/// at once, so it is the total of every `pty_output` so far; the program's own steps are not counted. A read: it changes
+/// nothing.
+fn pty_output_written(
+    harness: &mut TestkitHarness,
+    handle: &str,
+    args: &Value,
+) -> Result<Value, ControlError> {
+    let args: Session = parse(args)?;
+    let (program, _) = program_of(harness, handle, &args.session)?;
+    Ok(json!({ "bytes": program.written() }))
 }
 
 /// Every byte of PTY input that the payload's program edge took, in order: the observer of the input controls.

@@ -1046,3 +1046,45 @@ fn input_blocked_reports_a_stream_that_takes_no_more_client_bytes() {
         .collect();
     assert_eq!(input(&mut harness), json!(expected), "every byte, in order");
 }
+
+/// Steward ruling R107-SI-1: `pty_output_written` is the total of the session's `pty_output` bytes, at once on the testkit
+/// (the program edge writes at once). The program's own `print` is not counted. An unknown session is `Bad`.
+#[test]
+fn pty_output_written_is_the_total_of_the_pty_output_bytes_and_not_the_prints() {
+    let mut harness = TestkitHarness::new(0);
+    let (mut core, at) = session_of(
+        &mut harness,
+        true,
+        &json!([{"print": {"bytes_hex": "616263"}}, {"hold": {}}]),
+    );
+    settle(core.as_mut(), at);
+    let written =
+        |h: &mut TestkitHarness| h.control("a", "pty_output_written", &json!({"session": "s1"}));
+    assert_eq!(
+        written(&mut harness),
+        Ok(json!({"bytes": 0})),
+        "a print is not counted"
+    );
+    for (hex, total) in [("6465", 2), ("66", 3)] {
+        assert_eq!(
+            harness.control(
+                "a",
+                "pty_output",
+                &json!({"session": "s1", "bytes_hex": hex})
+            ),
+            Ok(Value::Null)
+        );
+        assert_eq!(written(&mut harness), Ok(json!({"bytes": total})));
+    }
+    settle(core.as_mut(), at);
+    assert_eq!(
+        written(&mut harness),
+        Ok(json!({"bytes": 3})),
+        "a read changes nothing"
+    );
+    assert!(bad(harness.control(
+        "a",
+        "pty_output_written",
+        &json!({"session": "s9"})
+    )));
+}

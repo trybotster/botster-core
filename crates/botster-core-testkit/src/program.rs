@@ -88,6 +88,9 @@ struct Controls {
     input_log: Vec<u8>,
     /// Output bytes that the worker has not read: the program's queue and the injected bytes (`pty_output_unread`).
     unread: usize,
+    /// The total of the bytes that `pty_output` wrote (`pty_output_written`, steward ruling R107-SI-1). The program's own
+    /// steps are not counted.
+    written: u64,
 }
 
 /// A handle on the controls of a [`ScriptedProgram`]. It outlives the move of the program into a worker.
@@ -175,7 +178,14 @@ impl ProgramControl {
     pub fn write(&self, bytes: &[u8]) {
         let mut controls = self.lock();
         controls.unread += bytes.len();
+        controls.written += bytes.len() as u64;
         controls.inject.push_back((bytes.to_vec(), false));
+    }
+
+    /// `pty_output_written`: the total of the bytes that [`ProgramControl::write`] wrote. The program edge has no PTY and
+    /// writes at once, so the total is the whole of them at once (steward ruling R107-SI-1).
+    pub fn written(&self) -> u64 {
+        self.lock().written
     }
 
     /// `uncarriable_sequence`: the program writes the start of an OSC or DCS string and more than `limit` bytes of it, with no

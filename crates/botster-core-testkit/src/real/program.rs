@@ -1,7 +1,7 @@
-//! The program controls of the real tier: `pty_output`, `pty_input`, `pty_blocked`, `pty_accept` and `pty_chunk`, through the
-//! control socket of the production probe (`botster_probe_script::control`; steward approval of 2026-10-10). The real forms are
-//! P3's statement (`p3-program-controls-real-forms.md`): the payload is the production probe on a real PTY that the production
-//! worker started, and the harness never touches the PTY.
+//! The program controls of the real tier: `pty_output`, `pty_output_written`, `pty_input`, `pty_blocked`, `pty_accept` and
+//! `pty_chunk`, through the control socket of the production probe (`botster_probe_script::control`; steward approval of
+//! 2026-10-10). The real forms are P3's statement (`p3-program-controls-real-forms.md`): the payload is the production probe on a
+//! real PTY that the production worker started, and the harness never touches the PTY.
 //!
 //! [`Programs`] listens on `<root>/p`. Both real harnesses name that path in `probe_env`, so the driver puts it in the `env` of
 //! every `Create` and no transcript names it (Core A5-4). Each probe connects after its terminal setup (R-48) and before its first
@@ -38,9 +38,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::thread::JoinHandle;
 
 /// The controls that this module serves.
-pub(super) const CONTROLS: [&str; 7] = [
+pub(super) const CONTROLS: [&str; 8] = [
     "program_ready",
     "pty_output",
+    "pty_output_written",
     "pty_input",
     "pty_blocked",
     "pty_queued",
@@ -63,6 +64,9 @@ struct Probe {
     acked: u64,
     /// The count of the last `Queued` report: the bytes in the probe's stdin buffer that it has not read (R-74).
     queued: u64,
+    /// The count of the last `Written` report: the bytes of the `pty_output` requests whose write to the PTY returned
+    /// (R107-SI-1).
+    written: u64,
     /// The socket ended: the probe exited.
     closed: bool,
 }
@@ -241,6 +245,14 @@ impl Programs {
     fn queued(&self, worker: ProcessIdentity) -> Result<u64, ControlError> {
         self.request(worker, &Request::Queued {})?;
         Ok(self.requests.hub.lock().probes[&worker].queued)
+    }
+
+    /// The bytes of the `pty_output` requests to the probe of `worker` whose `write_all` and `flush` returned (R107-SI-1): the
+    /// probe's writer thread counts them, and the probe answers a `Written` request with the total, in place of an
+    /// acknowledgement. Its prints are not counted.
+    fn written(&self, worker: ProcessIdentity) -> Result<u64, ControlError> {
+        self.request(worker, &Request::Written {})?;
+        Ok(self.requests.hub.lock().probes[&worker].written)
     }
 }
 
@@ -510,6 +522,7 @@ fn serve(hub: &Hub, stream: UnixStream) {
             sent: 0,
             acked: 0,
             queued: 0,
+            written: 0,
             closed: false,
         },
     );
@@ -535,6 +548,11 @@ fn serve(hub: &Hub, stream: UnixStream) {
             }
             Some(Report::Queued { bytes }) => {
                 probe.queued = bytes;
+                probe.acked += 1;
+                false
+            }
+            Some(Report::Written { bytes }) => {
+                probe.written = bytes;
                 probe.acked += 1;
                 false
             }
@@ -663,6 +681,13 @@ impl RealCoreHarness {
                 let worker = self.worker_of(handle, &args.session)?;
                 self.programs.requests().write_output(worker, bytes)?;
                 Ok(Value::Null)
+            }
+            "pty_output_written" => {
+                // R107-SI-1: a read at the boundary. The probe answers with its writer's count, and the request changes
+                // nothing.
+                let args: Session = parse(args)?;
+                let worker = self.worker_of(handle, &args.session)?;
+                Ok(json!({ "bytes": self.programs.written(worker)? }))
             }
             "pty_input" => {
                 let args: Session = parse(args)?;
@@ -993,6 +1018,23 @@ mod slow_tests {
         });
     }
 
+    /// R107-SI-1: the probe answers `Written` with its writer's count in place of an acknowledgement, and `pty_output_written`
+    /// returns that count. Each answer is the one to its own request.
+    #[test]
+    fn pty_output_written_returns_the_count_of_the_probes_answer() {
+        let (_root, programs) = programs();
+        let me = identity(std::process::id());
+        let mut probe = FakeProbe::connect(&programs, me.pid);
+        std::thread::scope(|s| {
+            for bytes in [0, 14] {
+                let control = s.spawn(|| programs.written(me));
+                assert_eq!(probe.next_request(), Request::Written {});
+                probe.report(&Report::Written { bytes });
+                assert_eq!(control.join().unwrap(), Ok(bytes));
+            }
+        });
+    }
+
     /// A recorded worker that no longer runs gives `Bad` at once: its probe can never connect, and a reused pid is never
     /// awaited (R-46).
     #[test]
@@ -1145,6 +1187,7 @@ mod slow_tests {
         for (op, args) in [
             ("program_ready", json!({"session": "s1"})),
             ("pty_output", json!({"session": "s1", "bytes_hex": "61"})),
+            ("pty_output_written", json!({"session": "s1"})),
             ("pty_input", json!({"session": "s1"})),
             ("pty_blocked", json!({"session": "s1"})),
             ("pty_queued", json!({"session": "s1"})),
