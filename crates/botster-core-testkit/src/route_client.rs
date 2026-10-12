@@ -59,6 +59,66 @@ impl RouteInstances {
     }
 }
 
+/// The frames in the bytes that a route's client hands to the stream, in order (`route_frames_taken`, R-93 Q1): each frame is
+/// a 4-byte big-endian length and that many bytes, and the testkit knows its own boundaries. A raw write (`route_send_raw`)
+/// counts as whatever its length prefixes say; the order lint gives no fence after one.
+#[derive(Debug, Default)]
+pub(crate) struct FrameEnds {
+    /// The bytes seen so far.
+    seen: u64,
+    /// The bytes of the length prefix of the frame in progress, while it is incomplete.
+    prefix: Vec<u8>,
+    /// The stream offset at which the frame in progress ends, once its prefix is complete.
+    body_end: Option<u64>,
+    /// The stream offset just after each complete frame, in order.
+    ends: Vec<u64>,
+}
+
+/// The bytes of a frame's length prefix on the route stream.
+const FRAME_PREFIX: usize = 4;
+
+impl FrameEnds {
+    /// The client handed `bytes` to the stream, after every byte before.
+    pub(crate) fn push(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            match self.body_end {
+                Some(end) => {
+                    let want = usize::try_from(end - self.seen).unwrap_or(usize::MAX);
+                    let n = want.min(bytes.len());
+                    self.seen += n as u64;
+                    bytes = &bytes[n..];
+                    self.end_frame_at(end);
+                }
+                None => {
+                    let n = (FRAME_PREFIX - self.prefix.len()).min(bytes.len());
+                    self.prefix.extend_from_slice(&bytes[..n]);
+                    self.seen += n as u64;
+                    bytes = &bytes[n..];
+                    if let Ok(prefix) = <[u8; FRAME_PREFIX]>::try_from(self.prefix.as_slice()) {
+                        self.prefix.clear();
+                        let end = self.seen + u64::from(u32::from_be_bytes(prefix));
+                        self.body_end = Some(end);
+                        self.end_frame_at(end);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The frame in progress ends at `end`: complete once every byte up to `end` is seen.
+    fn end_frame_at(&mut self, end: u64) {
+        if self.seen == end {
+            self.ends.push(end);
+            self.body_end = None;
+        }
+    }
+
+    /// The complete frames whose last byte is within the first `taken` bytes of the stream.
+    pub(crate) fn taken(&self, taken: u64) -> usize {
+        self.ends.partition_point(|&end| end <= taken)
+    }
+}
+
 /// The controls that `TestkitRoute::control` runs.
 pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "client_close",
@@ -70,6 +130,7 @@ pub(crate) const ROUTE_CONTROLS: &[&str] = &[
     "route_stream_written",
     "route_fill",
     "input_blocked",
+    "route_frames_taken",
 ];
 
 /// The op of the one segment of a route's `pty_input` log (plan 23bd). The harness does not know which op wrote which bytes,
@@ -139,6 +200,8 @@ pub struct TestkitRoute {
     failed: bool,
     /// `None` for a route that `attach_stream` did not build: it runs no `route_fill`.
     fill: Option<RouteFill>,
+    /// The frames that the client handed to the stream (`route_frames_taken`).
+    frames: FrameEnds,
 }
 
 impl TestkitRoute {
@@ -151,6 +214,7 @@ impl TestkitRoute {
             unsent: Vec::new(),
             failed: false,
             fill: None,
+            frames: FrameEnds::default(),
         }
     }
 
@@ -271,6 +335,7 @@ impl RouteClient for TestkitRoute {
     fn write(&mut self, bytes: &[u8]) {
         if !self.failed {
             self.unsent.extend_from_slice(bytes);
+            self.frames.push(bytes);
         }
         self.flush();
     }
@@ -344,6 +409,12 @@ impl RouteClient for TestkitRoute {
             "route_stream_written" => Ok(json!({"bytes": self.worker_end().written()})),
             // R-47 item 3, Core OU-3b: the session's output fills the stream and one frame more.
             "route_fill" => self.route_fill(),
+            // Core AM-2 (R-93 Q1): the client's complete frames that the worker has read from the stream, counted at the
+            // stream boundary (the bytes of the client's writes that the worker's end read), never in the worker.
+            "route_frames_taken" => {
+                let taken = self.end.end().control().taken();
+                Ok(json!({"frames": self.frames.taken(taken)}))
+            }
             // Core OU-1, DP-4: the input that reached the PTY of the route's session.
             "pty_input" => self.pty_input(),
             _ => Err(format!("unsupported_control: {op}")),
@@ -422,6 +493,79 @@ mod tests {
             .control("route_fill", &json!({}))
             .unwrap_err()
             .contains("no session row"));
+    }
+
+    /// A frame of `body` bytes on the route stream: the 4-byte big-endian length, then the body.
+    fn frame(body: &[u8]) -> Vec<u8> {
+        let mut bytes = u32::try_from(body.len()).unwrap().to_be_bytes().to_vec();
+        bytes.extend_from_slice(body);
+        bytes
+    }
+
+    /// `route_frames_taken` (R-93 Q1): a frame counts when its last byte is taken. The boundaries come from the client's own
+    /// length prefixes, whatever the pieces that the client hands over: a frame in one piece, two frames in one piece, a
+    /// prefix split across pieces, an empty body.
+    #[test]
+    fn frame_ends_count_a_frame_when_its_last_byte_is_taken() {
+        let mut ends = FrameEnds::default();
+        let (a, b, c) = (frame(b"abc"), frame(b""), frame(b"de"));
+        ends.push(&a);
+        let mut two = b.clone();
+        two.extend_from_slice(&c[..2]);
+        ends.push(&two);
+        ends.push(&c[2..5]);
+        assert_eq!(
+            ends.taken(u64::MAX),
+            2,
+            "the third frame lacks its last byte"
+        );
+        ends.push(&c[5..]);
+        let (a, b, c) = (a.len() as u64, b.len() as u64, c.len() as u64);
+        assert_eq!(ends.ends, vec![a, a + b, a + b + c]);
+        assert_eq!(ends.taken(0), 0);
+        assert_eq!(ends.taken(a - 1), 0, "one byte short of the first frame");
+        assert_eq!(ends.taken(a), 1);
+        assert_eq!(ends.taken(a + b), 2, "an empty body ends with its prefix");
+        assert_eq!(ends.taken(a + b + c - 1), 2);
+        assert_eq!(ends.taken(a + b + c), 3);
+    }
+
+    /// `route_frames_taken` on the testkit: the count follows the worker end's reads of the client's frames at the stream
+    /// boundary. A frame read in part is not taken, and bytes that wait in the client (a full stream) are not taken.
+    #[test]
+    fn route_frames_taken_follows_the_worker_ends_reads() {
+        let (mut client, mut worker) = route(16);
+        let taken = |client: &mut TestkitRoute| {
+            client
+                .control("route_frames_taken", &json!({"op": "route_frames_taken"}))
+                .unwrap()
+        };
+        assert!(client.has_control("route_frames_taken"));
+        client.write(&frame(b"ab"));
+        client.write(&frame(b"cdefghijklmn"));
+        assert_eq!(client.unsent(), 6, "the stream holds 16 of the 22 bytes");
+        assert_eq!(taken(&mut client), json!({"frames": 0}));
+        // The stream varies its read sizes (Core A5-2), so the worker reads exactly `n` bytes in as many reads as it takes.
+        let read = |worker: &mut StreamEnd, n: usize| {
+            let mut buf = vec![0u8; n];
+            let mut got = 0;
+            while got < n {
+                got += worker.read(&mut buf[got..]).unwrap();
+            }
+        };
+        read(&mut worker, 5);
+        assert_eq!(taken(&mut client), json!({"frames": 0}), "one byte short");
+        read(&mut worker, 1);
+        assert_eq!(taken(&mut client), json!({"frames": 1}));
+        read(&mut worker, 10);
+        assert_eq!(
+            taken(&mut client),
+            json!({"frames": 1}),
+            "the rest waits in the client"
+        );
+        assert!(client.progress());
+        read(&mut worker, 6);
+        assert_eq!(taken(&mut client), json!({"frames": 2}));
     }
 
     /// The route stream holds a socket buffer each way: 64 KiB that no one reads yet are taken whole.

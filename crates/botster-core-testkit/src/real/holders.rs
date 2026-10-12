@@ -22,6 +22,14 @@ pub(super) struct Socket {
     address: String,
 }
 
+impl Socket {
+    /// The kernel's address of the socket, as `lsof` gives it (`route_frames_taken`'s netstat row, R-93 (a)).
+    #[cfg(target_os = "macos")]
+    pub(super) fn address(&self) -> &str {
+        &self.address
+    }
+}
+
 /// The socket of `fd`, read while this process holds `fd`.
 ///
 /// # Errors

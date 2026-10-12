@@ -378,6 +378,12 @@ impl EndControl {
         lock(&self.shared).sent[self.side]
     }
 
+    /// The bytes of this end's owner's writes that the other end has read so far (`route_frames_taken`, R-93 Q1): a count
+    /// at the stream boundary, never of the reader's state.
+    pub fn taken(&self) -> u64 {
+        lock(&self.shared).taken[self.side]
+    }
+
     /// The bytes that the stream takes from this end's owner now: the free room of its queue, limited by `route_accept`, and 0
     /// while gated with no accept limit (`route_fill`, R-47 item 3). A write of this end takes exactly this many bytes, if no
     /// failure comes first.
