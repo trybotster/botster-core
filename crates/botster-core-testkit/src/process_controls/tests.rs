@@ -371,6 +371,14 @@ fn lose_worker_refuses_what_it_cannot_end() {
     );
 }
 
+/// `parked_work` (R-87) on the testkit tier: see the scenario.
+#[test]
+fn parked_work_reads_the_work_that_waits_for_room() {
+    crate::refusal::parked_work_scenario::a_stop_is_parked_work_until_a_poll_frees_room(
+        &mut TestkitHarness::new(0),
+    );
+}
+
 /// `worker_alive` reads the worker of the session's row: a created session has none, and a session with no row is `Bad`.
 #[test]
 fn worker_alive_reads_only_a_recorded_worker() {
