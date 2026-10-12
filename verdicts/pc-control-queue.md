@@ -688,3 +688,16 @@ The combined record reports all six complete member FINAL records read and CLEAN
 The matching formal FINAL #307 condition and combined FINAL review condition close.
 The lead's Q7 ancestry, equal-tree merge, and remote publication checks remain due.
 No completed merge or later head is accepted. No reviewer execution job runs.
+
+### Published train-4b merge closure
+
+Lead receipt `msg_plugin-w_1791828397_083ea0` reports completed Q7 and the fast-forward of `v1` from `9fe97f50` to `e37b91d6`.
+The reviewer independently verifies that the remote `v1` head is `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+The base is an ancestor of that head; the ancestry command exits 0.
+Its tree is `ad98644e8be65b95b5fa03c39b350dee5d5a2502`, exactly the reviewed and gated tree.
+GitHub reports #307 MERGED at `2026-10-12T18:00:10Z`, with member `2ed85f93` and merge commit `e37b91d6`.
+GitHub also reports #312 and #314 MERGED at that time, at the previously reviewed ordered member merges.
+The exact gated head became the published base. No new source delta occurs.
+The FINAL package, matching integration, combined FINAL, gate, and published merge conditions are complete.
+The #307 review is closed. All five findings remain closed. No reviewer execution job runs.
+The reviewer owns no target directory to clean and remains available for the assigned #319 review.

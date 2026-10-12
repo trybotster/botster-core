@@ -2105,3 +2105,22 @@ The scratch proof is not a current pinned-transcript or final-gate run. The body
 Corrected body without added LF: a69a136905ffaf4c5b38623cc61266ed1e0bcc916724e57a5281986a03928e72.
 Next: wait for PC's correction and Sol's independent verdict. CQ-RFT-1 must close before package CLEAN.
 The final slot/base check/gate/receipts/Q7 remain due after both CLEANs. No reviewer execution job runs. Never poll.
+
+Publication: #319 Round 1 and matching FINAL #307 receipt are pushed at 3d46120ea8d8df66c8d587d75aafa284041836e5.
+PC and Sol receive the complete #319 verdict in msg_plugin-w_1791828387_b4b364 and msg_plugin-w_1791828387_99f73d.
+The lead receives only CLEAN FINAL #307 in msg_plugin-w_1791828387_a31fcd.
+PC receipt msg_plugin-w_1791828360_51f95a accepts CQ-RFT-1 and reports an unpublished correction e8cb21ef.
+PC reports two registered bolero harnesses and a pure diag module that compiles without slow.
+PC's local checks and reversal are running. The next gate and READY remain due. No running record or unpublished correction is reviewed.
+CQ-RFT-1 stays open. Wait for the completed corrected-head READY doorbell. Never poll.
+
+## #307 published train-4b merge closure
+
+Lead receipt msg_plugin-w_1791828397_083ea0 reports Q7 complete and v1 fast-forwarded from9fe to e37.
+The reviewer independently verifies remote v1 at e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c.
+Base9fe is an ancestor; the check exits0. Tree ad98644e8be65b95b5fa03c39b350dee5d5a2502 equals the reviewed gated tree.
+GitHub reports #307 MERGED at 2026-10-12T18:00:10Z, member2ed and mergee37.
+GitHub also reports #312 and #314 MERGED at the same time, at the accepted ordered member merges.
+All #307 FINAL review, combined review, exact gate, and published merge conditions close. All five findings remain closed.
+The reviewer owns no target to clean. The reviewer remains assigned to #319, whose one finding remains open.
+Wait for PC's completed corrected-head READY. No reviewer execution job runs. Never poll.
