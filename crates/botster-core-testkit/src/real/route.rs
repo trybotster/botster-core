@@ -535,6 +535,45 @@ mod slow_tests {
     /// The step deadline of the tests that must not wait: long, so that a wait shows as a failed bound.
     const LONG: Duration = Duration::from_secs(10);
 
+    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved.
+    #[test]
+    fn progress_is_true_only_when_a_kept_byte_moves() {
+        let (mut client, mut worker) = pair();
+        assert!(!client.progress(), "nothing is kept");
+        // More than the socket buffers hold: the client keeps the rest.
+        client.write(&vec![b'x'; 4 << 20]);
+        let kept = client.unsent.len();
+        assert!(kept > 0, "the full stream keeps bytes");
+        assert!(
+            !client.progress(),
+            "the stream is still full: no byte moves"
+        );
+        assert_eq!(client.unsent.len(), kept);
+        worker.set_nonblocking(true).unwrap();
+        let mut buf = vec![0u8; 1 << 20];
+        let mut read = |worker: &mut UnixStream| {
+            let mut n = 0;
+            while let Ok(got) = worker.read(&mut buf) {
+                if got == 0 {
+                    break;
+                }
+                n += got;
+            }
+            n
+        };
+        assert!(
+            read(&mut worker) > 0,
+            "the worker reads what the stream holds"
+        );
+        assert!(client.progress(), "kept bytes move into the room");
+        assert!(client.unsent.len() < kept);
+        while !client.unsent.is_empty() {
+            assert!(read(&mut worker) > 0);
+            client.progress();
+        }
+        assert!(!client.progress(), "nothing is kept again");
+    }
+
     #[test]
     fn a_read_waits_only_after_the_handoff_and_only_with_time_left() {
         let left = Duration::from_millis(5);

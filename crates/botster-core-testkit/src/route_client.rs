@@ -615,4 +615,38 @@ mod tests {
         assert_eq!(drain(&mut worker), b"", "a failed stream takes no byte");
         assert_eq!(client.unsent(), 0, "and keeps none");
     }
+
+    /// R-86: `progress` sends the kept bytes that the stream takes now, and is true only when a byte moved.
+    #[test]
+    fn progress_is_true_only_when_a_kept_byte_moves() {
+        let (mut client, mut worker) = route(4);
+        assert!(!client.progress(), "nothing is kept");
+        client.write(b"abcdef");
+        assert_eq!(client.unsent(), 2, "the full stream keeps two bytes");
+        assert!(
+            !client.progress(),
+            "the stream is still full: no byte moves"
+        );
+        assert_eq!(client.unsent(), 2);
+        let drain = |worker: &mut StreamEnd| {
+            let mut got = Vec::new();
+            let mut buf = [0u8; 8];
+            while let Ok(n) = worker.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                got.extend_from_slice(&buf[..n]);
+            }
+            got
+        };
+        assert_eq!(
+            drain(&mut worker),
+            b"abcd",
+            "the worker reads the four bytes"
+        );
+        assert!(client.progress(), "the two kept bytes move into the room");
+        assert_eq!(client.unsent(), 0);
+        assert_eq!(drain(&mut worker), b"ef");
+        assert!(!client.progress(), "nothing is kept again");
+    }
 }
