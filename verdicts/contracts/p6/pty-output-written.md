@@ -49,3 +49,15 @@ No open finding. CLEAN on `8b035f245976a493b771fb9d878d777afdb469c8`.
 - **Main after the gate.** Main is now `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1`. `git diff f1ccacfd 7e97064c` adds `amendments/core-contract-v1.17-amendment-24-candidate2.md` and changes `verdicts/amendments.md`. That is not rulings-only, so main cannot fast-forward to `9ab1ad65`. The steward decides the merge. If the head that main becomes is a new merge, I check its delta per Q7.
 
 Every finding is closed. CLEAN on `9ab1ad6572bc6037d87fd25c7c27ed928aaec62b`.
+
+## Final merge receipt: CLEAN on 6a8ba018edfa46c429ea9aaed5a6b12b7ca5d899 (the steward's merge into main)
+
+The steward chose a final merge of main into the reviewed head. The merge commit is local to the steward's worktree until this receipt.
+- The parents are main `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1` and the reviewed head `9ab1ad6572bc6037d87fd25c7c27ed928aaec62b`.
+- The tree `cd2f5bdd46da3e1020272665099a4222049dedaf` equals `git merge-tree --write-tree 7e97064c 9ab1ad65`.
+- `git diff --name-only 9ab1ad65 6a8ba018` gives exactly `amendments/core-contract-v1.17-amendment-24-candidate2.md` and `verdicts/amendments.md`. Neither is a path of #91.
+- `git patch-id --stable` of `git diff 7e97064c 6a8ba018` is `698ca723…`, the same as #91's own diff against `fe209c65` and `f1ccacfd`.
+- `core-fence-exceptions.txt` differs from main only by #91's two removed lines.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 219 s on linux, base main `7e97064c`; mutants 6 tested, 6 caught: `~/botster-sessions/gates/botster-contracts-detached-6a8ba018-6a8ba018-pool-20261012-104152-3370.log`.
+
+CLEAN on `6a8ba018edfa46c429ea9aaed5a6b12b7ca5d899`. Main may fast-forward to it if main is still `7e97064c`.
