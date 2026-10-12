@@ -422,3 +422,82 @@ I changed no product code. I ran no build, test, gate, mutation job, or executab
 I used read-only Git, source inspection, and artifact parsing.
 
 VERDICT: CLEAN
+
+
+## Round 5 — completed final gate, 2026-10-11
+
+- Exact head: `1ed69c709da7f75a7f90895ae36675f3e8702d84`.
+- Tree: `8d370b057c8b25dcb05a8d31621b6db46e3066fc`.
+- Base: `1b984f06f11378e1a424db75dfe99b1e2d15c567`.
+- Package source delta CLEAN: `33cdd3c281f4d78579d82023a9d156dc0ddcea04`, Round 4.
+- Final evidence receipt: `msg_plugin-w_1791768207_be1d96`.
+- Tier: HIGH. Open review findings: zero.
+
+### Exact-head final evidence
+
+I read the completed gate header, raw mutation outcomes, named catches, relevant normal passes, summaries, and final exits.
+Log: `~/botster-sessions/gates/botster-core-stage1-p5-r87-parked-work-1ed69c70-pool-20261011-181050-68064.log`.
+SHA256: `bd40d869be1dbb289cf2d23ca0c36edb7dbf2cc6b889e95993d940e9ecf0ce24`.
+The header and job command name the exact head and base above.
+All ten steps pass: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+The wrapper exits 0 after 724 seconds on msa1. The job exits 0 after 723 seconds, with zero queued seconds.
+Total step time is 633.5 seconds. The mutants step takes 286.4 seconds.
+
+The default run has 1851 passes and 435 skips in 17.327 seconds.
+The slow run has 607 passes and 2043 skips in 44.688 seconds.
+The coverage check examines 1075 slow-only tests. All four named real-process proofs pass.
+The repaired AdoptRow regression passes in the default tier.
+The testkit parked-work scenario passes in 0.010 seconds. Its real-process scenario passes in 0.054 seconds.
+These results validate the new mapping, deadline guard, and merged control composition on the exact final source.
+No new Mac execution is claimed. Historical Mac results retain their earlier source and transcript scope.
+
+The two testkit conformance summaries report 256 passes and zero failures, in 7.25 and 6.54 seconds.
+The strict report checks 324 of 342 pending IDs; eighteen real-only IDs do not run and three held entries remain.
+The held-full run covers two budget IDs at all 32 seeds, one trial per seed.
+It reports 64 ignored expected results and zero failures in 19.28 seconds.
+The ledger retains 691 IDs and 412 pending IDs. The real pending set retains 44 IDs.
+I independently verify that all 34 passing ignored real IDs remain pending in this head.
+EV-5 remains among them. This control-only PR removes none of them and grants no future pin or fence acceptance.
+
+### Complete mutation result
+
+Stage 1 has 48 unique outcomes: thirty caught, eight missed, zero timeout, and ten unviable, in 115.8 seconds.
+The unmutated slow baseline passes all 607 tests, with 2754 skips, in 42.950 seconds.
+The complete baseline interval is 57.7 seconds. The log records no baseline retry.
+Stage 2 examines exactly the eight unique first-stage misses.
+It reports six caught, zero missed, zero timeout, and two unviable, in 110.4 seconds.
+The combined result is 48 mutants: 36 caught, zero missed, zero timeout, and twelve unviable.
+Unviable mutants supply no behavior catch.
+
+I independently match all 36 unique raw catches to all 36 unique citations.
+Every selected catcher has a normal PASS before mutation. The log contains no FLAKY record.
+The deleted Work::Op arm is caught by the new AdoptRow regression.
+The other parked_on_room decisions are caught by the state, route, and held-frame regressions.
+The per-handle record tests catch record removal and constant boolean results.
+The testkit scenario catches the default parked_work response.
+The real-process scenario catches the default real response and the false tapped guard.
+The other real dispatch and capability mutants have independent normal-passing catchers.
+No first-stage miss survives the complete two-stage result.
+Fuzz reports no changed crate with a decoder harness. No fuzz execution is claimed.
+
+### Final body and closure
+
+GitHub confirms the unchanged exact head and base branch v1.
+I read the complete final body. Its final gate paragraph matches the completed log, combined counts, and zero exit.
+The body retains the canonical FAIL and explicit source delta, including both index and hunk metadata differences.
+It retains the imported .41 pin, future .42 fence obligation, older red gates, and all local cache limits.
+The four historical unvalidated records remain unvalidated. This green gate does not change their provenance.
+The final gate does not repair the live am_4 fence gap or apply the future parked_work transcript fences.
+Those tasks retain their separate owners and the lead's decisions.
+
+Sol's source/body precision closure is `0a1dab2f11ec34e7edbf4503f3eed3c0c5915607`.
+I read that corrected source record. It matches this head and base and reads the complete package Round 4.
+The completed gate now satisfies the package's remaining gate and mutation conditions.
+Sol's completed final-evidence verdict remains separate. The lead's Q7 check and equal-tree merge remain required.
+This verdict accepts no later source, base, pin, pending removal, or different merge tree.
+
+All package review conditions close on this exact head. I changed no product code.
+I ran no build, test, gate, mutation job, or executable merge check.
+I inspected supplied artifacts and used read-only parsing.
+
+VERDICT: CLEAN
