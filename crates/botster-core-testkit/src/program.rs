@@ -232,8 +232,9 @@ impl Output {
         self.len += bytes.len();
         match self.pieces.back_mut() {
             Some(back) if !atomic && !back.atomic => back.bytes.extend(bytes),
+            // One slice copy, not one call per byte: `route_fill` writes a large output here.
             _ => self.pieces.push_back(Piece {
-                bytes: bytes.iter().copied().collect(),
+                bytes: VecDeque::from(bytes.to_vec()),
                 atomic,
             }),
         }
