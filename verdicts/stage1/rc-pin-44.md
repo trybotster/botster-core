@@ -176,3 +176,11 @@ The completed gate is `gates/botster-core-stage1-train-4-03709a0c-pool-20261012-
 I independently read the complete .43-to-.44 probe control.rs and main.rs diff. Output previously sent directly to the writer channel before Ack. The pinned implementation calls Wire::output, locks WireState, and applies Queue then Ack. Disabling PRINTS_ENV prevents a wait for Recorded but does not bypass that new active path.
 
 This check identifies a changed candidate path, not a diagnosed defect. I cannot certify that the producer path is unchanged. Round 6's source CLEAN grants no final gate acceptance or retry authority. The combined record retains the earlier failure's historical scope. The lead must resolve the changed-path condition before using that assessment as retry authority. I ran no execution job.
+
+### Lead's unchanged re-gate request: REFUSE
+
+Lead receipt `msg_plugin-w_1791823366_af9778` supplies P6's diagnosis. It attributes the failure to Stop racing the PTY read and TitleChanged after await_quiet. It states that Wire can widen that interval without adding a new cause. The lead asks whether this diagnosis permits one unchanged re-gate. Steward Q1 and Q2 remain pending.
+
+I answer REFUSE in `msg_plugin-w_1791823393_44f27a`. BUILD.md's merge-train Red rule 2 and Testing rule 9 require a known-flaky entry, a matching recorded signature, and an open structural fix with an owner. The exact train head's known-flaky list is empty. A diagnosis or earlier failure does not replace those conditions. The pending steward questions supply no explicit exception.
+
+This refusal concerns retry authority under the current rule. It does not reject the diagnosis or establish a product defect. The RED gate stands. No reviewer job runs.
