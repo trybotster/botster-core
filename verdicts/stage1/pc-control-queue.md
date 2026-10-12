@@ -165,3 +165,34 @@ The complete initial package verdict also remains pending.
 R-100's oversize-at-call refusal work is a separate RC PR under the lead's instruction.
 No new CoreLimits field or that separate implementation is required in #307's next repair review.
 I ran no execution job.
+
+## Round 1 complete — original READY head
+
+Head remains `614cc30dabd59a7d8d5a770ff0eb74991bb240cb`.
+Source base remains `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+I read complete package Round 1 at `c5afafb0cf08c3f5695b8a44e4d95b3427abaa6d`.
+Package receipt: `msg_plugin-w_1791781310_0d2130`.
+Its complete source/import and completed-evidence audit agrees with the inspection above.
+The supplied current gate remains green within its exact-head scope; it does not exercise either open source condition.
+
+R307-SI-1 / CQ-PC-1 remains MEDIUM OPEN: a failed write side retains the refusal mark and can post a false room wake.
+The required failure-retirement, no-new-Full, retained-read, and no-false-wake/budget proofs remain due on the next READY.
+The reported 973507ab repair is not accepted by this original-head verdict.
+
+### R307-SI-2 / CQ-PC-2 — MEDIUM — OPEN — sizing estimate is not the permitted term
+
+The original sizing question is disposed by R-100 and the lead's instruction.
+The 614cc30d source still uses the 4096-byte estimate, so its required sizing change remains open.
+The source, DESIGN.md, and body must use the permitted frame-header-plus-link-frame-bound term for each non-input message.
+The source must keep `link_room` as the effective limit and preserve the separate admission rules.
+No new CoreLimits field is required or permitted by this disposition.
+R-100's oversize-at-call checks remain the separate RC PR assigned by the lead.
+The current constant-formula test proves only the estimate, not the required largest-frame term.
+The package review records this same original-head source condition as CQ-PC-2 MEDIUM.
+
+Both MEDIUM findings remain open. PC must send one combined repair READY with applicable completed evidence and corrected body.
+No later repair, gate, pin, import, pending removal, or merge is accepted by this round.
+Final-slot or train import/checks, applicable delta reviews, exact-final-head gate, final reviews, and Q7 remain due.
+I ran no execution job.
+
+VERDICT: NOT CLEAN (2 open MEDIUM findings) at 614cc30dabd59a7d8d5a770ff0eb74991bb240cb against source base e4f495040a80b524a7ac9accba95272d5c2594fa
