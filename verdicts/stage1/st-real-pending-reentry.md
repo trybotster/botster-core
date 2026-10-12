@@ -119,3 +119,71 @@ Next: receive completed corrected READY, its updated body, and the complete matc
 Applicable final import, exact-head gate, final receipts, and Q7 remain required.
 The reviewer runs no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 Never poll.
+
+## Corrected READY inspection — matching complete package verdict remains due
+
+Head: `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307`.
+Source base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `d5271969e76e68e6b795101f793c759cebd3be56`.
+READY: `msg_plugin-w_1791832396_87becd`.
+The reviewer reads the complete corrected body, completed gate, local record, and pre-gate taint record.
+The initial whole-change source audit and complete one-line test repair remain applicable.
+Corrected own full-index SHA-256: `f3abcd282262b7f0db354b0ce5721832abc8ba80fda4babde976c7984313204d`.
+One-line repair full-index SHA-256: `baa906de3eca318bcc4efabe9261d11e3791a9e3d3c33340037b19d9870fff28`.
+The production part of `lists.rs` is byte-identical to the initial READY head.
+The `.44` pin, lists, other readers, and existing eligibility checks remain unchanged.
+
+R323-SI-1 / GS-RP-R1-1 closes in source and body.
+The corrected test explicitly supplies an empty fix field and requires the `fix` error.
+The body names that case as new since this repair.
+Current body SHA-256: `938e3e7a0d964600495f39d64b36d9547af23cc92df7655d2a996603ff5d44b9`.
+The body withdraws the initial unretained clippy and isolated-test claims.
+It retains the original local failures and marks the local timeout as `local, unclassified`.
+No timing finding applies under pair-common lines 113–117.
+The four original reversals retain their original head, failure signatures, and restoration limits.
+No new source, body, or evidence finding is identified.
+
+### Corrected exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-st-real-pending-reentry-6e6ebba7-pool-20261012-120242-14715.log`.
+Verified SHA-256: `26cea9856ac0e7ca735b5851050c36668c46d882fa4f050ca9f7272cbb396c19`.
+The log names this exact head and source base, four CPUs, and MS-A1.
+All ten steps PASS in 200.6 seconds.
+The job and wrapper exit zero after 537 seconds, with 326 seconds queued and 211 seconds running.
+Default tests pass 1959, with 427 skipped, in 11.410 seconds.
+Normal slow tests pass 633, with 2060 skipped, in 42.638 seconds.
+Both strict summaries report 264 passed, zero failed, and 427 ignored.
+Held-full reports 96 ignored results and zero failures in 22.09 seconds.
+All conformance files remain unchanged. No additional removal follows from passing pending-real trials.
+
+Stage 1 tests 32 mutants: thirty caught, two unviable, zero missed, and zero timeout, in 54.7 seconds.
+The whole mutation step takes 57.5 seconds.
+All thirty unique raw catches match the thirty citations. Every citation has a normal PASS record.
+Stage 2 does not run because Stage 1 misses none.
+Both unviable replacements lack a `Default` implementation and supply no behavioral catch.
+The log has no runtime FAIL, FLAKY, RETRY, TIMEOUT, or INCONCLUSIVE result.
+Both locally timed-out base-merge tests have current gate PASS records.
+Fuzz selects no changed byte-decoder harness.
+
+### Corrected local records
+
+`st-reentry-local-6e6ebba7.log` SHA-256: `b71185bff5dd347f41c8bea758c360292e4e054b38fbb9eb87c03f99fc9b5523`.
+The complete record identifies this head and an owner statement about the prior clean and sole target writer.
+Fmt, clippy with Core/testkit/xtask and slow features, and lists have numeric exits zero.
+All 323 xtask tests pass in 6.182 seconds, with exit zero.
+The later two-test run has one PASS and one timeout at 2.003 seconds, with exit 100.
+The timeout is `an_unreviewed_change_after_the_merge_still_fails`.
+`the_real_tier_pending_list_is_a_line_set_file` passes in 1.855 seconds.
+The body accurately retains this local, unclassified result. The pool gate decides the timing outcome.
+
+`st-reentry-ci-taint-6e6ebba7.log` SHA-256: `c0a31b3612029a425ad815170b9d05c9e489a2f539b6be538dc241f6a06df878`.
+The complete record identifies this head and the actual CI taint step.
+The step passes in 29.9 seconds and exits zero.
+These local records do not replace the exact-head pool gate or establish an independent target-writer history.
+
+The reviewer reads complete package initial inspection `1f0f77ddee0a8e5ef30b6294abf293fa6d0f3d8f` and matching receipt `17fdaa0e46e6ecb937786d446ed9617c6ac346d1`.
+Their source repair conclusion and initial evidence limits agree with the prior integration inspection.
+The complete package verdict on this corrected READY remains due. This inspection completes no CLEAN round.
+The current-base final slot, applicable import review, final evidence, final receipts, and Q7 remain required.
+This review accepts no future re-entry, serving control, pin, removal, or merge.
+The reviewer runs no execution job. Wait for the package verdict doorbell. Never poll.
