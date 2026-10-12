@@ -73,3 +73,70 @@ This verdict accepts no final train gate, future head, or merge. The combined in
 I changed no product code and ran no build, test, gate, mutation, measurement, or executable merge check.
 
 VERDICT: CLEAN
+
+## Round 2 — 2026-10-12 — train-7b source delta
+
+- Train head: `007efbde6a59af403d0937c38361c137a8961a48`.
+- Train tree: `6dbc71d0ded09ba4a27bd30e501b0fd61315fa13`.
+- Train base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Frozen #322 member: `25fbc9ec7bae580d28e3b29f7f43f0d6e0ff78b2`.
+- Package initial CLEAN: `c88d002dbf65a5a3d9e97d615a7a389fa03c8b4f`.
+- Matching integration initial CLEAN: `41b5329f125fe16a57b31d69abbd587ee7749620`.
+- Lead delta request: `msg_plugin-w_1791836260_874ef0`.
+- Integration scope assignment: `msg_plugin-w_1791836292_e842fb`.
+
+This round reviews only #322's fit on this train head. Sol supplies this member's integration delta.
+Sol-C owns the combined review and single final train receipt. No train gate is reviewed here.
+
+### Composition and patch preservation
+
+I read the ordered merge identities and the complete #322 insertion diff.
+The four merges are:
+
+1. #316 `f1ac08b998f15f062f123a996e2688344c33c3ba` at `e9485b94bfc2476be07cb1642ccec4a5437b9952`.
+2. #323 `6e6ebba7bc214ed9c55d3cecec70f8af1cdf2307` at `cd9af56fd6b0d238ad606aae9fec3ab9b431ebbf`.
+3. #302 `953aa2ba300df85bff1df7a8be15f5214b6ca67b` at `abdae8913136fe68f51121d95cf40b15149ced99`.
+4. #322 at the train head, whose parents are that #302 merge and the frozen #322 member.
+
+The #322 merge changes exactly its one own file: crates/botster-worker/tests/common/session.rs.
+It adds nine lines and deletes six. Every added and removed line equals the accepted member patch, excluding hunk positions and object indices.
+Insertion full-index SHA256: `e042bf8fc2b199fcca7e099b960e21252d367b399b7a0afa8be7eb7f539b80a8`.
+The complete train diff has eight paths, 278 additions, and 39 deletions.
+Its full-index SHA256 is `7ecd274c9c350c483b5010dd5ab48e2c6025d174e85a7742881b5fdbb0e23029`.
+The Git whitespace check passes.
+
+### Shared file and dependency fit
+
+I read the complete shared-file difference from the accepted #322 head and the affected final contexts.
+That difference adds only train 6's real PTY resize test. It changes no existing function or fixture in this file.
+The added test owns its own temporary root, FIFOs, and session, so it introduces no shared test state into the cancel test.
+The full cancel test, including its documentation, is byte-identical to the accepted #322 form.
+Its head -n 1 reader, retained Blocker ends, Done result, done marker, received-byte assertion, release, Kill, and Remove stay in that order.
+The marker and byte equality still prove count consumption before the final FIFO descriptors close.
+GuardedSession launch and group cleanup remain unchanged; the Blocker fixture implementation remains unchanged.
+The slow_session binary retains the same common-module inclusion and adds only the existing built_in_test macro check from the base.
+The two inclusion paths continue to use the same test.
+
+The train pins contracts .46 at `7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1` instead of .44.
+I read the core-contract package delta between those exact pins: it changes RouteAdopted tag and owner fields and their tests.
+It changes no WriteInput, cancellation outcome, byte count, Screen, or cleanup interface used by this test.
+The pin, gate-decision changes, known-flaky dispositions, and other members retain their own reviewers' scope.
+This member verdict does not replace those reviews or accept their separate status changes.
+
+### Lists and disposition
+
+I independently compare all nine conformance text sets after each ordered merge.
+Each equals the previous train state plus its member additions and minus its member removals from that member's merge base.
+All 36 comparisons pass. Every set after #322 equals the preceding merge; #322 changes no identifier.
+Final pending has 388 identifiers and ledger has 692. The new A22 pending/ledger identifier belongs to the pin member.
+No base removal returns through #322.
+
+Zero #322 source-composition findings remain. R322-F1 and the initial gate retain their previous closure and limits.
+The lead reports successful id-set checks, workspace test-target compilation, and strict conformance at 281/0.
+Those are operator pre-check reports, not a completed train gate or independent execution evidence.
+The matching member integration delta, combined review, completed exact-train-head gate, and final receipt remain due.
+Under the current Green rule, Sol-C sends the single final train receipt if this member stays unchanged.
+This verdict accepts no final gate, future head, retry, or merge.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
+
+VERDICT: CLEAN
