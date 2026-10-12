@@ -112,3 +112,18 @@ This verdict accepts no future retry, later head, pin, status removal, or merge.
 I ran no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open; #317 package at exact head 9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec against base 838e4bb01dda53c419ab824913fdc5adae7a16c1)
+
+## Matching integration receipt — both exact-head reviews complete
+
+Sol-C receipt: `msg_plugin-w_1791825317_8ccaab`.
+Integration verdict: `ee3dd333685af0bca99a8e879db78cebe620690f`, complete Round 1 in verdicts/stage1/p3-known-flaky-ev2.md.
+I read the complete integration verdict. It reads the complete package verdict at `3ec18908dccaccfed7f09276e5a34edd31f24dcb`.
+Both reviews name the same head, base, tree, two-file scope, corrected body, ruling, and completed gate.
+Both close KF317-1 and identify zero open findings.
+Both preserve the local provenance limits and the historical RED and stopped gates.
+Both keep the .46 entry removal and empty-list restoration separate from A31.
+
+The two exact-head reviews are complete and CLEAN.
+The lead's ancestry, equal-tree merge, and remote verification remain due.
+This receipt accepts no merge, later head, train-4b gate, or future retry.
+The old train stays RED and will not be re-gated. I ran no execution job.
