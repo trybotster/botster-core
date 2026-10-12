@@ -49,7 +49,9 @@ DP-8 design review: revision 3, SHA-256 `84c85f149fab45954a2b251cc0c8013bfdd17c4
 Declared base: #298 head `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
 Verdict: NOT CLEAN (4 open). Findings cover the complete rename, route-keyed observations, bounded messages and adoption event phases.
 R1 is closed under R-98 at contracts `4fd81f1cb4063659b709ba8aa72a662e4cc2937b`.
-R2 remains a contract question for the lead. The reviewer accepts R3's completion barrier.
+R2 is answered by R-99 at contracts `b11db6b5476f50ba1e0b4d2a962477a0faa99188`.
+The next design must distinguish a live route draining output from a route past its Closed transition.
+The verdict records the required file and line citation and both tests. The reviewer accepts R3's completion barrier.
 The implementer must wait for the lead's design approval before code. Wait for a revised design doorbell.
 
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.

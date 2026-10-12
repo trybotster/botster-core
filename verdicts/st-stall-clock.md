@@ -74,9 +74,14 @@ Add driver proofs for queue backpressure, budget exhaustion, a resume before the
 - R1: CLOSED. The reviewer read R-98 at contracts `4fd81f1cb4063659b709ba8aa72a662e4cc2937b`.
   Revision 3 correctly keeps protocol 1 and removes compatibility defaults for required DP-8 fields.
   Both DESIGN.md files must state that protocol 1 becomes fixed at the first release.
-- R2: refer to the lead. A closing route can still have a connected transport while it delivers its final frame.
-  The reviewer does not decide whether DP-8's "per live route" excludes that route.
-  The design must use the lead's contract disposition before code starts.
+- R2: ANSWERED by R-99 at contracts `b11db6b5476f50ba1e0b4d2a962477a0faa99188`.
+  The reviewer read the ruling after the lead sent it.
+  A live route is `Open` or `Stalled`. A route that drains output before `SessionEnded` remains live and must be reported.
+  A route past its `Closed` transition is not reported, even while it delivers its final close frame.
+  The design must cite the file and line where `closing: Some` is set and identify its contract transition.
+  The implementation must report a route that drains after `Exited` and send its later `RouteClosed{SessionEnded}` with the new id.
+  It must also prove that an already `Closed` route is not reported.
+  This ruling resolves the question; the next design must apply its conditions.
 - R3: the proposed completion barrier is correct. `AdoptAll` must not complete before its required `RouteAdopted` events post.
   STDP8-D4 requires the design to define the intervening state and event phases.
 - The old Core comparison and the choice of new handle-owned route ids satisfy the stated design intent.
