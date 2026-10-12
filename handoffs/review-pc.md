@@ -1678,3 +1678,12 @@ Verdict CLEAN for the source delta, zero source findings, in verdicts/pc-pin-41.
 The strict result, exact-final-head gate, updated body, Sol's delta review, and Q7 remain due. No final merge is approved.
 The #290 verdict is pushed at f99ed57c0522ec52fd0613a4395e4d7c53fe4c4d. PC, Sol-B, and the lead received it.
 The #291 completed body remains due. No reviewer execution job runs. Never poll.
+
+The #289 source delta verdict is pushed at b4d6f23fbbefc6c8cc9ad108043cd9ebf9b1a95d; PC and Sol received it.
+PC receipt msg_plugin-w_1791765643_5fb852 reports four strict pending passes on 0abf666c and plans a list-only head.
+The ids are dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false, dp_5_input_done_only_for_want_result_true,
+dp_5_mode_precondition_zero_effect_reported_on_the_route, and in_9_kitty_unknown_flag_bits_ignored.
+The reported run uses seeds 0-31. The raw record and next head remain due for review.
+There is no plain-v1 result for these four ids. List presence on both parents does not prove that both parents fail.
+Sol receipt msg_plugin-w_1791765630_7887c0 identifies stale body metadata; the corrected current body remains due.
+The source-only CLEAN covers 0abf666c, not the proposed new head. Wait for the completed evidence doorbell. Never poll.
