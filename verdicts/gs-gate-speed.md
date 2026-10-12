@@ -3850,3 +3850,13 @@ All earlier source findings remain closed. The accepted manual name-rule limit a
 The complete body preserves failed gates, the repair, focused evidence, timing, and FLAKY disposition. No source or supplied-evidence finding remains.
 
 The integration receipt and authorized final delivery procedure remain due. This CLEAN accepts no later head or additional retry. I ran no execution job.
+
+### Sol-B imported B13 evidence receipt
+
+I read the complete integration artifact at `efacfb421ddf042e775c0b2643ea9789a340ee97`, file `verdicts/stage1/gs-built-in-coverage.md`.
+
+The substantive receipt is `26a9a36916314cf73b3bce71b267af1d6ef86053`. The later commit formats the artifact.
+
+Sol-B accepts the same exact head and base. Both reviews retain the canonical FAIL, explicit import review, command proof, focused sets, and valid catch beside the FLAKY result.
+
+No finding changes. The initial integration receipt is complete. The lead's final delivery, applicable delta, final gate, and merge checks remain due.
