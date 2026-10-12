@@ -233,3 +233,34 @@ Package message `msg_plugin-w_1791837752_c37995` confirms that the reviewer read
 Both reviews match acd6ced0, the corrected body hash, all 21 catches, and the exact-head gate.
 No new review round or final train receipt follows. Later train and merge requirements remain due.
 #328's current package review and reported future scope remain separate from #318 and train 7b.
+
+
+## Round 5: source fit on withdrawn train 9
+
+- Reviewed train: `4d7c547a17577dc73daaa1cd89da7eed743ca8bf`.
+- Tree: `4c1fae2dde6f2f7c6c3265f8fa64d6c8d9331ae0`.
+- Train base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Frozen member: `acd6ced03f7306cbf250f25d668b239ef7d70b33`.
+- Lead assignment: `msg_plugin-w_1791839691_b4a292`.
+- Complete package Round 204: `eb24ef870124c718c007f76bfe87f2babae4ba38`, read in full.
+
+All eight inserted own patches retain their reviewed added and deleted lines. The moved base changes their exit-watch interface.
+**F159 — MEDIUM — OPEN.** At driver_edges.rs:630, the new tail test evaluates the receive result with is_ok.
+The channel now carries Result<ExitStatus, ExitWatchFailed>. Ok(Err(failed)) therefore sets exited true without an observed payload exit.
+The test then starts DrainPty and can pass its byte checks. Production instead maps that inner error to ExitWatchFailed and ends with failure.
+I independently confirm the same typed-source path as the package reviewer. Compilation or a successful run does not reject that permitted error path.
+The repair must require a successful watched exit and fail on the inner error. It must preserve the actual poll, deadline, tail/count checks, and cleanup.
+
+**F160 — LOW — OPEN.** Package message `msg_plugin-w_1791840237_82cc4d` identifies the inherited DrainPty action comment at worker.rs:183–185.
+I independently read it. It still promises a count bound that prevents a remaining writer from holding exit back.
+The changed repeated drain has no count limit; its design note explicitly retains the continuous-writer contract gap.
+Update that action comment to the repeated count/flush rule and retained-writer limit. No product logic change or new test is needed.
+Earlier F150 comment closures covered main.rs and drain.rs, not this action comment. They retain their original scopes.
+
+The lead removes #318 through `msg_plugin-w_1791839933_347904` and rebuilds train 9b without it.
+These findings apply to the withdrawn train's #318 composition. Train 9b retains the earlier drain and contains no #318 insertion.
+The lead's old-train compilation and strict results remain reports on 4d7c547a. No gate on that train is supplied or accepted.
+P3's corrected member and applicable review remain due. No prepared repair, future train, Mac IN-6 diagnosis, or F28 closure is accepted.
+All earlier review history and the F154 SETTLE remain preserved. I ran no execution job.
+
+VERDICT: NOT CLEAN (2 open, including LOW; withdrawn train-9 #318 source fit)

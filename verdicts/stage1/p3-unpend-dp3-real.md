@@ -133,3 +133,32 @@ Package message `msg_plugin-w_1791838524_76872b` confirms that the reviewer read
 Both reviews match the exact head, base, tree, body hash, 30-ID table, and member gate.
 F155, F156, and F158 are closed. The .44 member evidence remains separate from the .46 body audit.
 No new review round or final train receipt follows. Later train, batch, and merge requirements remain due.
+
+
+## Round 2: source fit on replacement train 9b
+
+- Train head: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+- Tree: `fe7700440d2c658dbdfe223ae7b54c17f5516654`.
+- Base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+- Frozen member: `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`.
+- Lead assignment: `msg_plugin-w_1791839691_b4a292`; replacement: `msg_plugin-w_1791839933_347904`.
+- Applicable complete package Round 203: `1ec68532428da09f782d7aaff787175f0a87f9b4`, read in full.
+
+The lead explicitly carries that package CLEAN from original train 9 to 9b.
+Package message `msg_plugin-w_1791840135_e43866` supplies lead carry receipt `msg_plugin-w_1791839963_3908e2` and its independent proof.
+The shared lead handoff records the same carry. I independently verify every conformance blob equals its original-train blob.
+The #328 and #319 insertion trees also equal the original-train insertion trees. The frozen member and complete own patch stay unchanged.
+Only #318's eight paths differ between the trains. No #318 list change is present in either.
+
+The #328 real-pending blob equals its frozen member. Its one removal leaves 37 IDs and restores none.
+All other conformance sets retain the accepted base. Dp3 remains in ledger and minimum and outside pending.
+The base now has 385 pending IDs; the member does not undo its accepted removals.
+The train's .46 dp3 transcript equals the member's reviewed .44 transcript. Its title, readiness, barrier, and oracle floor remain intact.
+The corrected 30-row body audit and lead candidate deferrals retain their earlier scope. No additional candidate leaves.
+All 27 train-9b set formulas pass. No source or body fit finding appears.
+
+The package carry and this source delta accept no future head or new gate result.
+The completed exact-head train gate, combined review, one final train receipt, and lead merge verification remain due.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open, including LOW; #328 train-9b list delta only)
