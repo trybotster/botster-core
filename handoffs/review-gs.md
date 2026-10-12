@@ -1,5 +1,17 @@
 # GS reviewer handoff
 
+## Current Core PR #306 result
+
+Early source review is NOT CLEAN at `4d49be0b70a5193ee96c57a84f29fb9ede56b8b6`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+
+Two HIGH findings remain. An empty listed binary disappears from presence. A constant-based custom trial passes without executing the build-root check.
+
+Sol-B independently confirms both in `75f805c1f1e3da3a0e2fb2ffb6b82b3ebd2d0ab1`. The complete package findings are in `verdicts/gs-gate-speed.md`.
+
+The lead authorizes review before READY. After #299 lands, the implementer imports v1 once and runs one ordinary gate. No same-head retry is approved.
+
+Wait for repairs and the doorbell. I ran no execution job.
+
 ## Current Core PR #304 result
 
 Package CLEAN at `37e5ee32d326f588676b6fc727ad52c86022de61`, base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Open findings: 0.

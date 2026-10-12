@@ -2981,3 +2981,83 @@ I read the complete artifact and verified publication. Both reviews have zero fi
 Both reviews retain the composed-proof limit and the local reversal's after-run provenance statement. Neither claims independent local cleanup verification.
 
 The final-slot import, applicable base review, exact-head final gate, and final body remain due. This receipt accepts no later head. I ran no execution job.
+
+### Core PR #306: early source review of B13 coverage
+
+- Head: `4d49be0b70a5193ee96c57a84f29fb9ede56b8b6`.
+- Base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+- Risk tier: HIGH.
+- VERDICT: NOT CLEAN (2 HIGH open).
+
+The lead authorizes source review before READY. I read the approved design, the two approved amendments, all 39 changed files, affected source context, and the complete body.
+
+**GS-BC-R1-1 HIGH: an empty listed binary disappears from the presence check.**
+
+`slow_coverage::parse_list` records only testcase keys. A suite with `status: listed` and an empty `testcases` object adds no key.
+
+`presence` derives binary identities from those keys. Thus, one valid binary plus one empty binary produces no presence error for the empty binary.
+
+The existing overall nonempty-list check does not repair this case. Tests in the valid binary keep that list nonempty.
+
+The anchor binary currently has only the new root test. Removing its macro leaves zero testcases and removes the anchor from the check's inventory.
+
+This violates the approved requirement that every listed binary must have the selected root check. The gate can pass without the anchor's proof.
+
+Required change: preserve binary identities independently from testcase keys, or reject every empty listed suite by binary name.
+
+Add a fixture containing one empty listed binary and one valid binary. The coverage check must reject the empty binary and name it.
+
+**GS-BC-R1-2 HIGH: a passing custom trial can use the public name constant without executing the root check.**
+
+The name rule rejects only the reserved literal in caller source. `built_in_trial!()` has no exclusive right to produce that runtime name.
+
+A custom harness can replace its macro expression with:
+
+```rust
+libtest_mimic::Trial::test(
+    botster_test_process::built_in::TEST_NAME,
+    || Ok(()),
+)
+```
+
+This caller contains no forbidden literal. It uses an existing public constant and dependency. It requires no procedural macro or dependency change.
+
+Nextest lists the expected root name as selected and not ignored. The empty trial passes. Both the name rule and presence check accept it.
+
+The trial performs no build-root check, so a stale custom-harness binary can pass. This defeats the design's claim that only the approved macro makes the proof.
+
+Required change: establish the approved shared entry or an actual runtime proof. A public name alone is not execution evidence.
+
+Retain a negative fixture for this exact constant-based trial. It must fail the coverage proof despite listing the expected root name.
+
+The source otherwise replaces the twelve hand-written root tests with the fixed-argument macro. It adds that entry to the anchor and nineteen libtest integration files.
+
+The custom-harness macro creates a trial for no_sigpipe and the conformance suite. The existing LINKED check remains first in the suite.
+
+The no_sigpipe target retains its one-thread setting. Nextest runs the root trial separately from its signal proof.
+
+The new taint command scans tracked Rust files for the reserved name. The intended presence check reuses the existing nextest JSON parser after the slow run.
+
+The slow filter adds the exact root name. Both mutation stage 2 and its baseline use that same filter. The selection broadens; it removes no existing selected test.
+
+No timeout, budget, seed, or mutation exclusion changes. The mixed case of a rebuilt test binary linking a stale library remains an explicit owned limitation.
+
+The current failed gate reaches test-budget and fails on `conf::in_9_legacy_keys_table`, at 2.002 seconds against the unchanged 2-second limit.
+
+Slow, mutation, and fuzz steps do not run. That log supplies no completed coverage or mutation evidence for this head.
+
+Failed gate: `~/botster-sessions/gates/botster-core-stage1-gs-built-in-coverage-4d49be0b-pool-20261011-212855-27306.log`.
+
+The body retains the earlier filter-test failure and the cross-branch cost records. I accept no detached-v1 timing that the body says is absent.
+
+The lead directs one v1 import after #299 lands, followed by one ordinary gate. This review authorizes no retry of the failed head.
+
+The completed gate, timing comparison, and remaining required evidence stay pending. Their absence at this authorized early source review is not a third finding.
+
+Sol-B independently records both HIGH gaps in `75f805c1f1e3da3a0e2fb2ffb6b82b3ebd2d0ab1`, at `verdicts/stage1/gs-built-in-coverage.md`.
+
+I read the complete artifact. Its two required closures agree with this source review. This is normal NOT CLEAN review flow, not a lead blocker notification.
+
+The prior-art search at old Core `72b2e3354ffc291e39f9a5d7eb2f9c5fcbb5e79c` supplies no build-root macro or nextest presence proof.
+
+Both findings must close on an exact head before CLEAN. I ran no gate, build, test, diagnostic, or executable probe.
