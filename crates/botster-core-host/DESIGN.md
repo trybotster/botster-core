@@ -419,3 +419,37 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **SetNotificationPolicy retirement.** The registry path (`RegistryFailed`) is only for an op admitted in `Created` (`created_path`). Other states end `WorkerLinkFailed`.
 - **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone at the stop, and `GroupSignal::KillPayload` (`SIGUSR2`) at the due `pump` of `stop_grace` (steward ruling R-97, follow-up, contracts `12ebec28`). The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
 - **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+
+## R-100: a message that cannot fit the link frame is refused at the call (2026-10-12)
+
+- **Rule (steward ruling R-100).** A call whose message to the worker can never fit the link frame is refused at the call
+  with `InvalidInput{field}`: no `OpId`, no route, no event (AM-4). Core never sends a frame that the worker's decoder
+  refuses, and never drops a link for one. `field` names the largest host-supplied field of the message.
+- **Where (`frame_fit.rs`).** `begin` checks, after the arguments and `payload_size` (a write over `max_paste_bytes` keeps
+  `PayloadTooLarge`): the op's own `HostMsg::Op` for each op that travels so (`Next::Forward`); the `Launch` of `Create`
+  and `Start`; and, for `SetNotificationPolicy` on a `Created` session, the `Launch` that will carry the new policy (DP-6,
+  A3-1). `attach` checks the route's `AttachRoute` after the applied limits and before `RouteLimit`. The `Launch` comes
+  from one constructor, `launch_spec_for`, for the send and for the check.
+- **Worst case (lead ruling).** The check measures the message with the worst case of each value that is assigned after
+  the call: the request number and the route id `u64::MAX`, and the largest `Size` that `begin` admits. A `Launch` also has
+  the largest color profile (a full palette) and the longest size policy: a `SetColorProfile` or `SetSizePolicy` on a
+  `Created` session can store them after the check of `Start` (RC-R100-3). A call that passes never fails at the send. The
+  cost is a deterministic refusal under the bound: up to about 40 bytes for an `Op` or an `AttachRoute` (the numbers and the
+  size), and for a `Launch` up to several kilobytes, because a full palette is about 6.7 KB of JSON (RC-R100-5). Assigning
+  the request number at `begin` would change the op-number order, so it is not done.
+- **The bound of a `Launch` (RC-R100-I1).** The worker decodes the `Launch` at its bound before the launch,
+  `DEFAULT_MAX_PAYLOAD` (1 MiB), and learns `link_frame_bound` from the `Launch` itself. So a `Launch` is checked at
+  `DEFAULT_MAX_PAYLOAD`, and every other message at `link_frame_bound`. A bound sent before the `Launch` would change worker
+  protocol 1 (R-98), so it is not done.
+- **Fields.** The fields are the host-supplied values that no `CoreLimits` value bounds: strings, string lists and maps, hex
+  bytes, and the modifier lists of a key or a mouse input (`payload.mods`, RC-R100-1). A palette has exactly 256 entries
+  (`profile_valid`), and labels do not travel in the `Launch`.
+- **Fast path.** Each field has an upper bound of its JSON length without encoding (a string byte six, a hex byte two, a
+  modifier twelve with its separator).
+  When those bounds and `FIXED_PART` (64 KiB, every other part of a message; a test measures the largest ones) fit, the
+  message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, which keeps no buffer of the
+  encoded output. The slow path still allocates: it builds the message (a clone of the request or the op, the worst
+  palette), and a serializer can allocate (`HexBytes` makes its hex string). No claim of an allocation-free check is made.
+- **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
+  `max_snapshot_bytes`) + 1 MiB, capped at `u32::MAX / 2`: a `Text` control byte is the six-byte escape `\u00XX`, so every
+  write that `max_paste_bytes` admits fits. Only where the cap binds can a write be refused `InvalidInput{payload.text}`.
