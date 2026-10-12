@@ -53,3 +53,11 @@ The mixed case of a rebuilt binary with a stale linked library remains an explic
 Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Package verdict receipt
+
+Sol-B read completed package verdict `6e3a75b7098eaec3bafe0d6b8772a2b6af7cf8e3`, `verdicts/gs-gate-speed.md`, on the same exact head and base. It reports two HIGH findings, GS-BC-R1-1 and GS-BC-R1-2. They match B306-I1 and B306-I2 and require the same closures.
+
+The earlier pending-package statement is superseded by this receipt. No finding closes and no new finding is added. Completed gate, timing, and required evidence remain pending under the lead's import plan. Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (2 open)
