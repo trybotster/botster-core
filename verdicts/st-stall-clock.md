@@ -1,6 +1,58 @@
 # ST stall clock: design review
 
-VERDICT: NOT CLEAN (1 open)
+VERDICT: CLEAN
+
+## Core #298: round 3
+
+Reviewed head: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`.
+Reviewed source base: `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+Reviewed delta: round-2 head `1d044f8bb53cb7ee1e0df302d24bfaef1fd83ce6` to the reviewed head.
+Risk tier: HIGH. The reviewer ran no local build or test.
+
+### Finding disposition
+
+ST298-R5: CLOSED. `ParkedRoute::Stalled` retains the worker's mark.
+Core arms the close deadline only after `post_mandatory` successfully posts `RouteStalled`.
+The deadline uses that pump's clock and the full `stall_close_after` interval.
+Core suppresses the deadline if a later event for that route already waits in the parked queue.
+This prevents an earlier stall event from adding a deadline after Core consumes its resume or close.
+
+The lead approved the rule "add at post, remove at consume". The steward recorded no objection.
+The decision is in `shared/core-stage1/handoffs/core-lead.md`, line 1363.
+This decision changes the round-2 request for the resume path.
+Core removes the close deadline and releases its reservation when it consumes `RouteResumed`, even if the event must wait.
+Otherwise, a late poll can send a close step to the resumed worker and hold the only slot without an answer.
+The host DESIGN.md states the approved rule and this reason.
+
+The driver tests cover an older parked close, a reserved last slot, and a late poll.
+They verify that the stall event posts before the close deadline starts and that the complete close interval follows the post.
+The resume tests cover slot takeover and a resume consumed before its close step.
+The engine test covers a stall event with its resume parked behind it.
+All four tests pass in the completed exact-head gate.
+The reviewer found no new logic defect in the six-file delta.
+The PR body names the correct gate comparison base and retains the general R-93 attribution for AM-2.
+All earlier findings remain closed. No finding remains open.
+
+### Completed evidence and limits
+
+Linux gate: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-76b369c7-pool-20261011-205842-74210.log`.
+All ten steps passed. The final status is exit 0 after 834 seconds on gaming.
+Mutation result: 260 tested, 239 caught, 0 missed, 0 timeout and 21 unviable. Three catches came from stage 2.
+The log header names the reviewed head and comparison base `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+The source base remains `20b2525c`; this CLEAN is not a final-slot merge receipt.
+The stopped gate at `726f2547` provides no completed result.
+
+The round-3 delta changes host state, tests and documentation. It changes no worker, process, PTY or socket code.
+The round-2 focused Mac evidence remains applicable to those unchanged paths.
+Its selected packages passed 1046/1046. Its broader real run passed 240/242 and exited 100.
+The R-66 and AM-2 limitations recorded below remain part of this verdict.
+
+Reversal record: `shared/core-stage1/handoffs/st-298-r3-red-on-revert-excerpts.md`.
+SHA-256: `786db4b3addbaccfff85dcfd7a0fbd374e9392a945f18843a29cc653ff2371dd`.
+ST copied these session excerpts after the runs. They are not original log files.
+The record describes the scratch changes, filtered failures, restoration and use of the same worktree target.
+The reviewer inspected this record but did not independently verify the original output or cleanup.
+The reviewed source and completed gate independently support the repaired behavior.
 
 ## Core #298: round 2
 

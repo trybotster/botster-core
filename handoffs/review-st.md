@@ -35,7 +35,15 @@ The Linux gate is green. The reviewer builds nothing locally.
 All five first-round findings are closed. New ST298-R5 is HIGH: the close clock starts before a deferred stall event posts.
 The authorized Linux re-gate passed all ten steps. Mac changed packages passed 1046/1046.
 The broader Mac real run passed 240/242 and exited 100; the verdict records its R-66 and AM-2 base failures.
-Wait for the next READY. The round limit has not been reached: this is the second NOT CLEAN round for #298.
+
+#298 round 3: `76b369c7a39bec37a2bdb3c31110c887f60d4edb`, source base `20b2525c60e6c3e4ee655fe1e0999c1b1b8c48a5`.
+Verdict: CLEAN. ST298-R5 is closed. No finding remains open.
+Core adds the close deadline when the stall event posts. Core removes it when Core consumes the resume report.
+The lead approved this rule, and the host DESIGN.md states it.
+The exact-head Linux gate passed all ten steps, exit 0. All four new proof tests passed.
+The verdict distinguishes ST's copied reversal excerpts from independently checked original logs.
+The round-2 Mac evidence covers unchanged worker and operating-system paths; its broader failures remain recorded.
+This source CLEAN is not a final-slot merge receipt. Wait for the next doorbell.
 
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
