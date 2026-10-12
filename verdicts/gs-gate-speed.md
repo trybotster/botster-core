@@ -2473,3 +2473,46 @@ Sol-B records all three matching findings in supplement `7fd19ea52d09f5c7fe964bd
 I read the supplement. It corrects the compilation-count claim and retains NOT CLEAN with two HIGH findings and one LOW finding.
 
 The reviewed head and base remain unchanged. This receipt starts no new source review. Wait for the repaired-head READY.
+
+### Core PR #286: final-slot import, delta review
+
+- Head: `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`.
+- Base: `9053b1df868bbec2d62977660f44907e73323c55`.
+- Reviewed parent: `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`.
+- VERDICT: NOT CLEAN (1 LOW open; source delta has no finding).
+
+**GS-HF-R3-1 LOW: the live body describes the imported budget id as future work.**
+
+The body says `#284 is open` and describes a future budget line. The imported base already contains that line, and the merged held-full run selects both budget ids.
+
+Required change: describe the imported `dp_5` line as current scope. Identify the final head and base. Keep earlier one-id evidence clearly tied to its earlier head.
+
+Add the final gate result when it completes. Do not describe a running gate as passed.
+
+The lead's handoff confirms SLOT authorization. I verified both merge parents and the live head and base.
+
+The canonical check fails conditions (1), (2), and (3) on `conformance/core-held.txt`. Both pending-file conditions pass. I read the complete check and reviewed the conflict resolution.
+
+Check: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-ac457ca6-base-merge-check.log`.
+
+After removing blob-index and hunk-location metadata, the other five own patches are identical to the reviewed patches. The only own delta is the held-file text.
+
+The merged ev_8 line retains the base's updated authority and step-14 cost explanation. Its former missing-proof sentence becomes the held-full proof location.
+
+The merged dp_5 line retains the base's owner, authority, and step-18 cost explanation. Its missing-proof sentence becomes the same held-full proof location.
+
+The a20_1 unproven line remains unchanged. The header retains the reviewed held-full rule. No id or class changes relative to the imported base.
+
+I verified all four id/class sets from Git. The merged set equals the imported base: ev_8/budget, dp_5/budget, and a20_1/unproven.
+
+The old head changes no id. The added dp_5 id comes only from the imported base.
+
+The merged pending, real-pending, ledger, and real-only files equal the imported base byte for byte.
+
+The unchanged generic budget filter selects both budget ids. The report check expects two ids and the same 32 seeds. The source retains its failure rules.
+
+The implementer reports a clean local build and a 64-trial held-full run. I did not independently inspect that local run.
+
+The source delta has zero findings. The LOW body finding remains open. Sol must complete the HIGH delta review, and the exact-head final gate remains pending.
+
+I ran no gate, build, test, base-check script, or executable probe.

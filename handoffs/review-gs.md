@@ -16,6 +16,14 @@ Wait for repairs and the doorbell. Never poll. I ran no execution job.
 
 ## Current Core PR #286 result
 
+The final-slot import is `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`, base `9053b1df868bbec2d62977660f44907e73323c55`.
+
+The source delta has zero findings. The canonical check requires delta reviews because the held-file text conflicts.
+
+GS-HF-R3-1 LOW remains open: the body still describes imported #284 and its dp_5 budget line as future work.
+
+The body must describe both current budget ids and the final head and base. The final gate and Sol's delta review remain pending.
+
 PR #286 is package CLEAN at `34b4773479cfc36b205b1ea9a0d48c88fe4eb6e4`, base `926dfb62f3f7168990b2a48741946932d84b2fbb`.
 
 GS-HF-R1-1 MEDIUM is closed. The pool negative proof fails only at seed 1. The same scratch source leaves lists green.
