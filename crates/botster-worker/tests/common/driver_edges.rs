@@ -627,7 +627,12 @@ fn a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count() {
         }
         for event in &events {
             match event.token() {
-                EXIT => exited |= h.driver.exits.1.try_recv().is_ok(),
+                // R-106: only a status from the exit watch is the payload's exit; a failed watch fails the test.
+                EXIT => match h.driver.exits.1.try_recv() {
+                    Ok(Ok(_status)) => exited = true,
+                    Ok(Err(failed)) => panic!("the exit watch failed: {failed:?}"),
+                    Err(_) => {}
+                },
                 PTY => {
                     saw_pty_event = true;
                     h.driver.pty_readable = true;
