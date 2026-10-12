@@ -2496,3 +2496,26 @@ Formal package verdict: CLEAN, zero open, exact train 11 source delta for #320.
 Sol-C owns both integration deltas and combined review, per msg_plugin-w_1791848118_51d3fe.
 Complete integration review, exact train gate, the single final receipt, and lead Q7 remain due.
 No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+Publication: complete #320 train 11 package delta is pushed at c0d31d32b31514187ab872f084b90e88cf51c2c9.
+P5 and Sol-C receive VERDICT: CLEAN on exact train 131024f3, tree 39347010, base 644f632f.
+The lead receives CLEAN for this package delta. The worktree is clean.
+Complete integration review, exact train gate, final receipt, and lead Q7 remain due. Wait for the doorbell. Never poll.
+
+## #320 matching complete train 11 integration receipt
+
+Receipt: msg_plugin-w_1791848458_d8dc29. Integration commit: db371fd0efa05dfec92684fedaa2a11c81dd07b4.
+The reviewer reads complete verdicts/stage1/p5-read-facts.md and verdicts/stage1/train-11.md at that commit.
+The reviewer verifies publication on origin/stage1/integration-review-3.
+Both #320 integration and combined source verdicts are CLEAN, zero open including LOW.
+They match package c0d31d32 on exact train 131024f3936898a3106af299e6751553c55bbc82.
+Tree: 3934701063c7651b5ac2c62194721ad4b36801c0. Base: 644f632f194f62ad7fe14e66482ee01083706e30.
+All six closures, own edits, list blocks, ordered reports, status updates, Activity guards, and frame-bound scope agree.
+The combined review reads #298 package fb322cf8 and records its matching integration delta 4353366a.
+No additional original-seat review round is required. No source change follows the receipt.
+B-7 stays on hold. A26 managed processes, future pins, DP-8, and A24 remain outside this receipt.
+The exact gate must include all six budget-held ids at seeds 0–31 and all six selected decoder fuzz harnesses.
+Sol-C owns the single final train receipt. No redundant unchanged-member final package receipt is required.
+The exact train gate, final receipt, lead equal-tree check, and remote push verification remain due.
+No reviewer execution job runs. The unchanged lead source verdict is not repeated.
+Wait for the doorbell. Never poll.

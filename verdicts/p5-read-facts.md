@@ -534,3 +534,29 @@ No reviewer build, test, gate, mutation, reproduction, measurement, or executabl
 Wait for the doorbell. Never poll.
 
 VERDICT: CLEAN (0 open; complete #320 package source delta on exact train 11, 131024f3).
+
+## Matching complete train 11 integration receipt
+
+Receipt: `msg_plugin-w_1791848458_d8dc29`.
+Integration verdict: `db371fd0efa05dfec92684fedaa2a11c81dd07b4`.
+The reviewer reads complete verdicts/stage1/p5-read-facts.md and verdicts/stage1/train-11.md at that commit.
+The reviewer verifies publication on origin/stage1/integration-review-3.
+The #320 integration delta and combined source verdict are CLEAN with zero open findings, including LOW.
+They match package `c0d31d32b31514187ab872f084b90e88cf51c2c9` on exact train `131024f3936898a3106af299e6751553c55bbc82`.
+The tree is `3934701063c7651b5ac2c62194721ad4b36801c0`; the base is `644f632f194f62ad7fe14e66482ee01083706e30`.
+The frozen order remains #298 at 7a8592fb, then #320 at 48ff7a03. No source change follows this matching receipt.
+
+Both reviews preserve all six closures, complete own edits, both list blocks, and the accepted frame-bound exception.
+Both reviews agree on report order, input status retention, live-route Activity guards, and facts reply behavior.
+The combined review also reads the complete #298 package delta at fb322cf808f7578d99dd71bbbcb4952f55b4f10a.
+It records the matching #298 integration delta at 4353366a. No additional original-seat review round is required.
+The complete text-set formulas and status scopes agree. The deferred TOML remains equal to the base.
+B-7 stays on hold. The separate managed-process A26, future pin, DP-8 work, and A24 work remain outside this receipt.
+
+No source finding remains in the matched #320 train scope. No train gate is supplied or accepted in this receipt.
+The exact merging gate must include all six budget-held ids at seeds 0–31 and all six selected decoder fuzz harnesses.
+Sol-C owns the single final train receipt after that gate review. The unchanged member needs no additional final package receipt.
+The lead must verify the equal-tree fast-forward and remote push. No completed merge is claimed.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
+
+VERDICT: CLEAN (0 open; matching complete train source reviews recorded, train acceptance remains due).
