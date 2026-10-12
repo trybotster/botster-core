@@ -10,23 +10,28 @@ use std::collections::BTreeSet;
 type Held = Arc<Mutex<BTreeSet<u64>>>;
 /// Every choice that the driver asks, in order.
 type Log = Arc<Mutex<Vec<(ChoicePoint, usize)>>>;
+/// Every admission that the driver reports, in order: the op and its fixed timing.
+type Admitted = Arc<Mutex<Vec<(u64, bool)>>>;
 
-/// The production policy, with the ops of `held` held, and every choice that the driver asks recorded in `log`.
+/// The production policy, with the ops of `held` held, every choice that the driver asks recorded in `log`, and every
+/// admission that it reports recorded in `admitted`.
 struct Holding {
     held: Held,
     log: Log,
+    admitted: Admitted,
     policy: Production,
 }
 
 impl Holding {
-    fn new() -> (Holding, Held, Log) {
-        let (held, log) = (Arc::default(), Arc::default());
+    fn new() -> (Holding, Held, Log, Admitted) {
+        let (held, log, admitted) = (Arc::default(), Arc::default(), Arc::default());
         let policy = Holding {
             held: Arc::clone(&held),
             log: Arc::clone(&log),
+            admitted: Arc::clone(&admitted),
             policy: Production::new(),
         };
-        (policy, held, log)
+        (policy, held, log, admitted)
     }
 }
 
@@ -45,14 +50,19 @@ impl Scheduler for Holding {
         let held = self.held.lock().unwrap();
         ops.iter().any(|op| held.contains(op))
     }
+
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        self.admitted.lock().unwrap().push((op, fixed_timing));
+    }
 }
 
-fn holding_rig() -> (Rig, Held, Log) {
-    let (policy, held, log) = Holding::new();
+fn holding_rig() -> (Rig, Held, Log, Admitted) {
+    let (policy, held, log, admitted) = Holding::new();
     (
         Rig::with_scheduler(CoreLimits::default(), Box::new(policy)),
         held,
         log,
+        admitted,
     )
 }
 
@@ -69,7 +79,7 @@ fn stopping(events: &[Event], name: &str) -> usize {
 /// host that pumps until `more` is false stops (`pump_idle`). The step that the hold lets go runs in the next pump, once.
 #[test]
 fn a_held_stop_is_not_runnable_and_runs_once_in_the_pump_after_its_release() {
-    let (mut rig, held, _) = holding_rig();
+    let (mut rig, held, _, _) = holding_rig();
     let link = LinkId(1);
     to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
@@ -98,7 +108,7 @@ fn a_held_stop_is_not_runnable_and_runs_once_in_the_pump_after_its_release() {
 /// `stop_grace` deadline, and the pump at that time sends the kill.
 #[test]
 fn a_held_op_keeps_its_deadline_and_the_deadline_still_runs() {
-    let (mut rig, held, _) = holding_rig();
+    let (mut rig, held, _, _) = holding_rig();
     let link = LinkId(1);
     to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
@@ -130,7 +140,7 @@ fn a_held_op_keeps_its_deadline_and_the_deadline_still_runs() {
 /// Condition 1 of the lead's ruling: a session with no flow serves no op, so a step of it is never held.
 #[test]
 fn a_session_with_no_flow_serves_no_op() {
-    let (mut rig, held, _) = holding_rig();
+    let (mut rig, held, _, _) = holding_rig();
     let link = LinkId(1);
     let start = to_launch(&mut rig, "s1", link);
     rig.worker_says(link, launched());
@@ -148,7 +158,7 @@ fn a_session_with_no_flow_serves_no_op() {
 #[test]
 fn with_no_hold_the_choice_sequence_is_unchanged() {
     let run = |hold: Option<u64>| {
-        let (mut rig, held, log) = holding_rig();
+        let (mut rig, held, log, _) = holding_rig();
         held.lock().unwrap().extend(hold);
         let link = LinkId(1);
         to_launch(&mut rig, "s1", link);
@@ -164,4 +174,34 @@ fn with_no_hold_the_choice_sequence_is_unchanged() {
         .iter()
         .any(|(p, _)| *p == ChoicePoint::OperationDeferral));
     assert_eq!(run(Some(999)), plain);
+}
+
+/// `Scheduler::admitted`: `begin` reports each op that Core admits once, with whether a clause fixes its timing (R-20), and
+/// asks no choice point; a refused `begin` reports nothing.
+#[test]
+fn begin_reports_each_admission_once_with_its_fixed_timing() {
+    let (mut rig, _, log, admitted) = holding_rig();
+    let create = rig.driver.begin(create("s1")).unwrap();
+    while rig.pump().more {
+        rig.drain_events();
+    }
+    log.lock().unwrap().clear();
+    // A2-1, R-20: a `Resize` of a `Created` session has fixed timing.
+    let resize = rig
+        .driver
+        .begin(Op::Resize {
+            session: sid("s1"),
+            size: Size {
+                rows: 30,
+                cols: 90,
+                cell_px: None,
+            },
+        })
+        .unwrap();
+    assert!(rig.driver.begin(Op::Start { id: sid("s9") }).is_err());
+    assert_eq!(
+        *admitted.lock().unwrap(),
+        [(create.0, false), (resize.0, true)]
+    );
+    assert_eq!(*log.lock().unwrap(), [], "begin asks no choice point");
 }

@@ -603,10 +603,10 @@ impl HostEngine {
         }
     }
 
-    /// Whether a clause fixes the timing of the pending op (R-20), so that the scheduler never defers it; `None` when the op
-    /// is not pending.
-    pub fn fixed_timing(&self, op: OpId) -> Option<bool> {
-        self.ops.get(&op).map(|p| p.fixed_timing)
+    /// Whether a clause fixes the timing of the pending op (R-20), so that the scheduler never defers it. An op that is not
+    /// pending has no timing to fix.
+    pub(crate) fn fixed_timing(&self, op: OpId) -> bool {
+        self.ops.get(&op).is_some_and(|p| p.fixed_timing)
     }
 
     /// The count of events posted since the last call: the `events_posted` of `PumpReport` (A2-7).

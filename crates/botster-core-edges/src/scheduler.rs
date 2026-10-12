@@ -60,6 +60,16 @@ pub trait Scheduler {
         let _ = ops;
         false
     }
+
+    /// The driver tells the policy of each operation that it admits: `op` is the number of its `OpId`, and `fixed_timing` is
+    /// whether a clause fixes its timing (R-20), so that no step of it is ever held. The driver calls it once per admitted
+    /// operation, in `begin`, after the admission and before `begin` returns. It is a report, not a choice: it draws
+    /// nothing. A policy that holds steps uses it to know which operations exist (steward ruling R-88, group E: the
+    /// testkit's `scheduler_hold` refuses an operation that Core did not admit or whose timing is fixed). The default does
+    /// nothing and allocates nothing; `Production` runs it on every admission. Clause: Core A5-2.
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        let _ = (op, fixed_timing);
+    }
 }
 
 /// The production policy: no variation, and a round-robin visit of sessions.
@@ -174,14 +184,19 @@ mod tests {
         }
     }
 
-    /// The default `held` holds nothing and asks no choice point, whatever the ops (none included), so a policy that does not
-    /// hold steps makes the same choices as before the method existed (steward ruling R-88, group E).
+    /// The default `held` holds nothing, and neither default asks a choice point, whatever the ops (none included), so a
+    /// policy that does not hold steps makes the same choices as before the methods existed (steward ruling R-88, group E).
     #[test]
     fn the_default_holds_nothing_and_draws_nothing() {
         let mut policy = Recorded(vec![]);
+        policy.admitted(7, false);
+        policy.admitted(9, true);
         assert!(!policy.held(&[]));
         assert!(!policy.held(&[7, 9]));
         assert_eq!(policy.0, []);
-        assert!(!Production::new().held(&[1]));
+        let mut production = Production::new();
+        production.admitted(1, false);
+        assert!(!production.held(&[1]));
+        assert_eq!(production, Production::new(), "admitted changes nothing");
     }
 }

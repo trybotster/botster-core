@@ -174,6 +174,10 @@ impl Scheduler for HandleScheduler {
     fn held(&mut self, ops: &[u64]) -> bool {
         crate::op_holds::lock(&self.1).holds_any(ops)
     }
+
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        crate::op_holds::lock(&self.1).admitted(op, fixed_timing);
+    }
 }
 
 /// The in-memory edges of one host.

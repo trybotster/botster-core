@@ -202,11 +202,12 @@ impl CoreHarness for TestkitHarness {
         )?;
         table.set_wake(Arc::clone(&opened.wake));
         let (faults, reports, wake) = (opened.faults, opened.reports, Arc::clone(&opened.wake));
-        let holds = Arc::clone(&opened.holds);
-        let core = Box::new(
-            TestkitCore::new(opened.driver, opened.wake, self.workers.clone())
-                .with_holds(opened.holds),
-        );
+        let holds = opened.holds;
+        let core = Box::new(TestkitCore::new(
+            opened.driver,
+            opened.wake,
+            self.workers.clone(),
+        ));
         self.handles.insert(
             spec.handle.clone(),
             HandleEdges {

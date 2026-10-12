@@ -768,4 +768,11 @@ exclude_re = [
     'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace number( ->| with)|.* in number$)', # 2 mutants
     'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace verify( ->| with)|.* in verify$)',
     'crates/botster-test-process/src/bin/botster-test-anchor\.rs:\d+:\d+: (replace terminate( ->| with)|.* in terminate$)', # 5 mutants
+    # Scheduler::held, the provided default (Core A5-2; steward ruling R-88 group E): its body already returns false, so
+    # the `false` mutant is the same function. The `true` mutant stays and is caught
+    # (the_default_holds_nothing_and_draws_nothing).
+    'crates/botster-core-edges/src/scheduler\.rs:60:9: replace Scheduler::held -> bool with false$',
+    # Scheduler::admitted, the provided default (R-88 group E): its body only discards its arguments, so `()` is the same
+    # function. The overrides that record admissions (testkit HandleScheduler, edge tap SchedulerTap) are not excluded.
+    'crates/botster-core-edges/src/scheduler\.rs:71:9: replace Scheduler::admitted with \(\)$',
 ]
