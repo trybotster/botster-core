@@ -419,3 +419,46 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **SetNotificationPolicy retirement.** The registry path (`RegistryFailed`) is only for an op admitted in `Created` (`created_path`). Other states end `WorkerLinkFailed`.
 - **Worker-control signal (F7, lead ruling).** The broken-link stop sends `GroupSignal::EndPayload` (`SIGUSR1`) to the verified worker process alone, at the stop and at `stop_grace`. The host never sends `SIGKILL` to the worker on this path, because a kill cannot run a handler and can leave the payload alive. P3 implements the handler; the interface (meaning, idempotence, report after link return or adoption) is in the `botster-core-link` crate docs. Conformance ids that need the worker side stay pending for P3.
 - **Carried `Silent` first; failed handoffs.** The driver runs a due `Silent` before it reads any link input in a pump. A failed route handoff is queued and fed to the engine one per step, inside the budget.
+
+## The control queue (IN-6, steward ruling R-91; PC, 2026-10-11)
+
+- **What it is.** The control queue of a session is Core's outbound control stream to the session's worker: the bytes that
+  the driver queued on the worker's link and the link has not taken yet (`LinkState.out`). Core owns it, so a sync `cancel`
+  decides from Core's own state, and Core (not the worker) posts `SessionWritable`. The link message
+  `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
+- **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`
+  and one control message `c` (the largest `Cancel` frame):
+  `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × 4096 + 4 × c`.
+  - 4096 is the largest host frame with no input payload (`NON_INPUT_FRAME_BYTES`: an `Op` with no payload, an
+    `AttachRoute` with a tag of `max_route_tag_bytes`, `Detach`, `Stop`, `Kill`, `Remove` or `Cancel`).
+  - With the default limits, the bound is about 3.2 MiB.
+- **The admission limits bound the stream (R-91 Q1 (b)).** Only `cancel` refuses `Full`. Every other host-to-worker message
+  keeps its own admission:
+  - IN-5 bounds the input payload of a session (`input_retained_bytes`, `input_ops_per_session`);
+  - AM-3 bounds the pending ops (`pending_ops`).
+  So the admitted messages stay under `bound − 4c`, and `out` cannot grow without a bound. A cancel finds room unless the
+  link stops draining.
+- **The room.** `room = min(bound − unsent bytes, HostEdges::link_room(link))`. The production edge sets no bound of its own
+  (`usize::MAX`). The testkit's `control_queue` sets the edge's room to 0 on both tiers, at the injected edge only (BUILD.md
+  testing rule 8).
+- **The refusal.** `cancel` checks the room after `UnknownOp`, `TooLate`, `NotCancellable` and `AlreadyAdmitted`, and before
+  its sent or not-sent branch (R-91 Q2, FakeCore's order). With less room than `c`, it returns `Refused(Full)`. Nothing
+  changes: the op stays cancellable, no slot is taken, and no event is posted (AM-4). The worker's handle gets a
+  `refused_full` mark. The mark lives with the worker's link, so a new instance starts without it.
+- **The wake.** In every pump, after the driver flushes a link, a link with room for `c` clears the mark of its session and
+  posts `SessionWritable{id, instance}` (class K, keyed per instance, so it is coalesced, SV-3). The event counts against
+  the pump's event bound (9B). With no budget left, it waits for the next pump, and the pump reports `more`. The testkit's
+  `control_queue off` signals the host's wake, so the next pump finds the room.
+- **Tests.** The driver unit tests use a real bounded stream: the mock link takes nothing (`WouldBlock`), then drains.
+  - The test sets the bound to one control message, so one unsent frame fills it. This proves Core's own count and the
+    wake.
+  - Other tests cover: no wake without a refusal; two refusals and one wake; the edge's room; and the production bound
+    formula.
+- **Prior art (BUILD.md rule 0; old Core `72b2e335`).**
+  - The old daemon's `cancel` (`crates/botster-core-daemon/src/daemon.rs:1993`) returns `bool`. It has no control queue,
+    no `Full` refusal and no wake.
+  - The old worker bounded its outbound stream to the host by class (`Egress::has_room`,
+    `src/bin/botster-session-worker.rs:243`, `:343`). That is the same shape (a byte-bounded stream with a room check) in the
+    other direction. It is kept as a lesson. No code is copied.
+  - Its tests set "full" through a test-only argument of the production binary (`test_egress_full_signal`, `:304`).
+    That is rejected: here the `link_room` edge is the only test seam.
