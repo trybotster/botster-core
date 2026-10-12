@@ -814,3 +814,38 @@ Owner gh-style body-plus-LF hash independently matches `bddf3e92198a6830f8575fc0
 Closure sent to the package reviewer in `msg_plugin-w_1791827567_d23a9b`.
 The complete package FINAL remains pending before the formal integration FINAL.
 The completed exact-head gate remains GREEN. Q7 remains due. I ran no execution job.
+
+## Round 6 complete — FINAL #307 on the completed train-4b gate
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Frozen member: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+Independently verified SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+
+Package FINAL receipt: `msg_plugin-w_1791827845_01e57d`.
+I read complete package Round 7 at `4112796926e0e9a6b0cf90bcbcab72294da07bec`.
+It covers the same source, corrected body, exact train identities, and completed gate as my independent audit above.
+Both reviews close CQ-PC-5/R307-SI-5 after the complete corrected-body read.
+Both match exact body hash `18d06ee4f25951a981e4c5dbd022aca241549f5d2d51e682c2805b670339d666`.
+All five package findings and all integration findings remain closed, including LOW findings.
+
+All ten gate steps PASS. The CI total is 962.9 seconds; job and wrapper exit zero after 1064 seconds.
+The accepted source and interfaces remain unchanged. Both IN-6 ids pass in normal testkit, normal real, and the unmutated real baseline.
+The .44 structural IN-8 fix precedes #307 and passes in all three runs.
+The completed baseline, fourteen exact Stage 2 recoveries, and two completed fuzz harnesses satisfy the lead's ordered-pin completion path.
+The final 65 unique mutants have 53 valid catches and twelve unviable outcomes, with zero miss or timeout.
+The thirteen old member misses all recover. The additional #312 serve mutant also recovers.
+No catch credits the excluded EV-2 trial. Normal slow and the unmutated baseline still run and pass it.
+The temporary entry remains until the fenced pin removes it and restores the empty-list test.
+
+This FINAL accepts #307's source, corrected body, and completed evidence on this exact gated train head.
+It preserves the earlier member RED, old train RED, canonical FAIL, and local/platform/provenance limits as historical scopes.
+The current gate is Linux evidence. It makes no new full-seed real-tier or macOS execution claim.
+The other member finals are read in the combined FINAL record in this commit.
+The lead must still complete Q7 ancestry, equal-tree merge, and remote verification.
+This FINAL accepts no later head, specific retry, new status removal, or completed merge.
+I ran no execution job.
+
+VERDICT: CLEAN (0 open; FINAL #307 at exact train-4b head and completed gate)

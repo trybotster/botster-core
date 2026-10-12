@@ -536,3 +536,53 @@ The final body and both reviews agree with the governing R107-SI-2 disposition.
 
 The #314 and #312 final pairs are complete. The #307 package FINAL remains pending before combined FINAL.
 No source or gate finding remains in my audit. Q7 remains due. I ran no execution job.
+
+## Round 3 complete — FINAL combined train-4b receipt
+
+Exact head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Lead FINAL request: `msg_plugin-w_1791827181_c344a7`.
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+Independently verified SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+
+I complete the required final records under the existing delivery contract.
+The six exact-head final receipts are:
+
+- #314 package replacement `efa99fb22d75cb86a0f9cfdde98e011933d095a4` and integration `d02a6a40e13d5d1b0d36830bd80d363e478bb32e`.
+- #312 package `ff3fb3392fe3c1ebeba5eb507de0e4bc84355a4e` and integration `b6a96042e0b4facb73ad895e1fd902c26d687eba`.
+- #307 package `4112796926e0e9a6b0cf90bcbcab72294da07bec` and integration Round 6 in this commit's pc-control-queue.md.
+
+I read every complete applicable final section, each current complete member body, and the complete corrections where required.
+All six accept the same exact train head, base, tree, completed gate, and preserved frozen members.
+The #314 package replacement supersedes its held earlier receipt. B314-I2 closes with the correct R107-SI-2 disposition.
+R307-SI-5/CQ-PC-5 closes with the actual rebuild order and composed-train mutant attribution.
+All earlier body, source, and evidence findings remain closed. No combined finding remains.
+
+The independent source audit and all 27 conformance set checks remain valid without a source push.
+All accepted member interfaces and ordered imports remain preserved. Final pending is 403 and real-pending 34.
+The gate checks those sets, the .44 pin, the ledger, and the shared job copy.
+It reports 264 passing conformance trials, zero failures, and no unheld pending promotion.
+No new removal follows from the twenty-seven passing real-pending trials.
+The trace determinism, both IN-6 transcripts, structural IN-8 fix, checkout resolver comparison, and accepted regression tests have normal PASS records.
+
+All ten CI steps PASS on msa1. Default has 1957 passes; normal slow and the unmutated Stage 2 baseline each have 633 passes.
+All 65 mutation identities are unique. The 39 Stage 1 catches and fourteen exact Stage 2 recoveries give 53 valid catches.
+All raw catch identities match unique citations and normal PASS. There is no final miss, timeout, retry, or FLAKY result.
+The twelve unviable replacements establish no behavioral catch.
+EV-2 passes normal slow and the unmutated baseline. Its one mutation-stage exclusion supplies no catch credit.
+Both decoder fuzz harnesses finish successfully: 6143074 link_decoder runs and 3614151 msg_decoder runs.
+CI total is 962.9 seconds. Job and wrapper exit zero after 1064 seconds, with one second queued and 1063 running.
+
+The completed current-head gate satisfies the final runtime, mutation, and fuzz evidence condition.
+Historical failed and stopped gates retain their results and scopes. No old evidence is relabeled as a new execution.
+The original synthetic E1 proof retains its three-file scope. The current Linux gate makes no new full-seed real-tier or macOS execution claim.
+The temporary EV-2 entry must still leave with #316's .45-or-later pin and restored empty-list assertion.
+A31 and its separate OU-7 id remain outside this train's completion scope.
+
+The member final evidence and combined review conditions are complete and CLEAN.
+The lead must still verify Q7 ancestry, fast-forward merge, gated-tree equality, and remote publication.
+This FINAL accepts no later source, future pin, status removal, specific retry, or completed merge.
+I ran no build, test, gate, mutation, reversal, reproduction, measurement, or executable base check.
+
+VERDICT: CLEAN (0 open; FINAL combined train-4b at exact gated head, lead merge verification pending)
