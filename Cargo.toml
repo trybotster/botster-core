@@ -14,7 +14,14 @@ unsafe_code = "forbid"
 
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
-# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd and 23bk; contracts-v0.1.39 =
+# botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd, 23bk, 23bu and 23cm;
+# contracts-v0.1.41 = 2fcd773: contracts-v0.1.40 + contracts #56, manifest final40 (Core erratum 6: a query reply from the wrong route is
+# wrong_route; conf::e6_1), + #57, R-83 (await_pty fences before every route_expect_pty, the lint rule, ou_10 step 25), + #58, the R-71 (a)
+# hold_start control (the worker's control link is held at accept), + #59, the R-71 follow-up (a2_1_no_deadline startup 30000; ad_7 drops
+# its hold_start section), + rulings R-76 to R-84 and the R-28, R-73, R-74 and R-75 follow-ups as text; contracts-v0.1.40 = d939569 was not
+# pinned: contracts-v0.1.39 + contracts #51, the R-74 read fences of ev_2_retired, ev_5_released and ev_2_drop_oldest, + #52, the R-74 held
+# writes (the pty_queued fence, F = 40960, probe exit 71, the lint case), + #53, R-73 (route_expect_pty relation parts resolve from the
+# transcript's sent frames and the byte log), + #55, R-28 (1) (in_9 asserts the oracle's kitty flags); contracts-v0.1.39 =
 # ddce507: contracts-v0.1.38 + contracts #47, the R-68 route wait (a route read that gives nothing pumps the route's handle and waits on
 # its descriptors), + #49, the R-70 ou_9 title fences and the fence lint's attach rule, + #50, R-43(5) (no transcript requires
 # no_spurious_wakes; the driver applies it for a strict Woken wait); contracts-v0.1.38 = 5ff1b52:
@@ -41,13 +48,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.39" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.41" }
 
 anyhow = "1"
 data-encoding = "2"

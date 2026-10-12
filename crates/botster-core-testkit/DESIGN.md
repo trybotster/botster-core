@@ -113,7 +113,11 @@ Planned dispatch after the stacked P1/P3 PR lands:
 9. Convert binding output bytes into the control's JSON result with the contract codec.
 10. Keep the binding's typed zero result when the encoder produces no output.
 
-Dispatched (RC, plans 23ax to 23ba): `oracle_query_reply`, `oracle_screen` and `oracle_screen_payload`, on both tiers.
+The retained `OracleHandle` feed in steps 1 to 5 is not wired (lead, plan 23ax).
+`oracle_modes` and `oracle_state` read O_raw instead, as `oracle_screen` does, so one source of consumed output serves them all.
+`oracle_encode` takes explicit modes only (R-84); steps 8 and 10 do not apply to it.
+
+Dispatched (RC, plans 23ax to 23cf): `oracle_encode`, `oracle_modes`, `oracle_query_reply`, `oracle_screen`, `oracle_screen_payload` and `oracle_state`, on both tiers.
 `oracle_controls.rs` holds the argument forms and the oracle reads.
 Each tier supplies only its session lookup: the testkit's handlers in that module, the real tier's in `real/oracle.rs`.
 
@@ -124,8 +128,17 @@ Each tier supplies only its session lookup: the testkit's handlers in that modul
   It reads O_raw, the anchor of `oracle_resume`, so one source of consumed output serves both controls.
   On the testkit, O_raw replays the model log of the session's worker with the worker's step rule (R-67).
   On the real tier, O_raw applies the session's known output history (R-62, condition 1: `unknown_output_history`).
+- `oracle_encode` (R-84) lays a partial `modes` object over the modes of a fresh terminal of the pinned libghostty, and calls the
+  pinned `*_with_modes` encoder. The base comes from the binding at run time; `other_modes` merges key by key.
+  It reads no session model; the session gives only the stored size, for a mouse event.
+  `NotReported` and focus with the mode off give `""`; `Unsupported{what}` is refused `{reason: "unsupported", what}`.
+  A call without `modes` gives `unsupported_control` `oracle_encode_without_modes`.
+- `oracle_modes` reads the modes of O_raw.
+- `oracle_state` reads the modes of O_raw, and keeps the last `Title` and `Cwd` events that the O_raw replay reported (R-84 (5)).
+  It never reads libghostty's title and cwd getters, which give `""` both when unset and when set empty.
+  A field is absent when no event came. A replay that dropped events is `Bad`.
 - `oracle_screen_payload` loads the native snapshot of a route's `screen` frame in a fresh terminal without history.
-- Condition 3 (R-62) holds for the controls that replay the history, `oracle_resume` and `oracle_screen`, on both tiers.
+- Condition 3 (R-62) holds for the controls that replay the history, `oracle_resume`, `oracle_screen`, `oracle_modes` and `oracle_state`, on both tiers.
   A session that a `Resize` or a `SetColorProfile` reached gives `unsupported_control` `size_or_profile_changed`.
   `oracle_controls::Changed` is the one record and the one check.
   Each tier records the op where its host begins it, before Core admits it, because the op enters Core there in every state.
