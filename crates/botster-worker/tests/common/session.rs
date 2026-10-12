@@ -1509,19 +1509,33 @@ fn ou_7_a_tail_written_before_a_stop_that_kills_reaches_the_model_and_the_route_
 }
 
 /// R-108 (1) on the real driver: a silent process that still holds the PTY does not hold the drain. The payload leaves a
-/// background child in its group that holds the PTY's output and writes nothing, and exits. The drain ends at a quiet
-/// read, so `Exited{code 0}` comes while the child still holds the PTY (the child ends only with the group, at `Remove`).
+/// background holder in its group, which keeps the PTY as its output, writes nothing to it, and ignores the `SIGHUP` that
+/// the leader's exit sends to the group. The payload then exits. The holder waits for a byte that the test sends only after
+/// `Exited`, and only then it writes its second marker, so `Exited{code 0}` came while the holder was alive.
+///
+/// On Linux the holder's output is still the terminal then: the PTY had a live writer at `Exited`, so the drain ended at
+/// a quiet read, not at the end of the output after all writers closed. On macOS the holder lives, but after the leader's
+/// exit its output is no terminal (measured: `[ -t 1 ]` is false), so on macOS this test does not prove the quiet read.
 #[test]
 fn a_silent_holder_of_the_pty_does_not_delay_exited() {
     let root = temp_root();
-    let hold = Blocker::new(root.path(), "hold").unwrap();
+    let mut release = Blocker::new(root.path(), "release").unwrap();
+    let mut held = marker_fifo(root.path(), "held");
+    let mut after = marker_fifo(root.path(), "after");
     let mut up = marker_fifo(root.path(), "up");
     let script = format!(
-        "{} & /bin/echo up > {}; exit 0",
-        hold.shell(),
-        quoted(&root.path().join("up"))
+        "(trap '' HUP; /bin/echo held > {held}; /usr/bin/head -c 1 {release} > /dev/null; if [ -t 1 ]; then /bin/echo tty > {after}; else /bin/echo none > {after}; fi) & /bin/echo up > {up}; exit 0",
+        held = quoted(&root.path().join("held")),
+        release = quoted(release.path()),
+        after = quoted(&root.path().join("after")),
+        up = quoted(&root.path().join("up")),
     );
     let mut s = GuardedSession::launch(root.path(), &script, 5000);
+    // The holder's own readiness: it ignores `SIGHUP` before it writes this marker.
+    assert_eq!(
+        held.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some("held\n")
+    );
     assert_eq!(
         up.line(Deadline::cleanup()).unwrap().as_deref(),
         Some("up\n")
@@ -1532,6 +1546,18 @@ fn a_silent_holder_of_the_pty_does_not_delay_exited() {
             break;
         }
     }
-    drop(hold);
+    // The test holds both ends of the FIFO, so the byte waits in it even when `head` has not opened it yet.
+    release.send(b"x").unwrap();
+    let output = if cfg!(target_os = "linux") {
+        "tty\n"
+    } else {
+        "none\n"
+    };
+    assert_eq!(
+        after.line(Deadline::cleanup()).unwrap().as_deref(),
+        Some(output),
+        "the holder lived through Exited (on Linux with the PTY as its output)"
+    );
+    release.release();
     s.remove();
 }
