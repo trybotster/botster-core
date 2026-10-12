@@ -1,11 +1,16 @@
 //! What a received client frame is for the input facts (ST-7), and the record state of a client input that the worker
-//! refuses or discards. Each mapping is one function (steward rulings R-101 Q2 and R-102); none has a catch-all.
+//! refuses or discards. Each mapping is one function (steward rulings R-101 Q2, R-102 and R-103); none has a catch-all.
 //!
 //! - **One client input, one `rev` step, one record.** A frame of `bytes`, `text`, a key, the mouse, focus or a query reply
 //!   is one client input. A paste and a file are one client input each, received at their commit: their begin, chunks and
-//!   abort are not input (R-102 items 1, 2 and 4), refused or not.
+//!   abort are not input (R-102 items 1, 2 and 4), refused or not. A frame that does not parse closes the route
+//!   `BadFrame`: it is not input (R-103 (1)).
 //! - **A refused input** gets its record at receipt and its `not_written{reason}` status update at once (R-101 Q2). The
 //!   reason is the IN-2 reason, not the wire reason.
+//! - **The record keeps what was sent** (R-103 (1)): the 5.1A fields of a key, the mouse or focus; the bytes of a query
+//!   reply; the JSON body of a frame of an unknown kind. When no truthful payload exists (text that is not UTF-8, a key
+//!   with a value that the contract types do not hold), the record has no payload, and `payload_truncated` stays false: it
+//!   only means that a payload was cut.
 
 use super::facts::Content;
 use botster_core_contract::prelude::*;
@@ -13,6 +18,7 @@ use botster_route_codec::prelude::{
     HexBytes, Input, RefusalReason, ToWorker, TYPE_BYTES, TYPE_FILE_CHUNK, TYPE_INPUT,
     TYPE_PASTE_CHUNK, TYPE_TEXT,
 };
+use serde_json::Value;
 
 /// A received client frame, for the facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +35,8 @@ pub(super) enum Kept {
     Payload(InputPayload),
     /// A refused `paste_commit` or `file_commit`: kind `paste`, empty payload (R-102 follow-up (a), (c)).
     EmptyPaste,
-    /// An input whose payload the worker did not decode.
-    Undecoded(InputKind),
+    /// An input of this kind with no truthful payload (R-103 (1)).
+    NoPayload(InputKind),
 }
 
 impl Kept {
@@ -38,13 +44,14 @@ impl Kept {
         match self {
             Kept::Payload(payload) => Content::Payload(payload),
             Kept::EmptyPaste => Content::Empty(InputKind::Paste),
-            Kept::Undecoded(kind) => Content::Undecoded(*kind),
+            Kept::NoPayload(kind) => Content::NoPayload(*kind),
         }
     }
 }
 
-/// A decoded client frame (R-102).
-pub(super) fn of_frame(frame: &ToWorker) -> Receipt {
+/// A decoded client frame (R-102, R-103). `raw` is the frame as received, its type byte first.
+pub(super) fn of_frame(frame: &ToWorker, raw: &[u8]) -> Receipt {
+    let body = raw.get(1..).unwrap_or_default();
     match frame {
         ToWorker::Bytes { bytes, .. } => Receipt::Input(Kept::Payload(InputPayload::Bytes {
             bytes: HexBytes(bytes.0.to_vec()),
@@ -53,35 +60,40 @@ pub(super) fn of_frame(frame: &ToWorker) -> Receipt {
             Receipt::Input(Kept::Payload(InputPayload::Text { text: text.clone() }))
         }
         ToWorker::PasteChunk { .. } | ToWorker::FileChunk { .. } => Receipt::Part,
-        ToWorker::Input(input) => of_input(input),
+        ToWorker::Input(input) => of_input(input, body),
     }
 }
 
-fn of_input(input: &Input) -> Receipt {
+fn of_input(input: &Input, body: &[u8]) -> Receipt {
     match input {
         Input::PasteBegin { .. }
         | Input::PasteAbort { .. }
         | Input::FileBegin { .. }
         | Input::FileAbort { .. } => Receipt::Part,
         Input::PasteCommit { .. } | Input::FileCommit { .. } => Receipt::Input(Kept::EmptyPaste),
-        Input::Key { .. } => Receipt::Input(Kept::Undecoded(InputKind::Key)),
-        Input::Mouse { .. } => Receipt::Input(Kept::Undecoded(InputKind::Mouse)),
-        Input::Focus { .. } => Receipt::Input(Kept::Undecoded(InputKind::Focus)),
-        Input::ReplyTerminalQuery { .. } => no_kind(),
+        Input::Key { .. } => semantic(InputKind::Key, body),
+        Input::Mouse { .. } => semantic(InputKind::Mouse, body),
+        Input::Focus { .. } => semantic(InputKind::Focus, body),
+        Input::ReplyTerminalQuery { .. } => reply(body),
         // DP-6: a resize is not PTY input (P5's question at the steward, with P3).
         Input::Resize { .. } => Receipt::Part,
     }
 }
 
 /// A frame that the codec refused before it gave a payload (`Unsupported`, `Invalid`): its frame type, and for an input
-/// frame its `kind` (P5's mapping (1), at the steward).
+/// frame its `kind` (R-103 (1)). The codec gives these only for a frame that parses.
 pub(super) fn of_raw(frame: &[u8]) -> Receipt {
+    let body = frame.get(1..).unwrap_or_default();
     match frame.first().copied() {
-        Some(TYPE_BYTES) => Receipt::Input(Kept::Undecoded(InputKind::Bytes)),
-        Some(TYPE_TEXT) => Receipt::Input(Kept::Undecoded(InputKind::Text)),
+        // A binary frame is the type byte, an 8-byte `op`, then its data (Codec A.4).
+        Some(TYPE_BYTES) => Receipt::Input(Kept::Payload(InputPayload::Bytes {
+            bytes: HexBytes(frame.get(9..).unwrap_or_default().to_vec()),
+        })),
+        // R-103 (1): text that is not UTF-8 has no truthful string.
+        Some(TYPE_TEXT) => Receipt::Input(Kept::NoPayload(InputKind::Text)),
         Some(TYPE_PASTE_CHUNK | TYPE_FILE_CHUNK) => Receipt::Part,
         Some(TYPE_INPUT) => {
-            let kind = serde_json::from_slice::<serde_json::Value>(&frame[1..])
+            let kind = serde_json::from_slice::<Value>(body)
                 .ok()
                 .and_then(|body| body.get("kind")?.as_str().map(str::to_string));
             match kind.as_deref() {
@@ -89,24 +101,57 @@ pub(super) fn of_raw(frame: &[u8]) -> Receipt {
                     Receipt::Part
                 }
                 Some("paste_commit" | "file_commit") => Receipt::Input(Kept::EmptyPaste),
-                Some("key") => Receipt::Input(Kept::Undecoded(InputKind::Key)),
-                Some("mouse") => Receipt::Input(Kept::Undecoded(InputKind::Mouse)),
-                Some("focus") => Receipt::Input(Kept::Undecoded(InputKind::Focus)),
-                Some(_) | None => no_kind(),
+                Some("key") => semantic(InputKind::Key, body),
+                Some("mouse") => semantic(InputKind::Mouse, body),
+                Some("focus") => semantic(InputKind::Focus, body),
+                Some("reply_terminal_query") => reply(body),
+                // R-103 (1): an unknown kind. The codec gives `Unsupported` or `Invalid` only for a body with a `kind`.
+                Some(_) | None => as_sent(body),
             }
         }
         // The codec decodes no other client frame type into `Unsupported` or `Invalid`.
-        Some(_) | None => no_kind(),
+        Some(_) | None => as_sent(body),
     }
 }
 
-/// A client input that has no ST-7 kind (a query reply, an unknown input kind): kind `bytes`, no payload (P5's mapping (1),
-/// at the steward).
-fn no_kind() -> Receipt {
-    Receipt::Input(Kept::Undecoded(InputKind::Bytes))
+/// A key, mouse or focus input: its 5.1A fields as sent, read from the frame's body with the contract's types. A body that
+/// these types do not hold has no truthful payload (R-103 (1)).
+fn semantic(kind: InputKind, body: &[u8]) -> Receipt {
+    let payload = match kind {
+        InputKind::Key => serde_json::from_slice(body).ok().map(InputPayload::Key),
+        InputKind::Mouse => serde_json::from_slice(body).ok().map(InputPayload::Mouse),
+        InputKind::Focus => serde_json::from_slice::<Value>(body)
+            .ok()
+            .and_then(|body| body.get("focused")?.as_bool())
+            .map(|focused| InputPayload::Focus { focused }),
+        _ => None,
+    };
+    Receipt::Input(payload.map_or(Kept::NoPayload(kind), Kept::Payload))
 }
 
-/// The IN-2 reason of a client input that the worker refuses at receipt (steward ruling R-101 Q2; P5's mapping (2)). The
+/// A `reply_terminal_query` (R-103 (1)): kind `bytes`, and its payload is the reply's bytes: the JSON of its `reply` as
+/// received. The kind of a written client reply is P4a's (R-102 item 5).
+fn reply(body: &[u8]) -> Receipt {
+    let reply = serde_json::from_slice::<Value>(body)
+        .ok()
+        .and_then(|body| serde_json::to_vec(body.get("reply")?).ok());
+    match reply {
+        Some(bytes) => Receipt::Input(Kept::Payload(InputPayload::Bytes {
+            bytes: HexBytes(bytes),
+        })),
+        None => as_sent(body),
+    }
+}
+
+/// An input with no ST-7 kind and no 5.1A field set (R-103 (1)): kind `bytes`, and its payload is the frame's body as
+/// received.
+fn as_sent(body: &[u8]) -> Receipt {
+    Receipt::Input(Kept::Payload(InputPayload::Bytes {
+        bytes: HexBytes(body.to_vec()),
+    }))
+}
+
+/// The IN-2 reason of a client input that the worker refuses at receipt (steward rulings R-101 Q2 and R-103 (2)). The
 /// reasons that the receipt never decides are listed too: a write's own end (`failed`), and the reasons of query replies and
 /// of other workers.
 pub(super) fn refused(reason: &RefusalReason) -> NotWrittenReason {
@@ -116,8 +161,8 @@ pub(super) fn refused(reason: &RefusalReason) -> NotWrittenReason {
         }
         RefusalReason::TooLarge => NotWrittenReason::PayloadTooLarge,
         RefusalReason::ModePreconditionFailed => NotWrittenReason::ModePreconditionFailed,
-        RefusalReason::Unsupported { .. } => NotWrittenReason::Unsupported {
-            what: UnsupportedWhat::Other,
+        RefusalReason::Unsupported { what } => NotWrittenReason::Unsupported {
+            what: unsupported(what),
         },
         RefusalReason::SessionEnded => NotWrittenReason::SessionEnded,
         RefusalReason::Failed
@@ -128,6 +173,17 @@ pub(super) fn refused(reason: &RefusalReason) -> NotWrittenReason {
         | RefusalReason::WrongRoute
         | RefusalReason::InvalidInput
         | RefusalReason::Other => NotWrittenReason::Refused,
+    }
+}
+
+/// The `UnsupportedWhat` of a refusal at receipt (R-103 (2)): the variant of its cause when one exists. The codec names an
+/// unknown named key `key`, and an unknown named key has no encoding (`named_key`). `Other` is for a cause with no
+/// variant: an unknown kind (`kind`) or value, text that is not UTF-8 (`utf8`), and a frame that this worker does not
+/// implement yet (`input`, `file_chunk`).
+fn unsupported(what: &str) -> UnsupportedWhat {
+    match what {
+        "key" => UnsupportedWhat::NamedKey,
+        _ => UnsupportedWhat::Other,
     }
 }
 

@@ -476,7 +476,8 @@ fn a_refused_commit_is_recorded_with_an_empty_paste_and_ends_refused() {
 }
 
 /// R-102 item 5: a `reply_terminal_query` that the worker refuses is one client input: one `rev` step, one record at
-/// receipt, and its `not_written{unsupported}` at once.
+/// receipt, and its `not_written{unsupported}` at once. R-103 (1): the record is `kind: bytes`, and its payload is the
+/// reply's bytes, not cut.
 #[test]
 fn a_refused_query_reply_is_recorded_and_ends_not_written_unsupported() {
     use super::super::read_facts::{read_facts, records, status_updates};
@@ -489,7 +490,14 @@ fn a_refused_query_reply_is_recorded_and_ends_not_written_unsupported() {
     let all = send(&mut w, &mut client, &[reply]);
     assert_eq!(received(&mut w, &all), 1);
     let facts = read_facts(&mut w, None);
-    assert_eq!(records(&facts).len(), 1);
+    let recorded = records(&facts);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, InputKind::Bytes);
+    assert_eq!(
+        recorded[0].payload,
+        Some(HexBytes(br#""decline""#.to_vec()))
+    );
+    assert!(!recorded[0].payload_truncated);
     assert_eq!(
         status_updates(&facts),
         [(

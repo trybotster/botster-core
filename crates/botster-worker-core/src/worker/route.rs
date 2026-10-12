@@ -710,7 +710,7 @@ impl Worker {
                 Err(error) => (Err(error), Default::default()),
             };
             let receipt = match &decoded {
-                Ok(Decoded::Frame(frame)) => receipt::of_frame(frame),
+                Ok(Decoded::Frame(frame)) => receipt::of_frame(frame, &raw),
                 Ok(Decoded::Unsupported { .. } | Decoded::Invalid { .. }) => receipt::of_raw(&raw),
                 Ok(Decoded::Ignored { .. }) | Err(_) => Receipt::Part,
             };

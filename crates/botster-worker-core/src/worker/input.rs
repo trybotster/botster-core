@@ -758,8 +758,9 @@ fn record_end(outcome: WriteOutcome, pty_bytes: u64) -> (InputRecordState, Optio
     }
 }
 
-/// The outcome of a host write that the adoption fence dropped before it started (DESIGN.md 3.4): nothing was written, and no
-/// host learns its end (P5's mapping (3), at the steward).
+/// The outcome of a host write that the adoption fence dropped before it started (DESIGN.md 3.4): the fence refuses the old
+/// epoch's commands (DP-8), so it is a certain zero, `not_written{refused}`. No cancel was issued, so it is not
+/// `cancelled`, and no host learns its end (ID-2): the record is how a reader learns it (steward ruling R-103 (3)).
 fn fenced_outcome() -> WriteOutcome {
-    WriteOutcome::Cancelled
+    WriteOutcome::NotWritten(NotWrittenReason::Refused)
 }

@@ -16,6 +16,8 @@
 //!   form in which the link carries it (`input_records_cost`). The oldest entry goes first. The newest record and its
 //!   status update are never dropped: a record whose payload would not leave room for its status update is cut to a
 //!   shorter payload, and if needed to its minimal form (cursor, source, `at`, kind and state), with `payload_truncated`.
+//!   `payload_truncated` means only that something of the record was cut; a record with no truthful payload has none
+//!   and is not `payload_truncated` (steward ruling R-103).
 //! - **The client tail.** The last `input_tail_bytes` PTY bytes that client input wrote, exact; `tail_complete` turns
 //!   false at the first byte that it drops.
 
@@ -41,8 +43,9 @@ pub(super) enum Content<'a> {
     Payload(&'a InputPayload),
     /// An input of this kind with an empty payload: a refused `paste_commit` or `file_commit` (steward ruling R-102).
     Empty(InputKind),
-    /// An input of this kind whose payload the worker did not decode: no payload, `payload_truncated`.
-    Undecoded(InputKind),
+    /// An input of this kind with no truthful payload: no payload, and not `payload_truncated`, which only means that a
+    /// payload was cut (steward ruling R-103).
+    NoPayload(InputKind),
 }
 
 /// A record, by its sequence number in the log.
@@ -390,9 +393,8 @@ fn record_of(
             record.payload = Some(HexBytes(Vec::new()));
             return record;
         }
-        Content::Undecoded(kind) => {
+        Content::NoPayload(kind) => {
             record.kind = kind;
-            record.payload_truncated = true;
             return record;
         }
     };
@@ -428,15 +430,21 @@ fn record_of(
             record.kind = InputKind::Focus;
             record.focus = Some(*focused);
         }
-        // A later kind of the non-exhaustive enum: its kind is not known here, so the record keeps no content.
-        _ => record.payload_truncated = true,
+        // A later kind of the non-exhaustive enum: its kind is not known here, so the record keeps no content, and nothing
+        // was cut (R-103).
+        _ => {}
     }
     record
 }
 
-/// The minimal form of a record (ST-7): its cursor, source, `at`, kind and state, with `payload_truncated`.
+/// The minimal form of a record (ST-7): its cursor, source, `at`, kind and state. It is `payload_truncated` only when
+/// something of the record was cut (steward ruling R-103).
 fn minimal(record: InputRecord) -> InputRecord {
-    InputRecord {
+    let whole = InputRecord {
+        payload_truncated: false,
+        ..record.clone()
+    };
+    let mut cut = InputRecord {
         cursor: record.cursor,
         source: record.source,
         at: record.at,
@@ -452,10 +460,12 @@ fn minimal(record: InputRecord) -> InputRecord {
         mouse: None,
         focus: None,
         payload: None,
-        payload_truncated: true,
+        payload_truncated: false,
         state: record.state,
         pty_bytes: record.pty_bytes,
-    }
+    };
+    cut.payload_truncated = record.payload_truncated || cut != whole;
+    cut
 }
 
 #[cfg(test)]

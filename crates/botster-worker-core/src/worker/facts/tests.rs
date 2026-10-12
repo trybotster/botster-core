@@ -267,3 +267,43 @@ fn the_client_tail_keeps_its_last_bytes_and_marks_a_drop() {
     assert_eq!(read.tail, b"cdef");
     assert!(!read.tail_complete);
 }
+
+/// Steward ruling R-103: `payload_truncated` means only that something was cut. A record with no truthful payload has none
+/// and is not `payload_truncated`, whole or in its minimal form; a minimal form that dropped a payload is.
+#[test]
+fn a_record_with_no_payload_is_never_payload_truncated() {
+    let t0 = start();
+    let mut facts = Facts::new(1, &CoreLimits::default(), t0);
+    facts
+        .received(t0, client(), Content::NoPayload(InputKind::Text))
+        .unwrap();
+    let r = record(&facts.read(t0, None).records[0]).clone();
+    assert_eq!(
+        (r.kind, r.payload, r.payload_truncated),
+        (InputKind::Text, None, false)
+    );
+
+    let whole = record_of(
+        probe_cursor(),
+        client(),
+        0,
+        Content::NoPayload(InputKind::Focus),
+        usize::MAX,
+    );
+    assert!(!minimal(whole).payload_truncated, "nothing to cut");
+    let with_payload = record_of(
+        probe_cursor(),
+        client(),
+        0,
+        Content::Payload(&bytes(b"x")),
+        usize::MAX,
+    );
+    assert!(
+        minimal(with_payload).payload_truncated,
+        "the payload was cut"
+    );
+}
+
+fn probe_cursor() -> InputCursor {
+    InputCursor(1 << SEQ_BITS | 1)
+}

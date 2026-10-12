@@ -172,10 +172,10 @@ fn a_cursor_read_before_an_adoption_reads_incrementally_after_it() {
     assert_eq!(new[0].cursor.0 >> 29, spec().cursor_ordinal);
 }
 
-/// The adoption fence drops the old host's queued writes (DESIGN.md 3.4): their records end `cancelled` with 0 PTY bytes
-/// (P5's mapping (3)).
+/// Steward ruling R-103 (3): the adoption fence drops the old host's queued writes (DESIGN.md 3.4). No cancel was issued,
+/// so their records end `not_written{refused}` with 0 PTY bytes, not `cancelled`.
 #[test]
-fn a_queued_write_that_the_fence_drops_ends_cancelled() {
+fn a_queued_write_that_the_fence_drops_ends_not_written_refused() {
     let mut w = World::running();
     w.send(&write(1, b"a", None));
     w.send(&write(2, b"b", None));
@@ -185,7 +185,16 @@ fn a_queued_write_that_the_fence_drops_ends_cancelled() {
     let facts = read_facts(&mut w, None);
     let ends = status_updates(&facts);
     assert!(
-        ends.contains(&(InputRecordState::Cancelled, Some(0))),
+        ends.contains(&(
+            InputRecordState::NotWritten {
+                reason: NotWrittenReason::Refused
+            },
+            Some(0)
+        )),
+        "{ends:?}"
+    );
+    assert!(
+        !ends.iter().any(|(s, _)| *s == InputRecordState::Cancelled),
         "{ends:?}"
     );
     assert!(
