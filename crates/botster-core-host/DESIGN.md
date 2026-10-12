@@ -446,7 +446,9 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
 - **Fast path.** Each field has an upper bound of its JSON length without encoding (a string byte six, a hex byte two, a
   modifier twelve with its separator).
   When those bounds and `FIXED_PART` (64 KiB, every other part of a message; a test measures the largest ones) fit, the
-  message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, with no allocation.
+  message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, which keeps no buffer of the
+  encoded output. The slow path still allocates: it builds the message (a clone of the request or the op, the worst
+  palette), and a serializer can allocate (`HexBytes` makes its hex string). No claim of an allocation-free check is made.
 - **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
   `max_snapshot_bytes`) + 1 MiB, capped at `u32::MAX / 2`: a `Text` control byte is the six-byte escape `\u00XX`, so every
   write that `max_paste_bytes` admits fits. Only where the cap binds can a write be refused `InvalidInput{payload.text}`.
