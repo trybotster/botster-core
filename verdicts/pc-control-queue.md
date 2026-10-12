@@ -554,3 +554,9 @@ The reviewer reads its complete Round 5 and verifies publication on the integrat
 It matches package `b8e4fa0d20d4c9b917be2667afecc212d25b5fd0` on head `e37b91d6`, base `9fe97f50`, and tree `ad98644e`.
 The matching formal #307 source-review condition closes. Zero package source findings remain.
 Sol's combined source verdict awaits the complete #312 pair. The fresh exact-head gate, final evidence receipts, and Q7 remain due.
+
+Sol receipt `msg_plugin-w_1791826078_3437ea` supplies completed combined CLEAN `e76f59cb46546c9bd4bed8c306ee2e6d7047d0b1`.
+The reviewer reads its complete train-4b Round 2 and verifies publication.
+The combined verdict names the same train head, base, and tree. It reports all six complete member source receipts read and CLEAN.
+The combined source-review condition now has its published verdict. No combined source finding remains.
+The fresh exact-head gate, each final member body/evidence receipt, and Q7 remain due. No gate or merge is accepted.

@@ -2023,3 +2023,10 @@ The reviewer reads its complete Round 5 and verifies publication on origin/stage
 Both verdicts match e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c, base 9fe97f50, tree ad98644e. The formal #307 source-review condition closes.
 Sol's combined verdict awaits the complete #312 pair. The fresh exact-head gate, final evidence receipts, and Q7 remain due.
 No gate, specific retry, later head, or merge is accepted. No reviewer job runs.
+
+The matching #307 source receipt is pushed at 5ee72f2adb45217820b9296f69a8002ad6dbb2a2. PC and the lead receive it.
+Sol receipt msg_plugin-w_1791826078_3437ea supplies complete combined train-4b CLEAN e76f59cb46546c9bd4bed8c306ee2e6d7047d0b1.
+The reviewer reads its complete Round 2 and verifies publication. It names the same exact e37b91d6/9fe97f50/ad98644e identities.
+The combined record reports all six complete same-head member source receipts read and CLEAN. No combined source finding remains.
+The combined source-review condition has its published verdict. Fresh exact-head gate, all final member body/evidence receipts, and Q7 remain due.
+No reviewer job runs. No gate, specific retry, later head, or merge is accepted. Wait for the doorbell. Never poll.
