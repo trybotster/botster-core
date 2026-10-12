@@ -48,14 +48,28 @@ The later green gate does not erase the earlier result. I requested no new run.
 Finding receipts: P5 `msg_plugin-w_1791778269_2d86f0`; Sol `msg_plugin-w_1791778269_d973a7`.
 Sol independently records the same evidence issue in `msg_plugin-w_1791778251_233612`.
 
-### Open evidence questions
+### Evidence questions
 
 I requested two clarifications in `msg_plugin-w_1791778097_cf56cc`; Sol received `msg_plugin-w_1791778097_8ab765`.
-Neither question has a disposition at publication of this round.
+Both questions were open at the initial publication of this round. The AD-7 question closes under the correction below.
 
-R-97 section 4 requires `ad_7_crash_between_steps` sections 2 and 3 to remain passing with the testkit's real-clock default.
+The earlier R-97 section 4 required `ad_7_crash_between_steps` sections 2 and 3 to remain passing with the testkit's real-clock default.
 Both full comparison records instead reject that id as real-only, with its real proof absent, before transcript execution.
-Those records do not exercise the required sections. P5 must state the applicable proof or obtain the required disposition.
+Those records do not exercise those sections. I requested the applicable proof or disposition.
+
+The lead supplies the disposition in `msg_plugin-w_1791779127_85efbe`.
+I read corrected R-97 item 4 at contracts commit `ad19a75ae6444f0786ca9ea2a4f5adb7b731d527`.
+The AD-7 requirement applies only to the real tier. The id remains real-only; a testkit `wait_worker_exit` control is separate work.
+The two required unit proofs remain. The reviewed head's completed gate covers both.
+
+I read the complete lead-named `evidence/p5-hold/r303-compare.log`.
+Its SHA256 is `5de5beb0c7774c32c391da3e5a4d2787b4d797ddb43d3adbfe1e8cfe1240fe81`.
+It records a clean of 6320 files and 1.9 GiB, then one worktree writer.
+Its compared heads are #301 `403bbf689cc9f745a9552cc518374a6a8f2cdb32` and repair `955ca290737453265d7eb4622c5e998abbe0c84f`.
+Both forced testkit AD-7 trials report unsupported `wait_worker_exit`. They do not report a real-tier AD-7 PASS.
+The lead accepts this scope evidence. The AD-7 question closes by the steward correction and lead disposition.
+This closure accepts no repair source or gate; the reviewed source remains the head named above.
+I read Sol's matching Round 1 supplement at `15f07babf7666cb4e21c767327ea1373c14778e4`.
 
 The raw comparison files have no exact-head or seed headers.
 `r97-compare.log` extracts zero ids for each run; `r97-compare.sh` writes only the id files, not the supplied raw files.
@@ -103,7 +117,7 @@ The lead requires #301 to merge first. Final import, applicable delta/checks, ex
 I independently parse 691 outcomes in each raw comparison file: 262 PASS, 341 FAIL, and 88 ignored.
 The outcome maps are identical. Only the startup id's diagnostic record changes, from step 7 to step 24.
 The raw files' SHA256 values are `77436cf5eb7afa4948e2ddbf3ab6fb199a25d7aec57b28c58face76b79e1a1d8` and `9304bedfa688e7cb589c535cd4807dd04fdece1b4f830ae4ed8d7a2e91592122`.
-Their provenance question and the missing AD-7 execution remain open.
+Their provenance question remains open. The AD-7 condition closes under the corrected ruling and disposition above.
 
 I read the complete manual-mutant script/log and repair-check script/log.
 `r97-mutants.log` SHA256 is `15426a8b283d45e2d27d2e66743f02f542c45ee35aa35edac9f43297aa921bf7`.
@@ -117,7 +131,7 @@ That preceding failed build is not accepted evidence. Filtered pipelines supply 
 
 ### Disposition
 
-R303-SI-1 and R303-F1 remain open. The two evidence questions also remain unresolved.
+R303-SI-1 and R303-F1 remain open. The original raw comparison provenance question remains unresolved.
 P5 must send a source repair READY with the required evidence and dispositions.
 The current green gate does not close these findings or carry to a source repair.
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
