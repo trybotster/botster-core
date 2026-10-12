@@ -53,3 +53,56 @@ The header names the reviewed head. All ten steps pass. Mutation totals are 66 m
 The implementer requested a hold of this head's review while preparing one replacement commit and gate. This round records the current findings. I ran no build, test, gate, or pool job. A replacement head needs a delta review and exact-head package verdict. Applicable train reviews and the final train gate remain required.
 
 VERDICT: NOT CLEAN (5 open)
+
+## Round 2: source repair
+
+- Head: `1c17cb1b87e1815b717f7259c967b1ceef2237de`.
+- Reviewed delta: one commit on `84be34b0b8bc464bf6be55af2ef2c292b670fcdf`; three files, 299 additions and 34 deletions.
+- READY receipt: `msg_plugin-w_1791787116_de4fc6`.
+
+### RC-R100-I1 — HIGH — closed
+
+Launch admission now uses the shared `DEFAULT_MAX_PAYLOAD` constant. Other messages retain the derived link bound. The worker still learns the later bound from Launch; this repair adds no protocol message.
+
+The new regression admits a request whose worst Launch is exactly the initial decoder bound. It queues a full color profile and the longest size policy before Start. It reads the host's emitted Launch, frames it at the host bound, and decodes it with `FrameDecoder::new(DEFAULT_MAX_PAYLOAD)`. It also checks synchronous refusal for one more argv byte. The complete gate reports a normal PASS for this regression. This supplies the missing host-to-worker decoding boundary proof.
+
+### Existing package findings
+
+The source adds modifier vectors to the field bounds and exact field measurement. The oversized key and mouse regressions check InvalidInput and continued link use. The Created-setter bound uses the worst valid color profile and longest size policy. The attach test replaces private storage assertions with handoff/event observations and a subsequent successful attach.
+
+Package receipt `msg_plugin-w_1791787343_a423ae` verifies the source fixes for RC-R100-1, RC-R100-2, and RC-R100-3. It also verifies RC-R100-4's body correction. Those four findings close in this round. The published replacement-head package verdict remains due before integration CLEAN.
+
+### RC-R100-I2 — LOW — allocation claim requires correction
+
+The API comment and design claim that a large-message check allocates nothing. The counter retains no encoded output buffer, but the complete check clones the request or op. The worst palette also allocates. The pinned codec's `HexBytes::serialize` calls `to_hex`, which returns a String.
+
+Required change: distinguish the counter's retained output from allocations by message construction and serializers. No allocation optimization or measurement is requested. Finding receipts: `msg_plugin-w_1791787268_4d95d8` and `msg_plugin-w_1791787268_0cb2d2`.
+
+### RC-R100-5 — LOW — conservative refusal margin, package-owned
+
+The package reviewer reports that the body's approximately 40-byte margin omits the new worst color profile and policy. A Launch can have several kilobytes of margin. The body must name that scope. Package receipt: `msg_plugin-w_1791787343_a423ae`.
+
+### Completed repair-head gate
+
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-r100-frame-check-1c17cb1b-pool-20261011-233045-37276.log`.
+
+The exact-head gate has all ten steps PASS. Default tests report 1934 passes; slow tests report 616 passes. The decoder-bound, modifier-list, and worst-setter tests pass. Mutation totals are 73 mutants, 65 caught, eight unviable, zero missed, and zero timeout. The gate-time reference is `be95ef13`; the imported source base remains `ae49bbec`.
+
+The two LOW documentation findings remain open at this head. I ran no execution job.
+
+VERDICT: NOT CLEAN (2 open)
+
+## Round 3: documentation repairs received
+
+- Head: `b920da760a8a643b199765d0a69f78533a9b3e45`.
+- Tree: `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+- Reviewed delta: both documentation commits after `1c17cb1b`, including intermediate head `ae208483048e7383c1d6d6b1fdd1b2eaccd6fdb7`.
+- Owner receipts: `msg_plugin-w_1791787309_df98ff` and `msg_plugin-w_1791787418_7cd317`.
+
+The API and design now state that the counter retains no encoded output buffer. They identify the message clones, worst palette, and serializer allocations. The design and module comment distinguish the small number-field margin from the Launch's several-kilobyte margin. These changes address the source causes of RC-R100-I2 and RC-R100-5. They change no executable code.
+
+The owner reports corresponding body corrections. The final body check and exact-head package verdict remain due. The owner stopped the intermediate `ae208483` gate and started a gate on this final head. No completed final-head gate was supplied. This review accepts no unfinished gate or future train head.
+
+The two LOW findings remain open for final closure evidence. I ran no build, test, gate, or pool job.
+
+VERDICT: NOT CLEAN (2 open)
