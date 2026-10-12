@@ -7,9 +7,9 @@
 use crate::engine::{HostEngine, Next, Owner, Step, Wait};
 use crate::flow::*;
 use crate::io::{Action, Work};
-use crate::session::{unknown_request, Admit, Row, ROW_PREFIX};
+use crate::session::{unknown_request, Admit, Row, WorkerHandle, ROW_PREFIX};
 use botster_core_contract::prelude::*;
-use botster_core_edges::edges::{GroupSignal, StorageError};
+use botster_core_edges::edges::{GroupSignal, IdentityState, ProcessIdentity, StorageError};
 use botster_core_link::msg::{HostMsg, LaunchSpec};
 use std::collections::BTreeSet;
 use std::mem::{discriminant, Discriminant};
@@ -291,7 +291,8 @@ impl HostEngine {
     /// payload leader unreaped and ends the group itself (P3), and it keeps the final model (LC-5).
     fn kill_payload(&mut self, id: &SessionId) {
         let sent = self.send_msg(id, HostMsg::Kill);
-        if !sent {
+        let gone = self.sessions.get(id).is_some_and(|s| s.worker.gone);
+        if !sent && !gone {
             if let Some(identity) = self.identity_of(id) {
                 self.act(Action::SignalGroup {
                     identity,
@@ -306,10 +307,63 @@ impl HostEngine {
                 f.deadline = None;
             }
         }
-        if broken {
-            // The worker cannot answer: the payload was killed and Core cannot learn the exit. The session ends
-            // `Lost(WorkerUnreachable)` (AD-2: the worker is alive, and no connection is made).
-            self.begin_end_flow(id, End::Lost(LostReason::WorkerUnreachable));
+        // A gone worker is not probed (R-78 design, branch priority): its link drains without waiting, and the drain's close
+        // classifies it, or it was classified at its exit when no link was left.
+        if broken && !gone {
+            let worker = self.sessions.get(id).map(|s| s.worker);
+            match worker {
+                // R-78 item 3: the exit watch of a spawned worker may still hold its reaped exit (a deadline runs at the pump
+                // bound, the exits wait for budget), so the reason does not depend on that order. The identity check, which
+                // neither blocks nor reaps, decides it (`flow_stop_probed`). The driver answers it at once, in this step.
+                Some(WorkerHandle {
+                    spawned: true,
+                    identity: Some(identity),
+                    ..
+                }) => {
+                    if let Some(f) = self.stop_flow(id) {
+                        f.probing = true;
+                    }
+                    self.act(Action::ProbeIdentity { identity });
+                }
+                // An adopted worker has no exit watch (A21): the worker cannot answer, the payload was killed and Core
+                // cannot learn the exit. The session ends `Lost(WorkerUnreachable)` (AD-2: the worker is alive, and no
+                // connection is made).
+                _ => self.begin_end_flow(id, End::Lost(LostReason::WorkerUnreachable)),
+            }
+        }
+    }
+
+    /// The answer to the identity check of a stop's spawned worker whose link was broken at the kill of `stop_grace`
+    /// (steward ruling R-78 item 3). A worker that ended, reaped or not (`Absent`; a reused pid is `Reused`), is gone;
+    /// one that still runs cannot be reached.
+    pub(crate) fn flow_stop_probed(&mut self, identity: ProcessIdentity, state: IdentityState) {
+        let found = self
+            .sessions
+            .iter()
+            .find(|(_, s)| {
+                s.worker.identity == Some(identity) && matches!(&s.flow, Flow::Stop(f) if f.probing)
+            })
+            .map(|(id, _)| id.clone());
+        let Some(id) = found else {
+            return;
+        };
+        if let Some(f) = self.stop_flow(&id) {
+            f.probing = false;
+        }
+        match state {
+            IdentityState::Matches => {
+                self.begin_end_flow(&id, End::Lost(LostReason::WorkerUnreachable));
+            }
+            IdentityState::Absent | IdentityState::Reused => {
+                let s = self.sessions.get_mut(&id).expect("found above");
+                s.worker.gone = true;
+                // R-78 item 4: a link whose read side is open is drained without waiting (`LinkPeerEnded`); the drain's
+                // close classifies (`on_link_closed`).
+                match s.worker.link {
+                    Some(link) => self.act(Action::LinkPeerEnded { link }),
+                    None => self.begin_end_flow(&id, End::Lost(LostReason::WorkerGone)),
+                }
+            }
         }
     }
 
@@ -478,7 +532,7 @@ impl HostEngine {
                 s.shown,
                 s.worker.link,
                 s.terminal.is_some(),
-                s.worker.link_failed,
+                s.worker.link_failed || s.worker.write_failed,
                 matches!(s.flow, Flow::Start(_)) || s.admit == Admit::Starting,
             )
         };
