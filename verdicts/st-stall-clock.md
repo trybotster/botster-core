@@ -1,6 +1,42 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (Core #298 at 8f070c49)
+VERDICT: CLEAN (source delta; Core #298 at 7a8592fb)
+
+## Core #298: train-9b and train-10 import, round 8
+
+Reviewed head: `7a8592fb493450c8b046a076cf484317eb58d96e`.
+Previous source CLEAN: `8f070c492c17d0be727b914f74edce626065b7f2`.
+Imported v1: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Three-way base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+VERDICT: CLEAN for the source delta. No source finding remains open.
+The final train gate remains due. This receipt does not claim a completed gate at this head.
+The reviewer ran no local build or test.
+
+The reviewer inspected the full remerge diff.
+The only text resolution retains both `TestkitRoute.reports` and `TestkitRoute.frames`, including their constructor defaults.
+The progress-report attachment method remains intact.
+`route_accept` sets the progress baseline before the worker's stream can accept bytes.
+The frame counter remains separate and serves `route_frames_taken` through its own control path.
+The imported real-route frame counter also retains the existing progress hook.
+The controls do not overwrite each other's state.
+The R-93 prerequisite for a frame-consumption fence remains unchanged: no route_accept limit may be in force before that fence.
+This source receipt does not approve a transcript that violates that prerequisite.
+
+The reviewer independently checked every list in `conformance/` against both parents and the actual merge base.
+All ten sets match the three-way union-minus-removals rule.
+The core sets contain held 7, pending 379, real-only 26, real-pending 44, real-proofs 4 and deferred 2.
+The ledger contains 692 ids, and the minimum list contains 69. No resolution loses or invents an id.
+
+Local log: `~/botster-sessions/gates/st-298-r8/local-7a8592fb.log`.
+It names this exact head and records the target clean at `2026-10-12T22:30:06Z`.
+All 15 checks exit 0. The selected packages pass 1235/1235.
+Strict default conformance passes 595/595 at seeds 0-31.
+
+The reviewer verified the updated Round 8 body at this exact head.
+The implementer and body report the lead's order: no separate member gate; the train-11 gate covers the merged member.
+The lead's handoff records #298's move to train 11 after the route-client conflict and the standing rule against a gate per v1 merge.
+The previous completed gate and its evidence limits remain recorded below.
+The lead controls the train-11 gate, its applicable final review and any later base update.
 
 ## Core #298: import and modes repair, rounds 6 and 7
 

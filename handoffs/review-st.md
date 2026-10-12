@@ -150,6 +150,13 @@ The exact-head Linux gate passes all ten steps, exit 0 after 824 seconds on msa1
 The verdict records the inherited known-flaky exclusion, local Mac results and modes reversal limits.
 No source finding remains open. Wait for the next doorbell.
 
+#298 round 8 source delta: CLEAN at `7a8592fb493450c8b046a076cf484317eb58d96e`.
+Imported v1: `644f632f194f62ad7fe14e66482ee01083706e30`; three-way base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+The reviewer verified the reports/frames field union, the independent control paths and all ten conformance id sets.
+Local selected packages pass 1235/1235; strict default conformance passes 595/595 at seeds 0-31.
+The implementer reports the lead's order for no separate member gate. The train-11 gate and final receipt remain due.
+This receipt claims source CLEAN only. No source finding remains open. Wait for the next doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
