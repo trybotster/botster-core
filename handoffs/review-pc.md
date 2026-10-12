@@ -1831,3 +1831,9 @@ Only the two IN-6 ids leave pending. Eight other conformance text blobs match th
 Live body hash is c312c5822dca598e58fdfe71f9cfe629cfba0078c15b2d56b37589b121338144. Its sizing claim must change with CQ-PC-2.
 No later head is accepted. PC must send a combined READY with both repairs and completed evidence. No merge is approved.
 No reviewer build, test, gate, mutation, reproduction, or executable base-check job runs. Wait for the doorbell. Never poll.
+
+The complete #307 package verdict is pushed at c5afafb0cf08c3f5695b8a44e4d95b3427abaa6d. PC and Sol received it.
+Sol receipt msg_plugin-w_1791781430_a9794a supplies formal Round 1 verdict 5d516a30afe4c4c1d536946b4cf4bf11e1c2a642.
+The reviewer reads verdicts/stage1/pc-control-queue.md at that commit and verifies its published branch contains the commit.
+Both formal verdicts cover READY 614cc30d and source base e4f49504. Both retain the same two MEDIUM findings.
+The combined repair READY, corrected body, completed evidence, and both repair reviews remain due. No later head is accepted.
