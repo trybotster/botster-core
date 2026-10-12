@@ -20,7 +20,9 @@ use crate::oracle_compare::{raw_oracle, resume_holds};
 use crate::oracle_controls::Changed;
 use crate::snapshot_controls::CapturePages;
 use botster_core_conformance::ControlError;
-use botster_core_contract::prelude::{CaptureId, ColorProfile, ModelRev, Op, SessionId, Size};
+use botster_core_contract::prelude::{
+    CaptureId, ColorProfile, Event, ModelRev, Op, SessionId, Size,
+};
 use botster_terminal_ghostty::{History, Terminal};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -100,7 +102,8 @@ pub(crate) struct CaptureRecord {
 }
 
 /// The captures of one handle, recorded as the host's `Completed` passes through the testkit's `poll_events`, and the
-/// sessions that a `Resize` or a `SetColorProfile` reached, recorded as the host begins the op (condition 3).
+/// sessions that a `Resize` or a `SetColorProfile` reached, recorded as the host begins the op, or whose size changed,
+/// recorded at the `SizeChanged` (condition 3).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct CaptureLog(Arc<Mutex<Captures>>);
 
@@ -122,6 +125,11 @@ impl CaptureLog {
     /// The host of this handle begins `op`.
     pub(crate) fn begun(&self, op: &Op) {
         lock(&self.0).changed.begun(op);
+    }
+
+    /// The host of this handle reports `event` ([`Changed::observed`]).
+    pub(crate) fn observed(&self, event: &Event) {
+        lock(&self.0).changed.observed(event);
     }
 
     /// Condition 3 for `session` ([`Changed::check`]).
