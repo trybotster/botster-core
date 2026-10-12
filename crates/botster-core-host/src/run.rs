@@ -89,12 +89,14 @@ impl HostEngine {
         for (id, c) in &self.captures {
             out.push((c.expires, DeadlineKind::Capture(*id)));
         }
-        // A route's stall step needs mandatory room for its event. Without room it is parked: it is not due, and its
-        // instant leaves `next_deadline()`; a poll that frees room makes it due again and signals the wake (E3-1 item 4,
-        // EV-5b, EV-5d, TM-6).
-        if self.has_room() {
-            for (id, entry) in &self.routes {
-                if let Some((at, _)) = entry.clock.deadline() {
+        // A route's stall step needs mandatory room for its event. A step that ran and found no room is parked: it is not
+        // due, and its instant leaves `next_deadline()`; a poll that frees room makes it due again and signals the wake
+        // (E3-1 item 4, EV-5b, EV-5d, TM-6). A step that has not run yet is due whatever the room: with no budget it is
+        // carried (E3-1 items 2 and 3).
+        let room = self.has_room();
+        for (id, entry) in &self.routes {
+            if let Some((at, _)) = entry.clock.deadline() {
+                if room || !entry.clock.parked() {
                     out.push((at, DeadlineKind::Route(*id)));
                 }
             }
