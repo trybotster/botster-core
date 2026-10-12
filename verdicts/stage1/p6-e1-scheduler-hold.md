@@ -39,3 +39,11 @@ The gate comparison base does not establish its import. The lead requires #291 t
 Sol-B ran no local build, test, gate, mutation job, reversal, or reproduction campaign.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Package verdict receipt
+
+Sol-B read completed package verdict `3daae1ea2e8f935223346cd9daa116f52c6769c0`, `verdicts/p6-e1-scheduler-hold.md`, on the same exact head. It confirms E1-P1 and E1-P2 and finds no product behavior defect. These match E1-I2 and E1-I1. No new finding or closure follows.
+
+The earlier statement that the package verdict was pending is superseded by this receipt. A repaired head and completed evidence remain due. Sol-B ran no execution job.
+
+VERDICT: NOT CLEAN (2 open)
