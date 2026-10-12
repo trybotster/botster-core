@@ -13689,3 +13689,117 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: NOT CLEAN
+
+
+## Round 191 — #311 PTY result path and remaining resize boundaries, 2026-10-12
+
+Exact submitted head: `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f`.
+Prior source-audit head: `fd84949c27b2613fa3dbdcc4db4729152c1dd2c2`.
+Intermediate commit: `f9d93153895be98c218c311be5c3104eef4dfe7f`.
+Source merge base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Supplied gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, not imported.
+Risk: HIGH, unchanged. Owner READY: `msg_plugin-w_1791789432_94ed91`.
+Previous published package verdict: `b286fa21b66c74a542993388133d4cab72627375`, Round 190 NOT CLEAN at 28bd2416.
+This is the second package NOT CLEAN round on #311.
+
+### Complete repair review
+
+The reviewer reads the complete c31/fd repairs and the new seven-file delta from fd: 562 additions and 61 deletions.
+The reviewer checks the whole Resize path, the new pending queue, policy calls, adoption, drivers, fixtures, and supplied evidence.
+ResizePty now receives Input::PtyResized. Both drivers preserve an OS errno and report EIO when no PTY exists.
+The worker waits for that answer before it updates the model, revision, host size, route modes, or Applied result.
+Only one PTY resize is out. Waiting host requests keep their arrival order.
+Adoption clears queued old-host requests and retires the request number of an outstanding resize.
+The result path fixes the original direct-error cause of F148. Two remaining boundaries block CLEAN.
+
+**F145 MEDIUM — failed spawn drops queued Resize requests. CLOSED.**
+The failed-spawn branch replays every early request through on_resize after LaunchFailed.
+With no PTY, each request completes SessionEnded. The two-request test observes the complete Done sequence and no ResizePty.
+Its current-head normal PASS appears in the supplied gate.
+The earlier filtered reversal remains supporting evidence at c31, with its previously stated exit/cache limits.
+
+**F146 MEDIUM — the real resize test has unbounded FIFO operations. CLOSED.**
+The test now uses Blocker for release. It holds both nonblocking FIFO ends, so the one-byte send cannot wait for a reader.
+Both output lines use marker_fifo and Deadline::cleanup. The FIFO open is nonblocking and close-on-exec.
+The reviewer reads both helper implementations and the existing worker/payload ownership path.
+Their setup children have bounded ownership. An absent reader or payload exit cannot leave the replaced open/write blocked.
+Both real-worker forms of sz_1_resize_sets_the_real_pty_size pass in the current-head slow tier.
+The native Payload::resize replacement is caught by that named real test in stage 2.
+
+**F147 HIGH — old-host Resize requests survive adoption. CLOSED.**
+The adoption fence clears early.resizes and removes waiting Host entries from the new resize queue.
+An outstanding resize keeps its size effect but loses its old request number, so it sends no old-host Done.
+The tests cover queued-before-spawn request reuse on success/failure and request retirement while a PTY resize is out.
+Their current-head normal PASS appears in the supplied gate. The earlier filtered F147 reversal retains its stated limits.
+
+**F148 HIGH — PTY resize errors have no complete failure path. PARTLY CLOSED; OPEN for rollback failure.**
+Direct resize Err now produces Internal with the errno, without a model, revision, size, or modes change.
+The new direct-error test and driver result mapping test cover that repair.
+However, on_pty_resized ignores every result when out.undo is true.
+If the PTY takes a new size and the model refuses it, the worker asks the PTY to return to the cached old size.
+If that restoration fails, the worker discards the error and resumes its queue while it still records the old size.
+A later Resize to that cached size completes Applied as a no-op, although the PTY did not return to it.
+The original Internal completion also precedes confirmation of restoration. The model-rejection test answers the undo only with Ok.
+This retains the error-boundary defect for a different ResizePty operation; no binding exception is supplied.
+Required change: handle rollback failure explicitly. Do not claim a cached-size no-op Applied after failed restoration.
+Preserve coherence or fail closed, including the interval before restoration is confirmed.
+Add behavior proof for model rejection, failed PTY restoration, and a later request for the cached old size.
+The proof must observe actions and results, not private state.
+Finding receipts: P3 `msg_plugin-w_1791789648_dd105c`; Sol-C `msg_plugin-w_1791789648_b74233`.
+
+**F149 MEDIUM — unchanged input moves an older policy resize past a newer host Resize. OPEN.**
+size_policy always removes the pending Policy marker and adds it at the queue's latest position.
+Routes::policy computes the actual policy change only when that marker runs.
+Consider a manually delayed PTY answer: host Resize A is out; a route reports B; host Resize C queues after that report.
+Ordinary Bytes input from the same winning route then moves the old Policy marker after C.
+The answers apply A, C, then B. The ordinary input carries no size report and changes neither the winner nor its last size.
+Even a partial read with no complete frame takes the same on_route_read -> size_policy path and moves the marker.
+That partial read advances no route activity and carries no size report.
+Neither read must make the older policy resize newer than C. This conflicts with DP-6's latest-change rule and approved host-size retention.
+The existing a_host_resize_stays_until_the_policy_changes test covers this rule only with immediate PTY answers.
+Required change: preserve the order of actual policy changes. Unchanged input must not move an older change past a newer host Resize.
+Add the delayed-answer behavior sequence above and prove that C remains the final applied size, with the correct completions and modes.
+Finding receipts: P3 `msg_plugin-w_1791789648_dd105c`; Sol-C `msg_plugin-w_1791789648_b74233`.
+
+### Current-head evidence and limits
+
+Complete PR body: /private/tmp/review-p3-pr311-6ed3cd7b.json.
+The body names the result-path repair, historical failures, adoption fixes, native error behavior, and the exact supplied gate.
+The clone_on_copy defect of the earlier fd head is fixed. This gate does not accept that historical head as a passing head.
+The new tests add no process fixture, sleep, polling loop, production hook, timeout change, pin change, or pending-list change.
+The current regression set does not cover failed rollback or ordinary unchanged input overtaking a pending policy change.
+
+The full retain reversal records the exact head, applied diff, package clean exit zero, mutant cargo exit 101, and restored cargo exit zero.
+It kills the earlier focused-job survivor through a_policy_change_keeps_the_host_resize_that_waits.
+That test uses later Resize reports; it does not cover F149's later ordinary input.
+The clean is package-specific, so this reversal is supporting evidence and does not expand the earlier cache assumptions.
+The local-check log records a full target clean exit zero, 1310 nextest passes, strict seeds 0-31 with 275/0,
+42 real-worker slow tests, and passing static/fmt/clippy checks with numeric exits.
+
+Gate: gates/botster-core-stage1-p3-resize-latest-6ed3cd7b-pool-20261012-001046-988.log.
+SHA256: 9c6e9422a132a9bf5208ae695910f82d4a1c7f40f91e4fb6cf870c3fbc29421e.
+The headers name the exact submitted head and gate base above. All ten steps PASS.
+Default: 1963 passed, 416 skipped, 11.355 seconds. Slow: 630 passed, 2051 skipped, 39.537 seconds.
+Stage 1: 88 outcomes, 80 caught, one missed, seven unviable, zero timeout, 105.0 seconds.
+The unmutated slow baseline passes 630 tests in 39.845 seconds; its full step takes 54.3 seconds.
+Stage 2 catches the sole missed Payload::resize replacement through the named real-worker resize test, in 29.5 seconds.
+Final: 81 unique caught identities, seven unviable, zero missed or timeout. No FLAKY record appears.
+Read-only parsing matches all 81 raw catches to their citations and verifies a normal PASS for every catcher.
+Fuzz selects no changed decoder harness. Total step time is 342.8 seconds.
+Jobq and the wrapper exit zero after 354 seconds on msa1, with one second queued and 353 running.
+Minimum: testkit 66/69; real 59/68 passing, 60/69 accepted. No new pending removal is accepted.
+The green gate supplies current-head closure evidence for F145/F146/F147; it does not close F148/F149 or carry to another head.
+
+### Disposition and round limit
+
+F145/F146/F147 are CLOSED at this exact head. F148 remains HIGH OPEN. F149 remains MEDIUM OPEN.
+The package can review the next repair as its third round. A third package NOT CLEAN would require a lead decision before package round four.
+Integration has already published three NOT CLEAN rounds. It cannot start integration round four without the lead's split/settle/replan decision.
+Sol-C records this package receipt without a source/gate review in 8fca2e337668af21632fbbe1ff81e6f2ca701d37.
+That record does not grant an integration verdict or a round-limit exception at this head.
+No future head, gate, import, train, merge, pin, pending removal, or host-coalescing change is accepted.
+F39 and F61/F62 retain separate scopes. All earlier verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: NOT CLEAN
