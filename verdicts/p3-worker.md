@@ -14914,3 +14914,80 @@ The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or 
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 204.
 
 VERDICT: CLEAN
+
+
+## Round 204 — #318 fit on original train 9, 2026-10-12
+
+Exact reviewed train head: `4d7c547a17577dc73daaa1cd89da7eed743ca8bf`.
+Tree: `4c1fae2dde6f2f7c6c3265f8fa64d6c8d9331ae0`.
+Train base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Frozen #318 member: `acd6ced03f7306cbf250f25d668b239ef7d70b33`, source base `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Previous package import CLEAN: Round 201, `4aaa3091318b37911d29f7ea08d3fc9ac05db60e`.
+Previous integration import CLEAN: Round 4, `65fb0ea03d89d5306f80b7f45e3f8cd6a146df88`.
+Lead request: `msg_plugin-w_1791839691_572cd2`. Scope: #318's fit after the base and shared-path moves. Tier: HIGH, unchanged.
+This is a post-CLEAN composition delta. The previous authorized F154 settlement and all earlier history remain preserved.
+
+### Composition and preserved change
+
+The actual order is #328 6b1918c9, #319 71ec2783, #318 acd6ced0, #326 797f090a.
+The #318 insertion is `657178e21e3299f8f7032bb54b32052c0f857ee9`.
+Its parents are `d4c131738c09644f9843d18d5aaa85634bd2ef8c` and the frozen member.
+The unique common base of those parents is 3e655eff.
+All eight inserted member paths retain the accepted added/deleted lines exactly.
+The core title test, drain.rs, and io_decisions.rs blobs remain byte-identical to the accepted member at the final train head.
+Five own paths move on the base: worker/tests.rs, worker-core DESIGN.md, main.rs, driver_edges.rs, and session.rs.
+#319 adds seven lines in a separate DESIGN.md section for route_frames_taken. It does not replace the #318 drain note.
+#326 adds only .gitattributes after #318 enters. It changes no #318 source blob.
+These line and blob comparisons do not prove that the changed interfaces still fit. F159 identifies a semantic mismatch.
+
+### F159 — MEDIUM — The real tail test accepts exit-watch failure as payload exit
+
+Location: `crates/botster-worker/tests/common/driver_edges.rs:630` at this exact train head.
+Test: `a_drain_after_a_kill_reads_the_whole_unread_tail_also_past_the_count`.
+The EXIT arm still evaluates `exited |= h.driver.exits.1.try_recv().is_ok()`.
+
+The base introduces R-106's Watched type at main.rs:96:
+`Result<ExitStatus, ExitWatchFailed>`, carried by the exits receiver at main.rs:130.
+A receive therefore has two Result layers. `Ok(Err(failed))` means that the channel returned an exit-watch failure.
+It does not mean that the exit watch observed a payload exit.
+The test's is_ok examines only the outer receive result. It sets exited true for that inner error and then performs DrainPty at line 656.
+Its later byte-count/content assertions inspect no successful exit status and can pass with that exit precondition unproved.
+
+Production handles the same inner error differently: main.rs:286-294 converts it to Input::ExitWatchFailed.
+The machine treats that input as a failure, not PayloadExited, and the driver returns Action::ExitFailure with the errno.
+R-106 says that an exit-watch failure supplies no successful payload-exit observation.
+The tail test therefore diverges from production at the imported interface and can report its real-process proof without the required event.
+This is a BUILD.md real-process proof defect. Green compilation or a successful run does not reject the allowed inner-error case.
+The reviewer identifies it from the exact typed source; no execution is required to establish it.
+
+The repair must inspect both Result layers, require a successful watched exit, and fail on ExitWatchFailed.
+It must preserve the actual poll event, one absolute deadline, unread tail/count gap, full-output assertions, and owned process cleanup.
+The moved base already adapts the older drain test's recv_timeout with an expect for successful watch observation.
+That nearby adaptation does not cover this #318-added EXIT arm.
+F159 goes directly to P3 in `msg_plugin-w_1791839878_557f37` and to Sol-C in `msg_plugin-w_1791839878_09e74e`.
+Sol-C independently identifies the same mismatch in `msg_plugin-w_1791839900_c2f408`.
+
+The other inspected interfaces retain their source fit: the fixture initializes watch_failed false, the host-owned stop_grace test keeps its manual worker clock, and the driver still uses the shared Drain/read-budget path.
+The imported FIFO lifetime repair changes the separate IN-6 test, not #318's tail or holder test bodies.
+The earlier F150-F154 and F157 closures retain their prior source scopes. F159 remains a separate new import finding.
+No Mac IN-6 diagnosis, native F28 proof, future A24 implementation, or unrelated member correctness is accepted.
+
+### Evidence, lead disposition, and verdict
+
+The lead reports workspace check --tests PASS and strict seeds 0-31 with 281 passes and zero failures.
+No retained pre-check log is supplied with this request. These remain operator reports.
+The request supplies no exact-train-head gate. Earlier member gates keep their exact heads and do not cover this changed exit-watch interface.
+
+The lead accepts F159 in `msg_plugin-w_1791839933_169157` and removes #318 from the train.
+The rebuilt train 9b is `3e4b3ab8172f1a04467a7969833708606a0f8580`, with unchanged #328/#319/#326 heads and order.
+That new train is outside this #318 verdict. It contains no #318 drain insertion.
+P3 must submit its corrected #318 head for a new delta, intended for train 10. No prepared repair is accepted yet.
+This lead disposition preserves the earlier settlement history; no disputed fourth round starts by default.
+
+#318's fit is NOT CLEAN on the original reviewed train head. F159 MEDIUM remains OPEN.
+No other new package fit finding is identified in this delta. The separate #328 Round 203 list fit is CLEAN on the original train.
+Applicable new member/combined reviews, exact merging gate, ONE final combined receipt, and equal-tree/push verification remain due.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 205.
+
+VERDICT: NOT CLEAN
