@@ -3094,3 +3094,15 @@ Its source CLEAN remains scoped to `54805661b93f7acc7c548d0a429d429247c54255`.
 The implementer reports that the lead accepts the six real-passing IDs retained as pending in the body.
 Those IDs retain their pending status. No additional removal is accepted here.
 The reviewer waits for the assigned train head and required evidence doorbell.
+
+
+### Core #309 — matching integration disposition receipt
+
+Integration message: `msg_plugin-w_1791818575_682ff7`.
+Integration disposition: `3a25993556adf7ed2bedfcf67d94542e7aed1f7b`, in `verdicts/stage1/rc-r100-frame-check.md`.
+The reviewer reads the complete disposition record.
+It closes R100-E2 at unchanged head `b920da760a8a643b199765d0a69f78533a9b3e45` by the lead's explicit decision.
+It matches package disposition `54ee5194f7dc850c065ec21539327657ebce2759` and retains the technical evidence and procedural history.
+Both reviewers now record CLEAN with zero technical or procedural findings.
+FINAL-READY may follow as directed. Applicable train reviews and final train evidence remain due.
+The reviewer runs no execution job and waits for the next assigned review doorbell.
