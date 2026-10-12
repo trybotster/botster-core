@@ -477,6 +477,41 @@ fn the_fast_path_never_admits_a_message_that_cannot_fit() {
     }
 }
 
+/// The upper bound is tight where every byte is an escape: over the JSON length by at most one separator for a string, a
+/// list or a map, and by three bytes for hex (`2 * len + 17` encoded). So the fast path refuses only messages that are near
+/// the bound.
+#[test]
+fn the_upper_bound_is_tight_on_escaped_text() {
+    let escaped = "\u{1}".repeat(4);
+    let strings = vec![escaped.clone(), escaped.clone()];
+    let map = BTreeMap::from([
+        ("\u{2}".repeat(3), escaped.clone()),
+        (escaped.clone(), escaped.clone()),
+    ]);
+    let (none, one, many) = (
+        HexBytes(vec![]),
+        HexBytes(vec![0xab]),
+        HexBytes(vec![0xab; 77]),
+    );
+    for (i, (field, slack)) in [
+        (Field::Str("s", &escaped), 1),
+        (Field::Strs("l", &strings), 1),
+        (Field::Map("m", &map), 1),
+        (Field::Hex("h", &none), 3),
+        (Field::Hex("h", &one), 3),
+        (Field::Hex("h", &many), 3),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (upper, exact) = (field.upper(), field.exact());
+        assert!(
+            exact <= upper && upper <= exact + slack,
+            "case {i}: upper {upper}, exact {exact}"
+        );
+    }
+}
+
 /// The fast path decides without encoding when the fields' upper bounds and `FIXED_PART` are exactly the bound.
 #[test]
 fn the_fast_path_encodes_nothing_at_its_bound() {
