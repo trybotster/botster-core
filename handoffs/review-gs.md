@@ -84,6 +84,14 @@ The exact-head gate, mutation evidence, final body, and integration verdict rema
 
 ## Current Core PR #308 result
 
+CLEAN at `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`, source/gate base `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`. Open findings: 0.
+
+GS-FS-T3-1 HIGH is closed. The obsolete in_8 entry is removed. The inherited ev_2 entry keeps all base fields and receives its recorded signature metadata.
+
+The canonical FAIL (1)(2)(3) remains and is covered by explicit delta review. All ten gate steps pass; 25 caught, 2 unviable, 0 missed, 0 timeout, no FLAKY.
+
+The integration receipt and final delivery remain due. No later head or retry is accepted. I ran no execution job.
+
 CLEAN at `2ac0be6fddd37b540bbe7845ae975499a58eaf57`, source base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. Open findings: 0.
 
 The completed exact-head gate passes all ten steps. Mutants: 25 caught, 2 unviable, 0 missed, 0 timeout, no FLAKY. Both in_8 tiers pass.

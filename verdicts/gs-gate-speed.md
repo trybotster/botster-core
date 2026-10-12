@@ -3907,3 +3907,51 @@ Sol-B owns #315 and the combined train review. This package verdict covers #306'
 The lead reports compile and strict-conformance checks. I retain them as lead reports and accept no completed train gate here.
 
 The final train gate, applicable evidence receipts, final bodies, and lead merge verification remain due. This CLEAN accepts no later head. I ran no execution job.
+
+## Core #308 — resolved import and obsolete-entry closure
+
+- Exact head: `c3bd7fcd17861e6f164bbda5eb38638cab71f00e`.
+- Source and gate base: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- VERDICT: CLEAN (0 open on this exact head).
+
+I read the complete three-file own delta, conflict resolution, complete body, canonical base-check report, and completed gate.
+
+The canonical report `gates/botster-core-stage1-gs-flaky-signature-base-merge-check-2ac0be6f-to-c3bd7fcd.log` fails conditions 1, 2, and 3.
+
+The conflict paths are the known-flaky list and parser. This explicit source delta review covers their resolved content. The report remains FAIL.
+
+The merge initially retains the old in_8 entry and the imported ev_2 entry. The following source commit removes in_8 after the .44 pin.
+
+GS-FS-T3-1 HIGH is closed on this exact head. The obsolete entry is absent, and the repository test and comment no longer require it.
+
+The final list contains only the base's ev_2 entry. Static TOML comparison verifies that every earlier entry field is preserved.
+
+The added signature names gate step slow, symptom step_timeout, seed any, and text `step=71 limit=step_timeout`. It matches the signature already recorded in the entry's diagnosis.
+
+The entry retains owner RC and removal by #316. It adds no test exclusion beyond the accepted base entry and grants no retry authorization.
+
+The repository test requires the exact ev_2 binary, test, and removal trigger. It retains the base's test name and correct current-list comment.
+
+The signature reader, removal syntax, stage filters, absent check, and report behavior retain their accepted source. The CI file equals the earlier accepted #308 member.
+
+Only the three own paths differ from current v1. No contracts pin, pending status, timeout, mutation exclusion, or product path changes in this own delta.
+
+### Completed exact-head evidence
+
+Gate log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-gs-flaky-signature-c3bd7fcd-pool-20261012-111432-79517.log`.
+
+The header names this exact head and base. The lists step names the same merge base. All ten steps PASS in 444.6 seconds on MS-A1.
+
+Default passes 1,957 tests. Slow passes 633 tests. Both in_8 and ev_2 pass in both tiers; the list hides neither ordinary slow result.
+
+Mutation stage 1 has twenty-five caught, two unviable, zero missed, and zero timeout. Stage 2 does not run because stage 1 misses none.
+
+Static log analysis matches all twenty-five raw catches to their citations. Every catcher has a normal PASS. No FLAKY result appears.
+
+The fuzz step reports no changed decoder-harness crate. The job and wrapper exit 0 after 517 seconds, with one second queued and 516 seconds running.
+
+The complete body records the conflict resolution, retirement, inherited signature, canonical FAIL, and completed gate. Earlier local timeouts remain author reports, not green evidence.
+
+Both earlier LOW findings remain closed. No source, body, or supplied-evidence finding remains. The schema still supplies no automatic failure matcher.
+
+The integration receipt and authorized final delivery procedure remain due. This CLEAN accepts no later head or retry. I ran no execution job.
