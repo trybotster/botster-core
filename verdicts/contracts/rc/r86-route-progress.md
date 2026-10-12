@@ -147,3 +147,11 @@ One commit on `63f4f5c8`, test-only (`tests/driver_steps.rs`, +41 -37). RC did n
 - `core_posted` stays. RC reports the reversal on the committed test: `driver.rs:679` `> 0` → `< 0` fails `core_posted pump_until` ("the Core is idle"). Locally the test takes 0.20 s.
 
 No open finding. The final CLEAN needs one green gate on `4a8c917e`, whose mutants step shows `driver.rs:679:53` caught and whose per-test time for this test is under 2 s.
+
+## Final: CLEAN on 4a8c917e5d52d6a116e502dec3a6359ea0ceaf4f
+
+- Gate PASS on the exact head, all ten steps, exit 0 after 375 s on msa1, base `BOTSTER_CI_BASE_REF` main `28e054875214f1433736afd2304ce59ecd692107`: `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-4a8c917e-pool-20261011-170802-26775.log`.
+- Mutants: 23 found, 19 caught, 4 unviable, 0 missed (log line 9266). The red gate on `21f9406f` had the same 23 with `driver.rs:679:53` MISSED. `21f9406f..4a8c917e` changes only `tests/driver_steps.rs`, so that mutant is now caught.
+- `a_step_deadline_ends_a_wait_whose_core_or_client_always_reports_progress`: PASS in 0.212 s (log line 248), under the 2 s budget.
+- Every finding is closed: F1 (rule-9 record), F2 (the `progress()` doc), 016c's idle_wait MEDIUM, the merge delta, the 679:53 mutant and 016c's budget MEDIUM.
+- Main moved after `3c68880b` (to `8ce40a0d4915197431492d14242d49eb4975ec20`: #74 and rulings). It changes `README.md`, the am_4 transcript, `vocabulary.rs`, `core-testkit-controls.md`, `fake-replacement-map.md` and `steward-rulings.md`. None of these is a #66 path. A base merge, if one is made, is the disjoint case of BUILD Q7: the Q7 script's output in the PR, and the gate on that exact new head. It needs no delta round from me.
