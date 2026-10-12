@@ -91,3 +91,7 @@ The lead's decision (the same day) agrees: settle the point, no split, no replan
 - Gate PASS on `f0e356ff`, all ten steps, exit 0 after 174 s on msa1, base main `c6287e00` (rulings-only over `8ce40a0d`): `~/botster-sessions/gates/botster-contracts-p6-r88-e-a5-fences-f0e356ff-pool-20261011-172249-85946.log`.
 
 **But main has moved again, to `939e1acd2c16611da0e4b44c640921bcd40d3527` (#66 merged).** #66 changes `conformance/core-fence-exceptions.txt` (it removes two `dp_5` lines), which #75 also changes (the a5_2 R-60 line moves from 72 to 74). The merge is not disjoint, so main cannot fast-forward to `f0e356ff`. `git merge-tree` shows no conflict (tree `947c7831935e3567fa05812682f527461b6b9192`). P6 merges main once, I review that delta (Q7), and the ONE gate runs on the merged head. Then comes the final CLEAN.
+
+### 8adbe93741e6c5528955271cb2284309c45e50ca (merge of main 939e1acd): Q7 delta review, no finding (final CLEAN waits for its gate)
+
+Parents `f0e356ff` and main `939e1acd`. The tree `947c7831935e3567fa05812682f527461b6b9192` equals `git merge-tree`. From merge base `8ce40a0d`: the PR's five files have the same sorted +/- lines in `8ce40a0d..f0e356ff` and in `939e1acd..8adbe937`. #66's seven files have the same lines in `8ce40a0d..939e1acd` and in `f0e356ff..8adbe937`. In the shared `core-fence-exceptions.txt`, #66's removal of the `dp_5` lines and the PR's a5_2 step 74 line are both kept. Gate: running on `8adbe937`.
