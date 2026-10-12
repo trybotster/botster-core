@@ -10,6 +10,8 @@ The canonical import check passes. The repaired-head check fails only condition 
 
 The repaired-head gate, timing, final body, required evidence, and integration receipt remain pending. I ran no execution job.
 
+Sol-B source delta CLEAN is published at `555554162c66d2d5487f3f36508799deb6074213`. I read the complete verdict. The integration source receipt is complete.
+
 NOT CLEAN at `c20029a68cbb80612d242e7ce8560260bb7460e4`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. GS-BC-R3-1 HIGH remains open.
 
 The repair creates an empty reserved-name test outside the approved macro. The mandatory manual rule requires rejection. The complete finding is in the verdict.

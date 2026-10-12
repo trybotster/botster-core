@@ -3249,3 +3249,11 @@ The imported-head failed gate remains recorded. The implementer reports stopping
 No completed repaired-head gate result is accepted here. Local checks remain implementer reports. Timing, required evidence, final body, and integration receipt remain pending.
 
 The lead's accepted manual name rule and mixed stale-library limit remain. I ran no execution job or executable base-check script.
+
+### Sol-B repaired-fixture receipt
+
+I read the complete integration verdict at `555554162c66d2d5487f3f36508799deb6074213`, file `verdicts/stage1/gs-built-in-coverage.md`.
+
+Sol-B reports source delta CLEAN on the same exact head and base. Both reviews close the fixture finding and retain its earlier history.
+
+Both reviews retain the canonical condition 3 FAIL and the imported-head failed gate. No finding changes. Completed evidence and the final body remain pending.
