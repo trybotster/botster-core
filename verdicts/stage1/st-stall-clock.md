@@ -247,3 +247,127 @@ This receipt accepts no later base update or train composition. The lead control
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; train 2 import delta and completed exact-head evidence)
+
+## Round 6: train imports, R-109 re-entry, and modes repair
+
+Exact head: `8f070c492c17d0be727b914f74edce626065b7f2`.
+Tree: `989a0a6373da2395837d9dcf46b47c8ce6682205`.
+Final imported source and gate base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Previous reviewed head: `5d5d4eefd5872864a972bc248f415f9cf6673ef3`, on base `08098782`.
+Owner READY: `msg_plugin-w_1791841121_b8cef6`.
+This round covers the owner's rounds 6 and 7 on the final exact head.
+
+Sol-B reads the merge objects, complete own patch comparison, conflicts, semantic repair, updated body, and evidence.
+The three imports are c1c6363d from e37b91d6, ae9d4ced from 007efbde, and 8f070c49 from 2d8e8acc.
+The intervening commits add the R-109 re-entry at 77b608d5 and repair modes queueing at 393b64f0.
+The complete final own patch has 38 paths, with 3272 additions and 204 deletions.
+Its full-index SHA256 is `9e799f64241ce10b7143578f38dc26a0ec4b944c42c3d5c99e909a1166b13b9f`.
+The source diff check passes.
+
+### Retained edits and merge boundaries
+
+The final own path set equals the previously reviewed 38-path set, with no new or missing path.
+Thirty-four added/deleted line sets equal the previous accepted patch, excluding object indices and hunk positions.
+The four differences are real-pending, worker DESIGN.md, route.rs, and its stall test module.
+They contain exactly the declared re-entry, modes repair, documentation update, and regression.
+No other own semantic change appears in this comparison.
+
+The host design union retains the stall clock, carried due-step rule, and imported control-queue section.
+The worker route union retains stall/history alongside size/reported/activity, including constructor initialization.
+The test union retains report_order and stall. The real-pending union retains both groups.
+The final held conflict retains all three ST budget records and takes the base's current GS DP-5 record.
+The imported held-full header remains present.
+
+The driver still exempts Work::Deadline and Work::DueStep from scheduler holds.
+Mandatory-room reservation, takeover, parked-step wake, report ownership, and add-at-post/remove-at-consume rules remain intact.
+The imported control-room and frame-fit paths do not remove the reviewed due-step behavior.
+The inherited R-106 failure handler remains present and changes no stall-clock or route-queue decision.
+Both real and simulated route callers retain the imported hex-string form of route_pty_log.
+The cached input log and ST's output-copy change coexist; the progressed control remains present on both tiers.
+No new platform operation enters the semantic repair.
+
+### Modes queue repair
+
+The imported DP-6 push_modes used the unclassed queue. The repair uses each Queued entry's bytes and full encoded length.
+It searches only unstarted frames and replaces at most one modes frame, placing the new frame at the end.
+A frame with an outstanding write or accepted bytes remains started and completes.
+The replacement has Kind::Droppable and exempt false; it belongs to no exempt baseline sequence.
+Removing an older modes frame reduces queued by that frame's byte length and needs no baseline adjustment.
+
+The stall drops that unstarted modes frame under the existing droppable rule.
+The resumed baseline carries the current modes and size through baseline_begin.
+The regression resizes a waiting route to 30 by 100, stalls it, completes the started output, and reads the resume sequence.
+It requires no retained modes frame and requires baseline_begin at 30 by 100.
+Existing partial-write, outstanding-write, and latest-unstarted coalescing proofs remain present.
+The route and regression blobs remain unchanged through the final train-8 import.
+
+Sol-B reads the complete focused reversal log at repair head 393b64f0.
+Path: `/Users/jasonconigliari/botster-sessions/gates/st-298-r6/reversal-modes-kept.log`.
+SHA256: `58938c188ff4add0b7e70e240aca8fb064bea53d666bbdeb842146e7f029991f`.
+The scratch change replaces only Droppable with Kept. The new test fails on the unexpected retained Modes frame, exit 100.
+The other eight selected tests pass. This reaches the intended semantic failure, not a setup failure.
+The target and same-worktree statements remain owner reports; no independent cleanup claim is made.
+
+### R-109 and conformance accounting
+
+Sol-B reads R-109 and the lead's explicit re-entry approval and owner assignments.
+The earlier c1c6363d gate remains RED at slow: ou_3_progressing_reader_lossless, seed 0, step 48, receives RouteStalled.
+Its SHA256 is `04f3eb39217db9e95d10da431670b0fdbfdeefe36f25f40b15fb77e0792b659d`.
+Log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-c1c6363d-pool-20261012-111545-85579.log`.
+Mutants and fuzz are NOT RUN. The wrapper exits 1 after 437 seconds.
+R-109 identifies missing progress-consumption fences after route_accept; await_quiet does not supply that proof.
+
+The final re-entry tag is directly above ou_3_progressing_reader_lossless.
+It names R-109, the exact cause, contracts #99's progressed fences, and removal when their tag is pinned.
+The body and lead handoff assign the later pin to RC and the list-only follow-up to ST.
+The source still pins .46. This review accepts no execution of the later #99 transcript fences.
+No unfenced real-tier PASS is accepted for this identifier.
+
+Sol-B independently checks all nine conformance text sets at each of the three merges against their actual parents and bases.
+All 27 formulas pass. The explicit re-entry is a separate one-identifier addition after the second merge.
+The retained owner ID-set logs also match; the final one identifies its merged input as the worktree.
+Independent Git-object checks establish the final committed sets.
+Final counts are pending 379, real-pending 45, held seven, ledger 692, real-only 26, minimum 69, and four real-proof identifiers.
+The deferred TOML equals the current base and retains two deferred identifiers; deferred text retains its third not-applicable row.
+All current-base removals remain removed. The six original testkit removals and their real-pending disposition remain exact.
+The three ST budget identifiers stay pending. They are not newly promoted under #329's accounting rule.
+Every mutation-configuration value and the structured IN-8 known-flaky entry equal the imported base.
+
+### Completed exact-head evidence and package review
+
+Final gate:
+`/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-st-stall-clock-8f070c49-pool-20261012-142423-35272.log`.
+Computed SHA256: `0757a3b31f61b7a9664a000960342a70a223e52fd8ab101b2fe52d22bdf970a2`.
+The header names this exact head and final imported base. All ten steps PASS, with a total of 810.2 seconds.
+The job exits 0 after 823 seconds on msa1: one queued and 822 running. The wrapper exits 0 after 824 seconds.
+Default passes 2148 tests, with 406 skipped, in 13.908 seconds.
+Ordinary slow passes 679 tests, with 2093 skipped, in 42.059 seconds.
+Strict conformance reports 287 passed and zero failed. The new modes regression passes in the default run.
+The held-full run passes 192 trials: six budget identifiers, each at exactly seeds 0-31, all within two seconds.
+The three ST maxima are 0.168, 0.160, and 0.139 seconds; their pending membership remains unchanged.
+Real minimum is 66/68 and real-accepted is 67/69, preserving the R-109 evidence debt.
+
+Stage 1 has 248 mutants: 229 caught, five missed, fourteen unviable, and zero timeouts.
+The unmutated stage 2 baseline passes 689 tests in 41.657 seconds.
+Stage 2 tests exactly those five misses: three caught, two unviable, zero missed or timeout.
+Final results are 232 caught, sixteen unviable, zero missed, and zero timeouts.
+Sol-B independently matches all 232 raw catch identities to citations and verifies each catcher in ordinary PASS results.
+No runtime FLAKY or INCONCLUSIVE result appears. The IN-8 exclusion earns no catch credit.
+Both changed link decoder harnesses complete their fuzz runs: 6113865 and 3502986 inputs, each in 61 seconds.
+
+Sol-B reads the retained round-7 local script and its result summaries.
+The log names this head and a target clean at 2026-10-12T21:14:37Z.
+All fifteen commands report exit 0; selected packages pass 1227 tests, and strict conformance passes 595 at seeds 0-31.
+These remain owner-run local results, not independent cleanup, pool timing, or new focused Mac evidence.
+Earlier unclassified local timeouts and focused Mac limits retain their original scope.
+The earlier 393b64f0 gate remains evidence for its own head and base, not a substitute for the final gate.
+
+Sol-B reads the complete updated body and complete applicable package section at `d273da6eae0f3fed19943d8c94d665145b160235`.
+File: verdicts/st-stall-clock.md, Core #298 import and modes repair, rounds 6 and 7.
+It agrees on the exact head, imports, re-entry, semantic repair, evidence, and retained limits.
+All earlier findings remain closed. No source, body, or supplied-evidence finding remains on this exact head.
+The lead controls the next train and any later base update, final receipt, and merge checks.
+This CLEAN accepts no future pin, later head, completed merge, or additional retry.
+Sol-B ran no build, test, gate, mutation job, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; resolved imports, R-109 re-entry, modes repair, and completed exact-head evidence)
