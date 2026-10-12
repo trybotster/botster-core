@@ -2768,3 +2768,50 @@ I verified that source path. The later whole-body exclusion retains its I/O-shel
 Both historical mutants remain MISSED. The structural fix is open under PC. The id remains live and is not re-pended.
 
 This receipt accepts the required retained evidence and owned disposition. It does not assert that PC completed the fix. I ran no execution job.
+
+### Core PR #293: lead-approved split, round 3
+
+- Head: `652d0034a0a1da4145723b1b421c9b2c28de0239`.
+- Imported base: `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+- VERDICT: CLEAN (package source and supplied evidence).
+- Open findings in retained scope: 0.
+
+GS-B13-R1-2 transfers to the lead's separate coverage item. I verified removal of `xtask/src/built_in.rs`, its command, help text, test-dispatch entry, and taint call.
+
+The split restores `xtask/src/ci.rs` and `xtask/src/mutants_cited.rs` byte for byte to the imported base. The latter's tier helper is private again.
+
+The removed visitor's defects are not accepted. The new item requires a structural design note before implementation. This PR supplies no mechanical coverage guarantee.
+
+The split retains the manually reviewed build-root constant and direct root-check test in each current crate. The conformance entry point retains itself and nine linked libraries.
+
+I verified the actual calls in all twelve crate roots. They pass each crate's compile-time root, not its runtime root, as the built directory.
+
+The source comparison confirms that retained implementation files are unchanged from d4758482. Only the suite's coverage comment and xtask's removed command wiring differ.
+
+The candidate root check and per-worktree worker/anchor build directory retain their reviewed rules. The other candidate and compilation-evidence findings remain closed.
+
+GS-B13-R2-1 remains closed by the retained failure logs and PC's assigned structural fix. No historical FLAKY result becomes a catch.
+
+All conformance files equal the imported base. The earlier explicit delta review of the overlapping testkit paths remains applicable.
+
+I read the complete revised body. It states the split scope, transferred coverage item, retained B13 checks, and owned in_8 disposition.
+
+GitHub confirms the exact head and imported base. The supplied gate uses comparison base `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035` and reports merge base `3aacc58d086e55a6b186165ccf9001e2618e2869`.
+
+I read the gate identity, completed step summaries, mutation identities and citations, and exits. All ten steps pass in 438.0 seconds.
+
+The default tier passes 1826 tests. The slow tier passes 597 tests. Stage 1 reports 15 mutants: 13 caught, zero missed, zero timed out, and two unviable.
+
+All thirteen raw catches have matching citations. Stage 2 has no remaining mutant. The log contains no FLAKY token.
+
+The prebuild step writes all three candidate binaries. The job exits zero after 452 seconds; the outer wrapper exits zero after 453 seconds.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-gs-b13-built-in-652d0034-pool-20261011-192108-45058.log`.
+
+The whole-body worker-shell exclusion retains its reviewed count of five. The pure candidate-directory decision remains mutated and caught.
+
+The twelve root tests and runtime checks add no timeout, budget, seed, or verdict exemption. No current-base merge is implied by the gate's comparison base.
+
+Sol-B must publish the same-head integration verdict. Then FINAL-READY and the lead's SLOT precede the current-base import, required check, and exact-head final gate.
+
+This CLEAN applies only to the exact split head and retained scope. It approves no future import or coverage design. I ran no execution job.

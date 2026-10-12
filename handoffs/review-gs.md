@@ -2,6 +2,14 @@
 
 ## Current Core PR #293 result
 
+Package CLEAN at split head `652d0034a0a1da4145723b1b421c9b2c28de0239`, imported base `3aacc58d086e55a6b186165ccf9001e2618e2869`. Open retained findings: 0.
+
+The coverage visitor and wiring are removed. The lead's separate design item owns the coverage guarantee and GS-B13-R1-2.
+
+The B13 implementation is unchanged. The exact-head gate passes all ten steps with thirteen caught and two unviable mutants, and no FLAKY token.
+
+Sol-B's same-head review remains due. Then FINAL-READY and the lead's SLOT precede the final import and gate.
+
 The lead directs SPLIT. PR #293 keeps the repaired B13 check and removes the coverage visitor. A new design-first item owns the coverage guarantee.
 
 The exact split head remains pending. GS-B13-R2-1 MEDIUM is closed: both detailed failures are retained, and PC owns the diagnosis and fence work.
