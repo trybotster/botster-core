@@ -1255,7 +1255,8 @@ impl CoreHarness for RealCoreHarness {
             "start_held" if self.tapped => self.start_held(handle, args),
             "route_reports" if self.tapped => self.route_reports(handle, args),
             "scheduler_hold" if self.tapped => {
-                let holds = lock(&self.tap(handle)?).op_holds();
+                let tap = self.tap(handle)?;
+                let holds = lock(&tap).op_holds();
                 crate::op_holds::hold(&holds, args)
             }
             "scheduler_release" if self.tapped => {
