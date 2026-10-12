@@ -194,9 +194,16 @@ mod tests {
         assert!(!policy.held(&[]));
         assert!(!policy.held(&[7, 9]));
         assert_eq!(policy.0, []);
-        let mut production = Production::new();
-        production.admitted(1, false);
-        assert!(!production.held(&[1]));
-        assert_eq!(production, Production::new(), "admitted changes nothing");
+        // `Production` makes the same choices after `admitted` and `held` as a policy that was never told of an op.
+        let mut told = Production::new();
+        let mut untold = Production::new();
+        told.admitted(1, false);
+        assert!(!told.held(&[1]));
+        for count in [3, 3, 2, 5] {
+            assert_eq!(
+                told.pick(ChoicePoint::Session, count),
+                untold.pick(ChoicePoint::Session, count)
+            );
+        }
     }
 }

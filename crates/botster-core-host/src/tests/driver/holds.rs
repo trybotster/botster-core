@@ -137,20 +137,28 @@ fn a_held_op_keeps_its_deadline_and_the_deadline_still_runs() {
     );
 }
 
-/// Condition 1 of the lead's ruling: a session with no flow serves no op, so a step of it is never held.
+/// Condition 1 of the lead's ruling: a session whose flow is over serves no op, so a hold of the ops that it served before
+/// does not stop its later steps. Its `Create` and `Start` completed; with both held, the payload's exit still runs to
+/// `Exited`.
 #[test]
 fn a_session_with_no_flow_serves_no_op() {
     let (mut rig, held, _, _) = holding_rig();
     let link = LinkId(1);
     let start = to_launch(&mut rig, "s1", link);
+    // `to_launch` begins the `Create` just before the `Start`.
+    let create = start.0 - 1;
     rig.worker_says(link, launched());
     rig.settle();
-    // The `Start` op completed, and the session's flow is over: its step serves no op, whatever the scheduler holds.
-    held.lock().unwrap().insert(start.0);
-    let engine = rig.driver.engine();
-    assert_eq!(engine.ops_of(&Work::Session(sid("s1"))), Vec::<u64>::new());
-    assert_eq!(engine.ops_of(&Work::Deadline), Vec::<u64>::new());
-    assert_eq!(engine.ops_of(&Work::Op(OpId(7))), vec![7]);
+    held.lock().unwrap().extend([create, start.0]);
+    rig.worker_says(
+        link,
+        WorkerMsg::Exited {
+            code: Some(0),
+            signal: None,
+        },
+    );
+    rig.run_out();
+    assert_eq!(rig.driver.get(&sid("s1")).unwrap().state, exited_normally());
 }
 
 /// Condition 3: with no hold, the driver asks exactly the choices that it asked before `held` existed, in the same order:
