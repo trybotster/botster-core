@@ -237,3 +237,31 @@ The entry affects mutation selection only. Normal slow tests and the unmutated S
 Zero #312 integration delta findings remain. This CLEAN accepts source only at this exact train head. The old train gate remains RED and is not re-gated. A fresh train 4b gate, other member reviews, combined review, final member receipts, and equal-tree merge verification remain due. This record authorizes no specific retry or future pin. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+## Round 8: FINAL evidence on train 4b
+
+- Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+- Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+- Frozen #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+- Reviewed delta: no source change; completed train gate, updated member body, and same-head package FINAL.
+- Package FINAL: `ff3fb3392fe3c1ebeba5eb507de0e4bc84355a4e`, file `verdicts/rc-real-controls.md`, complete final train 4b section.
+- Lead request: `msg_plugin-w_1791827181_b23f12`.
+
+I read the complete package FINAL and current published body. Both identify this exact train, tree, base, frozen member, ordered #314/#312/#307 composition, and gate. The body retains the old RED scopes and labels its earlier missing-gate statement as historical. The package reviewer corrects the extra-LF receipt hash without a source or content change. All earlier findings remain closed, including LOW findings.
+
+Final gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+
+Independently verified SHA256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+
+The exact-head gate passes all ten steps. Default tests report 1957 passes and 427 skips. Slow tests report 633 passes and 2058 skips. The combined lists retain 403 pending and 34 real-pending IDs. All nine #312 real removals and the a5_2 removal have normal PASS records on both tiers. No further identifier removal follows from the passing real-pending trials. Default seeds are 0–31; slow uses seed zero. Earlier Mac trial scopes remain historical; this Linux gate makes no full-seed real-tier claim.
+
+I independently matched 65 unique raw mutation outcomes: 53 caught and twelve unviable. All 53 catches match their citations and have normal PASS records. Stage 1 catches 39; the unmutated 633-test slow baseline passes; Stage 2 catches all fourteen misses. No final miss, timeout, retry, or FLAKY result appears. The twelve unviable outcomes are unsupported default or constructor replacements, not behavioral catches.
+
+The real EV-2 test passes in ordinary slow tests and the unmutated baseline. Stage 2 omits it under the accepted entry. No mutation citation credits it. The .44 checkout comparison with Cargo metadata passes. Both link fuzz harnesses finish their configured runs: 6143074 link_decoder cases and 3614151 msg_decoder cases. Neither reports a crash.
+
+CI takes 962.9 seconds. Job and wrapper exit zero after 1064 seconds on msa1. The known-flaky removal obligation remains: the later pin removes its entry and restores the empty-list test together. A31 and the future OU-7 identifier remain separate. This gate grants no retry authority.
+
+Zero #312 integration findings remain. This FINAL accepts #312's source and completed evidence on this exact train head. Other member FINAL receipts, combined FINAL acceptance, and lead ancestry, equal-tree merge, and push verification remain due. No later head, future pin, #309/#311 composition, or A31 implementation is accepted. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
