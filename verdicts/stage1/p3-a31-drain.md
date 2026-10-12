@@ -225,3 +225,11 @@ Applicable later train reviews, exact merging gate, final receipt, and equal-tre
 I ran no execution job.
 
 VERDICT: CLEAN (0 open, including LOW; import delta and exact-head evidence)
+
+
+### Matching package acknowledgment
+
+Package message `msg_plugin-w_1791837752_c37995` confirms that the reviewer read complete integration Round 4 and its inspection at `65fb0ea03d89d5306f80b7f45e3f8cd6a146df88`.
+Both reviews match acd6ced0, the corrected body hash, all 21 catches, and the exact-head gate.
+No new review round or final train receipt follows. Later train and merge requirements remain due.
+#328's current package review and reported future scope remain separate from #318 and train 7b.
