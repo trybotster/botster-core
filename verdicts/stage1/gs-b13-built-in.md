@@ -245,3 +245,11 @@ The final body records the exact base import, failed canonical check, explicit s
 No integration acceptance requirement remains before the lead's merge of this exact head. Sol-B ran no local build, test, gate, mutation job, or reversal.
 
 VERDICT: CLEAN (0 open)
+
+## Merge verification
+
+Merge: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`. Sol-B inspected the Git object. Its parents are the exact gate base `e4f495040a80b524a7ac9accba95272d5c2594fa` and reviewed head `029a740bc33bc7ddea76bb03a0dfdd3f4f584f2d`.
+
+Its tree is `f2c6afb1e85a47a8fd59112fd6bfd16c1c4539a9`, equal to the gated head's tree. The merge adds no source delta. No required integration acceptance record remains for PR #293. The separate coverage design and PC's in_8 fix retain their stated scope.
+
+VERDICT: CLEAN (0 open)
