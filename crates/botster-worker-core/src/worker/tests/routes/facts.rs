@@ -1,6 +1,6 @@
 //! A client's input in the facts (Core ST-7, IN-4): one `rev` step and one record at receipt, the record's IN-2 reason when
 //! the input is refused (steward ruling R-101 Q2), sequence exhaustion (R-101, follow-up), and the records of the inputs
-//! that a closing route discards (P5's mapping (4)).
+//! that a closing route discards (R-105 Q1).
 
 use super::super::read_facts::{read_facts, records, status_updates};
 use super::*;
@@ -79,10 +79,9 @@ fn sequence_exhaustion_refuses_a_client_frame_with_no_rev_step() {
     assert_eq!(facts.input.client.rev, InputRev(0));
 }
 
-/// P5's mapping (4): the received inputs that wait for room when the route closes are discarded; each record ends
-/// `cancelled` with 0 PTY bytes, so no record stays pending.
-#[test]
-fn the_inputs_that_a_closing_route_discards_end_cancelled() {
+/// A route whose 50 received `bytes` inputs fill its queue: most of them wait for room in `received` (DP-5). The client
+/// has not read yet, so they still wait when the caller closes the route. Returns the read's actions.
+fn a_route_with_inputs_that_wait() -> (World, Client, Vec<Action>) {
     let mut w = with_limits(|l| {
         l.route_queue_bytes = 1000;
         l.input_events_kept = 1000;
@@ -98,6 +97,14 @@ fn the_inputs_that_a_closing_route_discards_end_cancelled() {
         route: RouteId(1),
         bytes: batch,
     });
+    (w, client, read)
+}
+
+/// R-105 Q1: the received inputs that wait for room when a detach closes the route are discarded. Each record ends
+/// `not_written{refused}` with 0 PTY bytes, never `cancelled`, so no record stays pending.
+#[test]
+fn the_inputs_that_a_detach_discards_end_not_written_refused() {
+    let (mut w, mut client, read) = a_route_with_inputs_that_wait();
     let detach = w.send(&HostMsg::Detach {
         route: RouteId(1),
         reason: DetachReason::Revoked,
@@ -105,28 +112,36 @@ fn the_inputs_that_a_closing_route_discards_end_cancelled() {
     client.take_all(&mut w, RouteId(1), [read, detach].concat());
     let facts = read_facts(&mut w, None);
     let ends = status_updates(&facts);
-    assert!(
-        ends.contains(&(InputRecordState::Cancelled, Some(0))),
-        "{ends:?}"
-    );
     // Every record has ended, but the inputs at the admission point: they end at their turn.
-    let ended: Vec<InputCursor> = facts
-        .input
-        .input_records
-        .iter()
-        .filter_map(|e| match e {
-            InputRecordEntry::StatusUpdate(u) => Some(u.updates),
-            _ => None,
-        })
-        .collect();
-    let open = records(&facts)
-        .iter()
-        .filter(|r| !ended.contains(&r.cursor))
-        .count();
     let held = w.worker.input.route_inputs(RouteId(1));
     assert!(held > 0);
-    assert_eq!(open, held);
     assert_eq!(records(&facts).len(), 50);
+    assert_eq!(
+        ends,
+        vec![not_written(NotWrittenReason::Refused); 50 - held]
+    );
+}
+
+/// R-105 Q1: the received inputs that wait for room when the session's end closes the route end with the IN-2 reason,
+/// `not_written{session_ended}`, never `refused` or `cancelled`.
+#[test]
+fn the_inputs_that_the_session_end_discards_end_not_written_session_ended() {
+    let (mut w, mut client, mut actions) = a_route_with_inputs_that_wait();
+    actions.extend(w.feed(Input::PayloadExited(ExitStatus::Code(0))));
+    actions.extend(w.feed(Input::PtyDrained));
+    client.take_all(&mut w, RouteId(1), actions);
+    let facts = read_facts(&mut w, None);
+    let ends = status_updates(&facts);
+    assert_eq!(records(&facts).len(), 50);
+    assert!(
+        ends.contains(&not_written(NotWrittenReason::SessionEnded)),
+        "{ends:?}"
+    );
+    assert!(
+        ends.iter().all(|end| end.0 != InputRecordState::Cancelled
+            && *end != not_written(NotWrittenReason::Refused)),
+        "{ends:?}"
+    );
 }
 
 /// One raw client frame (its type byte first), as the stream carries it, read on route 1.
