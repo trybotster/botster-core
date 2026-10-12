@@ -15113,3 +15113,62 @@ The reviewer requests no separate member gate and runs no tests, builds, measure
 The reviewer changes no product code. All earlier history remains preserved. Next package round: 206.
 
 VERDICT: CLEAN
+
+
+## Round 206 — #318 source fit on train 10, 2026-10-12
+
+Exact train head: `644f632f194f62ad7fe14e66482ee01083706e30`.
+Tree: `31f79709fd6d686a995da9f2d0506c59a9861b47`.
+Train base: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+Sole frozen member: #318 `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`, source base `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Previous package source CLEAN: Round 205, `b84ad95cf3021021bacda725f6b758a1c97ba38e`.
+Previous integration source CLEAN: Round 6, `388dcdf63fd8a585d8162af3ce917c6128dfc8c1`, with status correction `ecb3cf5b8391a19ed88659ce8c78344b1dcf7ada`.
+Lead request: `msg_plugin-w_1791842737_9701f8`. Scope: #318's train fit. Tier: HIGH, unchanged.
+Sol-C owns the exact-head integration/combined source review and the one final train receipt.
+
+### Composition and retained member source
+
+The train is one merge whose parents are the exact train base and frozen member.
+The unique common base is 2d8e8acc. The lead reports a clean merge.
+The reviewer compares the accepted 2d8e8acc -> 836d3395 member edits with 3e4b3ab8 -> 644f632f.
+All nine own paths retain identical added/deleted lines. The complete own diff remains 630 additions and 144 deletions.
+Eight final blobs equal the frozen member exactly, including the drain, drivers, public action comment, core title test, and real tail/holder tests.
+Only worker-core DESIGN.md differs from the member through the moved base's separate route_frames_taken paragraph.
+
+The reviewer reads that complete seven-line base paragraph and both affected final design sections.
+The base paragraph describes R-93's complete-frame observation, its real/testkit controls, and its route-limit premise.
+It changes no drain rule, payload-exit precondition, loop, budget, or real-process test.
+The member's separate R-108 counted/flush rule and retained-writer A24 note remain exact and visible.
+The merge preserves both sections. The overlapping path requires this delta; a disjoint Q7 carry is not assumed.
+This member review grants no independent new acceptance of #319's implementation beyond the landed base and this interface fit.
+
+F159 remains closed: the exact repaired tail-test blob requires a successful inner watched result and fails before DrainPty on watch error.
+F160 remains closed: the exact repaired action comment states the repeated drain, end conditions, lack of byte bound, and A24 gap.
+The earlier F150-F154/F157 source closures and the F154 settlement retain their scopes.
+No executable member line, test assertion, wait, timer, process cleanup, signature, or test hook changes in this composition.
+The earlier BUILD.md rule-5 and real-process reviews remain applicable to the identical member source.
+No new package fit finding appears.
+
+### Lists, evidence, and limits
+
+All ten conformance blobs equal the train base exactly. #318 changes no list in this train.
+The accepted #328 dp_3 removal remains absent from real-pending; no earlier removal returns.
+Counts: pending 385, real-pending 37, held four, ledger 692, minimum 69, real proofs seven.
+The six counted files have no duplicate whole row. Real proofs are compared by complete proof row, not only their shared ID field.
+The train keeps the base's contracts .46 pin. No member pin or new pending removal appears.
+The prior body review remains scoped to the frozen member and its historical supplied records.
+
+The request supplies no compile, test, or exact-train-head gate log.
+The reviewer checks exact source, ancestry, edit sequences, blobs, and whole list rows only.
+Prior local records and historical member gates retain their original heads and limits. They are not execution of this train head.
+The intended exact merging gate remains due; this source verdict supplies no execution or merge acceptance.
+
+#318's source fit is CLEAN at this exact train head. No package finding remains, including LOW.
+Sol-C's matching exact-head source review, the exact merging gate, ONE final train receipt, and equal-tree/push verification remain due.
+The package sends no redundant final receipt for an unchanged member under BUILD.md's Green rule.
+A later head, member change, base import, pin, or composition requires the applicable new review.
+The Mac IN-6 classification, F28/F33/F39, F61/F62, and later A24 work remain separate. #163 stays open.
+The reviewer runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 207.
+
+VERDICT: CLEAN
