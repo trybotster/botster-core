@@ -140,6 +140,21 @@ conf::in_9_kitty_modifier_keys_need_flag_8
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
 
+# The stall clock (R-90, ST): the host arms a route's stall step at the pump that consumes the worker's waiting report. On the
+# real tier, await_quiet does not prove that report consumed before advance_clock (R-88; R-90 follow-up Q2), so the deadline is
+# armed after the clock step: INCONCLUSIVE step_timeout at the RouteStalled wait, or the e3_1 due pump finds no step due
+# (gate evidence on 8100b364, Linux, seeds 0-31; ou_3_other_readers_continue passed there through the same unfenced
+# step, which is not evidence). The fences (R-57 title sentinel; route_reports progressed; R-114's sync read) are
+# contracts #99 (R-109, merged); Core takes them with the pin of the contracts tag that carries #99. The e3_1 ones are R-88 (A).
+conf::e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room
+conf::e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room
+conf::ou_2_stall_and_close_are_reported_to_the_host
+conf::ou_2_stall_close_after
+conf::ou_3_other_readers_continue
+conf::ou_3_progress_is_bytes_accepted_by_the_kernel
+# re-entry: R-109 | cause: on the real tier await_quiet (edges_quiet) does not prove the worker's RouteProgress consumed before advance_clock, so the host stall clock (R-90) posts RouteStalled (gate c1c6363d RED, seed 0, step 48) | fix: contracts #99 (progressed fences); removed by the pin of the contracts tag that carries #99
+conf::ou_3_progressing_reader_lossless
+
 # a route key's frame waits behind an unheld host write (P3 PR A, route key/mouse/focus): the real tier is INCONCLUSIVE at seed 0
 # step 20 (step_timeout, the host write's Completed). The window has open fence exceptions (R-56 step 24, R-57 step 9, R-60
 # step 12), and its 2-byte host write under pty_blocked is not held (R-74). A contracts fence, owner P3 with PC's R-74 sweep.

@@ -181,8 +181,9 @@ impl Link {
         }
     }
 
-    /// The next report that is not an `Output` observation: these checks are about the lifecycle, and the payload's output
-    /// (Core 6.2, `Activity`) comes in reads whose count the kernel chooses.
+    /// The next report that is not an `Output` observation or a route's progress report: these checks are about the
+    /// lifecycle, and the payload's output (Core 6.2, `Activity`) and the route writes that the kernel accepts (R-90
+    /// `RouteProgress`) come in reads whose count the kernel chooses.
     fn report(&mut self) -> WorkerMsg {
         loop {
             let (kind, payload) = self.frame();
@@ -190,7 +191,8 @@ impl Link {
             match WorkerMsg::decode(&payload).unwrap() {
                 WorkerMsg::Observed {
                     observation: Observation::Output { .. },
-                } => {}
+                }
+                | WorkerMsg::RouteProgress { .. } => {}
                 msg => return msg,
             }
         }

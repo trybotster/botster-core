@@ -490,6 +490,11 @@ impl<E: HostEdges> Tap<E> {
         self.reports.answer(instance, route, || wake.signal())
     }
 
+    /// The route's client makes `route_accept` (`progressed`, [`RouteReports::accepted`]).
+    pub fn route_accepted(&mut self, route: RouteId) {
+        self.reports.accepted(route);
+    }
+
     /// Whether a tap of this data directory met the worker of `instance` ([`Heard`]).
     pub fn heard(&self, instance: &InstanceId) -> bool {
         lock(&self.heard).contains(instance)

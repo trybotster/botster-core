@@ -12,9 +12,9 @@
 //! dropped. The baseline goes whole into the route's empty queue at the bind. Steward ruling R-45: the one baseline
 //! sequence in delivery (the attach frames through `live`, with their stream prefixes) is exempt from the threshold, and
 //! only the frames behind it count (the output after `R`, the held suffix included). A route over the threshold only
-//! because of its baseline is not "not progressing" (9B) and gets no stall clock of its own (this PR has no stall clock).
-//! While the frames behind the sequence are at the threshold, the budget is 0 and no PTY byte is read. A resync (a later
-//! PR) starts a new sequence and must set its exempt bytes the same way.
+//! because of its baseline is not "not progressing" (9B): it stalls only by OU-3(b), when frames are pending and the
+//! transport accepts no byte (the stall clock, `stall.rs`). While the frames behind the sequence are at the threshold, the
+//! budget is 0 and no PTY byte is read. A resync starts a new sequence and sets its exempt bytes the same way.
 //!
 //! **Input backpressure (DP-5).** The driver reads a route's client bytes only within the route's read allowance
 //! ([`Action::RouteReadAllowance`]). The allowance is the input bound less the bytes that the route holds: the client bytes
@@ -50,6 +50,8 @@ use botster_route_codec::prelude::{
 };
 use std::collections::{BTreeMap, VecDeque};
 
+mod stall;
+
 /// A descriptor that the control link delivered. The driver keeps the object; the machine has the id.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DescriptorId(pub u64);
@@ -79,19 +81,45 @@ pub(super) struct Routes {
     computed: Option<(u32, u32)>,
 }
 
+/// One stream-delimited frame in a route's queue, with its class (DESIGN.md "The output queue and the resync sequence").
+#[derive(Debug)]
+struct Queued {
+    bytes: Vec<u8>,
+    kind: Kind,
+    /// The frame belongs to a baseline sequence in delivery (`attached` through `live`, or `resync` through `live`): steward
+    /// ruling R-45 exempts its bytes from the `route_queue_bytes` threshold.
+    exempt: bool,
+}
+
+/// The class of a queued frame (DESIGN.md "The output queue and the resync sequence").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// `output` and the baseline frames: a stall drops the frame when no byte of it is written (OU-3b).
+    Droppable,
+    /// `attached`, `input_refused`, `input_done` and `route_closed`: a stall never drops it.
+    Kept,
+    /// The `resync` of a stall (OU-2): kept while the route is `Stalled`. The new baseline goes right behind it when the route
+    /// resumes, and the `resync` becomes `Droppable` with it.
+    Resync,
+}
+
 #[derive(Debug)]
 struct Route {
     limits: AppliedRouteLimits,
     route_tag: Option<String>,
     /// Stream-delimited frames in order; `written` bytes of the first one are on the transport.
-    queue: VecDeque<Vec<u8>>,
+    queue: VecDeque<Queued>,
     written: usize,
     /// The bytes of `queue` that are not written yet.
     queued: usize,
-    /// The unwritten bytes of the baseline sequence (the attach frames through `live`, with their stream prefixes) at the
-    /// front of `queue`. Steward ruling R-45 exempts them from the `route_queue_bytes` threshold: only the frames behind
-    /// the sequence count.
+    /// The unwritten bytes of the baseline sequence in delivery (the attach frames through `live`, or a resync through
+    /// `live`, with their stream prefixes): the bytes of the `exempt` frames. Steward ruling R-45 exempts them from the
+    /// `route_queue_bytes` threshold: only the frames behind the sequence count.
     baseline: usize,
+    /// The stall clock (R-90): the route's state, its progress mark, and its progress reports (`stall.rs`).
+    stall: stall::Clock,
+    /// The `baseline_end.history` of this route's baselines, from its options (OU-9).
+    history: HistoryState,
     /// A `RouteWrite` is out (one at a time).
     writing: bool,
     /// A healthy close: `route_closed` is the last queued frame, and the route closes when it is written (OU-2b).
@@ -170,29 +198,50 @@ enum Received {
 }
 
 impl Route {
+    /// Queues a frame after the frames that are queued. `output` is droppable; `input_refused`, `input_done` and
+    /// `route_closed` are kept.
     fn push(&mut self, frame: &ToClient) {
-        self.push_encoded(&frame.encode());
+        let kind = if matches!(frame, ToClient::Output { .. }) {
+            Kind::Droppable
+        } else {
+            Kind::Kept
+        };
+        self.push_encoded(&frame.encode(), kind, false);
     }
 
-    fn push_encoded(&mut self, frame: &[u8]) {
+    fn push_encoded(&mut self, frame: &[u8], kind: Kind, exempt: bool) {
+        let entry = self.entry(frame, kind, exempt);
+        self.queue.push_back(entry);
+    }
+
+    /// One encoded frame as a queue entry, counted in `queued` (and in `baseline` when it is exempt).
+    fn entry(&mut self, frame: &[u8], kind: Kind, exempt: bool) -> Queued {
         let bytes = stream_wrap(frame);
         self.queued += bytes.len();
-        self.queue.push_back(bytes);
+        if exempt {
+            self.baseline += bytes.len();
+        }
+        Queued {
+            bytes,
+            kind,
+            exempt,
+        }
     }
 
     /// DP-5: `modes` coalesces to one latest unstarted frame per route. An unstarted `modes` frame leaves the queue, and the
     /// new one goes at the end. A frame that has started (the front one, while a write of it is out or part of it is
     /// written) completes. So `modes` adds at most one frame to the route's queue, and a frame never in the baseline
-    /// sequence, which has no `modes` frame.
+    /// sequence, which has no `modes` frame. The frame is droppable: a stall drops it when it is not started (OU-3b), and the
+    /// new baseline's `baseline_begin` carries the modes and the size again (OU-9).
     fn push_modes(&mut self, frame: &[u8]) {
         let started = usize::from(self.writing || self.written > 0);
         let unstarted = (started..self.queue.len())
-            .find(|&i| self.queue[i].get(STREAM_PREFIX) == Some(&TYPE_MODES));
+            .find(|&i| self.queue[i].bytes.get(STREAM_PREFIX) == Some(&TYPE_MODES));
         if let Some(i) = unstarted {
             let old = self.queue.remove(i).expect("found above");
-            self.queued -= old.len();
+            self.queued -= old.bytes.len();
         }
-        self.push_encoded(frame);
+        self.push_encoded(frame, Kind::Droppable, false);
     }
 
     /// What the receipt of one complete client input frame decides (DP-5), from the route's state at the receipt. `None` is a
@@ -476,6 +525,12 @@ impl Worker {
             input: options.input,
             allowance: None,
             paste: None,
+            stall: stall::Clock::default(),
+            history: match options.history {
+                None | Some(HistoryMode::None) => HistoryState::NotRequested,
+                // History pages are a later P4a PR; until then a route that asks for them is told that they are unavailable.
+                Some(_) => HistoryState::Unavailable(HistoryUnavailable::Other),
+            },
             size: None,
             reported: false,
             activity: 0,
@@ -483,11 +538,10 @@ impl Worker {
         match self.baseline(&entry, &options) {
             Ok((frames, sequence)) => {
                 for (i, frame) in frames.iter().enumerate() {
-                    entry.push_encoded(frame);
-                    if i + 1 == sequence {
-                        // R-45: the baseline sequence ends at `live`; the output after `R` is behind it and counts.
-                        entry.baseline = entry.queued;
-                    }
+                    // `attached` is kept; the baseline frames and the output are droppable (OU-3b). R-45: the baseline
+                    // sequence ends at `live`; the output after `R` is behind it and counts.
+                    let kind = if i == 0 { Kind::Kept } else { Kind::Droppable };
+                    entry.push_encoded(frame, kind, i < sequence);
                 }
             }
             Err(RouteCloseReason::HandoffFailed) => {
@@ -510,7 +564,7 @@ impl Worker {
                     self.end_route(route, reason);
                     return;
                 }
-                entry.push_encoded(&closed);
+                entry.push_encoded(&closed, Kind::Kept, false);
             }
         }
         self.routes.routes.insert(route, entry);
@@ -538,6 +592,33 @@ impl Worker {
         let Some(terminal_format) = negotiate(&options.terminal_formats) else {
             return Err(RouteCloseReason::HandoffFailed);
         };
+        let features = options
+            .route_features
+            .iter()
+            .filter(|name| ROUTE_FEATURES.contains(&name.as_str()))
+            .cloned()
+            .collect();
+        let mut encoded = vec![ToClient::Attached(Attached {
+            features,
+            terminal_format,
+            limits: wire_limits(&route.limits),
+        })
+        .encode()];
+        encoded.extend(self.baseline_sequence(route)?);
+        // A host keeps `max_frame_bytes` at least the attach frames (A19-1); a route below it cannot be served, so the
+        // handoff failed (R-44).
+        if !encoded.iter().all(|frame| route.fits(frame)) {
+            return Err(RouteCloseReason::HandoffFailed);
+        }
+        let sequence = encoded.len();
+        encoded.extend(self.unfed_output(route));
+        Ok((encoded, sequence))
+    }
+
+    /// The encoded baseline sequence at the model's consumed cut `R` (OU-9): `baseline_begin`, `screen`, `baseline_end`,
+    /// `live`. An attach puts `attached` before it, and a resync puts `resync` (OU-2). The caller checks each frame against
+    /// its bound on the route (DP-3).
+    fn baseline_sequence(&self, route: &Route) -> Result<Vec<Vec<u8>>, RouteCloseReason> {
         // OU-2: a baseline that cannot be formed closes the route `SnapshotTooLarge`.
         let model = self
             .model
@@ -555,23 +636,7 @@ impl Worker {
             .ok()
             .flatten()
             .ok_or(RouteCloseReason::SnapshotTooLarge)?;
-        let features = options
-            .route_features
-            .iter()
-            .filter(|name| ROUTE_FEATURES.contains(&name.as_str()))
-            .cloned()
-            .collect();
-        let history = match options.history {
-            None | Some(HistoryMode::None) => HistoryState::NotRequested,
-            // History pages are a later P4a PR; until then a route that asks for them is told that they are unavailable.
-            Some(_) => HistoryState::Unavailable(HistoryUnavailable::Other),
-        };
         let frames = [
-            ToClient::Attached(Attached {
-                features,
-                terminal_format,
-                limits: wire_limits(&route.limits),
-            }),
             ToClient::BaselineBegin(BaselineBegin {
                 rows: u32::from(model.term.rows()),
                 cols: u32::from(model.term.cols()),
@@ -580,33 +645,41 @@ impl Worker {
             ToClient::Screen {
                 payload: snapshot.into(),
             },
-            ToClient::BaselineEnd(BaselineEnd { history }),
+            ToClient::BaselineEnd(BaselineEnd {
+                history: route.history,
+            }),
             ToClient::Live,
         ];
-        let mut encoded: Vec<Vec<u8>> = frames.iter().map(ToClient::encode).collect();
-        // A host keeps `max_frame_bytes` at least the attach frames (A19-1); a route below it cannot be served, so the
-        // handoff failed (R-44).
-        if !encoded.iter().all(|frame| route.fits(frame)) {
-            return Err(RouteCloseReason::HandoffFailed);
-        }
-        let sequence = encoded.len();
+        Ok(frames.iter().map(ToClient::encode).collect())
+    }
+
+    /// The output after `R` that the model holds and has not applied (`unfed`), as `output` frames within the route's frame
+    /// bound: the first output after a baseline (OU-9).
+    fn unfed_output(&self, route: &Route) -> Vec<Vec<u8>> {
+        let Some(model) = self.model.as_ref() else {
+            return Vec::new();
+        };
         let per = route.output_payload();
-        encoded.extend(model.unfed().chunks(per).map(|chunk| {
-            ToClient::Output {
-                payload: chunk.into(),
-            }
-            .encode()
-        }));
-        Ok((encoded, sequence))
+        model
+            .unfed()
+            .chunks(per)
+            .map(|chunk| {
+                ToClient::Output {
+                    payload: chunk.into(),
+                }
+                .encode()
+            })
+            .collect()
     }
 
     /// PTY output goes to every route that is not closing, unchanged and in order, in `output` frames within the route's
-    /// frame bound (OU-12, DP-3).
+    /// frame bound (OU-12, DP-3). A `Stalled` route gets none: Core does not hold the PTY for it, and its resync carries a
+    /// new baseline (OU-3b, OU-7).
     pub(super) fn route_output(&mut self, bytes: &[u8]) {
         let ids: Vec<RouteId> = self.routes.routes.keys().copied().collect();
         for id in ids {
             let route = self.routes.routes.get_mut(&id).expect("listed");
-            if route.closing.is_some() {
+            if route.closing.is_some() || route.stall.stalled() {
                 continue;
             }
             let per = route.output_payload();
@@ -632,7 +705,7 @@ impl Worker {
             return;
         };
         route.writing = true;
-        let bytes = front[route.written..].to_vec();
+        let bytes = front.bytes[route.written..].to_vec();
         self.actions
             .push_back(Action::RouteWrite { route: id, bytes });
     }
@@ -661,12 +734,18 @@ impl Worker {
         };
         route.written += n;
         route.queued -= n;
-        // The queue is written front first, so the baseline sequence's bytes go first (R-45).
-        route.baseline = route.baseline.saturating_sub(n);
-        if route.written == front.len() {
+        if front.exempt {
+            route.baseline = route.baseline.saturating_sub(n);
+        }
+        if route.written == front.bytes.len() {
             route.queue.pop_front();
             route.written = 0;
         }
+        // The transport accepted bytes: the route progressed (OU-3a), and a `Stalled` route resumes (OU-2).
+        self.route_progressed(id);
+        let Some(route) = self.routes.routes.get_mut(&id) else {
+            return;
+        };
         if route.queue.is_empty() {
             if let Some(reason) = route.closing {
                 self.end_route(id, reason);
@@ -726,7 +805,7 @@ impl Worker {
             self.end_route(id, reason);
             return;
         }
-        route.push_encoded(&frame);
+        route.push_encoded(&frame, Kind::Kept, false);
         self.pump_route(id);
         self.settle_routes();
     }
@@ -1027,17 +1106,18 @@ impl Worker {
         }
         self.routes.settling = false;
         self.send_budget();
+        self.report_route_progress();
     }
 
-    /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing. With no such route
-    /// the limit is lifted, once.
+    /// The PTY read budget (OU-3d): the smallest free payload space of the routes that are not closing and not `Stalled`
+    /// (OU-3b: Core stops holding the PTY for a stalled reader). With no such route the limit is lifted, once.
     fn send_budget(&mut self) {
         let queue_bytes = usize::try_from(self.limits.route_queue_bytes).unwrap_or(usize::MAX);
         let budget = self
             .routes
             .routes
             .iter()
-            .filter(|(_, r)| r.closing.is_none())
+            .filter(|(_, r)| r.closing.is_none() && !r.stall.stalled())
             .map(|(&id, r)| r.free_payload(queue_bytes, self.reserved(id)))
             .min();
         match budget {
@@ -1092,6 +1172,8 @@ mod tests {
             closing: None,
             allowance: None,
             paste: None,
+            stall: stall::Clock::default(),
+            history: HistoryState::NotRequested,
             size: None,
             reported: false,
             activity: 0,

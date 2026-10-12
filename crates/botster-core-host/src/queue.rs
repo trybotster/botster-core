@@ -187,6 +187,8 @@ pub struct EventQueue {
     markers: BTreeMap<InstanceId, u64>,
     droppable: BTreeSet<u64>,
     mandatory: usize,
+    /// Mandatory slots that a route's stall step holds for the worker's answer (R-90, E3-1 item 4): they count as taken.
+    reserved: usize,
     /// How many events were posted since the last `take_posted` (the `events_posted` of `PumpReport`).
     posted: u32,
     /// Every event ever posted: a step compares it with its start to learn whether it posted already.
@@ -203,6 +205,7 @@ impl EventQueue {
             markers: BTreeMap::new(),
             droppable: BTreeSet::new(),
             mandatory: 0,
+            reserved: 0,
             posted: 0,
             total: 0,
         }
@@ -223,7 +226,20 @@ impl EventQueue {
 
     /// True when one more mandatory event (not `Completed`) fits (EV-5b).
     pub fn has_mandatory_room(&self) -> bool {
-        self.mandatory < self.bounds.mandatory
+        self.mandatory + self.reserved < self.bounds.mandatory
+    }
+
+    /// Holds one mandatory slot for an event that a worker's answer will post (R-90: a route's stall step). The caller
+    /// checked `has_mandatory_room`.
+    pub fn reserve(&mut self) {
+        debug_assert!(self.has_mandatory_room());
+        self.reserved += 1;
+    }
+
+    /// Gives back a slot of `reserve`: right before the event that it held is posted, or when no event follows.
+    pub fn release(&mut self) {
+        debug_assert!(self.reserved > 0);
+        self.reserved = self.reserved.saturating_sub(1);
     }
 
     /// The count of events posted since the last call, and a reset.
