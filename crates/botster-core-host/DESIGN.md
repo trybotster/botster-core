@@ -438,12 +438,24 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   makes it due again (EV-5d, TM-6). Only a step that ran is parked, so a step with no budget is carried first.
 - **No host-visible change at the due step.** The route's state, `route_reports` and every event change when the worker's
   answer is consumed and posted, not at the due step. The answer's event posts in the reserved slot, so it never waits
-  for room, and it counts against the budget of the pump that posts it.
+  for room, unless an earlier frame of the same link took that slot over (below). It counts against the budget of the
+  pump that posts it.
+- **Takeover (R-90 follow-up, contracts `main` `1798a65d`; 0181's ST298-R1).** Frames are in order on a link, so a
+  mandatory frame (EV-5(b)) that the worker sent before its answer must be read first. When the queue has no room for
+  it, it takes over the slot of a due step of the same link (`take_over_slot`, the first such route in id order): the
+  reservation ends there, and that frame's event posts in it. The step still waits for its answer, which is then an
+  ordinary route report: with no room it is parked (EV-5(b)), `parked_work` names its session, and a poll that frees
+  room wakes the host (EV-5(d)). Without this, a frame ahead of the answer (a `RouteResumed` that declines a close step,
+  a close of another route, `Exited`) waited for room that only the answer could free, and with an empty queue no poll
+  could free any. The queue never holds more than `mandatory_events`, and each link keeps its order. Tests:
+  `tests/driver/stall.rs` (a resume ahead of a due close; a frame ahead of the answer, with the parked answer and its
+  post after a poll; several routes due at once).
 - **Release.** The slot is released when the host consumes the worker's answer: `RouteStalled` or `RouteClosed` (the
   event takes the slot), or, when the worker declines, a newer `RouteProgress` that is not the asked mark waiting, or a
   `RouteResumed` that answers a close step. A route that closes for another reason releases its slot first.
-- **While a step waits for its answer** (`asked`), the route has no deadline, and `can_accept` takes a `RouteClosed` or a
-  `RouteStalled` of that route although the queue looks full, because the slot is its.
+- **While a step waits for its answer** (`asked`), the route has no deadline. While it also holds its slot (`slot`),
+  `can_accept` takes a `RouteClosed` or a `RouteStalled` of that route although the queue looks full, because the slot is
+  its, and every other mandatory frame of the same link, which takes the slot over.
 - **No host, no clock (R-90 Q3).** A due message that cannot be sent (no worker link) disarms both steps; the route
   closes with its session's loss. After an adoption, the new host arms from the pump that consumes the worker's new
   report, as A18 does for silence.
@@ -459,5 +471,8 @@ The host owns a route's two deadlines on its injected clock (TM-3): `stall_deadl
   that route has no stall clock, and its stuck reader holds PTY output (OU-3d) until it closes for another reason. The DP-8
   PR (ST's next) adds the route's stall state to the per-route adoption record and the restore rule: `RouteAdopted` only,
   and the stall step or the close step armed from the pump that consumes the record (the worker's `DESIGN.md`).
+- **A new step is not parked.** A report that replaces the armed step (a new waiting mark, the end of waiting, a stall or
+  a resume) clears the parked flag: only a step that ran can be parked (0181's ST298-R3). Test:
+  `new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked`.
 - Tests: `tests/stall.rs` (arming, the slot and its release on a decline, the stall and the close step, the resume, a
   parked step); the carried step is the driver's (`e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room`).
