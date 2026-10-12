@@ -145,3 +145,132 @@ The reviewer sent the remaining paths directly to P5 in `msg_plugin-w_1791848533
 All five original findings remain in this record. Two close and three remain open.
 
 VERDICT: NOT CLEAN (3 open)
+
+## Round 2: corrections and the new durable spawn store
+
+Exact reviewed document SHA-256: `424c8e87a3d2ce9f211062cd9ff56245cb74295cb260e71b159be93eb45ede65`.
+Owner receipts: `msg_plugin-w_1791848645_32dc55` and `msg_plugin-w_1791848684_407892`.
+The reviewer saved and read the complete document. The review covers the full change from Round 1.
+
+The lead's handoff records the S2-D4 store assignment to P5 and the interface assignment to PC.
+The reviewer reads the complete R-120 and R-121 rulings.
+R-121 source commit: `906bc705f1c788a7e19653806205e96ee9c426d5`.
+R-121 section SHA-256: `e3cc52faa6e86ebbae3531be3b9ed536b4c5e0b69bbaea67f0fb3b513de50579`.
+
+The reviewer also reads the complete `minimum-hub-additions.md` and the complete PC protocol design, Revision 5.
+Those inputs establish the affected interface; this record issues no separate verdict on PC's design.
+The approved minimum now has 127 ids. The two additions cover durable operation restart and closed operation states.
+They do not add the `en_7b_*` family. The review therefore permits an explicit deferral of caller-known operation ids.
+
+### S2-HD-1 — MEDIUM — REOPENED: include runnable baselines in the wait rule
+
+The nonempty-event drainage rule remains correct.
+The new baseline continuation introduces another source of retained work.
+Owner-loop step 5 still names a dirty watch, but section 4 also queues new WT-1 baselines.
+A new baseline can remain incomplete when Core returns an empty event batch and every request lane is empty.
+The wait rule does not explicitly keep that runnable continuation active.
+
+Required change: include runnable baseline work in the decision to continue a turn.
+If a full outbox prevents baseline progress, define the capacity wake that resumes it.
+Do not replace a lost wake with an immediate loop that spins while the client cannot receive frames.
+
+### S2-HD-2 — MEDIUM — remains CLOSED
+
+The returned-token, dispatch, exactly-one-answer, and mutation-effect rules remain present.
+The FIFO correction below makes a reservation a count rather than a fixed position.
+That change preserves one reserved reply slot and one send or Drop per token.
+
+### S2-HD-3 — MEDIUM — CLOSED
+
+Section 4 applies each event when that event's fan-out starts.
+The session view cannot contain later events from the retained batch.
+The owner takes a baseline cut only between batches and retains immutable Arc rows for that cut.
+Later deltas wait behind the baseline and follow `snapshot_end`.
+Overflow removes the old continuation and queues a new baseline without using Bulk capacity.
+
+One FIFO outbox carries frames and responses for each connection.
+At unwatch, the owner removes the watch, baseline, and delta queue before it appends the response.
+Previously emitted frames precede that response. No later frame can come from the removed watch.
+These rules close the specified WT-1, WT-4, and WT-6 paths.
+Implementation review must verify the FIFO and cursor behavior, including overflow during a partial baseline.
+
+### S2-HD-4 — MEDIUM — CLOSED for the original owner/IO lifecycle
+
+Section 5 replaces the inconsistent message rule with monotonic atomic phases.
+Every phase change wakes both loops outside the request lanes.
+The channel has capacity 4 and each of its four message kinds is sent at most once.
+The common stop order identifies the actor for each phase and notification.
+Owner and IO panic paths enter the same stop state.
+
+The bounded reply flush prevents a client that never reads from holding the stop indefinitely.
+The original failed-adoption and Core Drop rules remain intact.
+This closes the original finding. The new store thread has a separate lifecycle finding, S2-HD-6.
+
+### S2-HD-5 — MEDIUM — CLOSED
+
+Section 4 now retains a baseline cut and row cursor.
+It sends at most `turn_baseline_rows` rows across all baselines per turn, with round-robin selection.
+Section 2 states separate delta and baseline budgets.
+The design also states that taking a cut copies at most Core `max_sessions` Arc pointers.
+This closes the missing baseline-delivery accounting in Round 1.
+It establishes count bounds, not a measured byte or time bound.
+Implementation review must inspect cut creation, chunk serialization, empty baselines, and destruction within those counts.
+
+### S2-HD-6 — MEDIUM — OPEN: own store jobs through failure and stop
+
+Section 4a adds a store thread with a bounded queue and completion messages to the owner.
+Section 5 still joins only the owner and IO threads before it releases the singleton lock.
+The store has no stated admission closure, stop notification, panic path, or quiescence acknowledgement.
+A queued or active write can therefore continue after main releases `hub.lock`.
+That violates the stated RT-4 rule that only the lock holder writes the store.
+
+The design also refuses every job when the queue is full.
+That includes `finish_spawn` and retention deletion, which are internal work after the original admission.
+The design gives no retained owner or retry path for a refused terminal update.
+It also gives no completion capacity rule. A request queue bound alone does not bound unsent completion results.
+
+Required change: define job ownership from admission through durable completion and retirement.
+Reserve or otherwise bound completion capacity and its wake path.
+Keep required terminal updates after queue refusal, or enter an explicit store fault that preserves uncertainty.
+Stop new store admission before shutdown. Establish store quiescence before the singleton lock is released.
+Define how store failure wakes main and the owner without blocking their event loops.
+
+### S2-HD-7 — MEDIUM — OPEN: reserve operation identity before the write
+
+Section 4a permits caller-known `operation_id` values and cites EN-7b.
+Its record has no normalized request comparison data.
+It also does not reserve an identity or record capacity before a store job enters the queue.
+Two pending admissions can therefore write separate `record_key` files for one operation id.
+Pending writes can exceed a bound that counts only records already loaded into the index.
+
+Required change: count pending admissions in the record bound and reserve each operation identity before store submission.
+If caller-known ids remain in scope, define exact-duplicate joining and the `operation_id_in_use` refusal.
+Persist the comparison data required after restart, or name its durable owner in PC's layer.
+Alternatively, explicitly defer caller-known ids and remove the unsupported EN-7b admission promise.
+Do not add minimum ids or implement a new feature solely to close this finding.
+
+### S2-HD-8 — MEDIUM — OPEN: corrupt records cannot prove non-admission
+
+Section 4a excludes an undecodable file from the index, counts it in diagnostics, and leaves it in place.
+The same API can then return `not_found` for an operation that the Hub previously admitted.
+The design cites EN-7b's retention rule, under which `not_found` within the window proves non-admission.
+An unreadable record cannot establish that proof.
+
+Required change: define a typed startup or read failure, or retain a recovery state that preserves this uncertainty.
+Do not return `not_found` while a corrupt durable record leaves operation identity unresolved.
+Define the disposition of incomplete temporary files separately from committed record files.
+
+### Recovery and acceptance limits
+
+The document leaves its Q5 recovery case pending and cites Core v1 as its base.
+R-121 now gives the complete reconciliation table and expressly requires the Core pin that carries A26.
+It prohibits an interim Core v1 guess. P5 must carry that prerequisite into the revised design and implementation plan.
+This record accepts neither A26's draft nor a guessed restore outcome.
+
+The reviewer sends these paths in `msg_plugin-w_1791848775_a93bf9`.
+The scope choice for caller-known ids is in `msg_plugin-w_1791848796_de8554`.
+Five original findings remain recorded. Findings 2 through 5 close; finding 1 reopens for new retained work.
+The new store adds findings 6, 7, and 8. This round has four open findings.
+The reviewer ran no build, test, gate, or reproduction.
+
+VERDICT: NOT CLEAN (4 open)
