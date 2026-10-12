@@ -405,3 +405,89 @@ This verdict accepts no later head, pin, status removal, import, final gate, or 
 I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
 
 VERDICT: CLEAN (0 open integration findings; repaired source, body, and supplied evidence before final import) at 50a50cff3fcdbbba1976c3194e0b49183726dbc8 against source base e4f495040a80b524a7ac9accba95272d5c2594fa
+
+## Current-base delta inspection — package verdict pending
+
+Owner request: `msg_plugin-w_1791819576_364518`.
+Accepted head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+New head: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+New tree: `b117637b809c37c63b869e4da2696015dbdf5918`.
+The lead's handoff through 2026-10-12 01:40 PDT confirms that #307 left train 3 because of conflicts.
+This inspection covers the authorized base import before a later train. It accepts no train-4 head or gate.
+
+### Ancestry and own change preservation
+
+Merge `ceb6b22e73034a281fe613338069d441c8fa5e05` has exact parents the accepted head and the imported base.
+Its tree is `74835b81d121b3abd7479843ad4183b3c63bfeca`.
+The new head has that merge as its sole parent.
+The actual old-head/base merge base is `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+The complete base-move diff has 75 paths, 2552 additions, and 320 deletions.
+Base-move full-index SHA256: `3d25635a445c337c0408373c06cb7db0952882642e0a44a8fd3a75478c6ffb25`.
+The new own diff against the imported base has twenty paths, 962 additions, and thirteen deletions.
+New own full-index SHA256: `d47a4efac1c1b9519d7a989327ddaffa134f65e1e13b6f6c32a5070560cbefb4`.
+The whitespace check reports no error.
+
+I independently compare added and removed lines for every accepted own path, excluding diff headers and hunk coordinates.
+Nineteen own patches retain every accepted added/removed line.
+The twentieth retains that patch except the required removal of `LaunchSpec.stop_grace_ms` from the Launch test fixture.
+That is the complete post-merge commit delta. The imported #305 source has removed the field.
+The new fixture retains its oversized argv and frame-bound assertions. It adds no production implementation change.
+Every path outside the accepted twenty own paths equals the imported base.
+
+### Conflicts and shared interfaces
+
+I read the combined merge diff and the complete changes in every overlapping production/interface path.
+The reported conflicts are testkit core.rs and edge_tap.rs.
+Faults retains #307's `control_full`, #301's `start_holds`, the hold helpers, and HeldLink.
+Tap retains #307's `control_full` and #300's separate `op_holds`, including both initializers.
+The imported controls register alongside `control_queue`; neither control replaces another control's state.
+
+The simulated and real control-room paths still select the worker instance and apply only the control_full set.
+The imported scheduler holds use their separate per-host SharedHolds object.
+The driver still flushes, checks control room, retries held input, and reads each link in that order.
+The control wake uses the same refusal mark and event budget. The spent-budget path still sets `Budget.more_input`.
+The imported held-aware `more` helper retains that budget term, so it cannot erase known control-room work.
+Scheduler holds filter engine work; they do not suppress the driver's control-room service.
+The failed-write repair, cancel precedence, sizing formula, and both failure tests remain unchanged.
+admit.rs, inbound.rs, deadlines.rs, both queue-control files, and route_reports.rs are byte-identical to the accepted head.
+The complete control-term test blob is identical after the named deleted-field adjustment.
+
+The imported stop-grace paths retain the base's linked Kill and verified-worker KillPayload behavior.
+The deleted Launch field changes no frame header, encoder bound, cancel message, or control-room signature.
+The production frame term still comes from the unchanged engine frame-bound method.
+This inspection changes none of the earlier R-100 refusal-work or worker-clock scope limits.
+
+### Imported acceptance and all list sets
+
+I read the complete train-2 combined acceptance at `26c63fd27cc1ca445f69cbc6a2f31dc8ce361151`, train-2.md.
+I also read the complete #305 train source and final evidence sections at `e6100fcd44dc691ff6ebc2672e399f8b60b27adb`.
+They accept exact imported base 08098782, tree `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`, and the ordered #300/#305 composition.
+The lead's 00:52 PDT handoff record reports the train-2 merge with those final receipts.
+I retain their Linux, original-head Mac, compatibility, and provenance limits. I do not repeat their closed package scope.
+
+I independently compare all nine conformance text sets with the old merge base, accepted head, imported base, and new head.
+Every set equals the three-way union of additions minus both sides' removals.
+Pending counts: old merge base 410, accepted own head 408, imported base 406, new head 404.
+The new own removals remain exactly `in_6_cancel_result_kinds` and `in_6_refused_full_wakes_on_room`.
+All imported attach-state, atomic-transitions, stream-handoff, and TM-6 removals remain removed. No pending id is added.
+Real-pending retains 43, held retains four, real-proof entries retain seven, ledger retains 691, and minimum retains 69.
+The imported pin, profile, build-root, exclusion, and CI changes equal the accepted base versions outside the own paths.
+No new pin, gate decision, or mutation exclusion is introduced by #307's conflict resolution.
+
+### Completed local record and current inspection state
+
+I read complete `cq-local-checks-2ed85f93.log`, SHA256 `2dead8dd90d259d147a59eb1cd5bc1d8366a8c691f6fa83bf3d1b4a90cadb79d`.
+Its v3 script is byte-identical to the previously read script, SHA256 `2b7b3f3c74ea7313e6cb8ffee96d084d89d4f66284670509898a5aea9c479334`.
+The log names the exact new head, Darwin 27.0.0, and a 15:31:06 UTC clean marker.
+As before, the script suppresses clean output and retains no numeric clean exit. Filtered Cargo commands retain no individual numeric exits.
+Ten xtask checks exit zero; fmt succeeds; filtered clippy reports only the existing Ghostty warning.
+Host reports 356 PASS and one ignored; link reports fifty unit plus four integration passes.
+Testkit reports 441 passes across its binaries. Worker-core reports 193 passes.
+Strict seeds 0–31 report 263 PASS, zero failures, and 428 ignored in 3.16 seconds.
+These completed local summaries retain their provenance and filtered-output limits.
+
+I find no source delta finding. The exact-head package delta verdict remains pending.
+The owner reports a running gate. I have not read that running output, and I accept no current completed gate result.
+This inspection completes no formal delta round. The completed gate, applicable final body, later train delta reviews, and final receipts remain due.
+I ran no build, test, gate, mutation, reversal, measurement, or executable base check.
