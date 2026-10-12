@@ -364,6 +364,19 @@ impl Driver {
                     payload.signal_group(signal);
                 }
             }
+            Action::ResizePty(size) => {
+                if let Some(payload) = self.payload.as_ref() {
+                    let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+                    let (xpixel, ypixel) = size.cell_px.map_or((0, 0), |px| {
+                        (
+                            clamp(size.cols.saturating_mul(px.width)),
+                            clamp(size.rows.saturating_mul(px.height)),
+                        )
+                    });
+                    // `ResizePty` has no answer, as `SignalPayload` has none: the host's size is the asked size (SZ-3).
+                    let _ = payload.resize(clamp(size.rows), clamp(size.cols), xpixel, ypixel);
+                }
+            }
             Action::ReapPayload => {
                 if let Some(payload) = self.payload.take() {
                     self.deregister_pty(&payload);

@@ -176,6 +176,10 @@ pub enum Action {
     PtyWrite(Vec<u8>),
     /// Send this signal to the payload's process group. It is emitted only while the leader is unreaped.
     SignalPayload(i32),
+    /// Set the size of the payload's PTY (SZ-1): its rows and columns, and its pixel size when the size has `cell_px`. It is
+    /// emitted only while the leader is unreaped, once per change of the size (SZ-2), and before the `SizeChanged` report
+    /// (SZ-3). It has no answer, as `SignalPayload` has none.
+    ResizePty(Size),
     /// Reap the payload's leader: its group kill is complete, so its id may be reused from now on.
     ReapPayload,
     /// End the worker process (LC-7 step 3 is done).
@@ -275,6 +279,8 @@ pub struct Worker {
     stop_grace: Duration,
     /// The size of the launch, for the state that `Launched` carries.
     launch_size: Option<Size>,
+    /// The size that the PTY and the model have now (SZ-2: the last one applied): the launch size, then each change.
+    size: Option<Size>,
     /// The session's read-visible revision (Core ST-1): an opaque token that each model step of the output advances.
     model_rev: ModelRev,
     /// The kill of the worker-control signal's grace (LC-5).
@@ -313,12 +319,14 @@ pub struct Worker {
 }
 
 /// What came for the payload while its spawn was out.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Early {
     exit: Option<ExitStatus>,
     stop: bool,
     kill: bool,
     end_payload: bool,
+    /// The `Resize` operations, in their order: each is applied after `Launched`.
+    resizes: Vec<(u64, Size)>,
 }
 
 impl Worker {
@@ -342,6 +350,7 @@ impl Worker {
             killed: false,
             stop_grace: CoreLimits::default().stop_grace,
             launch_size: None,
+            size: None,
             model_rev: ModelRev(0),
             grace: None,
             removing: false,
@@ -626,6 +635,7 @@ impl Worker {
         self.stop_grace = Duration::from_millis(spec.stop_grace_ms);
         self.payload = PayloadState::Spawning;
         self.launch_size = Some(spec.size);
+        self.size = Some(spec.size);
         self.actions.push_back(Action::SpawnPayload(PayloadSpec {
             argv: spec.argv,
             env: spec.env,
@@ -658,6 +668,9 @@ impl Worker {
                 }
                 if early.end_payload {
                     self.on_end_payload(now);
+                }
+                for (req, size) in early.resizes {
+                    self.on_resize(req, size);
                 }
                 // Output that came while the spawn was out reaches the model now, after `Launched`.
                 if self.feed_model(&[]) {
@@ -716,12 +729,17 @@ impl Worker {
         TerminalState {
             title: model.and_then(|m| m.title.clone()),
             cwd: model.and_then(|m| m.cwd.clone()),
+            size: self.size.unwrap_or(Size {
+                rows: 0,
+                cols: 0,
+                cell_px: None,
+            }),
             ..self.initial_terminal()
         }
     }
 
-    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3) and
-    /// `CaptureSnapshot` (ST-6). The setters and the facts come next, and the worker answers them `Internal` until then.
+    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3),
+    /// `CaptureSnapshot` (ST-6) and `Resize` (SZ-1). The setters and the facts come next, and the worker answers them `Internal` until then.
     fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
         let result = match op {
             Op::WriteInput { payload, guard, .. } => {
@@ -733,6 +751,10 @@ impl Worker {
             Op::ReadCursor { .. } => self.read_cursor(),
             Op::ReadModeFlags { .. } => self.read_modes(),
             Op::CaptureSnapshot { .. } => self.capture(req),
+            Op::Resize { size, .. } => {
+                self.on_resize(req, size);
+                return;
+            }
             Op::Signal { sig, .. } => {
                 if let (true, Some(number)) = (self.group_live(), signal_number(sig)) {
                     self.signal(number);
@@ -758,6 +780,50 @@ impl Worker {
                 format!("this worker does not serve {} yet", op_name(&other)),
             )),
         };
+        self.report(&WorkerMsg::Done { req, result });
+    }
+
+    /// `Resize` (SZ-1, SZ-2): a new size resizes the model and the PTY once, and the `SizeChanged` report (an `Observed`
+    /// size) comes after the PTY resize and before the `Done`, so the host has the size when the operation completes. The
+    /// current size completes `Applied` with no change and no report. A resize that comes while the spawn is out applies
+    /// after `Launched` (no report comes before it); with no PTY (the spawn failed, or the leader is reaped) it is
+    /// `SessionEnded`, as for a signal.
+    fn on_resize(&mut self, req: u64, size: Size) {
+        match self.payload {
+            PayloadState::Live(_) => {}
+            PayloadState::Spawning => {
+                self.early.resizes.push((req, size));
+                return;
+            }
+            PayloadState::None | PayloadState::Failed | PayloadState::Reaped => {
+                let result = OpResult::Err(CoreError::new(
+                    ErrorCode::SessionEnded,
+                    "the payload has no PTY",
+                ));
+                self.report(&WorkerMsg::Done { req, result });
+                return;
+            }
+        }
+        if self.size != Some(size) {
+            let resized = self.model.as_mut().map(|model| model.term.resize(&size));
+            if let Some(Err(e)) = resized {
+                let result = OpResult::Err(CoreError::new(
+                    ErrorCode::Internal,
+                    format!("the model did not take the size: {e:?}"),
+                ));
+                self.report(&WorkerMsg::Done { req, result });
+                return;
+            }
+            self.size = Some(size);
+            self.actions.push_back(Action::ResizePty(size));
+            // ST-1: the size is a read-visible change.
+            self.model_rev = ModelRev(self.model_rev.0.wrapping_add(1));
+            let model_rev = self.model_rev;
+            self.report(&WorkerMsg::Observed {
+                observation: Observation::Size { size, model_rev },
+            });
+        }
+        let result = OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size }));
         self.report(&WorkerMsg::Done { req, result });
     }
 

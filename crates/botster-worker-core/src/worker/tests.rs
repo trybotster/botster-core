@@ -678,6 +678,171 @@ fn a_signal_without_a_live_group_is_session_ended() {
     assert_eq!(error.code, ErrorCode::SessionEnded);
 }
 
+fn resizes(actions: &[Action]) -> Vec<Size> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            Action::ResizePty(size) => Some(*size),
+            _ => None,
+        })
+        .collect()
+}
+
+fn resize_op(rows: u32, cols: u32) -> Op {
+    Op::Resize {
+        session: sid(),
+        size: Size {
+            rows,
+            cols,
+            cell_px: None,
+        },
+    }
+}
+
+fn applied(size: Size) -> WorkerMsg {
+    WorkerMsg::Done {
+        req: 3,
+        result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
+    }
+}
+
+/// SZ-1, SZ-3: a new size resizes the PTY once; the size report comes after the PTY resize and before the `Done`, and it
+/// carries a new `model_rev` (ST-1). The model takes the size: a later read sees it.
+#[test]
+fn a_resize_resizes_the_pty_once_and_reports_the_size_before_the_done() {
+    let mut w = World::running();
+    let rev = |result: OpResult| match result {
+        OpResult::Ok(OpOutput::Modes(modes)) => modes.model_rev,
+        other => panic!("{other:?}"),
+    };
+    let before = rev(op(&mut w, 1, Op::ReadModeFlags { session: sid() }));
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    let size = Size {
+        rows: 30,
+        cols: 100,
+        cell_px: None,
+    };
+    assert_eq!(resizes(&actions), [size]);
+    let resize_at = actions
+        .iter()
+        .position(|a| matches!(a, Action::ResizePty(_)))
+        .unwrap();
+    let first_send = actions
+        .iter()
+        .position(|a| matches!(a, Action::LinkSend(_)))
+        .unwrap();
+    assert!(
+        resize_at < first_send,
+        "the PTY resize comes first: {actions:?}"
+    );
+    let reports = w.reports(&actions);
+    let [WorkerMsg::Observed {
+        observation:
+            Observation::Size {
+                size: reported,
+                model_rev,
+            },
+    }, done] = reports.as_slice()
+    else {
+        panic!("{reports:?}");
+    };
+    assert_eq!(*reported, size);
+    assert_ne!(*model_rev, before, "a resize is a read-visible change");
+    assert_eq!(*done, applied(size));
+    assert_eq!(
+        rev(op(&mut w, 4, Op::ReadModeFlags { session: sid() })),
+        *model_rev
+    );
+    // CUP to row 30, column 100: the model clamps it to its size, so the cursor shows the size that it took.
+    w.feed(Input::PtyOutput(b"\x1b[99;999H".to_vec()));
+    let OpResult::Ok(OpOutput::Cursor(cursor)) = op(&mut w, 5, Op::ReadCursor { session: sid() })
+    else {
+        panic!("a cursor");
+    };
+    assert_eq!((cursor.row, cursor.col), (29, 99));
+}
+
+/// SZ-2: the current size completes `Applied` with no PTY resize and no size report.
+#[test]
+fn a_resize_to_the_current_size_changes_nothing() {
+    let mut w = World::running();
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(size().rows, size().cols),
+    });
+    assert!(resizes(&actions).is_empty(), "{actions:?}");
+    assert_eq!(w.reports(&actions), [applied(size())]);
+    w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert!(
+        resizes(&actions).is_empty(),
+        "the last applied size: {actions:?}"
+    );
+}
+
+/// A resize that comes while the spawn is out applies after `Launched` (no report comes before it), in its order.
+#[test]
+fn a_resize_during_the_spawn_applies_after_the_launch() {
+    let mut w = World::linked();
+    w.send(&HostMsg::Launch(Box::new(spec())));
+    let actions = w.send(&HostMsg::Op {
+        req: 3,
+        op: resize_op(30, 100),
+    });
+    assert!(actions.is_empty(), "{actions:?}");
+    let actions = w.feed(Input::Spawned(Ok(PAYLOAD)));
+    let size = Size {
+        rows: 30,
+        cols: 100,
+        cell_px: None,
+    };
+    assert_eq!(resizes(&actions), [size]);
+    let reports = w.reports(&actions);
+    assert!(
+        matches!(reports[0], WorkerMsg::Launched { .. }),
+        "{reports:?}"
+    );
+    assert!(
+        matches!(&reports[1], WorkerMsg::Observed { observation: Observation::Size { size: s, .. } } if *s == size),
+        "{reports:?}"
+    );
+    assert_eq!(reports[2], applied(size));
+}
+
+/// With no PTY (no launch, or a spawn that failed) the answer is `SessionEnded`, as for a signal, and no PTY resize is
+/// asked.
+#[test]
+fn a_resize_without_a_pty_is_session_ended() {
+    let mut failed = World::linked();
+    failed.send(&HostMsg::Launch(Box::new(spec())));
+    failed.feed(Input::Spawned(Err(SpawnFailure::CwdMissing)));
+    for mut w in [World::linked(), failed] {
+        let actions = w.send(&HostMsg::Op {
+            req: 3,
+            op: resize_op(30, 100),
+        });
+        assert!(resizes(&actions).is_empty());
+        let reports = w.reports(&actions);
+        let [WorkerMsg::Done {
+            req: 3,
+            result: OpResult::Err(error),
+        }] = reports.as_slice()
+        else {
+            panic!("{reports:?}");
+        };
+        assert_eq!(error.code, ErrorCode::SessionEnded);
+    }
+}
+
 /// An operation of a later milestone is answered, never left without a `Done`.
 #[test]
 fn an_operation_of_a_later_milestone_is_answered_internal() {

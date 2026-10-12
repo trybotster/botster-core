@@ -521,6 +521,57 @@ fn lc_6_signal_reaches_the_whole_group() {
     s.remove();
 }
 
+/// Core SZ-1, SZ-3: `Resize` sets the real PTY's size. The payload reads its size with `stty` before and after: the launch
+/// size, then the new one. The size report comes before the `Done`, and the same size again changes nothing (SZ-2).
+#[test]
+fn sz_1_resize_sets_the_real_pty_size() {
+    let root = temp_root();
+    let out = fifo(root.path(), "out");
+    let go = fifo(root.path(), "go");
+    let script = format!(
+        "exec 3> {out}; /bin/stty size >&3; /bin/cat {go} > /dev/null; /bin/stty size >&3",
+        out = out.display(),
+        go = go.display()
+    );
+    let mut s = Session::launch(root.path(), &script, 5000);
+    let (mut reader, line) = first_line(&out);
+    assert_eq!(line, "24 80\n", "the launch size");
+    let size = Size {
+        rows: 30,
+        cols: 100,
+        cell_px: None,
+    };
+    let resize = |req| HostMsg::Op {
+        req,
+        op: Op::Resize {
+            session: SessionId("s".into()),
+            size,
+        },
+    };
+    s.link.msg(&resize(1));
+    let WorkerMsg::Observed {
+        observation: Observation::Size { size: reported, .. },
+    } = s.link.report()
+    else {
+        panic!("the size report first");
+    };
+    assert_eq!(reported, size);
+    let applied = |req| WorkerMsg::Done {
+        req,
+        result: OpResult::Ok(OpOutput::Resize(ResizeResult::Applied { actual: size })),
+    };
+    assert_eq!(s.link.report(), applied(1));
+    s.link.msg(&resize(2));
+    assert_eq!(s.link.report(), applied(2), "SZ-2: no size report");
+    // The payload waits on the FIFO: the test lets it read its size again only after the `Done`.
+    std::fs::write(&go, b"go\n").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    assert_eq!(line, "30 100\n", "the PTY has the new size");
+    assert_eq!(s.link.report(), exited(Some(0), None));
+    s.remove();
+}
+
 /// Core LC-5 and the P1 interface (F7): `SIGUSR1` on the worker ends its payload without a host request: the graceful
 /// request, then the group kill at `stop_grace`. The worker keeps running, reports the exit, and ends on `Remove` (LC-7).
 #[test]
