@@ -1066,6 +1066,7 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
     );
 }
 
+mod adoption;
 mod handoff;
 mod paste;
 mod stall;

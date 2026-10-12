@@ -433,6 +433,19 @@ impl Worker {
         self.send_report(msg);
     }
 
+    /// True when `msg` fits one frame of the control link.
+    fn link_fits(&self, msg: &WorkerMsg) -> bool {
+        let mut payload = Vec::new();
+        msg.encode(&mut payload);
+        encode_frame(
+            FrameType::WORKER_MSG,
+            &payload,
+            self.frame_bound,
+            &mut Vec::new(),
+        )
+        .is_ok()
+    }
+
     fn send_report(&mut self, msg: &WorkerMsg) {
         let mut payload = Vec::new();
         msg.encode(&mut payload);
@@ -611,6 +624,7 @@ impl Worker {
                 client,
             } => self.on_attach_route(route, options, limits, client),
             HostMsg::Detach { route, reason } => self.on_detach(route, reason),
+            HostMsg::RouteId { key, route } => self.on_route_id(key, route),
             HostMsg::RouteStallDue { route, mark } => {
                 if let Some(key) = self.route_key(route) {
                     self.on_route_stall_due(key, mark);
@@ -1024,21 +1038,40 @@ impl Worker {
         self.decoder = FrameDecoder::new(self.frame_bound);
         self.input_fence();
         self.send_hello();
-        // The routes' progress reports of the old link are not on the new one: they start again after `Adopted` (R-90).
+        // The routes' progress reports of the old link are not on the new one: they start again after `RouteId` (R-90). The
+        // new link has no route ids (DP-8).
         self.routes_relinked();
-        let report = self.adoption_report();
-        self.report(&report);
-        // The old link's reads that were not checked close on the new link, after its hello and `Adopted` (F120): a route
-        // that took a descriptor of one ends `HandoffFailed`, and the new host is told after the hello.
+        self.routes_adopted();
+        // The old link's reads that were not checked close before the report (F120, DP-8): a route that took a descriptor of
+        // one ends `HandoffFailed`, so it is not live, and the new host, which never knew it, is not told.
         self.close_unchecked();
-        // The routes that stay report their state on the new link (R-90 Q3).
-        self.report_route_progress();
+        let mut live = self.live_routes();
+        // Defence only: a route's `RouteLive` is smaller than its `AttachRoute`, which this link's bound carried (the size
+        // test in `botster-core-link`). A frame that the link cannot carry is never counted in `routes`: its route closes
+        // `HandoffFailed`, and the new host, which never knew it, is not told.
+        let unfit: Vec<RouteKey> = live
+            .iter()
+            .filter(|route| !self.link_fits(&WorkerMsg::RouteLive(Box::new((*route).clone()))))
+            .map(|route| RouteKey(route.key))
+            .collect();
+        debug_assert!(unfit.is_empty(), "a RouteLive over the frame bound");
+        live.retain(|route| !unfit.contains(&RouteKey(route.key)));
+        for key in unfit {
+            self.end_route(key, RouteCloseReason::HandoffFailed);
+        }
+        self.await_route_ids(&live);
+        let report = self.adoption_report(live.len());
+        self.report(&report);
+        // One frame per live route (STDP8-D3). Each route reports its state after its `RouteId` (R-90 Q3).
+        for route in live {
+            self.report(&WorkerMsg::RouteLive(Box::new(route)));
+        }
         // Bytes that came after the hello in the same read belong to the new link.
         self.on_link_bytes(now, rest, Vec::new());
     }
 
     /// DESIGN.md part 4: the live state, never values remembered from the spawn.
-    fn adoption_report(&self) -> WorkerMsg {
+    fn adoption_report(&self, routes: usize) -> WorkerMsg {
         let exited = || {
             let (code, signal) = match self.exit {
                 Some(ExitStatus::Code(code)) => (Some(code), None),
@@ -1065,8 +1098,8 @@ impl Worker {
         WorkerMsg::Adopted {
             report: Box::new(AdoptReport {
                 payload,
-                // DP-8: the live routes are reported in a later commit of this PR; until then none follow.
-                routes: 0,
+                // The `RouteLive` frames that follow (DP-8).
+                routes: u32::try_from(routes).unwrap_or(u32::MAX),
                 features: worker_features(),
                 terminal: ran.then(|| self.adopted_terminal()),
                 // The formats of `Launched`: a model that ran keeps them (P5 #201 R1-2).

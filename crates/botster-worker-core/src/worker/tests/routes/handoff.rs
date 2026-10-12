@@ -526,10 +526,11 @@ fn a_link_end_before_the_read_is_checked_ends_only_its_route() {
     assert!(!actions.contains(&Action::RouteClose { route: RouteKey(1) }));
 }
 
-/// F120, DP-8: a host adopts the worker while a read of the old link with a bound route is not checked. The new host gets
-/// the worker's hello first, then `Adopted`, then the route's one `HandoffFailed`; the new link obeys the new host.
+/// F120, DP-8: a host adopts the worker while a read of the old link with a bound route is not checked. The route ends
+/// `HandoffFailed` before the report, so it is not live (steward ruling R-99): the new host, which never knew it, gets the
+/// worker's hello and `Adopted` with no routes, and no `RouteClosed`. The new link obeys the new host.
 #[test]
-fn an_adoption_before_the_read_is_checked_ends_its_route_after_the_hello() {
+fn an_adoption_before_the_read_is_checked_ends_its_route_before_the_report() {
     let mut w = World::running();
     let mut actions = bound_with_an_open_frame(&mut w);
     actions.extend(adopt(&mut w, EPOCH + 3));
@@ -538,19 +539,10 @@ fn an_adoption_before_the_read_is_checked_ends_its_route_after_the_hello() {
         descriptor_closes(&actions),
         BTreeMap::from([(DescriptorId(1), 1)])
     );
-    let (_, frames) = after_fence(&mut w, &actions);
-    assert_eq!(frames.len(), 3, "{frames:?}");
-    assert_eq!(frames[0].kind, FrameType::HELLO);
-    let hello = Hello::decode(&frames[0].payload).unwrap();
+    assert!(actions.contains(&Action::RouteClose { route: RouteKey(1) }));
+    let (hello, report, live) = adopted_routes(&mut w, &actions);
     assert_eq!(hello.proof, token_proof(&TOKEN, &instance(), EPOCH + 3));
-    assert!(matches!(
-        WorkerMsg::decode(&frames[1].payload).unwrap(),
-        WorkerMsg::Adopted { .. }
-    ));
-    assert_eq!(
-        WorkerMsg::decode(&frames[2].payload).unwrap(),
-        handoff_failed(1)
-    );
+    assert_eq!((report.routes, live), (0, vec![]));
     let stop = w.send(&HostMsg::Stop);
     assert_eq!(signals(&stop), [SIGTERM]);
 }

@@ -2,6 +2,7 @@
 
 use super::*;
 use botster_core_link::frame::Frame;
+use botster_core_link::msg::RouteLive;
 use std::time::Duration;
 
 const TOKEN: [u8; TOKEN_LEN] = [7; TOKEN_LEN];
@@ -2107,15 +2108,30 @@ fn adopt(w: &mut World, epoch: u64) -> Vec<Action> {
 
 /// The worker's hello and its report on the new link.
 fn adopted(w: &mut World, actions: &[Action]) -> (Hello, AdoptReport) {
+    let (hello, report, _) = adopted_routes(w, actions);
+    (hello, report)
+}
+
+/// The worker's hello, its report, and the `RouteLive` frames that follow it (DP-8): exactly `report.routes` of them, and
+/// nothing after them.
+fn adopted_routes(w: &mut World, actions: &[Action]) -> (Hello, AdoptReport, Vec<RouteLive>) {
     let (_, frames) = after_fence(w, actions);
-    assert_eq!(frames.len(), 2, "{frames:?}");
+    assert!(frames.len() >= 2, "{frames:?}");
     assert_eq!(frames[0].kind, FrameType::HELLO);
     let hello = Hello::decode(&frames[0].payload).unwrap();
     let report = match WorkerMsg::decode(&frames[1].payload).unwrap() {
         WorkerMsg::Adopted { report } => *report,
         other => panic!("{other:?}"),
     };
-    (hello, report)
+    let live: Vec<RouteLive> = frames[2..]
+        .iter()
+        .map(|frame| match WorkerMsg::decode(&frame.payload).unwrap() {
+            WorkerMsg::RouteLive(live) => *live,
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(live.len(), report.routes as usize, "{live:?}");
+    (hello, report, live)
 }
 
 /// DESIGN.md 3.3, 3.4, part 4; AD-6, DP-8: a new host proves the host role at a higher epoch. The worker fences the old

@@ -41,7 +41,7 @@
 use super::{model, Action, RouteKey, Worker};
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::Observation;
-use botster_core_link::msg::WorkerMsg;
+use botster_core_link::msg::{RouteLive, WorkerMsg};
 use botster_core_link::route::{frame_bounds, frame_fits, route_closed_frame};
 use botster_route_codec::prelude::{
     stream_wrap, Attached, BaselineBegin, BaselineEnd, Decoded, HexBytes, HistoryState,
@@ -82,6 +82,19 @@ pub(super) enum RouteReport {
     ClientInput { input_rev: InputRev },
 }
 
+/// What a reported route holds back while the control link has no id for it (DP-8, STDP8-D2): at most one item of each kind.
+/// No progress, stall or resume report is held: the route's `RouteId` reports the state at that time.
+#[derive(Debug)]
+struct Awaiting {
+    /// The `stalled` of the route's `RouteLive`: the state that the new host has.
+    stalled: Option<u64>,
+    /// The route received a complete client input frame (IN-4). Its `RouteId` sends one `ClientInput` with the current
+    /// revision (STDP8-D5).
+    input: bool,
+    /// The route closed: its `RouteClosed` waits for the id.
+    closed: Option<(RouteCloseReason, Option<String>)>,
+}
+
 /// The routes of the session.
 #[derive(Debug, Default)]
 pub(super) struct Routes {
@@ -92,6 +105,9 @@ pub(super) struct Routes {
     keys: BTreeMap<RouteId, RouteKey>,
     /// The last key that `AttachRoute` allocated.
     last_key: u64,
+    /// The routes that the last adoption reported and that have no id on this link yet (DP-8, STDP8-D2), with what each
+    /// one holds back until its `RouteId`. An adoption clears it with the table.
+    awaiting: BTreeMap<RouteKey, Awaiting>,
     /// The last budget that the driver got was a limit: when the last route ends, the limit is lifted once.
     limited: bool,
     /// `settle_routes` runs: a call from inside it (a refusal that an applied frame queues) only asks for one more pass.
@@ -720,15 +736,102 @@ impl Worker {
         self.routes.keys.get(&route).copied()
     }
 
+    /// An adoption (DP-8): the new link has no ids, so the table and the held items of an earlier adoption are cleared. A
+    /// route that closed while it waited for an id is not live, so its held close goes too.
+    pub(super) fn routes_adopted(&mut self) {
+        self.routes.ids.clear();
+        self.routes.keys.clear();
+        self.routes.awaiting.clear();
+    }
+
+    /// The live routes for the adoption report (DP-8; steward ruling R-99): each route that has not taken its Closed
+    /// transition, a route that drains for its session's end too, in key order, one `RouteLive` each.
+    pub(super) fn live_routes(&self) -> Vec<RouteLive> {
+        self.routes
+            .routes
+            .iter()
+            .filter(|(_, route)| route.closing.is_none())
+            .map(|(key, route)| RouteLive {
+                key: key.0,
+                route_tag: route.route_tag.clone(),
+                owner: route.owner.clone(),
+                client: route.client.clone(),
+                limits: route.limits.clone(),
+                stalled: route.stall.stalled_at(),
+            })
+            .collect()
+    }
+
+    /// The reported routes wait for their `RouteId` (STDP8-D2).
+    pub(super) fn await_route_ids(&mut self, live: &[RouteLive]) {
+        for live in live {
+            self.routes.awaiting.insert(
+                RouteKey(live.key),
+                Awaiting {
+                    stalled: live.stalled,
+                    input: false,
+                    closed: None,
+                },
+            );
+        }
+    }
+
+    /// `HostMsg::RouteId` (DP-8): the new link's id of a reported route. The route sends what it held: one `ClientInput`
+    /// with the current revision (STDP8-D5), then its close; or, while it lives, one stall or resume report when its state
+    /// differs from its `RouteLive`, then its progress. A key that this link did not report, or that has its id already,
+    /// changes nothing.
+    pub(super) fn on_route_id(&mut self, key: u64, route: RouteId) {
+        let key = RouteKey(key);
+        let Some(awaiting) = self.routes.awaiting.remove(&key) else {
+            return;
+        };
+        self.routes.ids.insert(key, route);
+        self.routes.keys.insert(route, key);
+        if awaiting.input {
+            let input_rev = self.input.input_revs().client;
+            self.report_route(key, RouteReport::ClientInput { input_rev });
+        }
+        if let Some((reason, route_tag)) = awaiting.closed {
+            self.report_route(key, RouteReport::Closed { reason, route_tag });
+            return;
+        }
+        let Some(stall) = self.routes.routes.get(&key).map(|r| &r.stall) else {
+            return;
+        };
+        let (stalled, mark) = (stall.stalled_at(), stall.mark());
+        if stalled != awaiting.stalled {
+            let report = match stalled {
+                Some(mark) => RouteReport::Stalled { mark },
+                None => RouteReport::Resumed { mark },
+            };
+            self.report_route(key, report);
+        }
+        self.send_route_progress(key);
+    }
+
     /// The control link's id of route `key`, when the link has one (DP-8).
     pub(super) fn link_id(&self, key: RouteKey) -> Option<RouteId> {
         self.routes.ids.get(&key).copied()
     }
 
     /// Sends a report about route `key` with its id on the control link (DP-8): the one place where a route's `RouteId` leaves
-    /// the worker. A route that the link has no id for is not reported. `RouteClosed` ends the route's pair in the table.
+    /// the worker. `RouteClosed` ends the route's pair in the table. A route that the link has no id for is not reported: a
+    /// route of the last adoption keeps its close or its input for its `RouteId` (STDP8-D2), and any other route is not
+    /// live on this link (steward ruling R-99).
     pub(super) fn report_route(&mut self, key: RouteKey, report: RouteReport) {
         let Some(route) = self.link_id(key) else {
+            if let Some(awaiting) = self.routes.awaiting.get_mut(&key) {
+                match report {
+                    RouteReport::Closed { reason, route_tag } => {
+                        awaiting.closed = Some((reason, route_tag));
+                    }
+                    RouteReport::ClientInput { .. } => awaiting.input = true,
+                    // The route's `RouteId` reports its stall state then; an adopted route is bound already.
+                    RouteReport::Stalled { .. }
+                    | RouteReport::Resumed { .. }
+                    | RouteReport::Received => {}
+                }
+            }
             return;
         };
         let msg = match report {

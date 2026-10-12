@@ -490,24 +490,109 @@ fn a_newer_report_waits_until_the_link_wrote_the_last_one() {
     assert_eq!(progress(&w.reports(&next)), [(mark + 3, true)]);
 }
 
-/// R-90 Q3: a new host has none of the old link's reports. After `Adopted`, a waiting route reports its state again on the
-/// new link.
+/// R-90 Q3, DP-8: a new host has none of the old link's reports. After `Adopted`, a waiting route is reported live, with no
+/// progress report while the new link has no id for it; its `RouteId` reports its state with the new id.
 #[test]
-fn an_adoption_reports_a_waiting_route_again_after_adopted() {
+fn an_adoption_reports_a_waiting_route_again_after_its_route_id() {
     let (mut w, _client, _write, mark) = waiting_route(10);
     let actions = adopt(&mut w, EPOCH + 3);
-    let (_, frames) = after_fence(&mut w, &actions);
-    let msgs: Vec<WorkerMsg> = frames[1..]
-        .iter()
-        .map(|f| WorkerMsg::decode(&f.payload).unwrap())
-        .collect();
-    assert!(matches!(msgs[0], WorkerMsg::Adopted { .. }), "{msgs:?}");
+    let (_, _, live) = adopted_routes(&mut w, &actions);
     assert_eq!(
-        msgs[1..],
+        live.iter().map(|r| (r.key, r.stalled)).collect::<Vec<_>>(),
+        [(1, None)]
+    );
+    let actions = w.send(&HostMsg::RouteId {
+        key: 1,
+        route: RouteId(9),
+    });
+    assert_eq!(
+        w.reports(&actions),
         [WorkerMsg::RouteProgress {
-            route: RouteId(1),
+            route: RouteId(9),
             mark,
             waiting: true
+        }]
+    );
+}
+
+/// DP-8, STDP8-D2: a `Stalled` route is reported live with its stall mark. It resumes before its `RouteId`: no
+/// `RouteResumed` goes out with no id, and the `RouteId` sends one, because the state differs from the `RouteLive`. (A stall
+/// in the window cannot happen: it needs the host's `RouteStallDue`, which names the route's id.)
+#[test]
+fn a_stalled_route_is_reported_with_its_mark_and_a_resume_before_its_id_is_sent_at_the_id() {
+    let (mut w, mut client, write, mark) = waiting_route(10);
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    let actions = adopt(&mut w, EPOCH + 3);
+    let (_, _, live) = adopted_routes(&mut w, &actions);
+    assert_eq!(
+        live.iter().map(|r| (r.key, r.stalled)).collect::<Vec<_>>(),
+        [(1, Some(mark))]
+    );
+    client.reader.push(&write);
+    let resumed = w.feed(Input::RouteWritten {
+        route: RouteKey(1),
+        result: Ok(write.len()),
+    });
+    let all = client.take_all(&mut w, RouteKey(1), resumed);
+    let accepted = all
+        .iter()
+        .filter(|a| matches!(a, Action::RouteWrite { .. }))
+        .count() as u64;
+    assert!(
+        !w.reports(&all)
+            .iter()
+            .any(|r| matches!(r, WorkerMsg::RouteResumed { .. })),
+        "no report with no id"
+    );
+    let id = w.send(&HostMsg::RouteId {
+        key: 1,
+        route: RouteId(9),
+    });
+    let reports = w.reports(&id);
+    assert_eq!(
+        reports
+            .iter()
+            .filter(|r| matches!(r, WorkerMsg::RouteResumed { .. }))
+            .collect::<Vec<_>>(),
+        // The current mark: the resuming write, then each write that the client took after it.
+        [&WorkerMsg::RouteResumed {
+            route: RouteId(9),
+            mark: mark + 1 + accepted,
+        }]
+    );
+}
+
+/// DP-8: a route that is `Stalled` at the adoption and still `Stalled` at its `RouteId` sends no stall report: the
+/// `RouteLive` carried it, and the new host arms its close step at the `RouteAdopted` post.
+#[test]
+fn a_route_still_stalled_at_its_id_sends_no_stall_report() {
+    let (mut w, _client, _write, mark) = waiting_route(10);
+    w.send(&HostMsg::RouteStallDue {
+        route: RouteId(1),
+        mark,
+    });
+    let actions = adopt(&mut w, EPOCH + 3);
+    assert_eq!(adopted_routes(&mut w, &actions).2[0].stalled, Some(mark));
+    let actions = w.send(&HostMsg::RouteId {
+        key: 1,
+        route: RouteId(9),
+    });
+    assert_eq!(w.reports(&actions), vec![]);
+    // The new id works: the host's close step closes the route.
+    let close = w.send(&HostMsg::RouteCloseDue {
+        route: RouteId(9),
+        mark,
+    });
+    assert!(close.contains(&Action::RouteClose { route: RouteKey(1) }));
+    assert_eq!(
+        w.reports(&close),
+        vec![WorkerMsg::RouteClosed {
+            route: RouteId(9),
+            reason: RouteCloseReason::StallTimeout,
+            route_tag: None,
         }]
     );
 }

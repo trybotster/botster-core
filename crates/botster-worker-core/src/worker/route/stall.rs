@@ -54,6 +54,16 @@ impl Clock {
         self.stalled.is_some()
     }
 
+    /// `Some(mark)` while the route is `Stalled` at `mark` (OU-2).
+    pub(super) fn stalled_at(&self) -> Option<u64> {
+        self.stalled
+    }
+
+    /// The writes of the route that the transport accepted bytes of (OU-3a).
+    pub(super) fn mark(&self) -> u64 {
+        self.mark
+    }
+
     /// The state to report: the mark, and whether the route is `Open` with bytes that the transport has not accepted.
     fn state(&self, queued: usize) -> (u64, bool) {
         (self.mark, self.stalled.is_none() && queued > 0)
@@ -255,7 +265,7 @@ impl Worker {
         }
     }
 
-    fn send_route_progress(&mut self, id: RouteKey) {
+    pub(in crate::worker) fn send_route_progress(&mut self, id: RouteKey) {
         // A route that the link has no id for sends no progress (DP-8).
         let Some(link_id) = self.link_id(id) else {
             return;

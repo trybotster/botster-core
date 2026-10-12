@@ -238,21 +238,51 @@ no progress came after the host's view (OU-3: a progressing reader never loses o
   ST298-R2). Otherwise the worker sends `RouteResumed{route, mark}`.
 - **`RouteCloseDue{route, mark}`.** At the stall's mark, the route closes with its first reason, or `StallTimeout`. At
   another mark (the route resumed, and maybe stalled again) it changes nothing.
-- **Adoption (R-90 Q3).** No stall deadline runs while no host is connected. At the adoption, the worker forgets what it
-  reported to the old host, sends the adoption report and closes the unchecked routes first, then reports each route's
-  state again, so the new host arms from the pump that consumes it.
-- **The adoption limit (lead decision Q4 (b)).** DP-8 route adoption is not built: the new host does not know a route
-  that survived the restart and drops its reports, so the route has no stall clock. Its stuck reader holds PTY output
-  (OU-3d) until the route closes for another reason. DP-8 route adoption is ST's next PR: the per-route adoption report
-  gains the route's `state` (`Open` or `Stalled`), `waiting`, `mark`, and its applied `stall_deadline` and
-  `stall_close_after`. The new host posts `RouteAdopted` only (no `RouteStalled` for a route that was `Stalled`), and
-  arms from the pump that consumes the record: the stall step for an `Open` route that waits, the close step at the
-  stall's mark for a `Stalled` route.
+- **Adoption (R-90 Q3, DP-8).** No stall deadline runs while no host is connected. At the adoption, the worker forgets
+  what it reported to the old host. A route reports its state again only after the new host's `RouteId` for it, so the new
+  host arms from the pump that consumes that report. A `Stalled` route is reported with its mark in its `RouteLive`, and
+  the new host arms its close step at the post of its `RouteAdopted` ("Route adoption (DP-8)" below).
 - **No feature gate.** An older worker never sends `RouteProgress`, so the host never arms a deadline for its routes and
   sends no due message; an older worker also ignores an unknown host message. The two messages need no negotiated
   feature (a deviation from the design note's feature gate).
 - **No affected query yet.** The worker sends no `terminal_query` and no `modes` frame on a route yet, so a stall discard
   retires no query today. When those frames come, the stall applies EV-8(i) as below.
+
+### Route adoption (DP-8; design note `st-dp8-route-adoption-design.md`, revision 5)
+
+- **Route keys (STDP8-D1).** The worker keys every route structure by its own `RouteKey`, which `AttachRoute` allocates
+  from the worker's counter: the route machine, the admitted input records, every `Action` and `Input` that names a route,
+  the real driver's `route_io` and the testkit edge. A key never changes, so no rename runs while a write is partly done,
+  input is admitted or a callback is queued.
+- **The link table.** `Routes.ids` and `Routes.keys` map a key to the control link's `RouteId` and back. `AttachRoute` adds
+  a pair, `RouteId{key, route}` adds the pair of an adopted route, and a route's `RouteClosed` removes its pair. An
+  adoption clears the table: the new link has no ids. Every host message that names a route looks the key up; an id that
+  is not in the table is an unknown route (a `Detach` of it is answered `RouteClosed` with that id at once). Every route
+  report goes through `report_route` (and progress through `send_route_progress`), so the table is the only place where a
+  link id enters or leaves the worker.
+- **Live routes (steward ruling R-99).** Live means OU-2 `Open` or `Stalled`: `closing` is the Closed transition only. The
+  session's end sets `drain_close` instead (`queue_close`): the route delivers its queue, `route_closed` last, and takes
+  its Closed transition when the queue is empty. Until then it is live. One helper, `accepts_input`, tests both fields at
+  the input sites, and `close_reason` (`closing`, else `drain_close`) gives the first reason.
+- **The adoption.** `adopt` clears the table, closes the unchecked reads first (a route that took a descriptor of one ends
+  `HandoffFailed`, so it is not live, and the new host, which never knew it, is not told), then sends `Adopted` with
+  `routes` = the number of live routes and one `RouteLive{key, route_tag, owner, client, limits, stalled}` per live route,
+  in key order. The worker keeps `owner` and `client` per route for it (`AttachRoute` carries `client`).
+- **The frame bound (STDP8-D3).** Each `RouteLive` holds one route and is smaller than that route's `AttachRoute`, which
+  the same link bound carried (the size test in `botster-core-link`). As defence only, a `RouteLive` that the link cannot
+  carry is not counted: its route closes `HandoffFailed` before the report (a debug assertion).
+- **Until the route's `RouteId` (STDP8-D2).** A reported route sends nothing with no id, and holds at most one item of each
+  kind (`Awaiting`): `RouteProgress`, `RouteStalled` and `RouteResumed` are not held (the `RouteId` reports the current
+  state: a stall or resume report when the state differs from the `RouteLive`, then progress); a client input sets a flag,
+  and the `RouteId` sends one `ClientInput` with the worker's current client revision (STDP8-D5: the revisions on the link
+  never decrease); a close is held and sent with the new id, then the key is forgotten. `RouteReceived` never comes for an
+  adopted route. A route that was not live at the adoption never gets an id on the link. A second adoption before a
+  `RouteId` clears the held items with the table and reports the routes that are live then.
+- **Protocol 1 (steward ruling R-98).** The DP-8 fields (`AttachRoute.client`, `AdoptReport.routes`, `RouteLive`,
+  `RouteId`) are part of worker protocol 1, with no serde default: a message without one does not decode. Protocol 1 is
+  fixed at the first release. After it, a link change that a released peer cannot handle steps the protocol (AD-4).
+- Tests: `worker/tests/routes/adoption.rs`, the adoption tests of `routes/stall.rs` and `routes/handoff.rs`, and the
+  link tests in `botster-core-link` (`msg.rs`).
 
 ### The output queue and the resync sequence (OU-4, OU-9, DP-5)
 
