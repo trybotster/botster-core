@@ -70,7 +70,6 @@ conf::a2_1_read_screen_history_flag_and_text
 conf::a2_1_state_change_in_flight_is_wrong_state_async
 conf::a2_1_sync_errors_allocate_no_op_for_every_row
 conf::a2_2_never_sent_write_is_not_written_zero
-conf::a2_2_refused_is_a_sequencing_error_route_input_only
 conf::a2_2_sent_unacknowledged_write_is_unknown_on_link_loss
 conf::a2_2_unsupported_what_values
 conf::a2_2_write_input_never_completes_with_err_except_internal
@@ -131,6 +130,7 @@ conf::a3_1_set_policy_in_created_is_stored_in_the_row_and_reaches_the_worker_at_
 conf::a3_1_stall_resync_reports_dropped_notifications_once_before_the_resync
 conf::a3_1_started_frame_is_completed_and_its_notifications_are_not_counted
 conf::a3_1_unshortened_last_has_no_truncated_field
+# conf::a3_2_close_from_stalled_runs_dp12: DP-12 focus state, PR B (RC): Core posts no FocusChanged at step 13 (lead, plan 23cf).
 conf::a3_2_close_from_stalled_runs_dp12
 conf::a3_2_resume_writes_no_focus_in
 conf::a3_2_stall_changes_no_focus_value_and_posts_no_focus_changed
@@ -183,8 +183,6 @@ conf::ad_7_crash_between_steps_leaves_no_unregistered_payload
 conf::ad_7_uncertain_registry_write_is_reported
 conf::am_2_fairness_bound_across_routes
 conf::am_2_no_interleave_across_paste_markers
-conf::am_2_one_admission_point_orders_all_sources
-conf::am_2_transaction_is_contiguous_across_short_writes
 conf::dp_10_t1_keystroke_to_pty_latency_budget
 conf::dp_10_t1_pty_to_client_latency_budget
 conf::dp_10_t1_throughput_and_byte_identity
@@ -202,7 +200,6 @@ conf::dp_12_terminal_state_focused_matches_the_event
 conf::dp_12_unreachable_or_n_minus_1_worker_leaves_focused_unknown
 conf::dp_1_host_process_never_sees_route_bytes
 conf::dp_2_stream_handoff_transfers_ownership_and_closes_host_copy
-conf::dp_3_data_frames_are_raw
 conf::dp_3_exactly_maximal_snapshot_fits_with_the_type_byte
 conf::dp_3_history_is_paged_within_max_history_page_bytes
 conf::dp_3_output_deflate_frames_share_no_state
@@ -211,20 +208,15 @@ conf::dp_3_output_deflate_inflates_to_the_exact_pty_bytes_in_order
 conf::dp_3_output_deflate_over_the_frame_bound_is_invalid_input
 conf::dp_3_route_codec_matches_client_appendix_a4_a5
 conf::dp_4_worker_encodes_route_frames_with_write_time_modes
-conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
-conf::dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false
 conf::dp_5_every_not_written_reason_maps_to_a_refusal_or_no_frame
 conf::dp_5_exception_frames_wait_in_the_route_queue_and_full_queue_stops_input_reads
 conf::dp_5_full_input_queue_stops_reading_the_route_and_never_drops
 conf::dp_5_input_before_live_is_refused_not_ready
 conf::dp_5_input_done_answers_only_want_result_paste_and_file_commit
-conf::dp_5_input_done_only_for_want_result_true
-conf::dp_5_mode_precondition_zero_effect_reported_on_the_route
 conf::dp_5_modes_coalesce_to_one_latest_unstarted_frame
 conf::dp_5_no_input_has_a_success_acknowledgement
 conf::dp_5_not_reported_sends_no_frame
 conf::dp_5_op_is_optional_except_on_a_paste
-conf::dp_5_paste_is_assembled_and_written_contiguously_at_commit
 conf::dp_5_refusals_survive_a_resync
 conf::dp_5_resize_has_no_answer_size_arrives_in_modes
 # After the contracts-v0.1.39 merge: the testkit fails it at seed 10 step 15 (gate dfc38b47, seeds 0-31: route_closed session_ended
@@ -272,22 +264,18 @@ conf::e2_3_write_start_uses_current_model_modes
 conf::e3_1_carried_steps_run_first_in_due_order
 conf::e3_1_carried_transition_into_a_full_mandatory_queue_is_parked_and_woken_on_room
 conf::e3_1_due_effect_without_event_runs_in_its_pump_with_no_budget
-conf::e3_1_due_step_beyond_budget_is_carried_with_more
 conf::e3_1_eventless_effect_overtakes_a_carried_or_parked_step
 conf::e3_1_runnable_silent_bypasses_a_transition_parked_on_queue_room
-conf::e3_1_two_silences_due_together_with_budget_one
 conf::e4_1_client_reply_reserves_its_frame_size
 conf::e4_1_fallback_reserves_its_reply_length
 conf::e4_1_reply_one_byte_over_the_free_bound_is_parked
+# conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open: Core erratum 6 (manifest final40, contracts-v0.1.41; EV-8(c) wrong_route); on the testkit the DA1 query of step 16 never reaches r2 (step 18: no item arrived on r2; r1 query_deadline 40000, r2 50000). Owner: RC.
+conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open
 conf::er_registry_failed
 conf::er_service_limit
 conf::er_unsupported_feature
-conf::ev_1_replaced_keyed_event_moves_to_latest_position
-conf::ev_2_mandatory_and_keyed_never_dropped
-conf::ev_5_keyed_events_bounded_by_keys
 conf::ev_5_service_released_retires_service_keyed_events
 conf::ev_6_keyed_event_carries_latest
-conf::ev_6_loss_leaves_marker_then_state_is_readable
 conf::ev_7_each_terminal_feature_reaches_the_host
 conf::ev_7_every_mode_change_posts_modes_changed
 conf::ev_7_hyperlink_in_output_and_snapshot
@@ -326,21 +314,9 @@ conf::ev_9_every_session_event_carries_instance_id
 conf::in_1_host_write_and_route_frames_share_payload_kinds
 conf::in_6_cancel_result_kinds
 conf::in_6_refused_full_wakes_on_room
-conf::in_9_application_cursor_and_keypad
-conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_key_repeat_is_one_contiguous_guarded_transaction
-conf::in_9_key_shifted_and_alternate_keys_omission_rule
 conf::in_9_kitty_all_32_flag_combinations_pinned
 conf::in_9_kitty_each_flag
-conf::in_9_kitty_flag_16_needs_flag_8
-conf::in_9_kitty_modifier_keys_need_flag_8
-conf::in_9_kitty_text_with_control_codepoint_omitted
-conf::in_9_kitty_unknown_flag_bits_ignored
-conf::in_9_legacy_keys_table
-conf::in_9_legacy_release_is_not_reported
-conf::in_9_mouse_each_encoding_and_limits
-conf::in_9_mouse_each_tracking_mode
-conf::in_9_non_us_layout_uses_supplied_text
 conf::in_9_text_is_one_transaction_and_utf8
 conf::lc_12_stop_all_target_set
 conf::lc_6_signal_reaches_group
@@ -369,6 +345,7 @@ conf::st_2_screen_history_flag
 conf::st_3_coordinates_are_zero_based_cells
 conf::st_3_cursor_fields
 conf::st_3_trimming_rules
+# conf::st_4_terminal_state: DP-12 focus state, PR B (RC): Core's terminal_state has no `focused` at step 5, before the oracle_state read.
 conf::st_4_terminal_state
 conf::st_6_capture_bound
 conf::st_6_snapshot_versioned
@@ -444,7 +421,6 @@ conf::sz_1_resize_without_route
 conf::sz_2_same_size_is_noop
 conf::sz_3_coalesced_resize_is_superseded
 conf::sz_3_every_resize_completes
-conf::th_3_no_route_io_in_the_host
 conf::tm_6_parked_work_does_not_spin
 conf::tp_1_at_most_one_unacknowledged_tap_frame_on_the_control_link
 conf::tp_1_control_frames_not_delayed_by_tap

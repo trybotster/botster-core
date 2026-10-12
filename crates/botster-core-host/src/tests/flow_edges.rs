@@ -177,7 +177,7 @@ fn a_failed_row_delete_leaves_the_session_and_the_remove_can_be_tried_again() {
             }
             _ => {
                 w.running("s1");
-                w.exited("s1");
+                w.worker_ends("s1");
                 w.pump();
             }
         }

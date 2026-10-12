@@ -8,7 +8,7 @@ fn a_worker_process_that_ends_is_lost_worker_gone() {
     let mut w = World::default();
     w.autopilot = Autopilot::Silent;
     w.running("s1");
-    w.exited("s1");
+    w.worker_ends("s1");
     w.pump();
     assert_eq!(
         w.engine.get(&sid("s1")).unwrap().state,

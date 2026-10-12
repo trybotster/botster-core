@@ -762,3 +762,73 @@ fn a_new_host_adopts_a_live_worker_at_its_endpoint_and_remove_deletes_an_endpoin
     );
     assert!(!left.exists(), "the endpoint is removed");
 }
+
+/// Steward ruling R-78 item 4 (design test 13) and its follow-up, Core AD-2: a worker process that a kill ends while its
+/// session is `Stopping` never leaves the session `Lost(WorkerUnreachable)`. Core's reaper reaps it and reports the exit, and
+/// the host drains the worker's link without waiting before it classifies: a session whose worker wrote `Exited` before it
+/// ended is `Exited` with that code; one whose worker wrote nothing is `Lost(WorkerGone)`. Here the test's thread holds the
+/// worker side of the link and keeps it open until the stop completed, so no end of file comes: the drain ends at the first
+/// would-block.
+#[test]
+fn a_worker_lost_while_stopping_ends_worker_gone() {
+    for wrote_exited in [false, true] {
+        let tmp = tempfile::tempdir().unwrap();
+        let Running {
+            mut core,
+            _worker,
+            mut link,
+            peer,
+        } = running(tmp.path(), |_, _, _| {});
+        let stop = core.begin(Op::Stop { id: sid("s1") }).unwrap();
+        pump_until(&mut core, |_| true);
+        assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Stopping);
+        // The worker's last frame is written before it ends: a process writes nothing after its exit.
+        if wrote_exited {
+            say(
+                &mut link,
+                &WorkerMsg::Exited {
+                    code: Some(7),
+                    signal: None,
+                },
+            );
+        }
+        let pid = _worker.pid().expect("the worker recorded its pid");
+        botster_core_sys::signal::signal_process(
+            pid.as_raw_nonzero().get().unsigned_abs(),
+            rustix::process::Signal::KILL,
+        )
+        .unwrap();
+        let ended = botster_test_process::platform::await_end(pid, Deadline::cleanup()).unwrap();
+        assert_ne!(
+            ended,
+            botster_test_process::platform::Waited::Deadline,
+            "the worker did not end"
+        );
+        // The link stays open on the test's side: the stop completes without an end of file.
+        let events = pump_until(&mut core, |e| completed(e, stop).is_some());
+        let result = completed(&events, stop).unwrap();
+        if wrote_exited {
+            assert!(
+                matches!(&result, OpResult::Ok(OpOutput::End(SessionEnd::Exited(exit))) if exit.code == Some(7)),
+                "{result:?}"
+            );
+        } else {
+            // Only the exit report ends a gone worker with no word, so Core's reaper reaped it.
+            assert_eq!(
+                result,
+                OpResult::Ok(OpOutput::End(SessionEnd::Lost(LostReason::WorkerGone)))
+            );
+            assert!(
+                rustix::process::test_kill_process(pid).is_err(),
+                "Core's reaper reaped the worker"
+            );
+        }
+        // The host closed its end after the drain; macOS then reports the test's socket as not connected.
+        match link.shutdown(std::net::Shutdown::Both) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotConnected => {}
+            Err(e) => panic!("the test's end of the link: {e}"),
+        }
+        peer.join().unwrap();
+    }
+}
