@@ -539,6 +539,9 @@ fn serve(hub: &Hub, stream: UnixStream) {
                 false
             }
             Some(Report::InputEnd {} | Report::Hello { .. }) => false,
+            // A probe reports its prints only under `PRINTS_ENV` (contracts #80, R-62 follow-up), which the testkit does not
+            // set yet: the serving PR (P3, after the .44 pin) records them and answers `Recorded`.
+            Some(Report::Printed { .. }) => false,
             None => {
                 probe.closed = true;
                 drop(state);
