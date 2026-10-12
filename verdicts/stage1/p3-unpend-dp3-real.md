@@ -92,3 +92,36 @@ The complete matching package review of this expanded body remains due before fo
 Initial package Round 202 retains its earlier body scope and supplies no automatic acceptance of that expansion.
 Later base import, train composition, exact merging gate, and equal-tree/remote merge verification remain due.
 I ran no build, test, gate, reproduction, measurement, or pool job. No formal integration verdict is issued in this inspection.
+
+
+## Round 1: complete source, evidence, and expanded-body CLEAN
+
+- Head: `6b1918c93b49f636bd9a4d0f5808ecf92909fe5c`.
+- Tree: `cff0c4b99d6e157b2bb9aba0ab171abd553576e1`.
+- Source and gate base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+- Complete inspection: `063ce874`, above.
+- Complete package source and gate verdict: `8590b7220d467ed45b29452da4556a46d472ce32`, Round 202.
+- Complete matching package expanded-body receipt: `744bf1e9e410865d43750780c07772926c722db2`, within Round 202.
+
+I read the complete matching package expansion. It matches the exact source head, tree, base, final body hash, and 30-ID audit.
+No source or gate changes after the completed inspection. Both reviews confirm the sole dp3 removal and zero added IDs.
+F155 and F156 retain their corrected evidence and comment scopes. Shared F158 LOW is CLOSED.
+The corrected R-87 row states both parked-work forms. The EV-6 row separates the old failure from its later sentinel fence.
+
+The final body SHA256 remains `1a347c38e9b39a2eee24392f1e42d76d786d5901621c2dc3f7788f8f5c4fdd2a`.
+All thirty audit IDs match the train-7b report. All 23 exception rows match their .46 entries and transcript steps.
+Four current-tag retention reasons remain valid. Two fenced candidates remain deferred by the explicit lead disposition.
+Only dp3 leaves here. The post-.49 batch must supply its own reconfirming evidence and review.
+This .46 body audit remains distinct from this member's .44 source and gate. No future pin or batch removal is accepted.
+
+The exact-head gate hash remains `ce853de32931cb1b7b04c1ebb58a0c06c8427f4fe59d3f2d48d70fd0b815c689`.
+All ten steps pass. Dp3 has normal default and real must-pass results. The minimum membership remains intact.
+The dirty-base local run and superseded gate retain their original provenance and head limits.
+This verdict closes the lead's additional integration review against the stated source base.
+
+No source, body, or supplied-evidence finding remains, including LOW findings.
+A later base import or train-9 composition still requires its applicable list delta and exact merging gate.
+Final train receipt and equal-tree/remote merge verification remain due. No final future-train or completed merge acceptance is supplied here.
+I ran no build, test, gate, mutation, reproduction, measurement, or pool job.
+
+VERDICT: CLEAN (0 open, including LOW; exact member source, gate, and expanded body)

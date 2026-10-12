@@ -12,6 +12,8 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | #318 | Import Round 4 CLEAN at `acd6ced0`. Package Round 201 `4aaa3091` checked. F157 closes; the WorkerClock repair and exact-head green gate are accepted. | Final import, train reviews, final gate and receipts, and merge verification. Mac IN-6 classification remains P3's separate duty. No F28 closure accepted. |
 | #316 | Train-7b Round 3 source CLEAN at `007efbde` for frozen member `f1ac08b9`. Package `9ac22d23` checked. All member blobs remain exact. | Train-7b FINAL `007efbde` is recorded in train-7b.md. Lead equal-tree/remote merge verification remains due. Future #313 composition remains unaccepted. |
 
+| #328 | Additional integration Round 1 CLEAN at `6b1918c9`. Package Round 202 and expanded receipt `744bf1e9` checked. F155/F156/F158 close; exact member gate passes. | Later base import, train-9 list delta and gate, final receipt, and merge verification. Two .46 candidates remain deferred to the post-.49 batch. |
+
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 
 The lead assigns Sol and Sol-C to #317. Both reviews now accept its exact READY head. P3's A31 structural fix remains separate.
@@ -22,4 +24,4 @@ I ran no build, test, gate, or pool job. I read new messages only after a doorbe
 
 Train 7b combined source is CLEAN at `007efbde`, with all member reviews checked and all 45 list formulas verified.
 Sol-C publishes the one FINAL train receipt after the exact-head gate passes. Lead equal-tree/remote merge verification remains due.
-#328 and its local-evidence finding remain outside this frozen train review.
+#328 remains outside train 7b. Its later assigned review closes all source, body, and evidence findings at `6b1918c9`.
