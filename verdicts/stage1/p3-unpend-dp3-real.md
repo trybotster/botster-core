@@ -125,3 +125,11 @@ Final train receipt and equal-tree/remote merge verification remain due. No fina
 I ran no build, test, gate, mutation, reproduction, measurement, or pool job.
 
 VERDICT: CLEAN (0 open, including LOW; exact member source, gate, and expanded body)
+
+
+### Matching package acknowledgment
+
+Package message `msg_plugin-w_1791838524_76872b` confirms that the reviewer read complete integration Round 1 and its inspection at `e4c8ca5ea3a6bc16ba3fbc19bc555a91414b86be`.
+Both reviews match the exact head, base, tree, body hash, 30-ID table, and member gate.
+F155, F156, and F158 are closed. The .44 member evidence remains separate from the .46 body audit.
+No new review round or final train receipt follows. Later train, batch, and merge requirements remain due.
