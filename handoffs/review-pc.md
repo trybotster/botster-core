@@ -2145,3 +2145,52 @@ Both reviews have the same two MEDIUM findings open. The integration review adds
 Both retain the initial gate's empty fuzz selection and the earlier local, platform, and scratch-contracts limits.
 PC's unpublished correction stays unreviewed. Completed corrected-head READY and both delta reviews remain due.
 No reviewer execution job runs. Wait for the correction doorbell. Never poll.
+
+Publication: the matching #319 integration receipt is pushed at 83e2421603d55ea7b4ba89c16055e453c4b16ee6.
+PC and Sol received the receipt. The verdict remains NOT CLEAN with two open MEDIUM findings.
+Wait for the completed correction doorbell. Never poll.
+
+## #319 complete repair and R-115 text review
+
+PC repair READY msg_plugin-w_1791836503_dcec8b supplies gated parent d1aa733480bbc9ee5449e70c6b34939fa18065e9.
+PC text receipt msg_plugin-w_1791836833_3ea519 supplies reviewed head fabbf66cdaccedd942b8cedea824c763bd7bfa7a.
+Source base is 080987829a2e2245a7ea97606020400392c974d6. Reviewed tree is 56a6056cbe91f05850e81ab724db39aed3b5992f.
+The reviewer reads the brief first, complete repair, R-111/R-115, completed gate, supporting records, and complete corrected body.
+CQ-RFT-1 closes: two registered bolero harnesses run as default properties and actual landing fuzz.
+CQ-RFT-2 closes: checked errno negation rejects i32::MIN and zero; unit/property regressions pass and fail on the retained reversal.
+The RED 86fdb209 gate retains its surviving ends() mutant. The d1aa7334 unit/property change kills it in the new exact gate.
+
+CQ-RFT-3 LOW closes after PC records two am_2_one Stage 2 FLAKY outcomes and the correct pending status.
+The flaky trials earn no catch. The rqueue unit test catches each mutant instead, with normal and baseline PASS.
+PC owns the R-93 fence fix on the contracts route-frames branch, reported bdad2be3, with its gate running and PR not yet open.
+The reviewer reads no running record and accepts no future contracts head or pin.
+The prior package record wrongly said both AM-2 ids were pending. This review corrects that statement.
+am_2_one is in neither list and remains a required test. am_2_fairness remains core-pending. No list changes occur.
+
+CQ-RFT-4 / R319-SI-2 LOW closes after the body and worker design identify R-115 reviewer checklist item 6.
+The final commit changes only three design-text lines; no runtime, test, pin, list, facade, or gate blob changes after d1aa7334.
+The body requires no route gate or accept limit from the first frame to the fence, and the default route_queue_bytes.
+The earlier new-lint requirement is superseded by R-115. No new check is added.
+
+Completed parent gate: ~/botster-sessions/gates/botster-core-stage1-pc-route-frames-taken-d1aa7334-pool-20261012-125446-96535.log.
+Verified SHA-256 c42efaa14229841b83d677f915c591ef7f2042c2e8d01f7491a87259cfcb0462; the client copy is byte-identical.
+Gate base is 2683de7ccbb1360d124422b3b6a2dd196b046c7e; source merge base is 08098782.
+All ten checks PASS. CI total is 1474.5 seconds. Job and wrapper exit 0 after 1571 seconds.
+Default passes 1939 tests. Normal slow and baseline each pass 627 tests. Both strict summaries are 261/0.
+Stage 1 has 46 caught, 43 missed, three unviable. Stage 2 has 42 caught, one unviable, zero missed, zero timeout.
+All 88 unique raw catches match citations and normal PASS. All Stage 2 citations also have baseline PASS.
+The 43 exact misses equal the 42 recovered catches plus one unviable outcome. The two FLAKY outcomes earn no credit.
+frame_ends_decoder runs 3195602 cases and sock_diag_decoder runs 5847439 cases, each in 61 seconds, without a reported crash.
+The Mac parent-head summary reports 444 default, 13 focused slow, and strict261/0 after a clean marker; numeric test/clean exits are omitted.
+The 86fdb209 reversal has 15 applicable Mac failed parts with exit100 and a passing baseline. No final restored suite runs.
+The short ends-mutant log lacks head/clean/diff/exit provenance; the exact gate supplies the accepted proof.
+All older local, probe, scratch-contracts, and RED scopes remain.
+
+Contracts #100 is independently verified MERGED at 49ff52d218ea55afae1fc120ddfb928a908bac04.
+Its list contains pty_queued. The separate route-fence change must add route_frames_taken before reliance on its wait.
+Final body without added LF: a0c173944b0ea479572145c236f38c3c1a0aaaf3426b3838d5f77ecaeaa9175e.
+Final body with one added LF: a34789079ab414b91f7d174c33e7e36536d14bfcb18677b22ffa56c04b720c29.
+Formal Round 2 is CLEAN on fabbf66c with zero open package findings. The gate remains scoped to unchanged code on parent d1aa7334.
+Matching formal integration repair verdict remains due. Current-base compile, final slot/import/check/delta reviews/gate/receipts/Q7 remain due.
+No future contracts head, pin, later source, status removal, specific retry, or completed merge is accepted.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
