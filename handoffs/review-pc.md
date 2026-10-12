@@ -1925,3 +1925,30 @@ Sol receipt msg_plugin-w_1791820008_02acf3 supplies matching source inspection 5
 The reviewer reads its composition, list, evidence, and matching-receipt sections and verifies publication.
 Both inspections find no new source finding on 2ed85f93, imported base 08098782, tree b117637b.
 Both formal verdicts still need the completed gate, corrected body, and retained base-merge-check record. No running output is read.
+
+PC receipt msg_plugin-w_1791820358_0a2cad supplies the completed 2ed85f93 RED gate, corrected import body, and base-merge-check record.
+The reviewer reads them. The canonical check passes ancestry and routes both reviewers to delta rounds; its missing numeric exit is disclosed.
+Eight gate checks PASS. Stage 1 is 39 caught, 13 missed, 12 unviable; all 39 raw catches match citations and normal PASS.
+Gate SHA-256 76c3d6ab0c431804b61587cf62bd3b587c1b5c0b91c2f46ff3c5613cd10dd805 matches the retained client output.
+The unmutated Stage 2 baseline fails IN-8 at seed 0 step 8 step_timeout. The same test passes in the normal default and slow tiers.
+Stage 2 mutations and fuzz do not run. The current-head mutation audit remains incomplete. The completed gate stays RED.
+The pinned .43 transcript has no cancel/control_queue step. The source audit finds no new control-queue cause; no plain-v1 reproduction is measured.
+PC requests a lead completion decision. The current known-flaky file is empty; no authority is inferred from #308's separate entry.
+The body correctly attributes start_holds to #301 and op_holds to #300. The reviewer requests eleven shared paths total, including two conflicts and nine auto-merges.
+Live body hash is 1c0e08fd1bc1341eaba98177709e77abeeef354e7a50d3b014a7c9e429faace7.
+The formal verdict awaits the corrected body and lead-approved completion path with required evidence. No new source finding is identified.
+No reviewer job runs. No later head, train gate, or merge is accepted. Wait for the doorbell. Never poll.
+
+## #307 complete current-base delta CLEAN under the train decision
+
+PC receipt msg_plugin-w_1791820521_1bc686 supplies the lead's explicit completion decision. The reviewer reads the 02:05 PDT lead handoff entry.
+No re-gate of 2ed85f93 is authorized. Train 4 must include #312's .44 pin before #307; the exact train gate is its final gate.
+The current RED gate remains RED. Stage 2 mutations and fuzz remain unexecuted on this member head.
+The corrected body states eleven shared paths: two conflicts and nine auto-merges. It labels both normal IN-8 positive results by tier.
+CQ-PC-4 / R307-SI-4 LOW closes. All prior source findings remain closed. No new runtime source finding is identified.
+Live body hash is b2f9f44bafa07cc27d8483121095ace9a51043c16f965f228e7020674bbfd506. No code changes after inspection.
+Formal Round 4 is CLEAN on exact head 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54, imported base 080987829a2e2245a7ea97606020400392c974d6.
+Tree b117637b809c37c63b869e4da2696015dbdf5918. Prior accepted head 50a50cff. The d6f664f7 record was an inspection, not a formal CLEAN.
+This verdict covers the exact member before train construction under the lead's completion decision. It accepts no RED gate or later train head.
+The matching formal integration verdict, ordered .44 import, applicable train-delta/combined reviews, exact train gate, final receipts, and Q7 remain due.
+Without the ordered structural fix, this CLEAN supplies no alternative completion path. No reviewer job runs. Wait for the doorbell. Never poll.

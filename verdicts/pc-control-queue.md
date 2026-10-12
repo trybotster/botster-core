@@ -317,3 +317,80 @@ The complete formal delta verdict remains pending. The reviewer has not read the
 The completed gate, current-head body, and implementer's base-merge-check record remain due.
 The observed live body still describes the previously accepted head. The reviewer requests its current-head correction.
 This inspection accepts no new head or train gate. No reviewer execution job ran. Wait for the doorbell. Never poll.
+
+### Completed records: RED gate; formal verdict remains pending
+
+PC receipt `msg_plugin-w_1791820358_0a2cad` supplies the completed gate, updated body, and base-merge-check record.
+The reviewer reads each complete record. No running gate output is read.
+
+The base check names accepted head `50a50cff`, new head `2ed85f93`, and base `08098782`.
+Both ancestry checks PASS. Checks (1), (2), and (3) FAIL for the two conflicts, eleven shared paths, and changed own diff.
+Check (4) fails for a pending-file comment and passes for the unchanged real-pending file.
+The result says that the merge needs delta rounds from both reviewers. The independent id-set check remains valid.
+The numeric `exit` line is empty because the implementer's wrapper loses `PIPESTATUS`. The record discloses that defect.
+This record supplies no pure-base-merge exception and carries no automatic CLEAN.
+
+Completed gate: `~/botster-sessions/gates/botster-core-stage1-pc-control-queue-2ed85f93-pool-20261012-083921-28034.log`.
+SHA-256: `76c3d6ab0c431804b61587cf62bd3b587c1b5c0b91c2f46ff3c5613cd10dd805`.
+The retained client copy is byte-identical. The gate names this exact head and base `08098782` on MS-A1, with four CPUs.
+Eight checks PASS: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, and slow.
+Default: 1955 PASS, 429 skipped, 12.335 seconds. Slow: 621 PASS, 2067 skipped, 41.119 seconds.
+Stage 1 has 39 caught, 13 missed, and 12 unviable outcomes. All 39 raw catches match citations and normal PASS records.
+The missed and unviable identities match the accepted parent gate after line shifts. The log has no FLAKY record.
+
+The unmutated Stage 2 baseline FAILS `conf::in_8_mode_checked_at_write_start_by_worker`.
+Its retained failure is INCONCLUSIVE at seed 0, step 8, `step_timeout`.
+The baseline has 620 PASS, one failure, and 2844 skipped, in 46.705 seconds.
+The same test has PASS results in the normal default and slow tiers. Those passes do not erase the baseline failure.
+Stage 2 mutations and fuzz do not run. The current-head audit cannot establish the thirteen second-stage catches.
+The gate total is 525.1 seconds. The job exits one after 708 seconds; the wrapper exits one after 709 seconds.
+The job queues for 150 seconds and runs for 558 seconds. The completed gate remains RED.
+
+PC attributes the baseline failure to the known IN-8 transcript race and requests a lead decision on the completion path.
+The reviewer reads the pinned `.43` transcript. It uses `pty_blocked` and `pty_output`, with no cancel or `control_queue` step.
+The source audit identifies no new control-queue cause. This is source reasoning, not a measured plain-v1 reproduction.
+The current head's known-flaky list has no entries. An entry in the separate #308 PR does not authorize a re-gate here.
+The reviewer infers no exception or rerun approval and performs no reproduction or gate job.
+
+The updated body's live SHA-256 is `1c0e08fd1bc1341eaba98177709e77abeeef354e7a50d3b014a7c9e429faace7`.
+Its new import section correctly attributes `start_holds` to #301 and `op_holds` to #300.
+It names the current head and retains the RED gate. The earlier gate stays historical.
+The reviewer requests one count correction: eleven paths are shared in total, including the two conflicts; nine other paths auto-merge.
+The formal verdict remains pending the corrected body and the lead-approved completion path with the required evidence.
+No later train head, completed train gate, or merge is accepted. Wait for the doorbell. Never poll.
+
+### Round 4 complete: VERDICT: CLEAN (0 open; before the train)
+
+Exact head remains `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Imported base remains `080987829a2e2245a7ea97606020400392c974d6`.
+Tree remains `b117637b809c37c63b869e4da2696015dbdf5918`.
+The previously accepted head is `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+
+PC receipt `msg_plugin-w_1791820521_1bc686` supplies the lead's explicit completion decision and corrected body.
+The reviewer independently reads the lead's 02:05 PDT handoff entry.
+The lead prohibits a re-gate of this head. Train 4 must include #312's `.44` pin before #307.
+The train gate supplies the required final gate. This decision does not turn the current RED gate into a PASS.
+The earlier `d6f664f7` package record is a source inspection, not a formal CLEAN verdict. This section completes the formal delta review.
+
+#### CQ-PC-4 / R307-SI-4 — LOW, CLOSED: shared-path count and outcome labels
+
+The prior body said eleven other paths auto-merged but listed nine. The canonical check counts eleven shared paths in total.
+The body now states two conflicts and nine auto-merges. The count agrees with the retained base check and source review.
+It labels the two positive IN-8 outcomes as normal testkit and real-tier results, before the failed unmutated real-tier baseline.
+It retains the RED gate and states the lead's no-re-gate decision and train-gate completion path.
+The reviewer reads the full revised body through the audited changes.
+Live body SHA-256: `b2f9f44bafa07cc27d8483121095ace9a51043c16f965f228e7020674bbfd506`.
+No code changes after the inspected head.
+
+The complete source, conflict resolution, interface composition, lists, body, and supplied completed-record review is CLEAN.
+All prior source findings remain closed. The LOW body finding closes. No new runtime source finding is identified.
+The base-check FAIL correctly routes the overlapping import to this delta review and the matching integration review.
+The current gate remains RED. Stage 2 mutations and fuzz remain unexecuted on this head.
+The earlier parent gate is not a substitute for the exact train gate.
+
+This CLEAN covers the exact member head before train construction, under the lead's explicit completion decision.
+It approves no train head, current RED gate, final mutation result, or merge.
+The matching formal integration verdict, ordered `.44` import, applicable train-delta reviews, combined review,
+exact-train-head gate, final evidence receipts, and lead Q7 remain due.
+If the train does not include the structural fix before #307, this verdict supplies no alternative completion path.
+No reviewer execution job ran. Wait for the doorbell. Never poll.
