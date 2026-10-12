@@ -9,12 +9,14 @@
 //! wait, and it waits itself on [`RouteClient::readiness`] (this stream) and the host's wake together, so that a pump
 //! runs when the host has work: the end of a route reaches the client only after a host pump (R-65).
 
-use super::program::Inputs;
+use super::holders::{self, Socket};
+use super::program::{Inputs, Requests};
 use crate::edge_tap::Tap;
 use botster_conformance::Deadline;
 use botster_core::RealEdges;
 use botster_core_conformance::RouteClient;
 use botster_core_contract::prelude::{InstanceId, SessionId};
+use botster_core_edges::edges::ProcessIdentity;
 use botster_core_host::session::{row_key, Row};
 use botster_hub_conformance::route::RouteRead;
 use serde_json::{json, Value};
@@ -26,20 +28,81 @@ use std::sync::{Mutex, Weak};
 use std::time::Duration;
 
 /// The controls that [`RealRoute::control`] runs.
-pub(super) const CONTROLS: &[&str] = &["client_close", "route_gate", "input_blocked"];
+pub(super) const CONTROLS: &[&str] = &[
+    "client_close",
+    "route_gate",
+    "input_blocked",
+    "route_accept",
+    "drop_transport",
+    "route_fill",
+    "route_stream_written",
+    "route_stream_holders",
+];
+
+/// The most bytes that one read of a `route_accept` drain takes: 64 KiB.
+const DRAIN_CHUNK: usize = 1 << 16;
+
+/// What the `route_fill` of a route needs (R-47 item 3, the control row): the requests to the probes, the worker of the
+/// route's session as Core's stored row names it now, the `SO_SNDBUF` of the worker's end read before the handoff, and the
+/// route's applied frame bound F.
+pub(super) struct Fill {
+    pub(super) requests: Requests,
+    pub(super) worker: Box<dyn Fn() -> Result<ProcessIdentity, String>>,
+    pub(super) worker_send_buffer: usize,
+    pub(super) max_frame_bytes: usize,
+}
+
+/// What the `route_stream_holders` of a route needs (plan 23bf): the identity of the worker end's socket, read before Core
+/// took the end, and the bytes that Core moved through that socket at its edges ([`crate::edge_tap::Tap::stream_bytes`]).
+pub(super) struct Holders {
+    pub(super) socket: Socket,
+    pub(super) host_bytes: Box<dyn Fn() -> Result<u64, String>>,
+}
+
+/// N = C + F (R-47 item 3): C is what the transport holds outside the worker, the worker end's `SO_SNDBUF` plus the client
+/// end's `SO_RCVBUF`; F is the route's frame bound. The kernel's reported sizes are a safe upper bound, so at least one
+/// frame stays pending in the worker.
+fn fill_size(
+    worker_send_buffer: usize,
+    client_receive_buffer: usize,
+    max_frame_bytes: usize,
+) -> usize {
+    worker_send_buffer
+        .saturating_add(client_receive_buffer)
+        .saturating_add(max_frame_bytes)
+}
 
 /// The client end of one route.
 pub(super) struct RealRoute {
-    /// The client's end of the stream, always nonblocking; `None` after `client_close`.
+    /// The client's end of the stream, always nonblocking; `None` after `client_close` or `drop_transport`.
     end: Option<UnixStream>,
+    /// `None` for a route of the harness with no tap: it runs no `route_fill`.
+    fill: Option<Fill>,
+    /// `None` for a route of the harness with no tap: it runs no `route_stream_holders`.
+    holders: Option<Holders>,
     /// The client bytes that wait for room in the stream.
     unsent: Vec<u8>,
-    /// While on (`route_gate`), the client reads nothing, so the worker's writes meet the kernel's backpressure.
+    /// While on (`route_gate`), the client reads nothing from the stream beyond a `route_accept` allowance, so the worker's
+    /// writes meet the kernel's backpressure.
     gated: bool,
+    /// The bytes that the client may still take from the stream under the gate (`route_accept`); `None`: no allowance.
+    accept: Option<usize>,
+    /// The bytes that a `route_accept` drain took from the stream and no read has given yet, in order.
+    taken: Vec<u8>,
     /// Set by the first empty read: the driver pumped after it, so the worker holds the stream.
     handed: bool,
+    /// The bytes that the client's end read from the stream, and the unread bytes that a close of that end lost
+    /// (`route_stream_written`).
+    received: u64,
     /// The input log of the route's session (`pty_input`); `None` on the plain harness, which has no controls.
     input: Option<SessionInput>,
+}
+
+/// The bytes that the stream holds for the client's end and that the client has not read (`FIONREAD`). On Linux and macOS,
+/// a write to an `AF_UNIX` stream socket puts its bytes on the receiving socket's queue at once, so these are all the bytes
+/// that the kernel accepted from the worker and the client has not read.
+fn unread(end: &UnixStream) -> io::Result<u64> {
+    rustix::io::ioctl_fionread(end).map_err(io::Error::from)
 }
 
 /// What `pty_input` on a route reads: the tap of the route's handle (its stored rows), the route's session and the session's
@@ -168,11 +231,106 @@ impl RealRoute {
         end.set_nonblocking(true)?;
         Ok(RealRoute {
             end: Some(end),
+            fill: None,
+            holders: None,
             unsent: Vec::new(),
             gated: false,
+            accept: None,
+            taken: Vec::new(),
             handed: false,
+            received: 0,
             input: None,
         })
+    }
+
+    /// The route runs `route_fill` with `fill`.
+    pub(super) fn with_fill(mut self, fill: Fill) -> RealRoute {
+        self.fill = Some(fill);
+        self
+    }
+
+    /// The route runs `route_stream_holders` with `holders`.
+    pub(super) fn with_holders(mut self, holders: Holders) -> RealRoute {
+        self.holders = Some(holders);
+        self
+    }
+
+    /// `route_stream_holders` (Core DP-1, DP-2, OU-1, OU-11; plan 23bf): `holders` is the number of open descriptors of the
+    /// worker end's socket in every process ([`holders::holders`]): Core's copy in this process, the worker's,
+    /// and any other. `host_bytes` is the bytes that Core moved through that socket: Core is sans-IO, and `HostEdges` is its
+    /// only I/O path, so the tap's count of them is the count (lead, plan 23bf). A read through a raw copy outside the edges
+    /// would break the sans-IO rule; such a copy shows in `holders`, and `slow:fd-handoff` is the real byte proof.
+    fn route_stream_holders(&self) -> Result<Value, String> {
+        let of = self
+            .holders
+            .as_ref()
+            .ok_or("route_stream_holders needs a route of the tapped real harness")?;
+        let holders =
+            holders::holders(&of.socket).map_err(|e| format!("route_stream_holders: {e}"))?;
+        let host_bytes = (of.host_bytes)()?;
+        Ok(json!({ "holders": holders, "host_bytes": host_bytes }))
+    }
+
+    /// `route_fill` (R-47 item 3): the payload of the route's session writes N = C + F bytes of the fill pattern through the
+    /// real `pty_output` path. The control returns when the probe acknowledges the request, never when the write completes
+    /// (Core OU-3d). The pattern has no `0a` byte and no other byte that the terminal's output processing changes (R-48,
+    /// R-60). A precondition that is not reached is an error, never a pass.
+    fn route_fill(&self) -> Result<Value, String> {
+        let fill = self
+            .fill
+            .as_ref()
+            .ok_or("route_fill needs a route of the tapped real harness")?;
+        let end = self
+            .end
+            .as_ref()
+            .ok_or("route_fill: the client's end of the route is closed")?;
+        let client_receive_buffer = rustix::net::sockopt::socket_recv_buffer_size(end)
+            .map_err(|e| format!("route_fill: SO_RCVBUF of the client's end: {e}"))?;
+        let bytes = fill_size(
+            fill.worker_send_buffer,
+            client_receive_buffer,
+            fill.max_frame_bytes,
+        );
+        let worker = (fill.worker)().map_err(|e| format!("route_fill: {e}"))?;
+        fill.requests
+            .write_output(worker, crate::route_client::fill_pattern(bytes))
+            .map_err(|e| format!("route_fill: {e:?}"))?;
+        Ok(json!({ "bytes": bytes }))
+    }
+
+    /// `route_accept` (the control row; R-47 (A)): takes up to the allowance from the stream into `taken`, with one read and
+    /// no wait. The room that these reads free in the kernel's buffers is the worker's progress (Core OU-3a: the bytes that
+    /// the kernel accepted from the worker's write). Each later call of the route drains again, so bytes that come later, or
+    /// that one read did not give, are taken then. A read that gives no bytes (nothing yet, the end, an error) takes nothing;
+    /// the end or the error then reaches a read of the stream.
+    fn drain(&mut self) {
+        let RealRoute {
+            end,
+            accept,
+            taken,
+            received,
+            ..
+        } = self;
+        let (Some(end), Some(left)) = (end.as_mut(), accept.as_mut()) else {
+            return;
+        };
+        let mut buf = vec![0u8; (*left).min(DRAIN_CHUNK)];
+        if let Ok(n) = end.read(&mut buf) {
+            taken.extend_from_slice(&buf[..n]);
+            *left -= n;
+            *received += n as u64;
+        }
+    }
+
+    /// The client's end is gone: its unread and taken bytes are lost, and no allowance is left. The kernel accepted the
+    /// unread bytes from the worker, so `route_stream_written` keeps them. The caller drops the end after this call.
+    fn closed(&mut self) {
+        if let Some(end) = &self.end {
+            self.received += unread(end).unwrap_or(0);
+        }
+        self.unsent.clear();
+        self.taken.clear();
+        self.accept = None;
     }
 
     /// The route answers `pty_input` from `input` (Core OU-1, DP-4: the conformance driver reads `route_expect_pty`'s log
@@ -217,17 +375,28 @@ impl RouteClient for RealRoute {
             self.unsent.extend_from_slice(bytes);
         }
         self.flush();
+        self.drain();
     }
 
     /// Bytes of the worker, `Empty` when none came (at once before the handoff, at the deadline after it), or the end of
-    /// the route.
+    /// the route. The bytes that a `route_accept` took come first, gated or not: the stream took them from the worker.
     fn read(&mut self, max: usize, deadline: &Deadline) -> RouteRead {
         self.flush();
+        self.drain();
         let read = match self.end.as_mut() {
+            _ if !self.taken.is_empty() => {
+                let n = max.min(self.taken.len());
+                RouteRead::Bytes(self.taken.drain(..n).collect())
+            }
             None => RouteRead::Eof { ended: None },
             Some(_) if self.gated => RouteRead::Empty,
             Some(end) => {
-                RealRoute::read_stream(end, max, wait_of(self.handed, deadline.remaining()))
+                let read =
+                    RealRoute::read_stream(end, max, wait_of(self.handed, deadline.remaining()));
+                if let RouteRead::Bytes(bytes) = &read {
+                    self.received += bytes.len() as u64;
+                }
+                read
             }
         };
         if read == RouteRead::Empty {
@@ -241,17 +410,59 @@ impl RouteClient for RealRoute {
         match op {
             // Core OU-5, A2-3: the client's end closes; a frame that the client had not completed is lost with it.
             "client_close" => {
-                self.unsent.clear();
+                self.closed();
                 if let Some(end) = self.end.take() {
                     let _ = end.shutdown(Shutdown::Both);
                 }
                 Ok(json!({}))
             }
-            // Core OU-2, OU-3b (R-47 A): while on, the client reads nothing, and the worker's writes stop at the
-            // kernel's backpressure.
+            // Core OU-2, OU-3b (R-47 A): while on, the client reads nothing beyond a `route_accept` allowance, and the
+            // worker's writes stop at the kernel's backpressure. `on: false` also ends the allowance.
             "route_gate" => {
                 self.gated = crate::route_client::flag(args, "on")?;
+                if !self.gated {
+                    self.accept = None;
+                }
                 Ok(json!({}))
+            }
+            // Core OU-3a, OU-4 (the control row, R-47 A): the client takes at most `bytes` more bytes from the stream, and
+            // then none until `route_gate` with `on: false`. The client drains them at once and at each later call of the
+            // route, so the kernel takes that much more of the worker's output. A frame that straddles the allowance is
+            // taken in part. No transcript asserts how many bytes the kernel took (R-47 A).
+            "route_accept" => {
+                let bytes = args
+                    .get("bytes")
+                    .and_then(Value::as_u64)
+                    .and_then(|b| usize::try_from(b).ok())
+                    .ok_or("route_accept needs `bytes`")?;
+                self.gated = true;
+                self.accept = Some(bytes);
+                self.drain();
+                Ok(json!({}))
+            }
+            // Core OU-5 (the steward's real form): the client's end closes with no `shutdown`, and its unsent and unread
+            // bytes are lost. A Unix stream has no reset: the worker sees `ECONNRESET` (Linux, with unread bytes at the close)
+            // or the end of the stream and `EPIPE`, and Core closes the route `PeerClosed` for each. No `SO_LINGER`.
+            "drop_transport" => {
+                self.closed();
+                self.end = None;
+                Ok(json!({}))
+            }
+            // R-47 item 3, Core OU-3b: the session's output fills the transport and one frame more.
+            "route_fill" => self.route_fill(),
+            // Core OU-9, OU-3, DP-5 (plan 23bf): the bytes that the stream accepted from the worker, cumulative (R-14.3): what
+            // the client read, and what the kernel holds for the client unread (`FIONREAD`). After a close of the client's
+            // end, the count at the close stays.
+            // Core DP-1, DP-2, OU-1, OU-11 (plan 23bf).
+            "route_stream_holders" => self.route_stream_holders(),
+            "route_stream_written" => {
+                let held = match &self.end {
+                    Some(end) => {
+                        unread(end).map_err(|e| format!("route_stream_written: FIONREAD: {e}"))?
+                    }
+                    None => 0,
+                };
+                Ok(json!({ "bytes": self.received + held }))
             }
             // Core DP-5: whether the stream takes no more bytes from the client now (the worker has stopped reading the
             // route): client bytes still wait for room, or the kernel reports the client's end not writable. The worker
@@ -564,6 +775,126 @@ mod slow_tests {
         assert!(route.control("route_gate", &json!({"on": 1})).is_err());
     }
 
+    /// `route_accept` (the control row): under the gate the client takes at most the allowance, a read gives those bytes
+    /// first, a second allowance takes more, and `on: false` releases the rest. Without a gate, an allowance gates the
+    /// route after its bytes.
+    #[test]
+    fn route_accept_takes_its_bytes_under_the_gate_and_then_none() {
+        let (mut route, mut worker) = pair();
+        worker.write_all(b"abcdefghij").unwrap();
+        route.control("route_gate", &json!({})).unwrap();
+        assert_eq!(
+            route.control("route_accept", &json!({"bytes": 3})),
+            Ok(json!({}))
+        );
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"abc".to_vec())
+        );
+        assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
+        route.control("route_accept", &json!({"bytes": 4})).unwrap();
+        assert_eq!(
+            route.read(2, &deadline(LONG)),
+            RouteRead::Bytes(b"de".to_vec()),
+            "a read gives at most `max` of the taken bytes"
+        );
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"fg".to_vec())
+        );
+        assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"hij".to_vec())
+        );
+        // No gate: the allowance gates the route after its bytes.
+        worker.write_all(b"klmn").unwrap();
+        route.control("route_accept", &json!({"bytes": 1})).unwrap();
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"k".to_vec())
+        );
+        assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
+        assert!(route.control("route_accept", &json!({})).is_err());
+        assert!(route
+            .control("route_accept", &json!({"bytes": -1}))
+            .is_err());
+        // `on: true` keeps an allowance in effect: bytes that come after it are taken under the new gate.
+        let (mut kept, mut writer) = pair();
+        kept.control("route_accept", &json!({"bytes": 3})).unwrap();
+        kept.control("route_gate", &json!({"on": true})).unwrap();
+        writer.write_all(b"abcde").unwrap();
+        assert_eq!(
+            kept.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"abc".to_vec())
+        );
+        // `on: false` ends an allowance that is not used up: under a new gate, the client takes nothing more.
+        route.control("route_accept", &json!({"bytes": 8})).unwrap();
+        route.control("route_gate", &json!({"on": false})).unwrap();
+        route.control("route_gate", &json!({"on": true})).unwrap();
+        worker.write_all(b"op").unwrap();
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(b"lmn".to_vec())
+        );
+        assert_eq!(route.read(64, &deadline(LONG)), RouteRead::Empty);
+    }
+
+    /// OU-3a on the real tier: the bytes that a `route_accept` takes free room in the kernel, so a worker whose writes were
+    /// blocked can write again, while the gate holds.
+    #[test]
+    fn route_accept_frees_room_for_the_blocked_worker() {
+        let (mut route, mut worker) = pair();
+        worker.set_nonblocking(true).unwrap();
+        route.control("route_gate", &json!({})).unwrap();
+        let chunk = [b'x'; 4096];
+        let mut blocked = false;
+        // A bound, not a wait: the kernel's buffers hold far fewer than 4096 chunks.
+        for _ in 0..4096 {
+            match worker.write(&chunk) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    blocked = true;
+                    break;
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert!(blocked, "the worker's writes fill the kernel's buffers");
+        assert_eq!(
+            worker.write(&chunk).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
+        );
+        route
+            .control("route_accept", &json!({"bytes": 4 * 4096}))
+            .unwrap();
+        assert!(
+            worker.write(&chunk).is_ok(),
+            "the taken bytes made room for the worker"
+        );
+        assert_eq!(
+            route.read(64, &deadline(LONG)),
+            RouteRead::Bytes(vec![b'x'; 64])
+        );
+    }
+
+    /// `client_close` and `drop_transport` lose the bytes that a `route_accept` took and end the allowance.
+    #[test]
+    fn a_closed_end_loses_the_taken_bytes() {
+        for op in ["client_close", "drop_transport"] {
+            let (mut route, mut worker) = pair();
+            worker.write_all(b"abc").unwrap();
+            route.control("route_accept", &json!({"bytes": 2})).unwrap();
+            route.control(op, &json!({})).unwrap();
+            assert_eq!(
+                route.read(64, &deadline(LONG)),
+                RouteRead::Eof { ended: None },
+                "{op}"
+            );
+        }
+    }
+
     /// Steward ruling R-68: the readiness descriptor is the client's end itself, so a write of the worker makes it
     /// readable. A gated end and a closed end give none. After the handoff, a read with a deadline that has passed is one
     /// attempt that does not wait.
@@ -657,10 +988,10 @@ mod slow_tests {
         for op in CONTROLS {
             assert!(route.has_control(op), "{op}");
         }
-        assert!(!route.has_control("route_fill"));
+        assert!(!route.has_control("fail_writes"));
         assert_eq!(
-            route.control("route_fill", &json!({})),
-            Err("unsupported_control: route_fill".to_string())
+            route.control("fail_writes", &json!({})),
+            Err("unsupported_control: fail_writes".to_string())
         );
         // A route with no input log of its session (the plain harness) has no `pty_input`.
         assert!(!route.has_control("pty_input"));
@@ -668,5 +999,190 @@ mod slow_tests {
             route.control("pty_input", &json!({})),
             Err("unsupported_control: pty_input".to_string())
         );
+    }
+
+    /// The `route_fill` row: C is an upper bound only while Core does not change the buffer sizes of the route's socket; the
+    /// Core lead confirms that it does not. No source of a workspace crate outside this testkit sets a socket option, except
+    /// tests (a `tests` directory or a `tests.rs` file). The test walks the tree, because a mutation copy has no `.git`.
+    #[test]
+    fn no_crate_sets_a_socket_buffer_size_outside_tests() {
+        const SETTERS: [&str; 3] = [
+            "set_socket_send_buffer_size",
+            "set_socket_recv_buffer_size",
+            "setsockopt",
+        ];
+        let mut dirs = vec![crate::statements::workspace_root().join("crates")];
+        let (mut read, mut found) = (vec![], vec![]);
+        while let Some(dir) = dirs.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                let name = path.file_name().unwrap().to_string_lossy().into_owned();
+                if path.is_dir() {
+                    if !["botster-core-testkit", "tests", "vendor", "target"]
+                        .contains(&name.as_str())
+                    {
+                        dirs.push(path);
+                    }
+                } else if name.ends_with(".rs") && name != "tests.rs" {
+                    read.push(path.clone());
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    found.extend(
+                        SETTERS
+                            .iter()
+                            .filter(|setter| text.contains(*setter))
+                            .map(|setter| format!("{}: {setter}", path.display())),
+                    );
+                }
+            }
+        }
+        // The walk reaches the sources that hold the route's socket: the descriptor pass (it names `SO_SNDBUF`), the
+        // worker's route and the facade.
+        for source in [
+            "crates/botster-core-sys/src/fd_pass.rs",
+            "crates/botster-worker-core/src/worker/route.rs",
+            "crates/botster-core/src/lib.rs",
+        ] {
+            let source = crate::statements::workspace_root().join(source);
+            assert!(read.contains(&source), "{} not read", source.display());
+        }
+        assert_eq!(found, Vec::<String>::new());
+    }
+
+    /// R-47 item 3: N = C + F, with C the worker end's send buffer plus the client end's receive buffer; it saturates.
+    #[test]
+    fn the_fill_is_both_buffers_and_one_frame() {
+        assert_eq!(fill_size(8192, 4096, 1000), 13_288);
+        assert_eq!(fill_size(usize::MAX, 1, 1), usize::MAX);
+        assert_eq!(fill_size(0, 0, 7), 7);
+    }
+
+    /// A route with no fill context (the harness with no tap) refuses `route_fill`; a closed client end refuses it too.
+    #[test]
+    fn route_fill_needs_the_tapped_harness_and_an_open_end() {
+        let (mut route, _worker) = pair();
+        assert!(route
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("tapped"));
+        route.control("client_close", &json!({})).unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let programs = super::super::program::Programs::listen(root.path()).unwrap();
+        route.fill = Some(Fill {
+            requests: programs.requests(),
+            worker: Box::new(|| Err("unused".into())),
+            worker_send_buffer: 1,
+            max_frame_bytes: 1,
+        });
+        assert!(route
+            .control("route_fill", &json!({}))
+            .unwrap_err()
+            .contains("closed"));
+    }
+
+    /// `route_stream_holders` (plan 23bf) needs the tapped harness. It counts the descriptors of the worker end's socket,
+    /// also after the client's end closed, and gives the tap's count of Core's bytes.
+    #[test]
+    fn route_stream_holders_counts_the_worker_ends_descriptors_and_gives_the_host_bytes() {
+        let (mut route, worker) = pair();
+        assert!(route
+            .control("route_stream_holders", &json!({}))
+            .unwrap_err()
+            .contains("tapped"));
+        let socket = holders::socket(std::os::fd::AsFd::as_fd(&worker)).unwrap();
+        route = route.with_holders(Holders {
+            socket,
+            host_bytes: Box::new(|| Ok(7)),
+        });
+        let answer =
+            |route: &mut RealRoute| route.control("route_stream_holders", &json!({})).unwrap();
+        assert_eq!(answer(&mut route), json!({"holders": 1, "host_bytes": 7}));
+        let copy = worker.try_clone().unwrap();
+        assert_eq!(
+            answer(&mut route),
+            json!({"holders": 2, "host_bytes": 7}),
+            "a kept copy shows"
+        );
+        drop((worker, copy));
+        route.control("client_close", &json!({})).unwrap();
+        assert_eq!(answer(&mut route), json!({"holders": 0, "host_bytes": 7}));
+    }
+
+    /// `drop_transport` (the steward's real form of OU-5): the client's end closes with no shutdown, and its unsent and
+    /// unread bytes are lost. The worker reads the end of the stream, or `ECONNRESET` when bytes were unread (Linux), and its
+    /// writes fail; the client reads the end.
+    #[test]
+    fn drop_transport_closes_the_client_end_and_loses_its_bytes() {
+        let (mut route, mut worker) = pair();
+        worker.write_all(b"unread").unwrap();
+        route.control("drop_transport", &json!({})).unwrap();
+        route.write(b"lost");
+        // Nonblocking: the close is done, so the read gives the end or the reset at once; a wait would be a regression.
+        worker.set_nonblocking(true).unwrap();
+        let mut buf = [0u8; 8];
+        match worker.read(&mut buf) {
+            Ok(0) => {}
+            Err(e) if e.kind() == io::ErrorKind::ConnectionReset => {}
+            other => panic!("the worker reads the end or a reset, not {other:?}"),
+        }
+        assert!(worker.write_all(b"x").is_err(), "no peer");
+        assert_eq!(
+            route.read(8, &deadline(Duration::ZERO)),
+            RouteRead::Eof { ended: None }
+        );
+    }
+
+    fn written(route: &mut RealRoute) -> u64 {
+        route.control("route_stream_written", &json!({})).unwrap()["bytes"]
+            .as_u64()
+            .unwrap()
+    }
+
+    /// Writes `worker`'s bytes until a write makes no progress (the stream takes no more), and gives how many it took. Each
+    /// write that continues takes at least one byte, and the kernel's buffers are finite, so the loop ends.
+    fn fill(worker: &mut UnixStream) -> u64 {
+        worker.set_nonblocking(true).unwrap();
+        let chunk = [b'x'; 4096];
+        let mut took = 0u64;
+        loop {
+            match worker.write(&chunk) {
+                Ok(n) if n > 0 => took += n as u64,
+                Ok(_) => return took,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    return took
+                }
+                Err(e) => panic!("the worker's write: {e}"),
+            }
+        }
+    }
+
+    /// `route_stream_written` (Core OU-9, OU-3, DP-5; plan 23bf) on the OS that runs the test (the Linux gate and the Mac slow
+    /// tier): the bytes that the client read, a `route_accept` drain included, plus `FIONREAD` at the client's end equal the
+    /// bytes that the worker's writes gave the stream, also when the stream is full. So the kernel keeps no accepted byte
+    /// that `FIONREAD` does not count. After `drop_transport` or `client_close`, the count at the close stays.
+    #[test]
+    fn the_written_count_is_what_the_client_read_and_what_the_stream_holds_unread() {
+        for close in ["drop_transport", "client_close"] {
+            let (mut route, mut worker) = pair();
+            assert_eq!(written(&mut route), 0, "{close}");
+            worker.write_all(b"abcdef").unwrap();
+            assert_eq!(written(&mut route), 6, "6 unread");
+            assert_eq!(
+                route.read(2, &deadline(LONG)),
+                RouteRead::Bytes(b"ab".to_vec())
+            );
+            assert_eq!(written(&mut route), 6, "2 read, 4 unread");
+            route.control("route_accept", &json!({"bytes": 3})).unwrap();
+            assert_eq!(written(&mut route), 6, "2 read, 3 taken, 1 unread");
+            let total = 6 + fill(&mut worker);
+            assert!(total > 6, "the stream took bytes");
+            assert_eq!(written(&mut route), total, "a full stream");
+            route.control(close, &json!({})).unwrap();
+            assert_eq!(written(&mut route), total, "{close}: the count stays");
+        }
     }
 }
