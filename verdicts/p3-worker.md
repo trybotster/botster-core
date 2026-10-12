@@ -13803,3 +13803,105 @@ The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or 
 The reviewer changes no product code.
 
 VERDICT: NOT CLEAN
+
+
+## Round 192 — #311 restoration and policy-order fixes, 2026-10-12
+
+Exact submitted head: `e214bbe03bfe5347879f6723f91eef7e96436fc7`.
+Previous reviewed head: `6ed3cd7b0fd80ebe0b2e5c14507c2da3f3beb46f`.
+Repair commits: `5736a6d527191da4821c115e87c71d4230d91dce`, `d685e37ab637056776843381c72ca84100ad4da4`, and the submitted head.
+Source merge base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Supplied gate base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`, not imported.
+Risk: HIGH, unchanged. Owner READY: `msg_plugin-w_1791790911_8903b3`.
+Previous package verdict: `3bf24cb6134c7234633e4e367bfa5691e17bd6f2`, Round 191 NOT CLEAN.
+This is the third package review round on #311. Only its first two package rounds were NOT CLEAN.
+The reviewer reads the complete three-file delta: 174 additions and 45 deletions.
+The reviewer checks the whole Resize and Latest behavior, drivers, retained earlier guards, adoption, result path, and supplied evidence.
+
+### Finding closures
+
+**F148 HIGH — PTY resize errors have no complete failure path. CLOSED.**
+The earlier direct-error repair remains: neither the model nor its size/revision reports change before successful PTY confirmation.
+If the model refuses a size that the PTY took, the worker retains the request and error detail with the restoration action.
+The original Done now waits for the restoration answer. Its Internal detail distinguishes successful restoration from failed restoration and carries the errno.
+Failed restoration sets pty_synced false. is_current requires both that flag and an equal cached size.
+A later request for the cached size therefore asks the PTY; it cannot claim a no-op Applied before the PTY confirms success.
+Successful resize restores the flag. Successful restoration also restores the flag but completes the original request with Internal.
+An answer after reap remains SessionEnded. Adoption clears an outstanding request number, including during restoration, before any new-link Done.
+Only one PTY resize remains out at a time, and later work waits for restoration.
+This repair needs no exception permitting Applied after failure.
+
+The changed model-rejection test observes no Done before restoration and the applicable Internal result after it.
+The new failed-restoration test injects Err, verifies the error detail, and observes a later cached-size request issue ResizePty.
+It verifies that Applied waits for success and that a further equal-size request then takes the normal no-op path.
+These tests inspect messages/actions, not pty_synced or other private state.
+Both tests have normal PASS in the exact-head gate. The current-size decision mutants are caught.
+
+**F149 MEDIUM — unchanged input reorders an older policy resize. CLOSED.**
+size_policy now calls Routes::policy at the input that can change the policy result.
+Only a changed result or a fresh size report yields queued Policy(rows, cols).
+That queue entry retains its computed cell size and arrival position. Unchanged input returns without moving an existing entry.
+A later actual policy change replaces the previous waiting policy entry at the newer change's position; it preserves waiting host requests.
+The policy still obtains cell pixels from the session when it applies its cell size.
+The delayed-answer regression runs both a partial frame read and complete ordinary Bytes input.
+It observes resize actions in order A, B, C and the final modes size C. The partial read runs first in the retained reversal.
+No private queue inspection or production accessor is added.
+The test has normal PASS in the current-head gate. The earlier host-request retention regression also remains covered.
+
+F145/F146/F147 remain CLOSED with their current-head proofs: failed-spawn completion, bounded real-test FIFOs, and adoption retirement.
+The source retains the configured route-key bound and semantic-input byte charge from #302.
+No product code outside the worker changes in this repair. The driver result mapping and guarded real test remain as reviewed.
+
+### Retained evidence
+
+Complete current PR body: /private/tmp/review-p3-pr311-e214bbe0.json.
+The body names both fixes, three repair commits, the exact gate, historical outcomes, and the separate pending/fence scope.
+The restoration result and policy queue description now agree with the source. Earlier gates retain their historical heads.
+
+red-f148b-f149.sh and red-f148b-f149-partial.log name the exact submitted head.
+The script substitutes only worker.rs from the previously reviewed 6ed head while retaining the new tests.
+The full output reports three expected test failures and cargo exit 101.
+It shows an early Done where none is permitted and policy actions A,C,B instead of A,B,C on the partial-read case.
+After source restoration, 225 worker-core tests pass and cargo exits zero.
+The log records package clean exit zero. That package-specific clean does not expand prior cache assumptions into a full target-clean proof.
+This reversal remains supporting evidence; the independent pool gate proves the exact current tree.
+
+The historical focused pool job at 5736a6d5 reports 25 mutants: 21 caught, four unviable, zero missed, wrapper exit zero.
+The production worker.rs blob is byte-identical between that head and this head. The later two commits refine the test cases/order only.
+The local-check-e214bbe0.log records a full target clean exit zero and UTC time for the exact head.
+It reports 1312 nextest passes, strict seeds 0-31 with 275/0, 42 real-worker slow tests, and passing checks/fmt/clippy with numeric exits.
+No timeout, transcript, process fixture, mutation exclusion, pin, or pending list changes in this repair.
+All prior local reversal/cache and historical fence limits remain.
+
+### Completed exact-head gate
+
+Gate: gates/botster-core-stage1-p3-resize-latest-e214bbe0-pool-20261012-003514-95084.log.
+SHA256: b8ab9ae44c96c4522049f094e88d4ab254e4c63a754a76641a24086a076bb5d1.
+The headers name the exact submitted head and gate base above. All ten steps PASS.
+Default: 1965 passed, 416 skipped, 12.494 seconds. Slow: 630 passed, 2051 skipped, 41.224 seconds.
+The new restoration/order tests, earlier failed-spawn/adoption tests, and both guarded real-worker resize forms PASS.
+Stage 1: 92 outcomes, 82 caught, one missed, nine unviable, zero timeout, 113.9 seconds.
+The unmutated slow baseline passes 630 tests in 40.262 seconds; its full step takes 54.6 seconds.
+Stage 2 catches the sole missed Payload::resize replacement through slow_driver::sz_1_resize_sets_the_real_pty_size, in 29.1 seconds.
+Final: 83 unique catches, nine unviable, zero missed or timeout. No FLAKY record appears.
+Read-only parsing matches all 83 raw caught identities to their citations and verifies normal PASS for every catcher.
+Fuzz selects no changed decoder harness. Total step time is 358.6 seconds.
+Jobq and the wrapper exit zero after 368 seconds on msa1, with one second queued and 367 running.
+Minimum: testkit 66/69; real 59/68 passing, 60/69 accepted. No additional pending removal is accepted.
+
+### Scope and integration round limit
+
+F145 through F149 are CLOSED. No package finding remains on this exact head.
+This verdict accepts the complete source change and supplied gate only at e214bbe0.
+Host Resize coalescing remains outside PR B. DP-12, historical unfenced real trials, and future pin/control work remain separate.
+The branch still carries #302 and imports only the ae49bbec source base, not the be95ef13 gate reference or a later final base.
+The applicable final import/check, combined review if required, exact-final-head gate, final evidence reviews, and Q7 remain due before merge.
+Formal integration acceptance at this head remains separate.
+Integration has three NOT CLEAN rounds and still needs the lead's split/settle/replan decision before integration round four.
+No such decision is supplied here. This package CLEAN grants no integration round-limit exception.
+No future head, import, train, gate, merge, pin, or pending removal is accepted.
+F39 and F61/F62 retain separate scopes. All earlier verdict history remains preserved.
+The reviewer runs no tests, builds, gates, measurements, mutants, reversals, or executable merge-check jobs.
+The reviewer changes no product code.
+
+VERDICT: CLEAN
