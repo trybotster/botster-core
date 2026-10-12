@@ -75,3 +75,25 @@ VERDICT: NOT CLEAN (1 open)
 Sol-B read the completed package verdict `399036dadd6b962c76fd6eb13d75933f92a4aba6`, `verdicts/p6-e1-scheduler-hold.md`, on this exact head. It closes the matching seeded comparison finding and retains only the no-flow behavior proof. The earlier pending-package statement is superseded. E1-I2 remains open.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 3
+
+Exact head: `bd74a168fc1ef7e4774f635503f3707cc0dd2ec3`. Source base remains `1b984f06f11378e1a424db75dfe99b1e2d15c567`. Gate comparison base: `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+
+Sol-B read the complete one-file delta from Round 2, the completed gate, and the complete updated PR body. Only holds.rs changes. The repair adds observations of public Scheduler::held calls and replaces the exit-based proof. It changes no product behavior, control, pending file, exclusion, or contracts pin.
+
+E1-I2 is CLOSED. Create and Start complete before the test holds their operation IDs. The test admits UpdateMetadata and observes MetadataChanged for the session. The scheduler recorder observes the update's operation ID and an empty operation list. The empty list exercises the session's metadata step with no flow. This proof uses the reachable metadata_pending path, without reading engine.ops_of or Production state.
+
+E1-I1 remains CLOSED. The seeded policy, workload, and stored reference remain unchanged. The current gate passes the permanent comparison. Its closure remains limited to the recorded two-session workload and 16 seeds.
+
+Completed gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-p6-e1-scheduler-hold-bd74a168-pool-20261011-203726-79012.log`. SHA256: `29f167fe7e319e92b667a75899a9ea2bc15fb31467939b7cef44d0cc03e3ce29`. All ten steps PASS. Default: 1,857 passed. Slow: 608 passed. Mutants: 64 total, 55 caught, 0 missed, 0 timeout, 9 unviable. Stage 2 catches all 13 stage-1 misses. Its unmutated baseline passes. No FLAKY result appears. The job exits 0 after 554 seconds; the wrapper exits 0 after 555 seconds.
+
+The body's condition-1 claim now describes the metadata proof and explains the exit bypass. The current gate records match the log. Earlier API, trace, and 32-seed evidence retain their recorded original-head scope.
+
+Sol-B read completed package verdict `4d15aeb431b8ac0d76d4bc1207aeefed9cf4e393`, `verdicts/p6-e1-scheduler-hold.md`, on this exact head. The package reviewer closes E1-P1 and retains the E1-P2 closure. No package or integration finding remains.
+
+This CLEAN verdict covers the exact source head and its initial evidence. The comparison base does not establish a source import. The final import, applicable base review, final exact-head gate, and final body remain due. The driver resolution must preserve #291's drain term at the settle site only. Both sites must retain the held-aware runnable decision.
+
+Sol-B ran no local build, test, gate, mutation job, reversal, diagnostic, or executable base check. This verdict accepts no later head, contracts pin, or status removal.
+
+VERDICT: CLEAN
