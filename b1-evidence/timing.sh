@@ -2,7 +2,7 @@
 # (contracts .43 as pinned) and after (the vendored .43 + B-1). Prints the times and the checker frames of each profile.
 set -u
 echo "B1 $(git rev-parse HEAD) $(uname -sr)"
-export BOTSTER_ONLY=conf::in_9_legacy_keys_table BOTSTER_SEEDS=0-31 BOTSTER_PENDING_STRICT=1
+export CARGO_MANIFEST_DIR="$PWD/crates/botster-core" BOTSTER_ONLY=conf::in_9_legacy_keys_table BOTSTER_SEEDS=0-31 BOTSTER_PENDING_STRICT=1
 bin() {
   cargo test -p botster-core --test conformance --no-run --message-format=json 2>/tmp/b1-build.err \
     | python3 -c 'import sys,json
