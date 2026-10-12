@@ -103,3 +103,46 @@ The lead owns the one final train gate. Final member receipts and corrected evid
 Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open; combined source only, final train evidence pending)
+
+## Completed train gate audit: final member receipts pending
+
+Lead request: `msg_plugin-w_1791789027_8ca150`.
+The head, tree, base, member heads, and merge order remain unchanged from Round 1.
+The lead requests final acceptance in verdict files because the lead cannot read its inbox.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`.
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+Sol-B read the exact-head header, lists accounting, tier results, raw mutation outcomes, citations, and final exits.
+The header names head `080987829a2e2245a7ea97606020400392c974d6` and base `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+The lists step records that same base and merge base.
+
+All ten steps PASS in 1194.2 seconds.
+Default passes 1,935 tests. Slow passes 619 tests. The unmutated stage-2 baseline also passes all 619.
+The testkit strict result passes 261, with zero failures. The held-full result has 96 ignored trials and zero failures.
+Lists reports 691 ledger IDs, 406 pending, two deferred, eighteen withdrawn, and 265 to run.
+Strict runs 319 of 336 pending transcript IDs, with seventeen real-only exclusions and four held IDs.
+Minimum counts are testkit-passing 67/69, real-passing 61/68, and real-accepted 62/69.
+
+Stage 1 has 99 mutants: 71 caught, sixteen missed, twelve unviable, and zero timeout.
+Sol-B independently matched those sixteen misses to exactly the stage-2 identities. Stage 2 catches all sixteen.
+Sol-B matched all 87 raw catches to their citations. Every cited catcher has a normal PASS before mutation.
+The final result is 87 caught, zero missed, zero timeout, and twelve unviable. Unviable outcomes supply no catch evidence.
+No FLAKY record appears.
+
+Atomic-transitions passes on both tiers. The operation-hold deadline proof and broken-link deadline proof pass.
+The worker no-timer proof passes. The real hold/release wake proof passes.
+Stage 2 catches the real tap hold, admission, and wake changes through the reviewed public proofs.
+Stage 2 catches the deleted SIGUSR2 arm through the real two-signal test.
+That test retains its scope limit: it does not separately observe the payload between the two signals.
+
+Both changed link decoder harnesses complete the configured 60-second fuzz runs without a reported crash.
+The link decoder completes 8,032,094 runs. The message decoder completes 4,636,250 runs.
+The job and wrapper exit 0 after 1,293 seconds on msa1, with one second queued and 1,292 seconds running.
+
+This audit finds no train gate defect. It does not yet issue final combined acceptance.
+The #300 final package receipt remains due. The #305 final body, package receipt, and integration receipt remain due.
+The #300 author added the final train section. Sol-B requested a correction to its review-round citation.
+The author reports that correction in `msg_plugin-w_1791789181_65d2a1`; independent body verification remains due.
+Sol-B will complete final acceptance after the matching member records arrive.
+The lead's base update, gated-tree verification, and verified push remain outside this audit.
+Sol-B ran no execution job and did not merge the train.
