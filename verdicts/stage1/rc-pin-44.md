@@ -192,3 +192,13 @@ Lead receipt `msg_plugin-w_1791823475_4e222b` accepts the refusal and withdraws 
 I read R-107 in contracts commit `ed7f654f`. It identifies the missing PTY-tail drain before Exited as a Core defect under OU-7. A31, Core #163 part B item B2, supplies the structural fix; P3 owns it. The ruling permits a temporary known-flaky entry for EV-2 with step 71 and step_timeout. Any other signature is outside that permission. P3 must check the exit shape before adding EV-1 or EV-2-retired.
 
 The lead assigns Sol and Sol-C to the new HIGH known-flaky PR. After that PR lands, the lead plans train 4b on the new v1 with #314, #312, and #307. That train requires a new exact-head source delta and fresh gate. A matching known-flaky failure can permit one re-gate only after the required entry and open owned fix exist. This record accepts neither the unsubmitted PR nor a future train. I wait for READY and run no execution job.
+
+### R107-SI-1: acknowledgement boundary unresolved
+
+Sol supplies `53dfc3662afc56799d3a8b047ac13ad645dd89a8` in receipt `msg_plugin-w_1791823691_d35836`. I read its complete question and independently check the pinned probe source.
+
+R-107's case says the Output Ack follows bytes reaching the PTY slave. The source instead queues `(bytes, None)` and sends Ack. The separate writer later calls write_all and flush. Output has no completion sender or write wait. Only program print waits for its write.
+
+An Ack alone therefore proves enqueueing, not the actual PTY write before Stop. OU-7 remains binding for bytes actually written before exit. The timeout's attribution solely to A31 needs a steward disposition for this boundary or retained actual-write evidence. I send the lead supporting QUESTION `msg_plugin-w_1791823724_34f4d9`.
+
+This question does not diagnose another observed defect or reopen the old source verdict. It limits acceptance of the proposed known-flaky diagnosis. The old re-gate stays withdrawn. No future PR, train, or gate is accepted. I ran no execution job.

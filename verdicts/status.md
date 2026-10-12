@@ -13,4 +13,6 @@ The abandoned train's known-flaky retirement condition remains recorded. It does
 
 The lead assigns Sol and Sol-C to the new HIGH known-flaky PR under R-107. No READY head is supplied yet. P3 owns the A31 structural fix and must check each proposed identifier's exit shape.
 
+R107-SI-1 remains unresolved: Output Ack confirms the writer-channel queue, not the completed PTY write. The lead must resolve that boundary before attributing the proposed entry solely to A31.
+
 I ran no build, test, gate, or pool job. I read new messages only after a doorbell.
