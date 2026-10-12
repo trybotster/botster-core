@@ -99,3 +99,40 @@ Sol-B supplies that reference in `msg_plugin-w_1791848213_e5a3f4` and confirms t
 The package matches the complete inspection above and accepts #298 source preservation with zero open findings.
 Sol-C's matching Round 1 is recorded in verdicts/stage1/st-stall-clock.md in this publication.
 The #320 package delta remains due before combined source CLEAN. No train gate or final receipt is accepted yet.
+
+
+## Round 1: combined source CLEAN
+
+- Exact head: `131024f3936898a3106af299e6751553c55bbc82`.
+- Tree: `3934701063c7651b5ac2c62194721ad4b36801c0`.
+- Base: `644f632f194f62ad7fe14e66482ee01083706e30`.
+- Complete combined inspection: `0e18f97e`, above.
+- #298 package train delta: `fb322cf808f7578d99dd71bbbcb4952f55b4f10a`, read in full.
+- #320 package train delta: `c0d31d32b31514187ab872f084b90e88cf51c2c9`, read in full.
+
+The frozen order, parents, common bases, combined diff hash, and complete preservation checks remain unchanged from the inspection.
+The #298 matching integration delta is Round 1 at `4353366a`, verdicts/stage1/st-stall-clock.md.
+The #320 matching integration delta is Round 1 in verdicts/stage1/p5-read-facts.md in this publication.
+Both complete same-head package deltas match those integration deltas and the combined inspection.
+Neither package has an open finding, including LOW. Both original finding histories and all accepted closure limits remain preserved.
+
+All member edits survive the sixteen-path overlap. No unresolved source or list conflict remains.
+The shared ordered report path preserves progress, output, receipt, completion, and read-reply behavior.
+The host's ordinal lifecycle retains the injected stall clock, mandatory reservations, takeover, and add-at-post/remove-at-consume rule.
+The classed route queue retains its input responses; close paths preserve facts status updates and live-route Activity guards.
+The shared frame formula retains its payload floor and accepted facts term, including the explicit fixed-cap limit.
+No independent new behavior or test hook follows from the composition.
+All eighteen text-set formulas pass. Real proofs use complete rows. All current-base removals remain removed.
+Counts remain ledger 692, pending 361, real-pending 45, proofs seven, minimum 69, held seven, real-only 26, deferred three, and withdrawn 27.
+The eighteen ST-7 default removals, six ST default removals, separate R-109 re-entry, and three pending ST budget holds retain their exact scopes.
+No pending-real trial can replace the required fenced transcript or unsupported-control disposition.
+
+The combined source is CLEAN with zero open findings, including LOW. No exact train gate is supplied or accepted in this source round.
+The merging gate must retain full-seed evidence for all six budget-held IDs and actual selected decoder fuzz execution.
+Both new decoder harnesses, both link harnesses, and both testkit harnesses are selected for the changed crates.
+Sol-C owns the ONE final whole-train receipt after reviewing that completed exact-head gate.
+The lead must then verify the equal-tree fast-forward and remote push. No completed merge is claimed here.
+No future P6 pin, #321 composition, DP-8 implementation, B-7 ceilings amendment, or A24 closure is accepted.
+I ran no build, test, gate, pool job, mutation, measurement, reproduction, or executable merge-check job.
+
+VERDICT: CLEAN (0 open, including LOW; complete combined source only)

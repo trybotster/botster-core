@@ -52,5 +52,6 @@ I will wait for the doorbell. I will run no execution job.
 
 Train 11 composition inspection is recorded at head `131024f3`, tree `39347010`, base `644f632f`.
 Frozen order: #298 `7a8592fb`, then #320 `48ff7a03`. Sol-C owns both integration deltas and the combined review.
-All member edit sequences remain exact; all eighteen text-set formulas pass. Complete package deltas remain due before source CLEAN.
+Both member integration deltas and combined Round 1 are CLEAN in source. Complete package deltas fb322cf8 and c0d31d32 are checked.
+All member edit sequences remain exact; all eighteen text-set formulas pass.
 The detached exact-head gate and ONE final train receipt remain due. No execution or merge is accepted by the pending inspection.
