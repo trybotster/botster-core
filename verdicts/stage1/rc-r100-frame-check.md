@@ -32,6 +32,8 @@ The package reviewer owns these findings. This integration round retains their o
 
 Package finding receipts: `msg_plugin-w_1791784839_13a006` and `msg_plugin-w_1791784899_9ead3c`. No exact-head CLEAN package verdict is available.
 
+I subsequently read the published #309 package round at `10182ac69f63800fc109c9ba4883ae102448a5b9`, file `verdicts/rc-real-controls.md`. It covers the same head and retains these four package findings plus RC-R100-I1. Both reviews stop this head's remaining audit while the owner prepares the repair.
+
 ### Other integration checks
 
 The send path and check use `launch_spec_for`. The frame check precedes operation allocation and commit. The attach check precedes route allocation and handoff registration. `PayloadTooLarge` retains its existing precedence. The link counter measures the same serde JSON representation as the encoder.
