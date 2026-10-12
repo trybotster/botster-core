@@ -64,3 +64,30 @@ R305-F1 closes through that published package evidence. No integration finding r
 This CLEAN accepts this PR head and its completed READY gate. It does not accept a future train head. Applicable train delta reviews, combined-diff review, the exact-train-head gate, and final receipts remain required.
 
 VERDICT: CLEAN (0 open)
+
+## Round 3: train-2 source delta
+
+- Train branch: `stage1/train-2`.
+- Train head: `080987829a2e2245a7ea97606020400392c974d6`.
+- Train tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+- Train base: `be95ef13`.
+- Frozen #305 head: `655bb3ab16d34f1bc14991aed6c1a41fbb785dc3`.
+- Frozen #300 head: `484912ac58743b899c7856e87bdcad0f2b398300`.
+- #305 merge parent: `872c7eeb`, which contains #300 on the train base.
+- Reviewed delta: the complete #305 merge diff, the changes from its accepted head to the train head, and the affected interface contexts.
+
+The #305 merge diff retains all added and removed lines from the accepted 22-file diff. I compared the file names and added/removed lines, with diff headers and hunk coordinates excluded. The resulting patch-content SHA256 is `4c5d88118e0aa7a352e01d574cd1124483422c66c33ce77c9ca8d998a8bd9d4b` in both diffs.
+
+The three automatically merged files retain both changes. The mutation file keeps #305's renamed test comment and #300's exact default-method exclusions. The testkit worker keeps the separate KillPayload flag and input. Its imported report filter excludes held control links only. It does not exclude worker signals or worker execution. The real worker test file keeps the two-signal test and the imported DP-2 proof comment.
+
+I read the scheduler interface and host driver changes from #300 at this train head. `held` excludes `Work::Deadline` and `Work::Silent` before it asks the scheduler. Thus a held Stop cannot suppress an armed stop deadline. At that deadline, the unchanged #305 path sends the linked kill or the verified-worker KillPayload signal. The host deadline test in `driver/holds.rs` checks that the linked kill runs while the Stop is held. The #305 boundary tests retain the separate broken-link deadline and worker no-timer checks.
+
+The imported start-hold code keeps the worker control link from host acceptance. It does not remove the separate KillPayload input. The worker's own adoption deadlines remain outside this PR, as Round 2 records. The train retains the shared worker machine and adds no production test branch for these paths.
+
+I read the published #300 package verdict at `be0a893b2b0dd989ccd7128a8bf32fa4b4008611`, file `verdicts/p6-e1-scheduler-hold.md`, including Rounds 4 and 5 for its frozen head. Those rounds close its source import and focused Mac evidence. I did not repeat its closed package scope.
+
+I checked the conformance pending, real-pending, held, and real-proof sets against the train base and member changes. Every train set matches the three-way result. The process allow-list and mutation exclusion sets also match the train base plus both members' own additions and removals. No unexpected entry appears. #305 adds no conformance removal.
+
+Zero #305 integration delta findings remain at this exact train head. R305-F1 remains closed. This is a source delta CLEAN. It does not accept a train gate that has not run. The required combined-diff integration review, other member delta reviews, one exact-train-head gate, and final receipts remain required. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
