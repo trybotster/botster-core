@@ -15,6 +15,14 @@ unsafe_code = "forbid"
 [workspace.dependencies]
 base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # botster-contracts, by tag (plan section 0, plans 23t, 23w, 23ab, 23aj, 23ak, 23am, 23ar, 23at, 23au, 23bd, 23bk, 23bu and 23cm;
+# contracts-v0.1.49 = 5ce2cff (tag object 34f431b7): contracts-v0.1.48 + contracts #94 (R107-SI-1, R-113: the written-output fence
+# lint and its fences), #95 (backlog B-4: the probe's line reader is linear), #97 (R-114 (B): ReadScreen Completed fences before
+# oracle_resume in the st_6b ids), #98 (B-5 step 1), #100 (R-111: await_control re-checks kernel-state controls) and #99 (R-109:
+# route_reports gains progressed, served by #298; the progressed, title, derived-event and sync-read fences); manifest final42;
+# no new control op; contracts-v0.1.48 = 3acaf78 was not pinned: contracts-v0.1.47 + manifest final42 (Core A23: an OU-7 id for
+# output written before a killing Stop; Core A25: max_session_id_bytes 1 to 1,024, checked by CoreLimits::validate);
+# contracts-v0.1.47 = 32d3682: contracts-v0.1.46 + contracts #91 (R107-SI-1: the pty_output_written control, Request and
+# Report::Written) and the Core A24 candidate 2 ACCEPT;
 # contracts-v0.1.46 = 7e97064 (tag object b82ff81f): contracts-v0.1.45 + contracts #87, the order lint covers reads with no hold (R-93
 # follow-up), + manifest final41, Core Amendment 22 (RouteAdopted route_tag and owner become Option<String>: absent and empty
 # differ; R-104; new id a22_1_route_adopted_tells_an_absent_tag_from_an_empty_one), + rulings R-104 to R-108 and R107-SI-1/-2 and
@@ -66,13 +74,13 @@ base64 = { version = "0.22", default-features = false, features = ["alloc"] }
 # string), rulings R-44 to R-47, the R-46 driver, the ou_2b Detach pumps; final37, Core Amendment 17 candidate 2 (WebRTC moves to the Hub;
 # one route transport, `Stream`), HC A8, HP A9, codec rev37, Limits::real (R-43); final36, Core Amendment 18 candidate 2; Core Amendments
 # 13 to 16; rulings R-30 to R-37).
-botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
-botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.46" }
+botster-core-contract = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-core-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-hub-conformance = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-route-codec = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-probe-script = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
+botster-test-support = { git = "https://github.com/trybotster/botster-contracts", tag = "contracts-v0.1.49" }
 
 anyhow = "1"
 data-encoding = "2"
