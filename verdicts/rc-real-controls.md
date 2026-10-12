@@ -2420,3 +2420,61 @@ Both current source reviews now have zero open findings. All 35 observed real-pe
 The earlier red gates, synthetic proof, local reversals, partial-write limit, A5-4 limits, and separate wake-removal proof remain explicit.
 Final-slot current-v1 import, applicable checks and reviews, exact-final-head gate, and both final verdicts remain due before merge.
 The reviewer runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — final-slot delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final acceptance pending).
+PR: `https://github.com/trybotster/botster-core/pull/299`.
+Exact head: `f16a10ba028ca3ea6b0139d58aabea7cb5e051d5`.
+Imported final-slot base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Previously reviewed head: `7c7dadd165ae005f5e6e19cd99d752b5bb3b9d7a`.
+Previous imported base: `b3cdfffbba353bf9cfc34f7d7f9b8daccc753035`.
+Exact source tree: `67c34fba86d161521be0360ae5829e70807631a4`.
+Open package findings: 0, including LOW findings.
+RC-PIN43-1 through RC-PIN43-5 remain closed.
+
+The implementer imports v1 once in the assigned slot, with rerere disabled and no later source edit.
+The canonical check returns FAIL, exit 1. It requires delta rounds from both reviewers.
+Log: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-pin-42/base-merge-check-7c7dadd1-f16a10ba.log`.
+The ancestry and conflict checks pass. Cargo.lock overlaps, and the raw own diff differs in metadata.
+Both checked pending lists pass their special removal rule. This verdict does not use automatic Q7 carry-forward.
+
+The reviewer independently compares the Git objects and change lines.
+All nine own files outside Cargo.lock and core-pending.txt have the exact previously reviewed blobs.
+Every file outside the eleven own paths equals the imported final-slot base.
+The eighteen Cargo.lock change lines are identical to the previously reviewed pin change.
+The imported botster-test-process dependencies remain present. All nine contracts source lines retain contracts-v0.1.43.
+All nine conformance lists equal their independent three-way line-set formulas.
+The PR's own pending removal and the base's two e3_1 removals remain removed, with no shared removal.
+The real pending removal, budget holds, ledger, and minimum list remain as reviewed.
+The progress code, peer-byte tests, and bounded resume wait retain their exact reviewed blobs.
+No new private-state assertion, terminal model, or control definition enters the own delta.
+
+The imported mutation file adds one exclusion from #293 for five whole-body build_worker replacements.
+Its pattern names only `xtask/src/prebuild.rs` and `build_worker -> Result<Option<(String, String)>>` replacements with `Ok(...)`.
+The function starts the worker build and installs its executable. A nested build cannot run inside its mutation test.
+The package-selection, candidate-directory, installation, and hash decisions retain their tests and mutation coverage.
+The gate must still show the prebuild output. No exclusion covers progress or the resume wait.
+All other exclusions retain their previously reviewed text. The reviewer accepts this narrow process-glue reason.
+
+Sol identifies LOW R299-SI-4 in the body, then the implementer corrects it without a source change.
+Correction message: `msg_plugin-w_1791777771_a72c75`.
+The reviewer reads the complete published body and verifies its exact head.
+The body now states that change lines match after index and hunk-header removal.
+It names two changed index lines, five Cargo.lock hunk headers, and one core-pending.txt hunk header.
+It states that the canonical check prints only the first raw difference. R299-SI-4 is closed for this package review.
+
+The reviewer reads the completed local log and its script as supplementary evidence only.
+Log: `/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-pin-42/local-final-f16a10ba-20261012-034655.log`.
+The log names this head and base. Each printed command exit is zero.
+It reports the static checks, prebuild, four library suites, 26 route/resume tests, and strict conformance at seeds 0-31.
+Strict conformance reports 259 passes and no failure. The local evidence does not replace the final gate.
+The script prints the clean time, but no numeric clean exit or independent raw clean proof.
+The corrected body retains that limit. It also retains the earlier red gates and all source-evidence limits.
+
+This delta CLEAN permits the implementer to proceed under the lead's final-gate order after both delta CLEANs.
+Final acceptance requires the completed exact-head final gate, matching body, and both final verdicts.
+No final-slot gate result is claimed here. This verdict accepts no later head or different source tree.
+The reviewer runs no test, build, gate, executable merge check, or diagnostic.
