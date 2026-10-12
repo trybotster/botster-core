@@ -79,9 +79,14 @@ pub fn parse(reply: &[u8], ino: u32) -> io::Result<Found> {
     match u16_at(message, 4).ok_or_else(|| bad("no message type"))? {
         NLMSG_ERROR => {
             let errno = i32_at(message, HEADER).ok_or_else(|| bad("no error code"))?;
+            // The kernel sends a negative errno. Zero (an acknowledgement) and i32::MIN (no positive errno) do not parse.
+            let errno = errno
+                .checked_neg()
+                .filter(|e| *e > 0)
+                .ok_or_else(|| bad("an error code that is not a negative errno"))?;
             Err(io::Error::other(format!(
                 "the worker's end was not found: {}",
-                io::Error::from_raw_os_error(-errno)
+                io::Error::from_raw_os_error(errno)
             )))
         }
         NLMSG_DONE => Err(bad("done with no answer")),

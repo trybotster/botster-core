@@ -130,5 +130,13 @@ fn sock_diag_decoder() {
             assert_eq!(found, sock_diag::Found { peer, unread });
             assert!(sock_diag::parse(&reply, ino.wrapping_add(1)).is_err());
             assert!(sock_diag::parse(&reply[..reply.len() - 1], ino).is_err());
+            // An error message with any error code is an error, never a panic (R319-SI-1: i32::MIN).
+            for code in [word(4) as i32, i32::MIN] {
+                let mut error = 20u32.to_ne_bytes().to_vec();
+                error.extend_from_slice(&2u16.to_ne_bytes());
+                error.extend_from_slice(&[0; 10]);
+                error.extend_from_slice(&code.to_ne_bytes());
+                assert!(sock_diag::parse(&error, ino).is_err());
+            }
         });
 }
