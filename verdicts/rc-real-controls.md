@@ -2538,3 +2538,39 @@ The reviewer sends both findings to the implementer and integration reviewer.
 The profile configuration has no source behavior finding. Delta CLEAN waits for both precision findings to close.
 The final exact-head gate, matching body, both final verdicts, and Q7 remain due.
 The reviewer runs no test, build, gate, or diagnostic.
+
+
+### Core #299 — corrected profile delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final acceptance pending).
+Exact head: `77eae642eaac0c56cde035870616d17bf2f877ba`.
+Imported final-slot base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+Source tree: `9423da03abc7b905308920570cf767216e0f3ee5`.
+Correction message: `msg_plugin-w_1791779864_9add01`.
+Open package findings: 0, including LOW findings.
+RC-PIN43-1 through RC-PIN43-5 remain closed.
+
+RC-PIN43-6 closes in the exact source delta.
+The only change after edb9de10 replaces the profile comment's 32-seed description with a 1024-seed sample description.
+The published body matches that sample description and retains the separate timing comparisons at seeds 0-31.
+All profile values and all other source files retain their reviewed versions.
+
+RC-PIN43-7 closes in the published body.
+Gate entry 8 now reports jobq's 659-second duration and the wrapper's 660-second duration separately.
+These values match the final raw records. The entry retains the failed budget and the absent later steps.
+The reviewer reads the complete published body and verifies GitHub's exact head.
+Gate entry 9 names the comment correction and retains PENDING status for the final gate.
+
+The two dependency overrides meet the lead's mitigation ruling and BUILD.md's speed rule.
+Both preserve debug assertions and overflow checks. No Core workspace package receives an override.
+No gate budget, pending status, mutation exclusion, control, or test assertion changes.
+The existing final-slot composition review still applies to every other source file.
+The earlier local log remains supplementary evidence for edb9de10; the correction changes only a comment.
+Its clean-proof limit remains. The measured timings do not establish final Linux gate acceptance.
+The separate Core encoder cost and contracts clone cost remain follow-up work under the lead's disposition.
+
+This delta CLEAN permits the new final gate after both delta CLEANs under the lead's order.
+The completed exact-head gate, full mutation result, matching final body, both final verdicts, and Q7 remain due.
+The failed f16a10ba gate supplies no acceptance for this head. This verdict accepts no final gate result or later source tree.
+The reviewer runs no test, build, gate, or diagnostic.
