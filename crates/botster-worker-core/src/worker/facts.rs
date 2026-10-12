@@ -34,6 +34,17 @@ pub(super) const MAX_ORDINAL: u64 = (1 << ORDINAL_BITS) - 1;
 const MAX_SEQ: u64 = (1 << SEQ_BITS) - 1;
 const _: () = assert!(ORDINAL_BITS + SEQ_BITS <= 53);
 
+/// What a record keeps of its input.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Content<'a> {
+    /// The input's semantic payload (5.1A), its content cut at `input_event_payload_bytes`.
+    Payload(&'a InputPayload),
+    /// An input of this kind with an empty payload: a refused `paste_commit` or `file_commit` (steward ruling R-102).
+    Empty(InputKind),
+    /// An input of this kind whose payload the worker did not decode: no payload, `payload_truncated`.
+    Undecoded(InputKind),
+}
+
 /// A record, by its sequence number in the log.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RecordId(u64);
@@ -148,7 +159,7 @@ impl Facts {
         &mut self,
         now: Instant,
         source: InputSource,
-        payload: &InputPayload,
+        content: Content<'_>,
     ) -> Result<RecordId, Exhausted> {
         if !self.can_receive() {
             return Err(Exhausted);
@@ -159,7 +170,7 @@ impl Facts {
             self.last_client = Some(now);
         }
         let at = millis(now.saturating_duration_since(self.start));
-        let record = record_of(self.cursor(seq), source, at, payload, self.bounds.payload);
+        let record = record_of(self.cursor(seq), source, at, content, self.bounds.payload);
         let entry = self.fitted(record);
         self.newest = Some(seq);
         self.push(seq, seq, entry);
@@ -331,7 +342,7 @@ fn record_of(
     cursor: InputCursor,
     source: InputSource,
     at: u64,
-    payload: &InputPayload,
+    content: Content<'_>,
     cap: usize,
 ) -> InputRecord {
     let mut record = InputRecord {
@@ -354,16 +365,29 @@ fn record_of(
         state: InputRecordState::Pending,
         pty_bytes: None,
     };
-    let content = |bytes: &[u8], record: &mut InputRecord| {
+    let keep = |bytes: &[u8], record: &mut InputRecord| {
         let kept = &bytes[..bytes.len().min(cap)];
         record.payload_truncated = kept.len() < bytes.len();
         record.payload = Some(HexBytes(kept.to_vec()));
     };
+    let payload = match content {
+        Content::Payload(payload) => payload,
+        Content::Empty(kind) => {
+            record.kind = kind;
+            record.payload = Some(HexBytes(Vec::new()));
+            return record;
+        }
+        Content::Undecoded(kind) => {
+            record.kind = kind;
+            record.payload_truncated = true;
+            return record;
+        }
+    };
     match payload {
-        InputPayload::Bytes { bytes } => content(&bytes.0, &mut record),
+        InputPayload::Bytes { bytes } => keep(&bytes.0, &mut record),
         InputPayload::Text { text } => {
             record.kind = InputKind::Text;
-            content(text.as_bytes(), &mut record);
+            keep(text.as_bytes(), &mut record);
         }
         InputPayload::Paste {
             bytes,
@@ -371,7 +395,7 @@ fn record_of(
         } => {
             record.kind = InputKind::Paste;
             record.require_bracketed = Some(*require_bracketed);
-            content(&bytes.0, &mut record);
+            keep(&bytes.0, &mut record);
         }
         InputPayload::Key(key) => {
             record.kind = InputKind::Key;

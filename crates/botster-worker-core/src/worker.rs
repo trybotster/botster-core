@@ -307,6 +307,11 @@ pub struct Worker {
     model: Option<model::Model>,
     /// Core's limits that the worker applies itself (`LaunchSpec.limits`).
     limits: CoreLimits,
+    /// The input records, the client tail and the age of client input (ST-7), from the launch.
+    facts: Option<facts::Facts>,
+    /// The worker's start on its own clock: the first `now` that it is given. `ReadFacts` counts `at` and `age_ms` from it
+    /// (steward ruling R-101 Q4, Q5).
+    started: Option<Instant>,
     /// The stream routes (P4a).
     routes: route::Routes,
     /// The descriptors of the control link's reads (DP-2).
@@ -355,6 +360,8 @@ impl Worker {
             input: input::InputState::default(),
             model: None,
             limits: CoreLimits::default(),
+            facts: None,
+            started: None,
             routes: route::Routes::default(),
             handoffs: handoff::Handoffs::default(),
             actions: VecDeque::new(),
@@ -580,7 +587,7 @@ impl Worker {
 
     fn on_host_msg(&mut self, now: Instant, msg: HostMsg) {
         match msg {
-            HostMsg::Launch(spec) => self.on_launch(*spec),
+            HostMsg::Launch(spec) => self.on_launch(now, *spec),
             HostMsg::Stop if self.payload == PayloadState::Spawning => self.early.stop = true,
             HostMsg::Stop => self.signal(SIGTERM),
             HostMsg::Kill if self.payload == PayloadState::Spawning => self.early.kill = true,
@@ -601,7 +608,7 @@ impl Worker {
 
     /// AD-7 step 4: the host sends the launch only after the worker's identity is durable, and the worker launches only on
     /// it. A second launch is ignored: a session has one payload.
-    fn on_launch(&mut self, spec: LaunchSpec) {
+    fn on_launch(&mut self, now: Instant, spec: LaunchSpec) {
         if self.payload != PayloadState::None {
             return;
         }
@@ -614,6 +621,11 @@ impl Worker {
             return;
         };
         self.model = Some(model);
+        self.facts = Some(facts::Facts::new(
+            spec.cursor_ordinal,
+            &spec.limits,
+            self.started.unwrap_or(now),
+        ));
         self.limits = spec.limits;
         self.frame_bound = spec.link_frame_bound;
         self.decoder = rebound(&self.decoder, spec.link_frame_bound);
@@ -713,13 +725,14 @@ impl Worker {
         }
     }
 
-    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3) and
-    /// `CaptureSnapshot` (ST-6). The setters and the facts come next, and the worker answers them `Internal` until then.
-    fn on_op(&mut self, _now: Instant, req: u64, op: Op) {
+    /// The operations that need the worker: `Signal` (LC-6), `WriteInput` (IN-1), the reads of the model (ST-1 to ST-3),
+    /// `ReadFacts` (ST-7) and `CaptureSnapshot` (ST-6). The setters come next, and the worker answers them `Internal` until
+    /// then.
+    fn on_op(&mut self, now: Instant, req: u64, op: Op) {
         let result = match op {
             Op::WriteInput { payload, guard, .. } => {
                 // Its `Done` comes when its transaction ends (IN-3).
-                self.on_write_input(req, payload, guard);
+                self.on_write_input(now, req, payload, guard);
                 return;
             }
             Op::ReadScreen { history, .. } => self.read_screen(history),
@@ -746,6 +759,7 @@ impl Worker {
                     ))
                 }
             }
+            Op::ReadFacts { after, .. } => self.read_facts(now, after),
             other => OpResult::Err(CoreError::new(
                 ErrorCode::Internal,
                 format!("this worker does not serve {} yet", op_name(&other)),
@@ -1075,6 +1089,7 @@ impl Machine for Worker {
     type Action = Action;
 
     fn handle(&mut self, now: Instant, input: Input) {
+        self.started.get_or_insert(now);
         self.expire_adoption(now);
         match input {
             Input::LinkBytes { bytes, descriptors } => self.on_link_bytes(now, &bytes, descriptors),
@@ -1118,7 +1133,7 @@ impl Machine for Worker {
             }
             Input::RouteWritten { route, result } => self.on_route_written(route, result),
             Input::RouteWritable { route } => self.on_route_writable(route),
-            Input::RouteRead { route, bytes } => self.on_route_read(route, &bytes),
+            Input::RouteRead { route, bytes } => self.on_route_read(now, route, &bytes),
             Input::RouteEnded { route } => self.on_route_ended(route),
         }
         self.arm_orphan(now);
@@ -1179,6 +1194,7 @@ mod facts;
 mod handoff;
 mod input;
 mod model;
+mod receipt;
 mod route;
 
 pub use route::DescriptorId;
