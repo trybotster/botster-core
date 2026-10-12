@@ -5,10 +5,10 @@ The lead recovered the inbox and approved #311 round four. The review history re
 | PR | Latest review | Remaining work |
 | --- | --- | --- |
 | #305 | Final integration CLEAN at train-2 head `08098782`. Package and combined final receipts checked. | The lead uses train 2 as the new v1 base. No new Sol-C review is assigned. |
-| #312 | Train 4 source delta CLEAN at `03709a0c`, Round 6. Final gate RED. The lead withdraws the unchanged re-gate request. R-107 identifies the Core exit-tail defect. | The lead plans train 4b after the owned known-flaky PR lands. A new source delta and fresh gate remain due. |
+| #312 | Train 4b source delta CLEAN at `e37b91d6`, Round 7. Package `6fe61678` checked. The base delta equals accepted #317; all own and conformance files remain unchanged. | Other member reviews, combined review, fresh train gate, final receipts, and merge verification. Old train 4 remains RED. |
 | #309 | Replacement member source delta CLEAN at `f41b7e82`. Same-head package `ade8bbee` checked. RC-R100-TRAIN-1 closes through the fixture repair. | The lead excludes #309 from train 4 after a conflict. Train 5 work remains separate. |
 | #311 | Authorized Round 4 CLEAN at `e214bbe0`. Package Round 192 `51304c53` checked. | The lead excludes #311 from train 4 after conflicts. Final import and train 5 evidence remain separate. |
-| #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. KF317-1 closes through body precision. | Lead ancestry, equal-tree merge, and push verification. Future train 4b evidence remains separate. |
+| #317 | Integration CLEAN at `9fe97f50`. Package `3ec18908` checked. Exact-head gate passes all ten steps. The lead reports landing with the gated tree and GitHub MERGED. | Train 4b evidence remains separate. |
 
 The abandoned train's known-flaky retirement condition remains recorded. It does not apply to train 3c after #308 leaves. No future #308 composition is accepted.
 

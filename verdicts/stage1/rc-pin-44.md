@@ -214,3 +214,26 @@ The proposed EV-2 known-flaky entry must name both candidate causes and both own
 The follow-up also confirms that EV-1 step 10 and EV-2-retired step 121 have no intervening exit. Their fix is an R-57 state fence, not A31 alone. They receive separate known-flaky entries only if they fail before that patch lands, with their own recorded signatures. The sentinel for EV-2-retired must preserve the live-instance and loss-marker conditions.
 
 The new HIGH PR and train 4b still require exact-head reviews. The withdrawn unchanged re-gate stays withdrawn. I ran no execution job.
+
+## Round 7: train 4b base-only delta
+
+- Train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+- Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+- Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+- Previous train: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+- Frozen #312 member: `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+- Reviewed delta: landed #317's known-flaky entry and repository-list test, with no other change from the previous train.
+- Package verdict: `6fe61678c003a1205e17a1cfd27f0c9e62ccf648`, file `verdicts/rc-real-controls.md`, complete train 4b section.
+- Lead assignment: `msg_plugin-w_1791825491_dd61c1`.
+
+I read the complete same-head package section. It reports zero findings. I checked the ordered merges of the same #314, #312, and #307 heads onto the new base. The complete train difference equals #317's accepted base difference byte-for-byte. Both changed blobs equal landed #317. My complete #317 acceptance is `ee3dd333685af0bca99a8e879db78cebe620690f`.
+
+All six #312 files and all nine conformance files equal the previous train. The 403 pending IDs and 34 real-pending IDs retain their accepted sets. Earlier body closures and interface checks remain valid. #309 and #311 remain absent.
+
+R107-SI-2 governs the imported entry. Its one real EV-2 test has the recorded step-71 timeout signature. The current .44 pin remains before the .45 removal trigger, so the entry is applicable. RC owns removal through #316. A31 remains separate. This entry differs from the earlier obsolete in_8 entry, whose removal trigger was already applied.
+
+The entry affects mutation selection only. Normal slow tests and the unmutated Stage 2 baseline still run it. A failure remains RED. The mutation configuration, parser, filters, budgets, probe, and production Core paths do not change. The entry and one-entry assertion must leave together with the later pin.
+
+Zero #312 integration delta findings remain. This CLEAN accepts source only at this exact train head. The old train gate remains RED and is not re-gated. A fresh train 4b gate, other member reviews, combined review, final member receipts, and equal-tree merge verification remain due. This record authorizes no specific retry or future pin. I ran no build, test, gate, or pool job.
+
+VERDICT: CLEAN (0 open)
