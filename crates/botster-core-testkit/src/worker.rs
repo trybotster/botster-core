@@ -1907,7 +1907,8 @@ mod tests;
 /// report (an exit, an end of file, a frame) wakes the host (R-97). The wait waits on the host's handle until the workers'
 /// earliest deadline at most, then runs the workers at their clock and waits again. It ends `Woken` only from the host's
 /// handle, so only a signal (or a spurious wake that the run allows, TH-2) ends it early. No thread: the workers run only
-/// inside this host call.
+/// inside this host call. The wait measures its timeout on the workers' clock, the clock of the deadlines that it compares
+/// with it (the real clock outside unit tests). A deadline at the end of the wait is left to the next pump.
 struct WorkerDeadlineWake {
     host: Arc<dyn WakeHandle>,
     workers: Workers,
@@ -1915,10 +1916,10 @@ struct WorkerDeadlineWake {
 
 impl WakeHandle for WorkerDeadlineWake {
     fn wait(&self, timeout: Duration) -> Wake {
-        let end = Instant::now().checked_add(timeout);
+        let end = self.workers.clock.now().checked_add(timeout);
         loop {
             let left = end.map_or(Duration::MAX, |end| {
-                end.saturating_duration_since(Instant::now())
+                end.saturating_duration_since(self.workers.clock.now())
             });
             match self.workers.until_deadline() {
                 Some(due) if due < left => {
