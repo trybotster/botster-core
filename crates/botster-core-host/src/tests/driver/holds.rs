@@ -283,3 +283,30 @@ fn a_held_forwarded_op_is_not_sent_until_its_release() {
     rig.run_out();
     assert_eq!(forwarded(&rig), 1, "the released resize is sent once");
 }
+
+/// The testkit's `scheduler_delay` counts pumps by this (steward ruling R-88, group E): the driver asks `PumpBound` once in
+/// every pump, as the pump's first choice.
+#[test]
+fn the_pump_bound_is_the_first_choice_of_each_pump() {
+    let (mut rig, probes) = holding_rig();
+    to_launch(&mut rig, "s1", LinkId(1));
+    rig.worker_says(LinkId(1), launched());
+    rig.driver.begin(Op::Stop { id: sid("s1") }).unwrap();
+    let mut asked_more = false;
+    for _ in 0..8 {
+        let before = probes.log.lock().unwrap().len();
+        rig.pump();
+        rig.drain_events();
+        let log = probes.log.lock().unwrap();
+        let pump = &log[before..];
+        assert_eq!(pump.first().map(|c| c.0), Some(ChoicePoint::PumpBound));
+        assert_eq!(
+            pump.iter()
+                .filter(|c| c.0 == ChoicePoint::PumpBound)
+                .count(),
+            1
+        );
+        asked_more |= pump.len() > 1;
+    }
+    assert!(asked_more, "the pumps asked other choices too");
+}

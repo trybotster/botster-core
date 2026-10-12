@@ -66,6 +66,8 @@ struct HandleEdges {
     wake: Arc<dyn HostWake>,
     /// The ops that `scheduler_hold` holds on its host (Core A5-2, R-88 group E).
     holds: crate::op_holds::SharedHolds,
+    /// The worker reports that its host's link edge holds (`hold_worker_report`, `scheduler_delay`).
+    report_holds: crate::report_holds::SharedReportHolds,
 }
 
 impl std::fmt::Debug for HandleEdges {
@@ -156,6 +158,16 @@ impl TestkitHarness {
             .map(|h| (Arc::clone(&h.holds), Arc::clone(&h.wake)))
     }
 
+    /// The report holds of the host of `handle`, and its host's wake object, which a release signals.
+    pub(crate) fn report_holds_of(
+        &self,
+        handle: &str,
+    ) -> Option<(crate::report_holds::SharedReportHolds, Arc<dyn HostWake>)> {
+        self.handles
+            .get(handle)
+            .map(|h| (Arc::clone(&h.report_holds), Arc::clone(&h.wake)))
+    }
+
     /// The process table of the host of `handle`, once `open` built it.
     pub(crate) fn processes_of(&self, handle: &str) -> Option<&ProcessTable> {
         self.handles.get(handle).map(|h| &h.processes)
@@ -212,7 +224,7 @@ impl CoreHarness for TestkitHarness {
         )?;
         table.set_wake(Arc::clone(&opened.wake));
         let (faults, reports, wake) = (opened.faults, opened.reports, Arc::clone(&opened.wake));
-        let holds = opened.holds;
+        let (holds, report_holds) = (opened.holds, opened.report_holds);
         let core = Box::new(TestkitCore::new(
             opened.driver,
             opened.wake,
@@ -230,6 +242,7 @@ impl CoreHarness for TestkitHarness {
                 reports,
                 wake,
                 holds,
+                report_holds,
             },
         );
         Ok(self.with_refusals(&spec.handle, core))
