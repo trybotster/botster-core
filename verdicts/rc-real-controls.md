@@ -3243,3 +3243,57 @@ The implementer states the lead's order: compile and link tests, delta reviews, 
 No full pool gate is requested here. The final composed train gate remains due under that order.
 The reviewer accepts no older gate as completed evidence for this replacement head.
 The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Core #309 — repaired member delta verdict
+
+DELTA REVIEW: CLEAN.
+VERDICT: CLEAN (source delta only; final train evidence pending).
+Exact head: `f41b7e82ba98e76f2487185eba0af2a3a0de8918`.
+Imported base: `080987829a2e2245a7ea97606020400392c974d6`.
+Source tree: `9d8580367fe0852fc82b4847880a8738fa75c1d0`.
+Body/evidence receipt: `msg_plugin-w_1791819527_ee04ee`.
+Open package delta findings and conditions: 0, including LOW findings.
+RC-R100-TRAIN-1 is closed by the one-line fixture correction reviewed above.
+The earlier source, body, and procedural closures remain valid.
+
+The reviewer verifies all nine own change sets against the imported base.
+They equal the earlier accepted own changes, except the obsolete stop-grace test initializer is removed.
+The fixture keeps all nine current LaunchSpec fields explicit. The production constructor and the frame checker use the same updated schema.
+All nine conformance files equal the imported base. No status, pin, control, model, or private-state assertion changes.
+The mutation file equals the imported base, with the previously reviewed narrow equivalent exclusions.
+This repair introduces no mutation exception.
+
+The reviewer reads the complete updated body and compares it with the earlier body.
+The new repair section names this exact head, the base import, one-line correction, preserved fixture coverage, and train-4 order.
+The new evidence and gate lines preserve the historical logs and their earlier imported-base and gate-reference scopes.
+The body explicitly states that no pool gate covers this replacement head yet.
+The lead's repair order defers that gate to the final composed train head after delta reviews and FINAL-READY.
+The reviewer accepts no older gate as final evidence for this replacement member.
+
+Retained local evidence:
+`/Users/jasonconigliari/botster-sessions/shared/core-stage1/evidence/rc-r100/local-f41b7e82-20261012-153649.log`.
+The reviewer reads its script, header, status, clean output, commands, exits, and test results.
+The header names this exact head and tree. Tracked status is clean. The target is the RC role's target directory.
+Cargo clean reports 5636 files and 1.1 GiB removed before the checks.
+The script sets both parallelism caps to four and unsets the toolchain override for each Cargo command.
+Fmt exits zero. Nextest reports 55 link tests passed and nineteen frame-fit tests passed, with both command exits zero.
+The corrected encoded-length test and queued-setter shared-decoder regression have normal PASS records.
+The clean has retained raw removal output but no separately printed numeric exit. No other target-writer history is inferred.
+The final train gate remains the full acceptance evidence.
+
+This delta CLEAN permits FINAL-READY after Sol-C's matching exact-head delta verdict, under the lead's repair order.
+Applicable train delta reviews, combined review when required, final gate, member receipts, and equal-tree merge verification remain due.
+This verdict accepts no later head, different tree, or final train result.
+The reviewer runs no test, build, gate, mutation run, measurement, or diagnostic.
+
+
+### Train 3c — combined source receipt
+
+Combined reviewer message: `msg_plugin-w_1791819543_e605a1`.
+Combined verdict: `8e1cd79034abe1a88db3ee43fcd90af9c202451d`, Round 2 in `verdicts/stage1/train-3.md`.
+The reviewer reads the complete combined round.
+It is CLEAN for the reduced #310/#312 composition at `b78df725177d1a931e1eddb9bb67023e7e0ae645`.
+Its base, tree, nine list formulas, checkout-resolver interface, and absence of #308/#309 match the package record.
+The abandoned-train findings remain history. No #308/#309 acceptance carries from that composition.
+Final train gate and member receipts remain due.
