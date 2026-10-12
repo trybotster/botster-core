@@ -58,3 +58,22 @@ No finding. CLEAN on `635c014acd96e5119c2129ebf15cac888eba6398`.
 - **Round count.** 016c has given two NOT CLEAN rounds (on `9dbb526c` and `635c014a`). A third would reach BUILD.md's limit.
 
 No finding. CLEAN on `2682b631b14375de611df7e6d3b05bd9681fa317`.
+
+016c's round 3 (REJECT on `2682b631`): F2 remained (T, BEL, T in one output). It was the third NOT CLEAN round. The lead ruled SETTLE, round 4 for F2 only. The steward's R-113 (main `b8f8de1c`) gives the rule: the first occurrence of T in the window must be its last bytes, and no earlier output of the session carries T. The steward's rule replaces the lead's fallback.
+
+## Round 4 (delta, F2 only): CLEAN on fd1446651021be697828e1f6a6b63ddb8bba3626
+
+- **The commits since `2682b631`.**
+  - `f15c6171` (R3, not sent for review alone) counts a title as a fence only when it occurs once in its output, and adds the (T, BEL, T) cases.
+  - `3a1d70c1` merges main `b8f8de1c48aad909a5453b87f33c2e0076f9ffe6` (Q7): the tree `d4afd851…` equals `git merge-tree --write-tree f15c6171 b8f8de1c`. Main's 20 changed paths since `6a8ba018` include no `fence_lint` path. The merge brings in final42 (the A23 transcript), #95 and the rulings.
+  - `fd144665` (R4) changes only `fence_lint/written.rs`.
+- **The rule (R-113).** `Session.bytes` holds the program's `print` bytes and every `pty_output` of the session, in order. `observed(T)` clears the whole unfenced window only when the first title sequence T in those bytes ends at the last byte. Otherwise it fences nothing. So T fences only when no earlier print or output of the session carries T, and T's first sequence ends the window. A `print_after_input` title never fences. A `Create` starts a new `Session`. `Restart` resets the count and the window but keeps the bytes, which is stricter: it can only give a false finding.
+- **Scope.** The delta changes only the title fence (F2) and its tests. The `pty_output_written` count, the ends and the checks are unchanged from `2682b631`.
+- **Tests.** Four `r113_*` self-tests: a title twice in one output (016c's hex too); a title in an earlier output of the window; a title from an earlier fenced window (the R2 case "T, A, T" is now a finding, as R-113 (2) requires); a distinct title at the end of the window passes, also when one sequence is split across two outputs.
+- **The corpus.** The corpus test passes with no new exception line (0.824 s). This head contains main `b8f8de1c`, so the gate lints the A23 transcript with this rule. Its readiness title is the program's `print` (first, at the end of the bytes when it is awaited), and its tail is fenced by `{bytes: 14}`. The corpus title fences (`ev_2` TB, `ev_2_retired` `p6-si-1`, `e3_1`'s sentinel) are each the first such title of their session and end their windows. No transcript needed a new title.
+- **The reversal with the unfenced transcripts** (`…-written-lint-reversal-fd144665-20261012-191140.log`, HEAD `fd144665`): exactly `ev_2` s67, `ev_2_retired` s55 and `ev_5_released` s60, then a restore.
+- **Per-check reversals** (`…-written-lint-r4-reversals-fd144665-20261012-191003.log`, HEAD `fd144665`): 25 stubs. Each one turns at least one `written` or corpus test red (the two `unheld` wall-clock tests on the Mac aside).
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 178 s on msa1, base main `b8f8de1c`, "ledger ok: 2550 ids": `~/botster-sessions/gates/botster-contracts-p6-written-lint-fd144665-pool-20261012-121212-56359.log`.
+- **Main** is now `e22baecc1be444c96c3b7c099162eeb53b605164`. `git diff b8f8de1c e22baecc` changes only `docs/steward-rulings.md` (R-114), so this is a rulings-only move under BUILD.md: a merge of that move needs no new gate.
+
+No finding. CLEAN on `fd1446651021be697828e1f6a6b63ddb8bba3626`.
