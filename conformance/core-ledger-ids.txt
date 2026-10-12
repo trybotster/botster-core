@@ -358,6 +358,7 @@ conf::e3_1_two_silences_due_together_with_budget_one
 conf::e4_1_client_reply_reserves_its_frame_size
 conf::e4_1_fallback_reserves_its_reply_length
 conf::e4_1_reply_one_byte_over_the_free_bound_is_parked
+conf::e6_1_reply_from_another_route_is_wrong_route_and_the_query_stays_open
 conf::er_0_async_errors_arrive_as_completions
 conf::er_0_sync_errors_allocate_no_op
 conf::er_capture_bad_handle

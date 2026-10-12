@@ -31,10 +31,7 @@ conf::a2_2_missing_op_is_bad_frame_not_refused
 # the program controls (pty_output, pty_input, pty_chunk, pty_blocked, pty_accept) through the probe program on a real PTY, the fourth pair (lead, 2026-10-10), with P3 for the mapping (with ids from P4a PR3: pty_output, pty_input, pty_blocked).
 conf::a2_2_cancel_race_reports_the_real_outcome
 conf::am_2_next_write_waits_for_completion_or_partial_end
-conf::ev_2_drop_oldest_with_marker
 conf::ev_2_retired_instance_never_creates_a_loss_marker
-conf::ev_5_released_retires_keyed_droppable_and_loss_events
-conf::in_2_link_loss_is_unknown_not_zero
 conf::in_2_partial_is_certain
 conf::in_6_cancel_reports_progress
 conf::in_7_lost_worker_ends_pending
@@ -122,6 +119,22 @@ conf::in_3_route_reports_only_exceptions_on_the_route
 # have one, and pass). The contracts' core-fence-exceptions.txt lists the id (step 9, no program_ready, R-60), and the read of
 # step 13 has no fence: the transcript fences come in the R-56 burn-down. Owner: P3.
 conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
+
+# They pass on the testkit with v1's route paste (#284) and the contracts-v0.1.41 transcripts (the .41 pin PR, strict, seeds 0-31).
+# Each still has an entry in contracts-v0.1.41 conformance/core-fence-exceptions.txt (a pty_input read with no fence), so no
+# real-tier pass counts for it (the real-tier un-pend rule). Owner: RC (the route paste), with the transcripts' fence owner.
+conf::a2_2_refused_is_a_sequencing_error_route_input_only
+conf::dp_3_data_frames_are_raw
+conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
+conf::dp_5_paste_is_assembled_and_written_contiguously_at_commit
+
+# After the merge of v1 b0c0a419 into the .41 pin PR, these pass on the testkit (strict, BOTSTER_SEEDS=0-31). The contracts-v0.1.41
+# core-fence-exceptions.txt lists each of them (no program_ready, R-60; in_9_kitty_unknown_flag_bits_ignored also has three
+# unfenced captures, R-56), so no real-tier pass counts for it (the real-tier un-pend rule). Owner: P3 (R-56 and R-60 fences).
+conf::dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false
+conf::dp_5_input_done_only_for_want_result_true
+conf::dp_5_mode_precondition_zero_effect_reported_on_the_route
+conf::in_9_kitty_unknown_flag_bits_ignored
 
 # #284's paste refusal and this PR's testkit controls make it pass on the testkit (BOTSTER_SEEDS=0-31) and once on the real tier
 # (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
