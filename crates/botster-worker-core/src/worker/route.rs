@@ -189,8 +189,49 @@ impl Route {
                     None => Some(Received::Refused(Some(op), RefusalReason::Refused)),
                 }
             }
-            // Keys, mouse, files and query replies are later P4a work (DP-5): they are refused with their op (TS-5b), and
-            // the route stays open.
+            // IN-9: a semantic key, mouse or focus event is a route input like `bytes`; the worker encodes it with the modes at
+            // its transaction's start, and DP-5's outcome table answers it (`start_route`). A route key has no `repeat`
+            // (IN-9: host `WriteInput` only).
+            ToWorker::Input(Input::Key {
+                key,
+                mods,
+                event,
+                text,
+                shifted_key,
+                base_layout_key,
+                ..
+            }) => input(InputPayload::Key(KeyInput {
+                key,
+                shifted_key,
+                base_layout_key,
+                mods,
+                event,
+                text,
+                repeat: None,
+            })),
+            ToWorker::Input(Input::Mouse {
+                action,
+                button,
+                row,
+                col,
+                x,
+                y,
+                mods,
+                notches,
+                ..
+            }) => input(InputPayload::Mouse(MouseInput {
+                action,
+                button,
+                row,
+                col,
+                x,
+                y,
+                mods,
+                notches,
+            })),
+            ToWorker::Input(Input::Focus { focused, .. }) => input(InputPayload::Focus { focused }),
+            // A resize (DP-6, a later PR), files and query replies are later P4a work (DP-5): they are refused with their op
+            // (TS-5b), and the route stays open.
             other => {
                 let what = match other {
                     ToWorker::FileChunk { .. } => "file_chunk",
