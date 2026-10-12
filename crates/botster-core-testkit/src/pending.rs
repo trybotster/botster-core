@@ -8,8 +8,8 @@
 //!   runs each named test must-pass (plan 23s; lead, 2026-10-11). With separate named tests, neither tier runs its
 //!   transcript. When a line names the id's own real-tier trial (`RealProof::is_own_real_trial`), the real tier runs the
 //!   transcript must-pass and only the testkit tier does not (lead, 2026-10-11, after R-55).
-//! - **held**: `conformance/core-held.txt` lists a pending id that passes but stays pending, with its reason class, owner and
-//!   authority. A held id must pass: a held id that fails is an error, so the list cannot go stale. A `budget` id is over the
+//! - **held**: `conformance/core-held.txt` lists an id that passes on the testkit and is held (below: an `unproven` id stays
+//!   pending), with its reason class, owner and authority. A held id must pass: a held id that fails is an error, so the list cannot go stale. A `budget` id is over the
 //!   time budget, so the strict run runs it at the first seed of the set only (lead, 2026-10-09). Its full-seed proof is the
 //!   held-full run of the gate's slow step ([`HELD_FULL_ENV`]): there it runs at every seed of the set, one trial a seed,
 //!   and must pass at each (lead, 2026-10-11). Its line names that proof ([`BUDGET_PROOF`]).
@@ -93,7 +93,8 @@ pub enum HeldReason {
     Unproven,
 }
 
-/// A pending id that passes on the testkit and stays pending.
+/// An id that passes on the testkit and is held: an `unproven` one stays pending; a `budget` one may leave
+/// `core-pending.txt` and count by the held-full run (plan 23cn).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
     pub id: String,

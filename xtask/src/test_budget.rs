@@ -819,6 +819,14 @@ mod tests {
         rows.iter().map(|(k, v)| (k.to_string(), *v)).collect()
     }
 
+    /// The default tier's profile is `ci` under CI and `default` elsewhere; both have the 2 s per-test limit, which the
+    /// held-full run uses too (plan 23cn).
+    #[test]
+    fn the_default_tier_profile_is_ci_under_ci_and_default_elsewhere() {
+        let ci = std::env::var_os("CI").is_some_and(|v| !v.is_empty());
+        assert_eq!(default_tier_profile(), if ci { "ci" } else { "default" });
+    }
+
     /// The held-full run must have a trial at each of the 32 seeds of the CI set; a range has both ends, and other text has
     /// no seeds.
     #[test]
