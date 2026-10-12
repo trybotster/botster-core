@@ -1,6 +1,29 @@
 # ST stall clock: design review
 
-VERDICT: CLEAN (DP-8 design revision 5)
+VERDICT: CLEAN (Core #298 at 4ca7bb2a)
+
+## Core #298: completed merged-head receipt
+
+Reviewed head: `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`.
+Reviewed imported base and gate base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+VERDICT: CLEAN. No source finding remains open.
+The merge delta record below supplies the resolution and three-way list checks.
+The reviewer ran no local build or test.
+
+Completed gate: `~/botster-sessions/gates/botster-core-stage1-st-stall-clock-4ca7bb2a-pool-20261011-221430-25804.log`.
+The header names this exact head and imported base. All ten steps passed.
+The gate wrapper reports exit 0 after 963 seconds on msa1.
+Mutation result: 241 tested, 225 caught, 0 missed, 0 timeout and 16 unviable. Three catches came from stage 2.
+The gate records six held budget ids at 32 seeds, one trial per seed.
+The imported drain-room test and repaired stall-post and deferred-resume tests pass.
+`in_9_legacy_keys_table` passes in the completed test-budget step at 1.004 seconds.
+The local strict timeout remains in the history; the gate result does not turn that earlier run green.
+The earlier Mac evidence and copied reversal provenance limits also remain recorded.
+The implementer confirmed the deferred-id count correction: two ids, with the set check unchanged.
+
+The PR still names the older round-3 gate and source base in its body at this review.
+Before DONE, the implementer must add this merged head, imported base, completed gate and retained local evidence limits to the body.
+This is a package receipt for the reviewed head. The lead controls the merge slot and any later base update.
 
 ## Core #298: merge delta at 4ca7bb2a
 
@@ -33,6 +56,8 @@ The implementer reports an isolated pass at 1.758 seconds. This review retains t
 The reviewer has not read or polled the running pool gate. Its completion message remains due.
 
 ## DP-8 route adoption: design revision 5
+
+VERDICT: CLEAN (design).
 
 Follow-up artifact SHA-256: `5bd281fd4c3a2c71265e60b63f764043e53251bfbf208e10eb00dda048e90825`.
 The reviewer inspected the updated wire definition and size argument after the implementer's message.

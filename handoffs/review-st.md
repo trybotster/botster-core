@@ -74,6 +74,11 @@ All six three-way conformance sets passed. The deferred file has two ids, not th
 The local package run passed 1086/1086. The strict default-tier run retains its one in_9 timeout.
 The final receipt waits for the completed exact-head pool gate. Do not poll; wait for its doorbell.
 
+#298 completed receipt: CLEAN at `4ca7bb2a4b6f5cdfb214daffd79e67af0e1cbec6`, base `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+The completed Linux gate passed all ten steps, exit 0 after 963 seconds on msa1.
+The verdict retains the local strict timeout, earlier Mac evidence limits and copied reversal provenance limits.
+The PR body still needs this head, base and completed gate before DONE. The lead controls the next merge slot.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
