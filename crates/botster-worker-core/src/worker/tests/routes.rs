@@ -2846,6 +2846,44 @@ fn the_latest_of_a_host_resize_and_a_route_size_wins_while_one_is_out() {
     }
 }
 
+/// A policy change while a host `Resize` waits keeps that request: the host's size applies in its turn and its `Done`
+/// comes, then the policy's size, which came later. The policy waits once, at its latest place.
+#[test]
+fn a_policy_change_keeps_the_host_resize_that_waits() {
+    let (mut w, mut client, _) = attached(limits());
+    w.pty_resized = None;
+    let mut all = Vec::new();
+    for (req, rows, cols) in [(3, 20, 70), (4, 40, 120)] {
+        let actions = w.send(&HostMsg::Op {
+            req,
+            op: resize_op(rows, cols),
+        });
+        all.extend(client.take_all(&mut w, RouteId(1), actions));
+    }
+    for _ in 0..2 {
+        let actions = w.feed(Input::RouteRead {
+            route: RouteId(1),
+            bytes: resize_frame(30, 100),
+        });
+        all.extend(client.take_all(&mut w, RouteId(1), actions));
+    }
+    assert_eq!(resizes(&all), [cells(20, 70)], "{all:?}");
+    let mut sizes = Vec::new();
+    let mut done = Vec::new();
+    for _ in 0..4 {
+        let actions = w.feed(Input::PtyResized(Ok(())));
+        let actions = client.take_all(&mut w, RouteId(1), actions);
+        sizes.extend(resizes(&actions));
+        done.extend(w.reports(&actions).into_iter().filter_map(|m| match m {
+            WorkerMsg::Done { req, .. } => Some(req),
+            _ => None,
+        }));
+    }
+    assert_eq!(sizes, [cells(40, 120), cells(30, 100)]);
+    assert_eq!(done, [3, 4]);
+    assert_eq!(modes_sizes(&client), [(20, 70), (40, 120), (30, 100)]);
+}
+
 /// DP-5: `modes` coalesces to one latest unstarted frame per route. A route that writes nothing holds one `modes` frame, of
 /// the last size, whatever the number of changes.
 #[test]
