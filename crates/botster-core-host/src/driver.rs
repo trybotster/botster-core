@@ -250,10 +250,31 @@ impl<E: HostEdges> HostDriver<E> {
     /// TM-6: a call that leaves work for `pump` signals the wake before it returns. Work is a runnable step, or an action that
     /// the call queued and only `pump` performs (an `attach` queues its handoff, a `cancel` its message). Parked work is
     /// neither, so it does not signal (EV-5b).
-    fn sync_wake(&self) {
-        if self.engine.runnable() || self.engine.has_actions() {
+    fn sync_wake(&mut self) {
+        if self.runnable() || self.engine.has_actions() {
             self.wake.signal();
         }
+    }
+
+    /// Whether the engine has ready work that the scheduler does not hold (TM-6: `more` means that runnable work remains). A
+    /// held step is not runnable: it waits for the scheduler to let it go, which signals the wake (`Scheduler::held`, steward
+    /// ruling R-88 group E).
+    fn runnable(&mut self) -> bool {
+        let ready = self.engine.ready();
+        ready.iter().any(|work| !self.held(work))
+    }
+
+    /// TM-6: `PumpReport.more`: runnable work remains, or a link has input that the bound of this pump left unread.
+    fn more(&mut self, budget: &Budget) -> bool {
+        self.runnable() || budget.more_input
+    }
+
+    /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a `Silent`, and a step whose timing a
+    /// clause fixes (R-20) are never held.
+    fn held(&mut self, work: &Work) -> bool {
+        !matches!(work, Work::Deadline | Work::Silent)
+            && !self.engine.never_deferred(work)
+            && self.edges.scheduler().held(&self.engine.ops_of(work))
     }
 
     // ---- actions ----
@@ -869,6 +890,8 @@ impl Budget {
 impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
         let id = self.engine.begin(op)?;
+        let fixed_timing = self.engine.fixed_timing(id);
+        self.edges.scheduler().admitted(id.0, fixed_timing);
         self.sync_wake();
         Ok(id)
     }
@@ -918,6 +941,8 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
                 .filter(|w| !deferred.contains(w))
                 .filter(|w| !budget.exhausted() || *w == Work::Deadline)
                 .collect();
+            // A held step is not runnable work: it does not run, and no other choice point is asked about it.
+            let ready: Vec<Work> = ready.into_iter().filter(|w| !self.held(w)).collect();
             if ready.is_empty() {
                 break;
             }
@@ -945,7 +970,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.perform_counted(&mut budget);
         }
         // An ended link that waits for its drain needs no term here: the settle below reads every link.
-        let mut more = self.engine.runnable() || budget.more_input;
+        let mut more = self.more(&budget);
         if !more {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
@@ -953,7 +978,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
-            more = self.engine.runnable() || budget.more_input || self.draining();
+            more = self.more(&budget) || self.draining();
         }
         if more {
             // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).
