@@ -19,3 +19,6 @@ fn guardian_log_decoder() {
         }
     });
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

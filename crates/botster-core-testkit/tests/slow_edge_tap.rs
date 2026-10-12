@@ -109,3 +109,6 @@ fn a_broken_link_never_reaches_a_descriptor_that_reuses_its_number() {
     edges.link_close(link);
     assert_eq!(edges.link_recv(link, &mut buf).unwrap(), 0);
 }
+
+// This test binary was built in the worktree where it runs (bug catalog B13).
+botster_test_process::built_in_test!();

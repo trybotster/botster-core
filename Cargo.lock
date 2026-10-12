@@ -256,7 +256,7 @@ checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
 [[package]]
 name = "botster-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "base64",
  "include_dir",
@@ -299,7 +299,7 @@ dependencies = [
 [[package]]
 name = "botster-core-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "botster-conformance",
  "botster-core-contract",
@@ -315,7 +315,7 @@ dependencies = [
 [[package]]
 name = "botster-core-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "botster-route-codec",
  "schemars",
@@ -421,7 +421,7 @@ dependencies = [
 [[package]]
 name = "botster-hub-conformance"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "botster-conformance",
  "botster-hub-contract",
@@ -435,7 +435,7 @@ dependencies = [
 [[package]]
 name = "botster-hub-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "botster-route-codec",
  "botster-ui-contract",
@@ -448,7 +448,7 @@ dependencies = [
 [[package]]
 name = "botster-probe-script"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "botster-route-codec",
  "schemars",
@@ -459,7 +459,7 @@ dependencies = [
 [[package]]
 name = "botster-route-codec"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "bytes",
  "miniz_oxide",
@@ -497,12 +497,12 @@ dependencies = [
 [[package]]
 name = "botster-test-support"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 
 [[package]]
 name = "botster-ui-contract"
 version = "0.1.0"
-source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.43#c69a3190b4d66e84401006e9d73788ff0e837f56"
+source = "git+https://github.com/trybotster/botster-contracts?tag=contracts-v0.1.46#7e97064c0dc8fe8311c86aea4bac1e4b3663d6b1"
 dependencies = [
  "include_dir",
  "ryu-js",

@@ -1,6 +1,7 @@
 //! Repo tooling: `cargo xtask <command>`. The gate is `cargo xtask ci` (plan section 8).
 
 mod base_merge;
+mod built_in;
 mod caps;
 mod ci;
 mod fsutil;
@@ -42,6 +43,7 @@ commands:
   mutants-stale                      every mutation exclusion still matches a mutant of the tree
   signals                            raw signal calls and kill programs outside botster_core_sys::signal
   high-tier                          every entry of ci/high-tier-paths.txt matches a tracked file
+  built-in                           only the shared macros make the build-root test of a test binary (bug catalog B13)
   lists                              check core-ledger-ids, core-pending and core-deferred
   ledger-ids [--write]               check or write conformance/core-ledger-ids.txt from the pinned ledger
   public-api [--update]              check or write the facade snapshot api/botster-core.txt
@@ -75,6 +77,7 @@ const COMMANDS: &[(&str, CommandFn, Option<&[&str]>)] = &[
     ("mutants-stale", mutants_stale::command, None),
     ("signals", signals::command, None),
     ("high-tier", high_tier::command, None),
+    ("built-in", built_in::command, None),
     ("lists", lists::command, None),
     ("ledger-ids", lists::ledger_ids_command, None),
     ("public-api", public_api::command, None),
@@ -149,6 +152,7 @@ mod tests {
             ("mutants-stale", mutants_stale::command, given.clone()),
             ("signals", signals::command, given.clone()),
             ("high-tier", high_tier::command, given.clone()),
+            ("built-in", built_in::command, given.clone()),
             ("lists", lists::command, given.clone()),
             ("ledger-ids", lists::ledger_ids_command, given.clone()),
             ("public-api", public_api::command, given.clone()),
@@ -206,10 +210,4 @@ mod tests {
 }
 
 #[cfg(test)]
-#[test]
-fn this_test_binary_was_built_in_this_worktree() {
-    botster_test_process::built_in::assert_built_here(
-        env!("CARGO_PKG_NAME"),
-        env!("CARGO_MANIFEST_DIR"),
-    );
-}
+botster_test_process::built_in_test!();

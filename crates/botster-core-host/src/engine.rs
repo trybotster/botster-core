@@ -313,6 +313,31 @@ impl HostEngine {
         self.now
     }
 
+    /// The control stream of `link` has room for one control message again (the driver's drain or the link edge, steward
+    /// ruling R-91): when a `cancel` of its session was refused `Full`, `SessionWritable` follows (IN-6, SV-3), keyed per
+    /// instance, so it is coalesced.
+    /// A session on this link had a `cancel` refused `Full` and waits for room (IN-6): only then is the room runnable work.
+    pub(crate) fn waits_for_room(&self, link: LinkId) -> bool {
+        self.links
+            .get(&link)
+            .and_then(|id| self.sessions.get(id))
+            .is_some_and(|s| s.worker.link == Some(link) && s.worker.refused_full)
+    }
+
+    /// The room of a link whose session waits for it (`waits_for_room`, which the driver checked): the mark clears, and the
+    /// session's `SessionWritable` is posted.
+    pub(crate) fn control_room(&mut self, link: LinkId) {
+        if !self.waits_for_room(link) {
+            return;
+        }
+        let id = self.links[&link].clone();
+        let s = self.sessions.get_mut(&id).expect("waits_for_room found it");
+        s.worker.refused_full = false;
+        let instance = s.instance.clone();
+        self.queue
+            .post_keyed(Event::SessionWritable { id, instance });
+    }
+
     pub(crate) fn send_msg(&mut self, session: &SessionId, msg: HostMsg) -> bool {
         // A link whose write side failed takes nothing more (R-78 item 4).
         match self
@@ -479,11 +504,14 @@ impl HostEngine {
     }
 
     /// The largest frame payload of a worker link, in bytes (plan section 3). A host write travels in its JSON form and a
-    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows.
+    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows. The multiple
+    /// is the worst JSON form of one payload byte: a `Text` control byte is the six-byte escape `\u00XX` (`Bytes` and `Paste`
+    /// are hex, two bytes a byte), so every write that `max_paste_bytes` admits fits (lead ruling, 2026-10-12). Where the
+    /// cap binds, `begin` refuses a message that cannot fit (steward ruling R-100, `frame_fit`).
     pub fn link_frame_bound(&self) -> u32 {
         let limits = &self.cfg.limits;
         let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
-        let bound = largest.saturating_mul(4).saturating_add(1 << 20);
+        let bound = largest.saturating_mul(6).saturating_add(1 << 20);
         u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
     }
 

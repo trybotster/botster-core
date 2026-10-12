@@ -47,7 +47,6 @@ conf::a2_3_write_failed_closes_with_write_failed
 # R-47 route_fill pending (lead, #217): the transcript needs a fill before its accept loop; on the real tier it also stops at pty_output, P3 (P4a routes) with P6.
 # #287 gives the real route_fill; the id stays: the pinned core-fence-exceptions.txt lists step 19 as unfenced (no await_title,
 # R-57), so a real-tier pass is not evidence (lead, #287).
-conf::ou_3_progressing_reader_lossless
 
 # R-43(5): no_spurious_wakes (contracts-v0.1.39, #50; lead, plan 23aw); it passes on the testkit since the TM-6 wake fix. On the
 # real tier at contracts-v0.1.39 it fails at seed 5 step 21: the pump posts 1 event where the transcript expects
@@ -57,7 +56,6 @@ conf::ou_3_progressing_reader_lossless
 # plans 23be and 23bh). P6, with the other R-47 real route controls.
 # #287 gives the real route controls; the ids stay: the pinned core-fence-exceptions.txt lists step 9 of each as unfenced (no
 # program_ready, R-60), so a real-tier pass is not evidence (lead, #287).
-conf::ou_1_attach_hands_transport_to_worker
 conf::ou_11_transport_ownership_is_defined
 
 # Real tier, macOS 3/3 on b0db80ec: INCONCLUSIVE at step 17 (expect_closed on r2, step_timeout) (lead, plan 23bh). Cause (P6, lead
@@ -78,7 +76,6 @@ conf::ev_5_poll_wakes_pending_work
 # oracle_screen and oracle_screen_payload pass on the testkit (RC, plans 23ax to 23ba). On the real tier, ou_9 needs hold_handoff,
 # release_handoff and route_stream_written, which the real tier lacks (unowned; the lead assigns them). st_5's program prints, so
 # condition 1 of oracle_resume (R-62) refuses its oracle_screen with unknown_output_history (a ruling on a print history, steward).
-conf::ou_9_attach_is_sync_baseline_in_pump
 conf::st_5_reads_after_exit
 
 # oracle_encode, oracle_modes and oracle_state pass on the testkit (RC, R-84 with the corrected base of R-84 (1)). On the real tier
@@ -123,28 +120,36 @@ conf::dp_5_invalid_utf8_text_is_refused_unsupported_not_route_closing
 # Each still has an entry in contracts-v0.1.41 conformance/core-fence-exceptions.txt (a pty_input read with no fence), so no
 # real-tier pass counts for it (the real-tier un-pend rule). Owner: RC (the route paste), with the transcripts' fence owner.
 conf::a2_2_refused_is_a_sequencing_error_route_input_only
-conf::dp_3_data_frames_are_raw
 conf::dp_5_abort_before_commit_writes_nothing_and_sends_no_frame
 conf::dp_5_paste_is_assembled_and_written_contiguously_at_commit
 
 # After the merge of v1 b0c0a419 into the .41 pin PR, these pass on the testkit (strict, BOTSTER_SEEDS=0-31). The contracts-v0.1.41
 # core-fence-exceptions.txt lists each of them (no program_ready, R-60; in_9_kitty_unknown_flag_bits_ignored also has three
 # unfenced captures, R-56), so no real-tier pass counts for it (the real-tier un-pend rule). Owner: P3 (R-56 and R-60 fences).
-conf::dp_5_confirmed_paste_resend_is_a_new_op_with_require_bracketed_false
-conf::dp_5_input_done_only_for_want_result_true
-conf::dp_5_mode_precondition_zero_effect_reported_on_the_route
 conf::in_9_kitty_unknown_flag_bits_ignored
 
 # #284's paste refusal and this PR's testkit controls make it pass on the testkit (BOTSTER_SEEDS=0-31) and once on the real tier
 # (macOS). The contracts' core-fence-exceptions.txt lists it (step 13, no program_ready, R-60), so it stays real-pending until
 # that fence lands (the GS lists rule). Owner: P3 (R-60 fences).
-conf::dp_5_bytes_and_text_reach_the_pty_exactly
 
 # After the merge of v1 f6025aed into this PR, these pass on the testkit (strict, BOTSTER_SEEDS=0-31). The contracts'
 # core-fence-exceptions.txt (contracts-v0.1.39) lists each of them: unfenced pty_input captures (R-56; 1, 2, 9 and 13 entries)
 # and one no program_ready entry (R-60) in each.
 # So they stay real-pending until those fences land (the GS lists rule). Owner: P3 (the R-56 burn-down, R-60 fences).
-conf::in_9_key_encoded_by_worker_modes_at_write
 conf::in_9_kitty_modifier_keys_need_flag_8
 conf::in_9_mouse_each_encoding_and_limits
 conf::in_9_mouse_each_tracking_mode
+
+# a route key's frame waits behind an unheld host write (P3 PR A, route key/mouse/focus): the real tier is INCONCLUSIVE at seed 0
+# step 20 (step_timeout, the host write's Completed). The window has open fence exceptions (R-56 step 24, R-57 step 9, R-60
+# step 12), and its 2-byte host write under pty_blocked is not held (R-74). A contracts fence, owner P3 with PC's R-74 sweep.
+conf::dp_4_worker_encodes_route_frames_with_write_time_modes
+
+# route input after the launch with no program_ready (P3 PR B, DP-6 resize): each passes on both tiers at contracts-v0.1.43
+# (strict, seeds 0-31), but the pinned core-fence-exceptions.txt lists unfenced steps (dp_3_route_codec step 11 and dp_5_no_input
+# step 11: no program_ready, R-60; each step 9: no await_title, R-57; dp_5_op_is_optional step 15: no program_ready, R-60), so a
+# real-tier pass is not evidence. Contracts main (for contracts-v0.1.44) has the fences of dp_3_route_codec (the min-ids PR);
+# the two dp_5 ids keep their entries there. Owner: P3.
+conf::dp_3_route_codec_matches_client_appendix_a4_a5
+conf::dp_5_no_input_has_a_success_acknowledgement
+conf::dp_5_op_is_optional_except_on_a_paste
