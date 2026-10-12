@@ -125,3 +125,42 @@ The reviewer changes no product code and runs no build, test, gate, mutation, re
 or executable base check.
 
 VERDICT: NOT CLEAN (1 open, LOW)
+
+## Documentation correction inspection — complete package delta remains due
+
+Corrected head: `c3e1b41fb04a334eb9c5b864a6d3c68904743954`.
+Tree: `97b65724575fb74d83c742af7e0de855b4a5a64a`.
+Parent: `aed0c8e188d778960376b9a684741e9080feaa08`.
+Original source/gate base: `2683de7ccbb1360d124422b3b6a2dd196b046c7e`.
+Delta READY: `msg_plugin-w_1791835573_f0a0fa`.
+Complete correction diff SHA-256: `10178e7ff45565e1836d1ebfa6c1456504da3095541094116f4c365fcc02d1dc`.
+
+The reviewer reads complete initial package Round 1 at `cc79293e4b4e035496488315a660bb95650fecbe`.
+File: `verdicts/p5-reply-order.md`. Receipt: `msg_plugin-w_1791835601_c17439`.
+It agrees with the source, gate, and reversal conclusions and identifies the same one LOW finding.
+It notes that the reversal log also omits the exact test command and a restoration record.
+Neither omission is supplied by an inferred result in this review.
+
+### R325-F1 — LOW — CLOSED in the corrected source
+
+The complete delta changes three files, with 27 additions and 21 deletions.
+The rule moves to `crates/botster-worker-core/design/read-reply-order.md`.
+DESIGN.md adds its topic index link. It leaves every old topic unchanged.
+The topic text matches the original section after whitespace normalization, with its heading retained.
+Its maximum line length is 120 columns.
+The new test comment and complete body point to the topic file and index link.
+The test's executable code remains byte-identical after documentation comments are removed.
+The entire real-resume blob remains unchanged. No production, pin, list, or test behavior changes.
+The documentation move therefore closes the required change without a new execution job.
+
+Corrected body SHA-256: `b23f6889fff381641283b406397f83e1c929aeac0ade676bf5e0d14b26a14fe4`.
+The body identifies this documentation delta and keeps the original gate at its actual aed0c8e1 head.
+The original exact-head gate and reversal retain their earlier acceptance and limits.
+Neither becomes execution of the corrected head.
+
+Zero source or body findings remain on this corrected head.
+The complete matching corrected-head package verdict remains due before the integration CLEAN round.
+This inspection completes no CLEAN round and grants no final acceptance.
+The current-base/train review, completed merging gate, final receipt, and Q7 remain due.
+Package closure notice: `msg_plugin-w_1791835703_e7372a`.
+The reviewer runs no execution job. Wait for the complete package verdict doorbell. Never poll.
