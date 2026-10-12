@@ -73,3 +73,44 @@ The lead's train-4 procedure, exact delivered-head gate, final receipts, and equ
 Sol-B changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
 
 VERDICT: CLEAN (0 open)
+
+## Round 2: train 4 source delta
+
+Exact train head: `03709a0cb07f04765ad7a3b48e5570a1c1bf0ad8`.
+Tree: `4bb9e8c7f7d6e8b610e4b80ce782499ae3389cde`.
+Base: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Accepted #314 member: `a4eac3c100eeaa7c4290329c01ce0d530e3e1c46`.
+Lead assignment: `msg_plugin-w_1791821464_bb4328`. Sol owns the combined review; Sol-B owns this #314 delta.
+
+Sol-B reads the three merge objects and ordered first-parent chain.
+Merge `b3f7f39b72bc2a985634240573b2d08660b162c6` joins this base and #314.
+Merge `13fc69a0a196f75a6aaa1662c1deac1817e5dd88` adds #312 member `c0f8a09cccf4c2c1163ac3a2b1609d5e258afa64`.
+The final merge adds #307 member `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+The first merge changes only the seeded trace file. Its added and deleted lines match the accepted #314 patch exactly.
+The member, first merge, and final train contain the same file blob. Later members do not change it.
+The driver retains the seeded_trace module. The public Scheduler source has no train delta.
+
+Sol-B reads the shared driver fixture changes and relevant control-room, engine, and testkit changes from #307.
+Each trace run creates a fresh recorder, seeded policy, and Rig. The existing setup uses no global trace state.
+The mock link's new room override defaults to None, which returns unlimited edge room.
+The trace workload starts and stops two sessions. It sets no room override and calls no cancel.
+The new room-processing path requires a session that waits after a cancel refused Full.
+That path therefore does no work in this trace workload.
+The trace still records public choice points, candidate counts or bounds, and answers.
+The full-trace equality, non-empty trace, and seed-variation assertions remain unchanged.
+This composition adds no private production-state assertion to #314.
+
+Sol-B reads exact-head package receipt `f852df5d103aefa6f97ff1314083506a1845dc76`, its complete Round 2.
+It agrees with these source checks and reports zero findings.
+The original mutation preservation evidence and full gate retain their original head and scope.
+Neither record supplies a train 4 execution result. This receipt accepts no running gate or pre-check report as a final gate.
+The completed exact-head train gate and final evidence body and receipts remain due.
+
+No #314 source delta finding remains on this exact train head.
+This verdict covers the preserved #314 test and its shared fixture composition only.
+Sol's combined review and the other members' package reviews remain separate requirements.
+This verdict accepts no later train head, pin, status removal, or #306 retry.
+The lead owns the final train procedure and merge/tree/push verification.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; #314 train 4 source delta only, final train evidence pending)
