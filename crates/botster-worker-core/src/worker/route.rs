@@ -528,7 +528,7 @@ impl Worker {
                 payload: snapshot.into(),
             },
             ToClient::BaselineEnd(BaselineEnd {
-                history: route.history.clone(),
+                history: route.history,
             }),
             ToClient::Live,
         ];
