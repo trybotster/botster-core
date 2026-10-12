@@ -131,3 +131,129 @@ Its sizing claim must change with CQ-PC-2. No completed gate passes either sourc
 PC must send a combined READY head with both repairs and the required completed evidence.
 The next review must check the complete repair diff and its composition with the retained read-side behavior.
 This verdict accepts no later head and grants no merge approval. Wait for the doorbell. Never poll.
+
+## Round 2: VERDICT: NOT CLEAN (1 open LOW)
+
+Reviewed head: `5139373242b37638cabf1017ab471124c2330adf`.
+Tree: `dcbefc16d2986aa6fa2640a24bae856e45dfb7c2`.
+Source base remains `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+GitHub base remains `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+The gate comparison ref is `ae49bbec2d1086f918341bc596bf8560ba27bcd1`. This round imports no later v1 source.
+READY receipt: `msg_plugin-w_1791783700_3cf4ef`.
+The reviewer read the brief first and read the current common rules.
+The complete repair diff has seven files, 368 insertions, and 27 deletions. All changes are in `botster-core-host`.
+The reviewer read every repair, test, and documentation change, the affected failure paths, and the completed evidence.
+
+### CQ-PC-1 — CLOSED on this head
+
+`973507ab9e7268165a38cde9d85f4032878f9b64` clears `refused_full` in `on_link_write_failed`.
+The failure feed occurs before `service_links` checks room, so discarded bytes do not supply room work.
+`cancel_with_room` excludes `write_failed` from the `Full` branch. It cannot create another refusal mark on that side.
+The existing driver and engine send guards still prevent further writes. The repair retains the read side and in-flight requests.
+The regression checks `Full`, a fatal send, a spent pump with no false `more`, no `SessionWritable`, and a subsequent `Done` completion.
+The second regression checks an admitted cancel on a failed write side while the injected edge reports zero room.
+Both tests PASS in the exact-head gate.
+
+PC receipt `msg_plugin-w_1791783933_4e23ae` replaces the older reversal evidence.
+The complete `red-on-revert-v2.sh` and `red-on-revert-51393732.log` name this head and an initially clean worktree.
+The target clean exits zero at `2026-10-12T05:43:58Z`. The record states that this worktree is the sole writer afterward.
+Each one-change reversal shows its source diff and fails only its corresponding regression: 347/348 pass, nextest exit 100.
+The restored clean worktree passes 348/348, nextest exit zero.
+The script filters nextest output. Its summaries, failing names, source diffs, and numeric exits remain visible.
+The older `973507ab` reversal lacks a clean record and numeric exits. It stays historical and is not the accepted replacement proof.
+
+### CQ-PC-2 — CLOSED on this head
+
+`c938caaf367b2a5ae150428257da5b40ff333913` replaces 4096 with `largest_frame(frame_bound)`.
+That function returns `HEADER_LEN + frame_bound`. The driver obtains `frame_bound` from `HostEngine::link_frame_bound`.
+`HEADER_LEN` is five. `encode_frame` rejects an oversized payload before it appends any bytes.
+Every accepted frame therefore fits the term, including message fields without a `CoreLimits` bound.
+This is the R-100 option that the lead permits. The room calculation still takes the minimum with `link_room`.
+No new `CoreLimits` field or runtime admission rule is added.
+
+The ten new tests cover the host message kinds and the forwarded non-input operations.
+They check bounded fields with large default-limit values and check encoder rejection for the four kinds with unbounded strings.
+The formula test checks the default frame bound of 65 MiB and four cancel frames.
+All ten tests and the formula test PASS in the exact-head gate.
+The oversize tests exercise the frame encoder. They do not prove the separate R-100 at-call refusal work assigned to RC.
+The runtime sizing repair closes CQ-PC-2. The documentation error below is separate.
+
+### CQ-PC-3 / R307-SI-3 — LOW, OPEN: the stated derivation omits the frame cap
+
+Locations: DESIGN.md, section "The control queue"; the body's bound derivation; and the `small()` comment in `control_term.rs`.
+Sol receipt `msg_plugin-w_1791783927_115ab4` identifies this error. The package reviewer confirms it in source.
+
+DESIGN.md and the body state `F = 4 × max(max_paste_bytes, max_snapshot_bytes) + 1 MiB`.
+`HostEngine::link_frame_bound` uses saturating arithmetic and clamps the result to `LINK_FRAME_CAP = u32::MAX / 2`.
+The stated equation is incorrect when the cap applies. The production term correctly calls the engine method.
+The test comment states 1 MiB plus 8 KiB. Both input fields are 1024, so the actual bound is 1 MiB plus 4 KiB.
+
+Required change: state the cap and saturating calculation in DESIGN.md and the body, or name the engine method without an uncapped equation.
+Correct the test comment to 1 MiB plus 4 KiB. No runtime sizing change or broader implementation is required.
+
+### Complete gate and body audit
+
+Exact-head log: `~/botster-sessions/gates/botster-core-stage1-pc-control-queue-51393732-pool-20261011-221503-34203.log`.
+SHA-256: `e867fc5768a40ed812188bfc8803a829a8f5d92da1932fd9bb1657f7c527b461`.
+The retained `gate-client-51393732.out` is byte-identical.
+The gate runs on MS-A1, kernel `6.12.111+deb13-amd64`, with four CPUs. All ten checks PASS in 643.8 seconds.
+The job and wrapper exit zero after 653 seconds. The job queues for one second and runs for 652 seconds.
+Default: 1907 PASS, 431 skipped, 15.839 seconds. Slow: 615 PASS, 2041 skipped, 42.675 seconds.
+Both un-pended IN-6 ids PASS in both normal tiers. The conformance lists and pins remain unchanged from Round 1.
+
+All 64 first-stage mutation identities are distinct: 39 caught, 13 missed, and 12 unviable.
+The 13 missed identities exactly match the 13 second-stage catches. No mutation remains missed or timed out.
+All 52 raw catches match named citations. All cited tests have PASS records before the mutation step in the normal tiers.
+The baseline passes 615 tests, with 11 slow and 2802 skipped, in 45.003 seconds.
+The 12 unviable identities match Round 1 after source line shifts. They remain build failures, not behavior proofs.
+The completed log contains no FLAKY record.
+Fuzz completes 5451331 `link_decoder` runs and 3719385 `msg_decoder` runs, each in 61 seconds.
+
+The complete local script and log record a target clean at `2026-10-12T05:06:13Z` and both resource caps.
+They report 348 host, 52 link, 427 testkit, and 192 worker-core tests passed.
+Strict conformance at seeds 0-31 reports 260 passed and zero failed. Ten xtask checks report exit zero.
+The local script filters Cargo pipelines and retains no numeric clean exit. The complete pool gate independently passes these checks.
+The prior `c938caaf` record retains two test-only clippy errors. `51393732` changes only those test expressions and passes clippy.
+The reviewer read the complete body and its later evidence-only change on the same head.
+The updated body correctly withdraws the old reversal record as accepted proof and names its completed replacement.
+Its live SHA-256 is `2ce1055c8f104d6f48b0970a15513361b445a5d83c9c679a1ba09e84da4be77a`.
+PC's hash `bd1b3c4fb86b23cd3cb7c663db824066a927bc541b225aff3e6557223074e869` differs only by one final newline.
+The earlier RED gate, seed limits, local pipeline limits, and original-head findings remain historical.
+
+One LOW documentation finding remains. Both MEDIUM source findings close on this exact head.
+No reviewer execution job ran. A corrected-head delta review remains due.
+The final import, applicable checks, final gate, both final reviews, and lead Q7 remain due. This verdict approves no merge.
+
+## Round 3: VERDICT: CLEAN (0 open)
+
+Reviewed head: `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+Parent: `5139373242b37638cabf1017ab471124c2330adf`.
+Tree: `90d10894ec8b19da48921f176abae1baaba771e5`.
+Source base remains `e4f495040a80b524a7ac9accba95272d5c2594fa`.
+GitHub base remains `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+READY receipt: `msg_plugin-w_1791784031_6a062c`.
+Body correction receipt: `msg_plugin-w_1791784143_0a62d5`.
+
+The reviewer read the complete parent-to-head diff. It has two files, four insertions, and three deletions.
+DESIGN.md now states saturation and the `u32::MAX / 2` cap in the frame-bound derivation.
+The test comment now states 1 MiB plus `4 × 1024` bytes and calls this a small bound.
+The delta changes no executable expression. All other blobs remain unchanged from the fully reviewed parent.
+CQ-PC-3 / R307-SI-3 closes. Both MEDIUM source findings remain closed.
+
+The reviewer read the complete revised body through its audited changes.
+The body labels the gate and reversal records as evidence on the gated repair head `51393732`.
+It explicitly states that `50a50cff` adds only the text delta and that the final gate will cover the exact imported head.
+The body preserves the completed replacement reversal, the earlier RED gate, and the historical evidence limits.
+Live body SHA-256: `bb0312d0c9f0475dc0e3a9592cd54fd3069bfebe2093ca5397740b48cde90dd5`.
+PC's retained hash `71d67e67c219e45d181174016ee5f195aa8d46d6646c04ed6a3e658e96c86423` differs only by one final newline.
+
+The complete parent gate and its 52-catch audit from Round 2 remain accepted within their parent-head scope.
+The complete replacement reversal record remains accepted on the parent head.
+There is no exact-`50a50cff` gate. PC reports focused fmt, taint, and ten control-term test passes on this head.
+No separate retained record accompanies those focused reports. This review does not treat them as an independently audited run.
+The source-only documentation delta needs no repeated runtime proof before the final import.
+
+All three findings close. The complete package source, body, and supplied evidence review is CLEAN on this exact head.
+This is the review before the final import. It is not final merge approval.
+The matching formal integration verdict, authorized final import, applicable checks, exact-final-head gate, final reviews, and lead Q7 remain due.
+No reviewer execution job ran. Wait for the doorbell. Never poll.

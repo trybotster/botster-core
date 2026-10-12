@@ -1837,3 +1837,43 @@ Sol receipt msg_plugin-w_1791781430_a9794a supplies formal Round 1 verdict 5d516
 The reviewer reads verdicts/stage1/pc-control-queue.md at that commit and verifies its published branch contains the commit.
 Both formal verdicts cover READY 614cc30d and source base e4f49504. Both retain the same two MEDIUM findings.
 The combined repair READY, corrected body, completed evidence, and both repair reviews remain due. No later head is accepted.
+
+## #307 Round 2 audit complete; documentation delta in review
+
+READY msg_plugin-w_1791783700_3cf4ef names 5139373242b37638cabf1017ab471124c2330adf, with source base e4f49504 unchanged.
+Tree is dcbefc16d2986aa6fa2640a24bae856e45dfb7c2. Gate comparison ref is ae49bbec2d1086f918341bc596bf8560ba27bcd1, not imported.
+The complete seven-file repair diff and all new tests are read. CQ-PC-1 and CQ-PC-2 close on this head.
+The failure retires refused_full and excludes write_failed from a new Full refusal. The read side still handles Done.
+The bound now uses HEADER_LEN + HostEngine::link_frame_bound. All ten per-kind encoder tests and the formula test PASS.
+The complete exact-head gate passes all ten checks in 643.8 seconds on MS-A1. Job and wrapper exit zero after 653 seconds.
+SHA-256 e867fc5768a40ed812188bfc8803a829a8f5d92da1932fd9bb1657f7c527b461 matches the retained client output.
+All 52 raw catches match named citations and normal PASS records. All 13 first-stage misses match the second-stage catches.
+Twelve unviable identities match Round 1 after line shifts. No FLAKY record appears. Both decoders complete fuzz runs.
+PC receipt msg_plugin-w_1791783933_4e23ae replaces the old reversal proof with red-on-revert-51393732.log and red-on-revert-v2.sh.
+The accepted replacement records a clean exit zero at 05:43:58 UTC, both source diffs, and each single-test failure at exit 100.
+The restored clean worktree passes 348/348 at exit zero. The older reversal record remains historical and is not counted.
+The local script reports host 348, link 52, testkit 427, worker 192 and strict conformance 260/0 at seeds 0-31.
+The exact-head body audit accepts the evidence-only correction. Live body hash is 2ce1055c8f104d6f48b0970a15513361b445a5d83c9c679a1ba09e84da4be77a.
+Sol receipt msg_plugin-w_1791783927_115ab4 identifies CQ-PC-3 / R307-SI-3 LOW: documentation omits the frame cap and misstates the small test bound.
+Round 2 records NOT CLEAN (1 open LOW) in verdicts/pc-control-queue.md. Both MEDIUM findings close.
+PC then sends documentation READY msg_plugin-w_1791784031_6a062c at 50a50cff3fcdbbba1976c3194e0b49183726dbc8.
+The reviewer reads its complete delta: DESIGN.md adds saturation and the cap; one test comment changes to 1 MiB plus 4 × 1024 bytes.
+The two-file delta changes four lines and removes three. It changes no executable expression, list, pin, or configuration.
+The runtime gate stays at parent 51393732. PC reports focused local checks but supplies no separate retained log for those checks.
+The reviewer requests a body correction to label the 51393732 gate and reversal evidence as parent-head evidence, not the current PR head.
+The final exact-head import, checks, gate, both reviews, and Q7 remain due. No reviewer job runs. No merge is approved.
+
+## #307 Round 3 complete package CLEAN
+
+Head 50a50cff3fcdbbba1976c3194e0b49183726dbc8, source base e4f495040a80b524a7ac9accba95272d5c2594fa.
+Tree 90d10894ec8b19da48921f176abae1baaba771e5. Parent is the fully audited gated repair head 51393732.
+CQ-PC-3 / R307-SI-3 closes after the complete documentation delta and corrected body are read.
+PC receipt msg_plugin-w_1791784143_0a62d5 labels the gate and replacement reversal as gated-parent evidence.
+The body explicitly states the current text-only head and the exact imported final gate still due.
+Live body hash bb0312d0c9f0475dc0e3a9592cd54fd3069bfebe2093ca5397740b48cde90dd5 differs from PC's 71d67e67 hash only by one final newline.
+The complete package source, body, and supplied evidence review is CLEAN, with zero open findings, in verdicts/pc-control-queue.md Round 3.
+The accepted gate remains scoped to 51393732. There is no gate on 50a50cff; its only source delta is documentation and one test comment.
+PC's focused local checks on 50a50cff have no separate retained log and are treated as reports, not independently audited proof.
+Both MEDIUM runtime repairs remain closed. The old source failures and evidence limits remain recorded.
+The matching formal integration verdict, authorized final import, checks, exact-final-head gate, both final reviews, and Q7 remain due.
+No reviewer job runs. This CLEAN approves no merge. Wait for the doorbell. Never poll.
