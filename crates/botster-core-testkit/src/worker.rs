@@ -1520,6 +1520,24 @@ impl Binding<SharedWorker> for WorkerEdges {
                 }
                 self.poll_payload_exit();
             }
+            Action::ResizePty(size) => {
+                if let Some(program) = self.payload.as_mut() {
+                    let clamp = |n: u32| u16::try_from(n).unwrap_or(u16::MAX);
+                    let (width_px, height_px) = size.cell_px.map_or((0, 0), |px| {
+                        (
+                            clamp(size.cols.saturating_mul(px.width)),
+                            clamp(size.rows.saturating_mul(px.height)),
+                        )
+                    });
+                    // The scripted program takes every size; it has no answer, as on the real PTY.
+                    let _ = program.resize(WindowSize {
+                        cols: clamp(size.cols),
+                        rows: clamp(size.rows),
+                        width_px,
+                        height_px,
+                    });
+                }
+            }
             Action::ReapPayload => {
                 self.payload = None;
                 let mut cell = lock(&self.cell);
