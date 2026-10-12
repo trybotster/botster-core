@@ -344,3 +344,169 @@ The reviewer changes no product code and runs no build, test, gate, mutation, fu
 Wait for the doorbell when no independent review work remains. Never poll.
 
 VERDICT: NOT CLEAN (5 open; complete review remains in progress).
+
+## Round 4 — complete integration review CLEAN
+
+Head: `aeffbde6b393eb583f4363bd812fb2d64af0a057`.
+Tree: `fc98d5af776d3aca16f7e912c033500b1ddbf7f6`.
+Reviewed delta: `db97736b173d32ab78377a8f5ec2c6d083636bb8` through this head, 19 paths.
+Source base: `3e655eff46d36f8c337339a1a17d401c8c662594`.
+Gate comparison base: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+Combined READY receipt: `msg_plugin-w_1791844299_54fde1`.
+The reviewer reads every changed production, test, manifest, lockfile, and documentation path in this delta.
+The prior complete source conclusions remain applicable outside those paths.
+The earlier complete package supplement at `b62dce5ec9aefd9f27ba9baf64092467aea9ad03` is read.
+That supplement applies to db97736b. The reviewer now also reads the complete matching package Round 4.
+Package CLEAN: `04e0e8102717c022655b52b594c602e6eab457e6`, `verdicts/p5-read-facts.md`.
+Receipt: `msg_plugin-w_1791844644_fc5437`. Its exact head, tree, bases, body hash, and evidence scopes match this review.
+Both reviewers accept the fitting choice and the lead's limited SI-5 closure scope. No package finding remains open.
+
+### R320-SI-1 — LOW, closed
+
+The topic-file closure remains applicable. The changed read-facts topic has maximum width 120.
+Every new line in the changed host design paragraphs fits 120 columns.
+No further documentation topic or width defect appears in this delta.
+
+### R320-SI-2 / RF-PC-2 — MEDIUM, closed in source and evidence
+
+Facts::read combines the prior cursor/drop condition with current byte or count overflow.
+Thus the overflow itself reports gap, even with no prior drop and for a same-instance incremental cursor.
+The first-input test checks pending and completed forms with escaped full source tags and the frozen minimum.
+It checks reads with no cursor and reads after the pending or completed cursor.
+The R-117 test also checks count overflow with an incremental cursor at next_cursor.
+Both tests have ordinary PASS results in the exact READY gate.
+Full source retention and the unchanged 9B minimum remain intact.
+
+### R320-SI-3 / RF-PC-3 — MEDIUM, closed in source and evidence
+
+The host posts completion Activity only when the reporting session's route set contains the route.
+The worker's end_client_record still appends the status update before it reports the observation.
+The live-route test now attaches a real route in the host model and checks the unchanged revisions.
+The closed-route test posts RouteClosed, then completion observations for the removed and never-attached routes.
+It checks that neither observation creates an Activity event.
+The one-time sweep also corrects ClientInput, the other producer of this same key.
+That arm always updates the client revision and posts Activity only for a live route of the same session.
+The added closed-route input test checks both revision updates and absence of Activity.
+The existing observation test now uses an attached route. All applicable tests have normal READY-gate PASS results.
+
+### R320-SI-6 / RF-PC-6 — MEDIUM, closed in source and evidence
+
+Facts keeps the current-client record identifier separately from the unified newest record identifier.
+Retention protects entries whose record matches either identifier, including their status updates.
+Before a client input, the client identifier is absent. A later client input replaces that protection.
+The ruled client-then-host test keeps both record/update pairs with input_events_kept=2 and reports gap.
+It checks gap after the current next_cursor, so a prior drop cannot substitute for the count-overflow signal.
+Additional coverage checks a pending client record, a late client status update, and replacement by a later client record.
+
+The reviewer accepts the stated fitting choice under R-117's protected-set exception.
+The newly received host record fits in the room left by the retained client pair and both status updates.
+An existing record stays unchanged. If the new host minimal form cannot fit, only the protected set remains, with gap.
+This preserves the appended status-update model and the current-client record.
+The exact-room test checks both a pending client pair's reserved update room and a completed pair's actual size.
+All fourteen client_pair_len mutation decisions are caught in the current gate.
+The five old misses are caught by the exact-room test. No surviving mutant or timeout remains.
+
+### R320-SI-5 / RF-PC-5 — MEDIUM, closed within the supplied lead decision
+
+Lead decision: `msg_plugin-w_1791840874_3bb29f`, steward answer to R320-Q4.
+For #320, closure requires the derived frame-bound correction and its test.
+The case above LINK_FRAME_CAP stays unchanged until A26. No configuration refusal or truncation is introduced here.
+This decision supersedes Inspection 3's requirement to resolve the over-cap case within #320.
+
+The host delegates to the shared core-link link_frame_bound formula.
+That formula takes the larger of the six-byte payload bound and facts_reply_bound, adds 1 MiB, and applies LINK_FRAME_CAP.
+The facts term includes input_events_bytes, four protected entry allowances, escaped source tags, and the hex client tail.
+The fixed allowance covers the remaining Facts fields, list punctuation, and Done wrapper.
+The worker tests use the same formula, and production launch already uses the host's bound.
+The largest protected minimal record/status tests check their fixed allowance with maximum numbers and escaped source tags.
+An unchanged retained client record contributes at most the configured byte bound unless its minimal source form exceeds it.
+The formula therefore also covers the R-117 retained client pair beside the newest host pair.
+
+The valid large-tail test sets max_snapshot_bytes=1024 and input_tail_bytes=4 MiB.
+It injects the written tail into Facts, requests ReadFacts, and observes Done through the worker's normal link decoder.
+It checks the complete tail and tail_complete. Existing route tests cover the physical write-to-tail path.
+The host test validates the same limits and ties the engine bound to the shared formula.
+The link tests check every term, saturation, and the cap. All have normal PASS in the READY gate.
+The SI-5 reversal removes the facts term and fails the large-tail test at its missing-answer assertion, exit 100.
+The later exact-head pool gate supplies the restored-source execution evidence.
+
+### R320-SI-4 / RF-PC-4 — MEDIUM, closed in source and evidence
+
+The host ordinal_decoder drives production session::next_ordinal with arbitrary row bytes and checks decimal progression.
+The worker receipt_decoder drives the codec, the shared of_decoded receipt mapping, and production record_of.
+Production receive_route also calls of_decoded. The harness introduces no production test branch.
+Properties check pending state, null PTY count, bounded payload, truncation, and JSON round-trip preservation.
+Both harnesses use 256 stable cases and the existing seed configuration.
+Both integration test binaries use built_in_test!(). Their dev dependencies reuse the existing workspace bolero version.
+HARNESSES registers both decoders. The fuzz-selection implementation stays unchanged.
+This is data in the existing mechanism, not a new xtask check or check family.
+Both properties have ordinary default PASS and actual 60-second landing fuzz runs in this gate.
+
+### Body and conformance
+
+The complete READY body has SHA-256 `a141572ab521e0f52df4d9a97560e8e51c1a8d69f7602b2aba1d9d0e1071de1b`.
+The reviewer then verifies the supplied memory-sentence correction from receipt `msg_plugin-w_1791844452_425c9f`.
+Only that sentence changes. It explicitly states the protected-set overflow exception and the fixed-cap limitation.
+Corrected body SHA-256: `04ac1083666433895015942c9ea80b8b73e02b005c1e9fd2eeabe20a3177403e`.
+The complete body and source agree on the five repairs, fitting choice, pending ids, and non-final gate scope.
+
+Every conformance file remains byte-identical to db97736b, including the status reference files and proof rows.
+The source-base set audit remains applicable: 18 ST-7 default removals and one real-pending byte-cost entry.
+All 18 default ids and all 17 required real forms again have normal PASS on the current head.
+All seven named real-proof rows match ordinary slow PASS results. No new removal is inferred from passing pending trials.
+Ledger 691, pending 369, real-pending 39, minimum 69, and deferred/withdrawn runtime counts 2/18 remain unchanged.
+The contracts pin stays .44. This head does not import current v1 or claim a .46 final gate.
+
+### Exact-head gate audit
+
+Log: `gates/botster-core-stage1-p5-read-facts-aeffbde6-pool-20261012-151657-16069.log`.
+Verified SHA-256: `77701cf04ba815c7846b472fe87f6c0c8bf09ee4be466404a1d499c73dfb4d59`; 36953 lines.
+The header names this exact head and comparison base. Lists names source merge base 3e655eff.
+All ten steps PASS. CI takes 787.7 seconds. Job and wrapper exit zero after 798 seconds, queue 1/run 797.
+Default has 2167 unique ordinary PASS results and 393 skips; the complete ordinal set agrees with the total.
+Its suite time is 17.049 seconds and maximum test time 1.341 seconds.
+Slow has 694 unique ordinary PASS results and 2063 skips; its ordinal set also agrees with the total.
+Its suite time is 44.569 seconds. The 22.051 second maximum is the existing mutation-hang negative test.
+Strict reports 299 passed, 0 failed, and 393 ignored twice, at 8.65 and 7.37 seconds.
+Held-full reports 96 ignored trials for three budget ids at 32 seeds, in 22.35 seconds.
+No FAIL, TIMEOUT, FLAKY, SIGSEGV, or SIGABRT result appears in the unmodified runtime results.
+
+The unmutated baseline passes. All 239 raw mutation outcomes are unique: 200 caught, 39 unviable, 0 missed, and 0 timeout.
+All 200 unique raw catches exactly match 200 citations. Every cited test has ordinary default PASS; there are 58 distinct catching tests.
+Stage 1 takes 244.8 seconds. Stage 2 explicitly skips because there is no miss. No stage 2 catch is inferred.
+Fuzz executes each configured 60 seconds and finishes each run at 61 seconds:
+- ordinal_decoder: 40198484 runs.
+- link_decoder: 6567243 runs.
+- msg_decoder: 3884506 runs.
+- receipt_decoder: 4933741 runs.
+No fuzz crash is reported.
+
+### Historical red gate and supporting evidence
+
+The 161b7bfd gate remains RED: 239 mutants, 195 caught, 5 missed, and 39 unviable in stage 1.
+Stage 2 retests all five and misses all five, with no timeout. The gate exits 1.
+SHA-256: `5020bd5bb4b14e7b5ba08048258054750e16c43f134d1fb577d34f3ff222847e`.
+The aeff exact-room test closes those misses in the current raw mutation outcomes and citations.
+
+The reviewer reads the complete SI-5 reversal and the retained five-variant client_pair_len reversal.
+SI-5 SHA-256: `a3449bce9231b7967593d891b3d0650e479ef421b770af640701277ae6bf335c`.
+Client-pair SHA-256: `21e014d27de65386372f7cf94ed9e790409e063b0998840f71acca69fd0f0a42`.
+Both record a prior clean with exit 0 and restored dirty 0. They do not record a numeric restore command result.
+The five client-pair variants each fail the exact-room assertion with exit 100; their output is retained as selected failure lines.
+These logs remain supplementary. The exact-head READY pool gate establishes the restored result.
+
+The local check producer and all retained command boundaries/results are audited at aeff.
+Checks SHA-256: `8b39a65c827867972af34878c971bca225afe4443a0e6f55d45ea23b6f0c0b0b`.
+Taint SHA-256: `4c6baec79643dd82cfaa0f7ccd66695b58f450a6e7892ebad3beb5e55acd7193`.
+Clean, fmt, clippy, selected unit tests, strict seeds 0-31, and lists each record exit 0. Taint reports PASS.
+The Mac results remain supplementary. No local timing or strict result replaces the pool evidence.
+
+### Disposition and remaining landing requirements
+
+All six recorded source findings, including LOW, have closure evidence on this head.
+The complete matching package review is CLEAN and all integration findings are closed, including LOW.
+No acceptance of A26, a current-v1 import, a final train, or a merging gate follows from this round.
+The supplied above-cap deferral remains explicit. Its amendment is assigned but is not accepted here.
+The reviewer runs no build, test, gate, mutation, fuzz, reproduction, or executable base-check job.
+
+VERDICT: CLEAN (0 open; complete #320 integration review on aeffbde6, within the lead's R320-Q4 scope).
