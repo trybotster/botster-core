@@ -236,17 +236,32 @@ fn parse_removes_only_the_step_keys_at_the_top_level() {
 }
 
 /// Review finding PC-F1: a dropped handle is gone, so `break_control` on it is `Bad`, although its row and its worker stay
-/// (LC-12); a reopen of the same directory under another handle reaches that worker again.
+/// (LC-12); a reopen of the same directory under another handle reaches that worker again. R297-F1: the record of its Core
+/// went with it, so `op_posted` and `parked_work` on it are `Bad` too.
 #[test]
 fn a_dropped_handle_is_gone_and_a_reopen_reaches_the_surviving_worker() {
     let mut harness = TestkitHarness::new(0);
     let (core, _at) = session(&mut harness, true);
+    // The first op, the `Create` of s1, completed: its completion is posted.
+    assert_eq!(
+        harness.control("a", "op_posted", &json!({"for_op": 1})),
+        Ok(json!({"posted": true}))
+    );
     drop(core);
     harness.drop_handle("a");
-    assert!(matches!(
-        harness.control("a", "break_control", &json!({"session": "s1"})),
-        Err(ControlError::Bad(_))
-    ));
+    for (control, args) in [
+        ("break_control", json!({"session": "s1"})),
+        ("op_posted", json!({"for_op": 1})),
+        ("parked_work", json!({"session": "s1"})),
+    ] {
+        assert!(
+            matches!(
+                harness.control("a", control, &args),
+                Err(ControlError::Bad(_))
+            ),
+            "{control}"
+        );
+    }
     let _reopened = harness
         .open(&spec("b"))
         .expect("the directory is free again");
@@ -368,6 +383,22 @@ fn lose_worker_refuses_what_it_cannot_end() {
             &json!({"session": "s1", "reason": "worker_unreachable"})
         ),
         Err(ControlError::Unsupported)
+    );
+}
+
+/// `parked_work` (R-87) on the testkit tier: see the scenario.
+#[test]
+fn parked_work_reads_the_work_that_waits_for_room() {
+    crate::refusal::record_scenarios::a_stop_is_parked_work_until_a_poll_frees_room(
+        &mut TestkitHarness::new(0),
+    );
+}
+
+/// `op_posted` (R-88 (B)) on the testkit tier: see the scenario.
+#[test]
+fn op_posted_reads_a_completion_before_its_poll() {
+    crate::refusal::record_scenarios::a_completion_is_posted_before_its_poll(
+        &mut TestkitHarness::new(0),
     );
 }
 

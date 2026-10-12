@@ -510,6 +510,189 @@ impl RefusalHandle {
     }
 }
 
+/// The scenarios of the controls that read [`CoreRecord`], which both tiers run: `parked_work` (R-87) and `op_posted`
+/// (R-88 (B)).
+#[cfg(test)]
+pub(crate) mod record_scenarios {
+    use botster_core_conformance::{normalize_op, CoreHarness, OpenSpec, WorkerBuild};
+    use botster_core_contract::prelude::*;
+    use serde_json::{json, Value};
+    use std::time::{Duration, Instant};
+
+    /// The bound that ends a host that never gets there: far above what these sessions need on either tier.
+    const BOUND: Duration = Duration::from_secs(30);
+
+    fn now() -> Now {
+        Now {
+            monotonic: Instant::now(),
+            unix: 1_000_000,
+        }
+    }
+
+    fn parked(harness: &mut dyn CoreHarness, session: &str) -> bool {
+        let answer = harness
+            .control("a", "parked_work", &json!({ "session": session }))
+            .expect("parked_work");
+        answer["parked"].as_bool().expect("a parked flag")
+    }
+
+    /// Pumps, and also polls when `poll`, until `done`; waits on the wake between rounds that leave no work.
+    fn pump_until(
+        harness: &mut dyn CoreHarness,
+        core: &mut dyn CoreApi,
+        poll: bool,
+        mut done: impl FnMut(&mut dyn CoreHarness, &[Event]) -> bool,
+    ) {
+        let end = Instant::now() + BOUND;
+        let wake = core.wake_handle();
+        loop {
+            let report = core.pump(now());
+            let events = if poll {
+                core.poll_events(64)
+            } else {
+                Vec::new()
+            };
+            if done(harness, &events) {
+                return;
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            assert!(!left.is_zero(), "the host never got there");
+            if !report.more {
+                // timer: deadline — the bound ends a host that never gets there.
+                wake.wait(left);
+            }
+        }
+    }
+
+    /// Begins `op` and pumps and polls until it completes `Ok`.
+    fn complete(harness: &mut dyn CoreHarness, core: &mut dyn CoreApi, mut op: Value) {
+        normalize_op(&mut op, &harness.probe_binary());
+        let id = core
+            .begin(serde_json::from_value(op).expect("an op"))
+            .expect("begin");
+        pump_until(harness, core, true, |_, events| {
+            events.iter().any(|event| match event {
+                Event::Completed { op, result } if *op == id => {
+                    assert!(matches!(result, OpResult::Ok(_)), "{result:?}");
+                    true
+                }
+                _ => false,
+            })
+        });
+    }
+
+    /// Core EV-5b, TM-6 (R-87): `parked_work` of `s1` is false while its work runs, true once its stop waits only for the
+    /// room that the full mandatory queue does not have (a state step, or the worker's exit report), and false after a poll
+    /// frees room. `s2`, whose work does not wait, is not parked.
+    pub(crate) fn a_stop_is_parked_work_until_a_poll_frees_room(harness: &mut dyn CoreHarness) {
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: json!({"max_sessions": 2, "mandatory_events": 2}),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        let program = json!({"program": [{"hold": {}}]});
+        complete(
+            harness,
+            core.as_mut(),
+            json!({"Create": {"session": "s1", "request": program}}),
+        );
+        complete(harness, core.as_mut(), json!({"Start": {"id": "s1"}}));
+        core.poll_events(64);
+        assert!(
+            !parked(harness, "s1"),
+            "the work of a running session is not parked"
+        );
+        // The `Create` of `s2` leaves its events unpolled: the mandatory queue is full.
+        let mut create = json!({"Create": {"session": "s2", "request": program}});
+        normalize_op(&mut create, &harness.probe_binary());
+        core.begin(serde_json::from_value(create).expect("an op"))
+            .expect("begin");
+        // The bound ends a host that never runs out of work (R292-F2).
+        let end = Instant::now() + BOUND;
+        while core.pump(now()).more {
+            assert!(Instant::now() < end, "the host never ran out of work");
+        }
+        let stop = core
+            .begin(Op::Stop {
+                id: SessionId("s1".into()),
+            })
+            .expect("begin");
+        pump_until(harness, core.as_mut(), false, |h, _| parked(h, "s1"));
+        assert!(!parked(harness, "s2"), "s2 has no work that waits for room");
+        core.poll_events(64);
+        assert!(!parked(harness, "s1"), "the poll gave the parked work room");
+        pump_until(harness, core.as_mut(), true, |_, events| {
+            events.iter().any(|event| match event {
+                Event::Completed { op, result } if *op == stop => {
+                    assert!(matches!(result, OpResult::Ok(_)), "{result:?}");
+                    true
+                }
+                _ => false,
+            })
+        });
+        assert!(matches!(
+            harness.control("a", "parked_work", &json!({"session": "s9"})),
+            Err(botster_core_conformance::ControlError::Bad(_))
+        ));
+    }
+
+    fn posted(harness: &mut dyn CoreHarness, op: OpId) -> bool {
+        let answer = harness
+            .control("a", "op_posted", &json!({ "for_op": op }))
+            .expect("op_posted");
+        answer["posted"].as_bool().expect("a posted flag")
+    }
+
+    /// Steward ruling R-88 (B), `op_posted`: a write's completion is not posted before the worker reports the write, it is
+    /// posted once Core consumed the report while the test only pumps, and the completion is then still in the queue for the
+    /// next poll. An id that Core never minted is not posted.
+    pub(crate) fn a_completion_is_posted_before_its_poll(harness: &mut dyn CoreHarness) {
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: json!({}),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        let program = json!({"program": [{"hold": {}}]});
+        complete(
+            harness,
+            core.as_mut(),
+            json!({"Create": {"session": "s1", "request": program}}),
+        );
+        complete(harness, core.as_mut(), json!({"Start": {"id": "s1"}}));
+        core.poll_events(64);
+        let write = core
+            .begin(Op::WriteInput {
+                session: SessionId("s1".into()),
+                payload: InputPayload::Bytes {
+                    bytes: botster_route_codec::prelude::HexBytes(b"xy".to_vec()),
+                },
+                guard: None,
+            })
+            .expect("begin");
+        assert!(
+            !posted(harness, write),
+            "the worker has not reported the write"
+        );
+        pump_until(harness, core.as_mut(), false, |h, _| posted(h, write));
+        let events = core.poll_events(64);
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, Event::Completed { op, .. } if *op == write)),
+            "the posted completion waits for the poll: {events:?}"
+        );
+        assert!(posted(harness, write), "a polled completion stays posted");
+        assert!(
+            !posted(harness, OpId(write.0 + 1000)),
+            "an id that Core never minted"
+        );
+    }
+}
+
 /// The operation kind of an `Op`: the name of its variant.
 pub fn op_kind(op: &Op) -> String {
     match serde_json::to_value(op) {
@@ -519,15 +702,70 @@ pub fn op_kind(op: &Op) -> String {
     }
 }
 
-/// A `CoreApi` with a script in front of it.
+/// What the Core behind a handle reported in its opaque `diagnostics` after the last call that the layer passed on. A control
+/// cannot call the Core, which the conformance driver owns, so the layer reads the report after each call that can change
+/// Core's state, and the controls read this record:
+/// - `parked_work` (steward ruling R-87): the sessions whose work waits only for mandatory-queue room (a parked engine step, or
+///   a frame that a link holds; Core EV-5b, TM-6);
+/// - `op_posted` (steward ruling R-88 (B)): `next_op` and `unposted_ops`, from which an op's terminal `Completed` is posted,
+///   polled or not.
+#[derive(Debug, Clone, Default)]
+pub struct CoreRecord(Arc<Mutex<Recorded>>);
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct Recorded {
+    #[serde(default)]
+    parked_work: BTreeSet<SessionId>,
+    #[serde(default)]
+    next_op: u64,
+    #[serde(default)]
+    unposted_ops: BTreeSet<u64>,
+}
+
+impl CoreRecord {
+    fn record(&self, core: &dyn CoreApi) {
+        let recorded = serde_json::from_value(core.diagnostics()).unwrap_or_default();
+        *self.lock() = recorded;
+    }
+
+    fn lock(&self) -> MutexGuard<'_, Recorded> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether the work of `session` waits only for mandatory-queue room.
+    pub fn parked(&self, session: &SessionId) -> bool {
+        self.lock().parked_work.contains(session)
+    }
+
+    /// Whether Core has posted the terminal `Completed` of `op`, polled or not: Core minted the id, and the op is not one that
+    /// waits for its completion. An id that Core never minted is not posted.
+    pub fn op_posted(&self, op: OpId) -> bool {
+        let recorded = self.lock();
+        op.0 != 0 && op.0 < recorded.next_op && !recorded.unposted_ops.contains(&op.0)
+    }
+}
+
+/// A `CoreApi` with a script in front of it. It also records what the Core reports in its diagnostics ([`CoreRecord`]).
 pub struct RefusalLayer {
     inner: Box<dyn CoreApi>,
     script: RefusalHandle,
+    record: CoreRecord,
 }
 
 impl RefusalLayer {
-    pub fn new(inner: Box<dyn CoreApi>, script: RefusalHandle) -> RefusalLayer {
-        RefusalLayer { inner, script }
+    pub fn new(inner: Box<dyn CoreApi>, script: RefusalHandle, record: CoreRecord) -> RefusalLayer {
+        record.record(inner.as_ref());
+        RefusalLayer {
+            inner,
+            script,
+            record,
+        }
+    }
+
+    /// Records Core's report after a call, and returns the call's result.
+    fn recorded<T>(&self, out: T) -> T {
+        self.record.record(self.inner.as_ref());
+        out
     }
 
     fn core(&self, call: &str) -> Option<CoreError> {
@@ -543,15 +781,18 @@ impl CoreApi for RefusalLayer {
         if let Some(error) = self.core(&op_kind(&op)) {
             return Err(error);
         }
-        self.inner.begin(op)
+        let out = self.inner.begin(op);
+        self.recorded(out)
     }
 
     fn pump(&mut self, now: Now) -> PumpReport {
-        self.inner.pump(now)
+        let out = self.inner.pump(now);
+        self.recorded(out)
     }
 
     fn poll_events(&mut self, max: usize) -> Vec<Event> {
-        self.inner.poll_events(max)
+        let out = self.inner.poll_events(max);
+        self.recorded(out)
     }
 
     fn wake_handle(&self) -> Arc<dyn WakeHandle> {
@@ -565,7 +806,10 @@ impl CoreApi for RefusalLayer {
     fn cancel(&mut self, op: OpId) -> CancelResult {
         match self.script.take("cancel") {
             Some(Scripted::Cancel(result)) => result,
-            _ => self.inner.cancel(op),
+            _ => {
+                let out = self.inner.cancel(op);
+                self.recorded(out)
+            }
         }
     }
 
@@ -604,10 +848,12 @@ impl CoreApi for RefusalLayer {
 
     fn release(&mut self, capture: CaptureId) {
         self.inner.release(capture);
+        self.recorded(());
     }
 
     fn release_owner(&mut self, client: &ClientId) {
         self.inner.release_owner(client);
+        self.recorded(());
     }
 
     fn snapshot_formats(&self, session: &SessionId) -> Result<Vec<SnapshotFormat>, CoreError> {
@@ -633,13 +879,17 @@ impl CoreApi for RefusalLayer {
         if let Some(error) = self.core("attach") {
             return Err(AttachRefused::new(error, transport));
         }
-        self.inner.attach(client, session, transport, options)
+        let out = self.inner.attach(client, session, transport, options);
+        self.recorded(out)
     }
 
     fn tap_read(&mut self, session: &SessionId, max: usize) -> Result<TapChunk, CoreError> {
         match self.core("tap_read") {
             Some(error) => Err(error),
-            None => self.inner.tap_read(session, max),
+            None => {
+                let out = self.inner.tap_read(session, max);
+                self.recorded(out)
+            }
         }
     }
 
@@ -650,7 +900,10 @@ impl CoreApi for RefusalLayer {
     ) -> Result<(), CoreError> {
         match self.core("set_silence_threshold") {
             Some(error) => Err(error),
-            None => self.inner.set_silence_threshold(session, threshold),
+            None => {
+                let out = self.inner.set_silence_threshold(session, threshold);
+                self.recorded(out)
+            }
         }
     }
 
@@ -662,14 +915,20 @@ impl CoreApi for RefusalLayer {
     ) -> Result<(), SendError> {
         match self.script.take("service_send") {
             Some(Scripted::Send(error)) => Err(error),
-            _ => self.inner.service_send(id, lane, frame),
+            _ => {
+                let out = self.inner.service_send(id, lane, frame);
+                self.recorded(out)
+            }
         }
     }
 
     fn service_recv(&mut self, id: &ServiceId, lane: u8) -> Result<Option<Frame>, RecvError> {
         match self.script.take("service_recv") {
             Some(Scripted::Recv(error)) => Err(error),
-            _ => self.inner.service_recv(id, lane),
+            _ => {
+                let out = self.inner.service_recv(id, lane);
+                self.recorded(out)
+            }
         }
     }
 
@@ -987,11 +1246,18 @@ pub(crate) mod tests {
     pub(crate) struct Behind {
         reached: Arc<Mutex<Vec<String>>>,
         deadline: Instant,
+        /// What `diagnostics` answers; a test sets it to a Core's report.
+        diagnostics: Arc<Mutex<Value>>,
     }
 
     impl Behind {
         fn note(&self, call: &str) {
             self.reached.lock().unwrap().push(call.to_string());
+        }
+
+        /// The value that `diagnostics` answers, for a test to set.
+        pub(crate) fn diagnostics_slot(&self) -> Arc<Mutex<Value>> {
+            Arc::clone(&self.diagnostics)
         }
     }
 
@@ -1036,7 +1302,7 @@ pub(crate) mod tests {
             }
         }
         fn diagnostics(&self) -> Value {
-            json!({"behind": true})
+            self.diagnostics.lock().unwrap().clone()
         }
         fn terminal_state(&self, _id: &SessionId) -> Result<TerminalState, CoreError> {
             self.note("terminal_state");
@@ -1146,6 +1412,7 @@ pub(crate) mod tests {
         let behind = Behind {
             reached: Arc::clone(&reached),
             deadline: DEADLINE.with(|d| *d),
+            diagnostics: Arc::new(Mutex::new(json!({"behind": true}))),
         };
         (behind, reached)
     }
@@ -1158,7 +1425,7 @@ pub(crate) mod tests {
         let handle = RefusalHandle::new();
         let (slot, _crash) = crate::crash::Crashable::new(Box::new(behind));
         (
-            RefusalLayer::new(Box::new(slot), handle.clone()),
+            RefusalLayer::new(Box::new(slot), handle.clone(), CoreRecord::default()),
             handle,
             reached,
         )
@@ -1499,6 +1766,46 @@ pub(crate) mod tests {
             .arm("Start", usize::MAX - 1, &json!("WrongState"))
             .unwrap();
         assert!(!script.is_empty());
+    }
+
+    /// R-87, R-88: after each call that it passes on, the layer records what the Core behind it reports in its `diagnostics`,
+    /// and the record answers from it at once: `parked` from `parked_work`, and `op_posted` from `next_op` and
+    /// `unposted_ops`.
+    #[test]
+    fn the_layer_records_what_the_core_reports_after_each_call() {
+        let (behind, _reached) = behind();
+        let diagnostics = behind.diagnostics_slot();
+        let record = CoreRecord::default();
+        let mut layer = RefusalLayer::new(Box::new(behind), RefusalHandle::new(), record.clone());
+        let (s1, s2) = (SessionId("s1".into()), SessionId("s2".into()));
+        assert!(
+            !record.parked(&s1),
+            "a report without parked_work names no session"
+        );
+        assert!(
+            !record.op_posted(OpId(1)),
+            "a report without next_op minted no op"
+        );
+        *diagnostics.lock().unwrap() =
+            json!({"parked_work": ["s1"], "next_op": 5, "unposted_ops": [3]});
+        layer.pump(Now {
+            monotonic: Instant::now(),
+            unix: 0,
+        });
+        assert!(record.parked(&s1), "the pump's report names s1");
+        assert!(!record.parked(&s2));
+        assert!(record.op_posted(OpId(2)), "op 2 is minted and not unposted");
+        assert!(record.op_posted(OpId(4)), "op 4 is the last minted op");
+        assert!(!record.op_posted(OpId(3)), "op 3 waits for its completion");
+        assert!(!record.op_posted(OpId(5)), "op 5 is not minted yet");
+        assert!(!record.op_posted(OpId(0)), "Core never mints op 0");
+        *diagnostics.lock().unwrap() = json!({"parked_work": [], "next_op": 5, "unposted_ops": []});
+        layer.poll_events(1);
+        assert!(!record.parked(&s1), "the poll's report names no session");
+        assert!(
+            record.op_posted(OpId(3)),
+            "the poll's report has op 3 posted"
+        );
     }
 
     /// A call without a row is passed through, and so is its result, for every such method: nothing is replaced by a default.

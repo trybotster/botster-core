@@ -1127,6 +1127,60 @@ mod held_starts {
         );
     }
 
+    /// A held hand-over and a held start on one link: the release of the hand-over keeps Core's write interest from the
+    /// inner edge while the start is still held, and the release of the start then gives it.
+    #[test]
+    fn a_hand_over_release_keeps_the_interest_of_a_link_whose_start_is_held() {
+        let mut rig = linked(Fake {
+            take_descriptors: true,
+            ..Fake::default()
+        });
+        rig.with(|t| t.hold_handoff());
+        let blocked = rig
+            .edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(5u8));
+        assert!(matches!(blocked, Err((_, DescriptorSendError::Blocked))));
+        rig.with(|t| t.hold_launch(instance()));
+        rig.edges.link_send(A, &launch()).unwrap_err();
+        rig.edges.set_write_interest(A, true);
+        rig.with(|t| t.release_handoff());
+        assert_eq!(calls(&rig), ["write 1 false", "write 1 false"]);
+        rig.with(|t| t.release_launch(&instance()));
+        assert_eq!(calls(&rig).last().unwrap(), "write 1 true");
+    }
+
+    /// #287 RC-R2-1: an interrupted read in `quiet` makes no progress, so the edges are not quiet, the wake signals, and each
+    /// call reads the link once. The link stays, and a later call reads its bytes.
+    #[test]
+    fn an_interrupted_read_in_quiet_is_not_quiet_and_is_read_again_at_the_next_call() {
+        let mut rig = linked(Fake::default());
+        rig.with(|t| {
+            t.inner.reads.insert(
+                A,
+                vec![
+                    Read::Interrupted,
+                    Read::Interrupted,
+                    Read::Data(b"z".to_vec()),
+                ]
+                .into(),
+            )
+        });
+        for left in [2, 1] {
+            let before = rig.signals();
+            assert!(!rig.with(|t| t.quiet()), "no progress is not quiet");
+            assert_eq!(rig.signals(), before + 1, "the wake signals");
+            assert_eq!(
+                rig.with(|t| t.inner.reads[&A].len()),
+                left,
+                "one read in the call"
+            );
+        }
+        assert!(!rig.with(|t| t.quiet()), "the bytes came");
+        // The link holds bytes for the driver, and its start is not held: the edges stay busy until the driver reads them.
+        assert!(!rig.with(|t| t.quiet()), "held bytes wait for the driver");
+        assert_eq!(rig.recv(A, 16).unwrap(), b"z");
+    }
+
     /// A hold set before the link exists holds nothing until the `Launch`; the bytes that the inner edge takes in part keep
     /// the tap's reading in step, so the hold begins exactly at the `Launch`.
     #[test]
@@ -1268,6 +1322,261 @@ fn an_armed_handoff_fault_fails_the_next_hand_over_once_and_the_inner_edge_takes
         assert_eq!(t.inner.calls, ["descriptor 1 [114, 116]"]);
         assert_eq!(t.inner.sent, vec![(A, b"rt".to_vec())]);
     });
+}
+
+/// `hold_handoff` (Core OU-9, A5-1, plan 23bf): the next hand-over and every later one on its link are `Blocked` with the
+/// endpoint given back, and the inner edge sees neither them nor Core's write interest on that link. Another link passes.
+/// The edges stay quiet. The release gives the inner edge Core's last interest, signals the wake, and the next hand-over
+/// reaches the inner edge.
+#[test]
+fn a_held_hand_over_is_blocked_on_its_link_until_the_release() {
+    let mut rig = rig(Fake {
+        take_descriptors: true,
+        ..Fake::default()
+    });
+    assert!(rig.with(|t| t.hold_handoff()));
+    assert!(!rig.with(|t| t.hold_handoff()), "one hold at a time");
+    for (n, endpoint) in [5u8, 6].into_iter().enumerate() {
+        let (back, why) = rig
+            .edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(endpoint))
+            .unwrap_err();
+        assert_eq!(
+            (why, back.downcast::<u8>().ok()),
+            (DescriptorSendError::Blocked, Some(endpoint)),
+            "send {n}"
+        );
+    }
+    assert!(
+        !rig.with(|t| t.hold_handoff()),
+        "a held hand-over is still one hold"
+    );
+    rig.edges.set_write_interest(A, true);
+    rig.edges.set_write_interest(B, true);
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(B, b"b", StreamEndpoint::new(7u8))
+            .ok()
+            .map(|(sent, _)| sent),
+        Some(1),
+        "the hold is on its own link only"
+    );
+    assert!(rig.with(|t| t.quiet()), "a held hand-over is not a report");
+    let before = rig.signals();
+    rig.with(|t| {
+        assert_eq!(
+            t.inner.calls,
+            ["write 1 false", "write 2 true", "descriptor 2 [98]"]
+        );
+        t.inner.calls.clear();
+        t.release_handoff();
+        assert_eq!(t.inner.calls, ["write 1 true"]);
+    });
+    assert_eq!(rig.signals(), before + 1, "the release wakes the host");
+    assert_eq!(
+        rig.edges
+            .link_send_descriptor(A, b"rt", StreamEndpoint::new(8u8))
+            .ok()
+            .map(|(sent, _)| sent),
+        Some(2)
+    );
+    rig.with(|t| assert_eq!(t.inner.sent, vec![(B, b"b".to_vec()), (A, b"rt".to_vec())]));
+    // A new hold after the release is allowed, and a release with no hold only wakes the host.
+    assert!(rig.with(|t| t.hold_handoff()));
+    rig.with(|t| {
+        t.release_handoff();
+        t.release_handoff();
+        // The first release's interest, then the hand-over; the releases of a hold that met no hand-over call nothing.
+        assert_eq!(t.inner.calls, ["write 1 true", "descriptor 1 [114, 116]"]);
+    });
+}
+
+/// `hold_start` (Core LC-4, A2-1; steward ruling, plan 23bg): the tap reads a new link's hello while a hold is armed. The
+/// link of the held instance is kept from the driver, and the edges stay quiet; a link of another instance passes. The
+/// release gives the held link to the next accept with every byte in order, and wakes the host. A release of an armed hold
+/// disarms it. A link whose hello is not complete waits, and keeps the edges busy.
+#[test]
+fn a_held_start_keeps_the_workers_link_from_the_driver_until_the_release() {
+    const C: LinkId = LinkId(3);
+    const D: LinkId = LinkId(4);
+    let held_hello = hello_frame("1-1");
+    let mut fake = Fake::default();
+    fake.accepts.extend([A, B]);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Data(held_hello[..3].to_vec()),
+            Read::Data(held_hello[3..].to_vec()),
+        ]
+        .into(),
+    );
+    fake.reads
+        .insert(B, vec![Read::Data(hello_frame("2-2"))].into());
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    assert!(rig.with(|t| t.hold_link(one.clone())));
+    assert!(
+        !rig.with(|t| t.hold_link(one.clone())),
+        "one hold of a start"
+    );
+    assert!(!rig.with(|t| t.link_held(&one)), "armed only");
+    assert_eq!(
+        rig.edges.accept_link(),
+        Some(B),
+        "the held link is not given"
+    );
+    assert!(rig.with(|t| t.link_held(&one)));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert_eq!(rig.recv(B, 256).unwrap(), hello_frame("2-2"));
+    assert!(rig.with(|t| t.quiet()), "a held link is not a report");
+    let before = rig.signals();
+    assert!(rig.with(|t| t.release_link(&one)));
+    assert_eq!(rig.signals(), before + 1, "the release wakes the host");
+    assert!(!rig.with(|t| t.release_link(&one)), "no hold left");
+    assert_eq!(rig.edges.accept_link(), Some(A));
+    assert_eq!(
+        rig.recv(A, 256).unwrap(),
+        held_hello,
+        "every byte, in order"
+    );
+
+    // A release of an armed hold disarms it: the later link goes to the driver.
+    let three = InstanceId("3-3".into());
+    assert!(rig.with(|t| t.hold_link(three.clone())));
+    assert!(rig.with(|t| t.release_link(&three)));
+    rig.with(|t| {
+        t.inner.accepts.push_back(C);
+        t.inner
+            .reads
+            .insert(C, vec![Read::Data(hello_frame("3-3"))].into());
+    });
+    assert_eq!(rig.edges.accept_link(), Some(C));
+
+    // A link whose hello is not complete waits for the rest, and the edges are busy meanwhile.
+    let four = InstanceId("4-4".into());
+    let hello = hello_frame("4-4");
+    assert!(rig.with(|t| t.hold_link(four.clone())));
+    rig.with(|t| {
+        t.inner.accepts.push_back(D);
+        t.inner
+            .reads
+            .insert(D, vec![Read::Data(hello[..3].to_vec())].into());
+    });
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(!rig.with(|t| t.link_held(&four)));
+    assert!(!rig.with(|t| t.quiet()), "a link in transit");
+    rig.with(|t| {
+        t.inner
+            .reads
+            .insert(D, vec![Read::Data(hello[3..].to_vec())].into())
+    });
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.link_held(&four)));
+}
+
+/// While a start hold is armed, the tap reads a new link only to the end of its hello: an interrupted read is read again,
+/// and the bytes after the hello stay with the inner edge. A link whose read fails goes to the driver, which sees the
+/// failure. A second link of the held instance goes to the driver too: the hold keeps the first, and the release gives it.
+#[test]
+fn an_armed_start_hold_reads_each_new_link_only_to_its_hello() {
+    const C: LinkId = LinkId(3);
+    let mut fake = Fake::default();
+    fake.accepts.extend([A, B, C]);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Interrupted,
+            Read::Data(hello_frame("1-1")),
+            Read::Data(b"after".to_vec()),
+        ]
+        .into(),
+    );
+    fake.reads
+        .insert(B, vec![Read::Fail(io::ErrorKind::ConnectionReset)].into());
+    fake.reads
+        .insert(C, vec![Read::Data(hello_frame("1-1"))].into());
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    rig.with(|t| t.hold_link(one.clone()));
+    // A hold that stays armed, so the tap reads every new link of this test.
+    rig.with(|t| t.hold_link(InstanceId("9-9".into())));
+    assert_eq!(rig.edges.accept_link(), Some(B), "the failed link");
+    assert!(rig.with(|t| t.link_held(&one)));
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        1,
+        "no read past the hello"
+    );
+    assert_eq!(rig.edges.accept_link(), Some(C), "the second link");
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.release_link(&one)));
+    assert_eq!(rig.edges.accept_link(), Some(A));
+}
+
+/// #287 RC-R1-1: an interrupted read ahead makes no progress, so the tap does not retry it in the same call. The link waits,
+/// keeps the edges busy, and each later call reads once more, until the hello comes.
+#[test]
+fn an_interrupted_read_ahead_is_read_again_only_at_the_next_call() {
+    let mut fake = Fake::default();
+    fake.accepts.push_back(A);
+    fake.reads.insert(
+        A,
+        vec![
+            Read::Interrupted,
+            Read::Interrupted,
+            Read::Data(hello_frame("1-1")),
+        ]
+        .into(),
+    );
+    let mut rig = rig(fake);
+    let one = InstanceId("1-1".into());
+    rig.with(|t| t.hold_link(one.clone()));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        2,
+        "one read in the call"
+    );
+    assert!(!rig.with(|t| t.quiet()), "a link in transit");
+    assert_eq!(
+        rig.with(|t| t.inner.reads[&A].len()),
+        1,
+        "one read in the call"
+    );
+    assert!(!rig.with(|t| t.link_held(&one)));
+    assert_eq!(rig.edges.accept_link(), None);
+    assert!(rig.with(|t| t.link_held(&one)));
+}
+
+/// `route_stream_holders` (plan 23bf): the tap counts the bytes that Core gives `close_route_stream` for a stream, by the
+/// stream's socket, and gives the inner edge the same stream. Another endpoint type is passed on and not counted.
+#[test]
+fn the_bytes_that_core_writes_to_a_route_stream_are_counted_by_socket() {
+    let mut rig = rig(Fake::default());
+    let (worker_end, mut client) = std::os::unix::net::UnixStream::pair().unwrap();
+    let socket = crate::stream_holders::socket_id(std::os::fd::AsFd::as_fd(&worker_end)).unwrap();
+    let other = crate::stream_holders::socket_id(std::os::fd::AsFd::as_fd(&client)).unwrap();
+    assert_eq!(rig.with(|t| t.stream_bytes(socket)), 0);
+    rig.edges
+        .close_route_stream(StreamEndpoint::new(worker_end), b"rc");
+    rig.edges
+        .close_route_stream(StreamEndpoint::new(6u8), b"xyz");
+    assert_eq!(rig.with(|t| t.stream_bytes(socket)), 2);
+    assert_eq!(rig.with(|t| t.stream_bytes(other)), 0);
+    rig.with(|t| {
+        assert_eq!(
+            t.inner.calls,
+            [
+                "close stream None [114, 99]",
+                "close stream Some(6) [120, 121, 122]"
+            ]
+        );
+    });
+    // The fake edge drops the stream without a write: the client reads its end at once (nonblocking: a kept copy would
+    // give `WouldBlock`, not a wait), so the tap kept no copy.
+    client.set_nonblocking(true).unwrap();
+    let mut buf = [0u8; 4];
+    assert_eq!(std::io::Read::read(&mut client, &mut buf).unwrap(), 0);
 }
 
 fn route_frames(route: RouteId) -> Vec<u8> {
