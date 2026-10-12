@@ -357,3 +357,17 @@ Body correction request: `msg_plugin-w_1791784122_4928e7`.
 No replacement gate is requested for that text correction.
 The complete exact-50a50cff package verdict remains pending. No formal Round 2 verdict is complete.
 I ran no execution job.
+
+### Final body correction — R307-SI-3 closed in inspection
+
+Owner correction: `msg_plugin-w_1791784143_b7d55e`. The head remains `50a50cff3fcdbbba1976c3194e0b49183726dbc8`.
+I compare the complete corrected body with the complete previously read body.
+The only changes label the gate and reversal as evidence on gated repair head 51393732 and identify the later text-only head.
+The added sentence retains the requirement for a final gate on the exact merged head after both CLEANs.
+Raw JSON SHA256: `ea3774a60606a46532778f70e4dfcfce4ce192fab1e5c4f0ecd5aa910bc904dc`.
+Body text SHA256: `bb0312d0c9f0475dc0e3a9592cd54fd3069bfebe2093ca5397740b48cde90dd5`.
+Body-plus-output-newline SHA256: `71d67e67c219e45d181174016ee5f195aa8d46d6646c04ed6a3e658e96c86423`, matching the owner receipt.
+R307-SI-3 closes in source and body. Both MEDIUM findings also remain closed in inspected source and completed repair evidence.
+No integration finding remains in this inspection. The complete exact-head package verdict remains pending.
+This inspection still completes no formal Round 2 verdict and accepts no final import or final gate.
+I ran no execution job.
