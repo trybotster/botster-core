@@ -459,9 +459,18 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   message fits and nothing is encoded. Else `HostMsg::encoded_len` encodes it into a counter, which keeps no buffer of the
   encoded output. The slow path still allocates: it builds the message (a clone of the request or the op, the worst
   palette), and a serializer can allocate (`HexBytes` makes its hex string). No claim of an allocation-free check is made.
-- **The bound is six times the largest payload (lead ruling).** `link_frame_bound` is 6 × max(`max_paste_bytes`,
-  `max_snapshot_bytes`) + 1 MiB, capped at `u32::MAX / 2`: a `Text` control byte is the six-byte escape `\u00XX`, so every
-  write that `max_paste_bytes` admits fits. Only where the cap binds can a write be refused `InvalidInput{payload.text}`.
+- **The bound holds the largest payload and the largest facts reply (lead ruling; #320 R320-SI-5).** The one formula is
+  `botster_core_link::msg::link_frame_bound`, which the worker's tests use too: max(6 × max(`max_paste_bytes`,
+  `max_snapshot_bytes`), `facts_reply_bound`) + 1 MiB, capped at `LINK_FRAME_CAP = u32::MAX / 2`.
+  - A `Text` control byte is the six-byte escape `\u00XX`, so every write that `max_paste_bytes` admits fits. Only where
+    the cap binds can a write be refused `InvalidInput{payload.text}`.
+  - A `ReadFacts` reply travels in one worker frame. `facts_reply_bound` is `input_events_bytes`, four protected entries
+    past it (R-116, R-117; each `PROTECTED_ENTRY_FIXED` = 1 KiB and two route tags at six bytes a byte), and the client
+    tail as hex (2 × `input_tail_bytes`). The 1 MiB holds the fixed part (revisions, modes, size, cursor, the envelope).
+    With the defaults the payload term binds (97 MiB).
+  - Above the cap a facts reply can still be larger than a frame: 9B states no ceiling for `input_tail_bytes` or
+    `input_events_bytes`. The steward's answer to R320-Q4 is ceilings in 9B through the amendment path (candidate A26);
+    until then that case is unchanged.
 
 ## The control queue (IN-6, steward ruling R-91; PC, 2026-10-11)
 
@@ -471,7 +480,8 @@ zellij are programs, not libraries. The directory check uses `rustix` (already i
   `Observation::Writable` is gone: nothing sent it, and the wake is Core's.
 - **The bound.** It is internal; no `CoreLimits` field holds it (R-91 Q1 (c): a field would change 9B). For the limits `L`,
   the link's frame bound `F` (`HostEngine::link_frame_bound`:
-  `min(6 × max(L.max_paste_bytes, L.max_snapshot_bytes) + 1 MiB, LINK_FRAME_CAP)`, computed with saturating arithmetic,
+  `min(max(6 × max(L.max_paste_bytes, L.max_snapshot_bytes), facts_reply_bound(L)) + 1 MiB, LINK_FRAME_CAP)`,
+  computed with saturating arithmetic,
   where `LINK_FRAME_CAP = u32::MAX / 2`) and one control message `c` (the largest `Cancel` frame):
   `bound = L.input_retained_bytes + (L.pending_ops + L.input_ops_per_session) × (5 + F) + 4 × c`.
   - `5 + F` (`largest_frame`) is the term for one host message with no input payload: the frame header and the frame

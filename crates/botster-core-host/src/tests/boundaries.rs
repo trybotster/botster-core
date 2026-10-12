@@ -1252,3 +1252,20 @@ fn the_launch_carries_the_engines_limits() {
         .expect("the launch");
     assert_eq!(spec.limits, limits);
 }
+
+/// #320 R320-SI-5: the engine's frame bound is the link crate's formula, which the worker's tests use too. Under valid
+/// limits with `input_tail_bytes` at 4 MiB (Sol's case), the largest facts reply binds: the bound holds it, and it is
+/// more than six times the largest payload.
+#[test]
+fn the_link_frame_bound_holds_the_largest_facts_reply() {
+    use botster_core_link::msg::{facts_reply_bound, link_frame_bound};
+    let l = limits(|l| {
+        l.max_snapshot_bytes = 1024;
+        l.input_tail_bytes = 4 << 20;
+    });
+    l.validate().expect("valid limits");
+    let bound = World::new(l.clone()).engine.link_frame_bound();
+    assert_eq!(bound, link_frame_bound(&l));
+    assert_eq!(u64::from(bound), facts_reply_bound(&l) + (1 << 20));
+    assert!(u64::from(bound) > 6 * l.max_paste_bytes.max(l.max_snapshot_bytes) + (1 << 20));
+}

@@ -13,10 +13,6 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// The largest link frame payload of any limits: half of `u32`, so a length and its arithmetic never overflow (plan
-/// section 3).
-const LINK_FRAME_CAP: u32 = u32::MAX / 2;
-
 /// How many link closes `diagnostics()` keeps, newest last (LC-10).
 const LINK_CLOSE_RECORDS: usize = 16;
 
@@ -507,16 +503,16 @@ impl HostEngine {
         self.cfg.features.clone()
     }
 
-    /// The largest frame payload of a worker link, in bytes (plan section 3). A host write travels in its JSON form and a
-    /// snapshot travels as pages, so the bound is a multiple of the largest payload that `CoreLimits` allows. The multiple
-    /// is the worst JSON form of one payload byte: a `Text` control byte is the six-byte escape `\u00XX` (`Bytes` and `Paste`
-    /// are hex, two bytes a byte), so every write that `max_paste_bytes` admits fits (lead ruling, 2026-10-12). Where the
-    /// cap binds, `begin` refuses a message that cannot fit (steward ruling R-100, `frame_fit`).
+    /// The largest frame payload of a worker link, in bytes (plan section 3;
+    /// `botster_core_link::msg::link_frame_bound`, the one formula that the worker's tests use too). A host write
+    /// travels in its JSON form and a snapshot travels as pages, so the bound is a multiple of the largest payload that
+    /// `CoreLimits` allows. The multiple is the worst JSON form of one payload byte: a `Text` control byte is the
+    /// six-byte escape `\u00XX` (`Bytes` and `Paste` are hex, two bytes a byte), so every write that `max_paste_bytes`
+    /// admits fits (lead ruling, 2026-10-12). A `ReadFacts` reply travels in one frame, so the bound also holds the
+    /// largest one (#320 R320-SI-5). Where the cap binds, `begin` refuses a message that cannot fit (steward ruling
+    /// R-100, `frame_fit`).
     pub fn link_frame_bound(&self) -> u32 {
-        let limits = &self.cfg.limits;
-        let largest = limits.max_paste_bytes.max(limits.max_snapshot_bytes);
-        let bound = largest.saturating_mul(6).saturating_add(1 << 20);
-        u32::try_from(bound).map_or(LINK_FRAME_CAP, |b| b.min(LINK_FRAME_CAP))
+        botster_core_link::msg::link_frame_bound(&self.cfg.limits)
     }
 
     pub fn limits(&self) -> CoreLimits {
