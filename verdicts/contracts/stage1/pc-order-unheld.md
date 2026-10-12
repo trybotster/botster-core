@@ -71,3 +71,28 @@ The steward corrected the ruling. Its new condition (1)(d) says: "`route_closed`
   - an `await_pty` whose `min_bytes` equals the sum of the other inputs ((3)); `the_count_must_exceed_the_other_inputs` covers this.
   Each one must flag, and each item also needs a positive case.
 - **Item (3), the `await_pty` count,** is accepted, with one more guard: the fence comes before the other link's send. I check that guard on the next head.
+
+016c's round 1 (REJECT on `de54582e`) added F3 (a forbidden `Completed` counted as a fence) and F4 (an unbounded transitive closure). These are 016c's scope.
+
+## Round 2: CLEAN on 7c02f4ef40a0307267a87903073bafc04fcd89dd (the final head must still take main's #88; see the end)
+
+Two commits on `de54582e` change only `fence_lint/unheld.rs` (+401 −168). No transcript, exception line or list changes, so the count is still 2 (am_2_one's `debt:` line, dp_4's `exception:` line).
+
+Against the corrected ruling (main `47936a98`, R-93 "PC's additions in contracts #87"):
+- **F1, (1)(d): closed.** `route_answer` counts a `route_closed` only when its reason has the `protocol_error` form. OU-2b maps `BadFrame` to `route_closed{protocol_error{code}}`, and only a frame of that route causes it. `expect_closed` never fences. The self-tests flag `detached` and `expect_closed`, and dp_3 (an unknown frame type) still passes.
+- **F2, (1)(c): closed.** `input_done` fences only when the answered frame is a `paste_commit` with `want_result: true` or a `file_commit` (`answers_done`). The self-tests flag a `paste_commit` with no `want_result` and with `want_result: false`.
+- **F2, (2): closed.** `refused_nothing`:
+  - a literal `written_bytes: 0` is a zero;
+  - otherwise a zero needs a literal reason other than `failed` and `session_ended`, and no `written_bytes`;
+  - a reason given as a variable is unknown.
+  A host write is a zero only with a literal `NotWritten` outcome other than `NotReported`.
+- **(1)(a), (1)(b) and (3).** An answer that the transcript reads after the other link's send flags (test at `:961`). An answer for an earlier op does not fence a later frame. An `await_pty` whose `min_bytes` equals the sum of the other inputs flags.
+- **Every negative case** that the ruling requires has a self-test, and so does a positive case for each item.
+- **Red on revert** (`evidence/pc-order-unheld/red-on-revert-7c02f4ef.log`): it records a clean of `targets/pc` at 06:16:45Z. The baseline passes 98 of 98, and each of the 16 parts reverted alone (the items above, and 016c's F3 and F4) fails.
+- **Gate PASS on the exact head**, all ten steps, exit 0 after 198 s on linux, base main `a874c62e`: `~/botster-sessions/gates/botster-contracts-stage1-pc-order-unheld-7c02f4ef-pool-20261011-232533-16857.log`. The corpus test takes 1.165 s. The serial-history test takes 0.278 s.
+
+Every finding of mine (F1, F2) is closed. CLEAN on `7c02f4ef40a0307267a87903073bafc04fcd89dd`.
+
+**The final head.** Main is `a874c62ef6f74c2caec50503fe02cbc31283e63f`. It took #88 (`crates/botster-core-conformance/src/driver.rs`, code) after this head's base `b47533be`, so this is not a rulings-only move. BUILD.md says: "In botster-contracts, a PR's gate and verdicts are on the exact head that `main` fast-forwards to". So the merge needs one of these:
+- a merge of `a874c62e` into this branch, with the Q7 script output and ONE gate on that exact head. The paths are disjoint (#88: `driver.rs` only; #87: `fence_lint*` and `core-fence-exceptions.txt`), so under Q7 I confirm that head with no delta round;
+- or the steward's merge train.
