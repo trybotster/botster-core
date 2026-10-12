@@ -191,8 +191,8 @@ fn the_end_of_a_client_input_raises_the_activity_edge_and_changes_no_revision() 
     );
 }
 
-/// Core EV-5 (#320 RF-PC-3): `RouteClosed` retired the route's key, so the end of a client input that completes after the
-/// close raises no `Activity` for it. A route that the session never had raises none either.
+/// Core EV-5 (#320 RF-PC-3): `RouteClosed` retired the route's key, so the end of a client input that completes after
+/// the close raises no `Activity` for it. A route that the session never had raises none either.
 #[test]
 fn the_end_of_a_client_input_after_its_route_closed_raises_no_activity() {
     let mut w = World::default();

@@ -23,7 +23,8 @@
   included (R-101 Q1); `Unknown` is `unknown` with null PTY bytes. A kind that the worker cannot write is
   `NotWritten(Unsupported{what})` in the result and the record, never `Internal` (R-101 Q3). The end of a client input
   reports `Observation::ClientInputEnded{route}`, and the host raises the keyed `Activity{Client(route)}` edge again
-  (EV-6).
+  (EV-6) while the route is live in the session. A transaction can end after its route closed: `RouteClosed` retired
+  the key (EV-5), so the host raises nothing, and the record's status update stays in the facts.
 - **Inputs that never start:** a host write that the adoption fence drops ends `not_written{refused}` with 0 PTY bytes:
   the fence refuses the old epoch's commands (DP-8), and no cancel was issued (R-103 (3)). A client input that waits in
   a closing route's `received` queue is discarded and ends `not_written` with 0 PTY bytes, never `cancelled` (R-105 Q1):
