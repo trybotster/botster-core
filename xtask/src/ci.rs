@@ -72,6 +72,8 @@ const JOBS: &[(&str, &str, JobFn)] = &[
 const HARNESSES: &[(&str, &str)] = &[
     ("botster-core-link", "link_decoder"),
     ("botster-core-link", "msg_decoder"),
+    ("botster-core-testkit", "frame_ends_decoder"),
+    ("botster-core-testkit", "sock_diag_decoder"),
     ("botster-guardian-core", "guardian_command_decoder"),
     ("botster-guardian-core", "guardian_log_decoder"),
 ];

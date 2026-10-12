@@ -379,6 +379,7 @@ dependencies = [
 name = "botster-core-testkit"
 version = "0.1.0"
 dependencies = [
+ "bolero",
  "botster-conformance",
  "botster-core",
  "botster-core-conformance",
