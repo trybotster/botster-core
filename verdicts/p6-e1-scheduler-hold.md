@@ -203,3 +203,47 @@ This verdict accepts no later head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 4 — 2026-10-11: manual review of the train-2 import delta
+
+Exact head: `484912ac58743b899c7856e87bdcad0f2b398300`.
+Imported base: `ae49bbec2d1086f918341bc596bf8560ba27bcd1`.
+Tree: `cebfddcff16568bd2b487eada87b077a9501d321`.
+Merge parents: the Round 3 CLEAN head `bd74a168fc1ef7e4774f635503f3707cc0dd2ec3` and the exact imported base above.
+P6 requests this delta round in `msg_plugin-w_1791781322_6f35d2` under the lead's train-2 condition.
+This round reviews the source import. It accepts no running evidence job or completed train gate.
+
+I inspect the merge object and the complete combined driver conflict diff.
+The first more site keeps the imported comment and calls `self.more(&budget)`.
+The settle site calls `self.more(&budget) || self.draining()`.
+The helper still computes `self.runnable() || budget.more_input`. The runnable decision still excludes held work.
+The drain term therefore appears only at the settle site, as #291 requires.
+Both more sites retain the held-aware decision. The driver has no remaining engine.runnable call.
+The imported draining implementation observes ended links whose frames do not wait for queue room. E1 does not change that rule.
+The hold filter, admission report, fixed-timing bypass, and choice calls retain their reviewed implementation.
+
+The imported base changes 69 paths from the original source base. Eight overlap the PR's 17 owned paths.
+I read the merged own diff against the imported base for all eight overlapping paths.
+The engine, driver-test module, harness, testkit lib, and real-harness own additions/deletions exactly match the reviewed own changes.
+The conflict resolution is the stated driver composition above. It introduces no additional E1 behavior change.
+The nine non-overlapping owned entries exactly match the Round 3 entries.
+Every non-owned entry exactly matches the imported base. No extra source change appears outside the owned paths.
+
+I independently compare the three-way sets for mutation exclusions and the three status files.
+Each merged set equals the imported-base set plus the PR's own additions, minus its own removals.
+There is no unexpected added or removed identifier or exclusion.
+The PR still removes only conf::a5_2_reads_match_atomic_transitions. The deferred-completion identifier and its own reason remain pending.
+The held and real-pending sets equal the imported base. Their imported changes supply no permission for another own removal.
+The exclusion delta keeps the two reviewed default-body patterns and moves the existing LINK_CAPACITY pattern to line 34.
+The corresponding source sites remain at core.rs:34:33, scheduler.rs:60:9, and scheduler.rs:71:9.
+No broader own exclusion appears. The prior reasons and override coverage remain applicable.
+
+No package source finding remains in this import delta. Both earlier findings remain closed with their recorded proof scope.
+This is a manual delta CLEAN, not a claim of automatic carryover from a canonical PASS.
+The earlier gate, API, seed, and trace records retain their original-head scope.
+The Mac compile/test evidence is still running. I read no unfinished output and accept no result from that job in this round.
+The completed compile/test evidence, applicable final base record, train gate, and final body remain due.
+This verdict accepts no later head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
