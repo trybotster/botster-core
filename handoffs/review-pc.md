@@ -2225,3 +2225,42 @@ The relay names landed base 007efbde6a59af403d0937c38361c137a8961a48.
 The lead states that the train model has no final slot. The earlier slot-timing condition for #319 is superseded.
 Both reviewers must inspect the resulting exact delta. CQ-RFT-5 stays open until the corrected head and applicable evidence arrive.
 Wait for the completed correction doorbell. No reviewer execution job runs. Never poll.
+
+Publication: matching #319 Round 2 and lead-decision record are pushed through e959570a5f10dd779b046630f2e98acd6dbe1369.
+PC and Sol receive the complete NOT CLEAN receipt with one open finding.
+The reviewer also reads Sol's decision supplement e7aa60a85541aa58b80a9b409983df8ef16b7d47; its decision and pending conditions match.
+Wait for the completed corrected-head READY. No reviewer job runs. Never poll.
+
+## #319 approved base import and root-macro closure
+
+PC correction receipt msg_plugin-w_1791838564_9ed581 names head 71ec2783edc2380c3389a71062422491506ebf39.
+Imported base: 007efbde6a59af403d0937c38361c137a8961a48. Tree: 4035cda3ce1eb41476d5dc6b4baeba463d8deb11.
+The reviewer reads the brief first, complete applicable delta, retained checks/script, and complete current body.
+The independently calculated conflict-free merge tree f79e0bbbab3752b2b92dc181c8f5468efe7d7659 equals import commit39e298de's tree.
+All thirteen own patches remain preserved, apart from the three root-macro lines added after the import.
+The seven shared paths merge the base's dependency, API, dispatch, fixture, design, and gate changes without losing own code.
+Every changed non-own blob and all ten conformance text blobs equal the approved base.
+Current counts: core-pending388, real-pending38, ledger692, minimum69. No own id change or new status removal is approved.
+The imported contracts pin is .46. The mutation configuration and known-flaky list equal the base; #319 changes neither.
+Own stream/socket/real-route/kernel-query/diag blobs remain byte-identical to gated parent d1aa7334.
+The worker still decodes complete frames in the receiving turn and applies them under refusal room; the R-115 reviewer premise stays explicit.
+
+CQ-RFT-5 / R319-SI-3 closes: tests/props.rs invokes the real built_in_test! macro at its root, with both harnesses unchanged.
+The current slow-coverage check exits0. Removing the macro exits1 and reports the missing test for the props binary in both tiers.
+The script restores the source with clean status and exact head. It runs no new restored suite and records no numeric restore exit.
+All five package findings are closed. Premature cf37cdc7 CLEAN remains superseded.
+
+Retained record: shared/core-stage1/evidence/pc-route-frames-taken/rft-merge-checks-71ec2783.log.
+SHA-256: e4176b47cd9424919f7d509a4238a67fb26864dfa2d254fd1e00309aa62a0614.
+The workspace check reports exit0 before the recorded clean at20:42:39Z. Later ten xtask and both clippy commands report exit0.
+Local summaries report default483/483, focused slow13/13, and strict281/0 with seeds0-31. Test/clean numeric exits and full writer history are omitted.
+The record is local support, not a fresh Linux mutation/fuzz/full-gate proof on the .46 composition.
+Full-index own diff against the imported base has SHA-256 9035440b95ddd45a53f02656b6942b9d04e8d0656d70408601bb0d8e684a82b5.
+Current body without added LF: ef3ba24b7b5a6c94dfa3cd5e047dad619a0626de027cc89eda8c53a0be9ea90b.
+Current body with one added LF: 89a62e146d725ceb09cd8df35efd54bde68e3b63aebf9e6767edba3d8ec008cd.
+The complete body preserves old gate/RED/FLAKY/local/scratch scopes and states that no new full gate ran.
+
+Formal Round 3 is CLEAN on exact71ec2783 with zero open findings. The matching formal integration delta remains due.
+Train construction, applicable deltas, exact train gate, final evidence receipts, and lead Q7 remain due under the no-slot train decision.
+No future contracts head or pin, later source, status removal, specific retry, or completed merge is accepted.
+No reviewer execution job runs. The merge-tree calculation is source verification only. Wait for the doorbell. Never poll.

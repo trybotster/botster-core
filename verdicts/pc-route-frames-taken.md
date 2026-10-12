@@ -360,3 +360,109 @@ The relay names current landed base `007efbde6a59af403d0937c38361c137a8961a48`.
 The lead states that the train model has no final slot. This replaces the earlier slot-timing condition for this work.
 Both reviewers must inspect the resulting exact delta. The corrected head and applicable evidence remain due.
 CQ-RFT-5 stays open. No new head or execution result is accepted by this decision receipt.
+
+## Round 3: VERDICT: CLEAN (0 open; approved base import and root-macro fix)
+
+Reviewed head: `71ec2783edc2380c3389a71062422491506ebf39`.
+Imported base: `007efbde6a59af403d0937c38361c137a8961a48`.
+Tree: `4035cda3ce1eb41476d5dc6b4baeba463d8deb11`.
+Previously reviewed member: `fabbf66cdaccedd942b8cedea824c763bd7bfa7a`.
+Import commit: `39e298de6b8eb3722d44db3e79231224e29799f4`.
+Correction receipt: `msg_plugin-w_1791838564_9ed581`.
+The reviewer reads the PC brief first and follows the lead's approved import decision recorded above.
+Scope: the complete applicable base delta, patch preservation, root-macro fix, retained checks, and current body.
+
+### Merge and patch preservation
+
+The import commit has parents `fabbf66c` and the approved base `007efbde`.
+The reviewer independently runs the read-only merge-tree calculation; it reports no conflict.
+Its tree is `f79e0bbbab3752b2b92dc181c8f5468efe7d7659`, exactly the retained merge commit's tree.
+This verifies the automatic merge without using a branch resolution or changing the worktree.
+It is a git source calculation, not a build, test, or executable base-check job.
+
+The own diff has thirteen paths. Seven overlap the incoming base:
+
+- `Cargo.lock`.
+- `crates/botster-core-testkit/Cargo.toml`.
+- `crates/botster-core-testkit/src/lib.rs`.
+- `crates/botster-core-testkit/src/real.rs`.
+- `crates/botster-core-testkit/src/route_client.rs`.
+- `crates/botster-worker-core/DESIGN.md`.
+- `xtask/src/ci.rs`.
+
+The reviewer reads the complete changes in those shared paths and the relevant attach, stream, worker receive, and tier-selection paths.
+Each own added/deleted-line sequence is preserved against the new base, excluding only the three new root-macro lines in `props.rs`.
+Every changed non-own blob equals the imported base.
+The full-index own diff against `007efbde` has SHA-256 `9035440b95ddd45a53f02656b6942b9d04e8d0656d70408601bb0d8e684a82b5`.
+
+The stream counter, socket identity helper, real route, kernel query, and pure diag decoder are byte-identical to gated parent `d1aa7334`.
+The frame tracker and control dispatch keep their reviewed code.
+The route-client unit fixture imports the base's `WorkerClock::real()` constructor change; its frame assertions remain unchanged.
+The attach path still reads the worker socket identity before Core takes the endpoint and keeps no worker endpoint copy.
+The worker still decodes each complete frame in the receiving turn, then applies frames only while refusal room exists.
+Its wire format still uses the four-byte length prefix that `FrameEnds` observes.
+R-115's reviewer premise remains explicit in the worker design paragraph.
+
+The base imports the report-hold and control-queue dispatches beside the route module. No own control name or guard is lost.
+The base's `Report::Printed` arm does not enable the probe print-report environment or change the route query.
+The testkit exports retain `sock_diag` and the two harness entries.
+The imported manifest, lockfile sources, and contracts `.46` pin equal the base, apart from the preserved bolero dependency edge.
+The imported mutation configuration and known-flaky file equal the base.
+The latter has the approved IN-8 KSTATE-1 entry; #319 adds no known-flaky entry or exclusion.
+No new facade or production test branch occurs.
+
+### Conformance composition
+
+All ten conformance text blobs equal the approved base byte for byte.
+The own PR changes no id, reason, proof entry, deferred value, or minimum list.
+This exact equality retains every removal that the base made; no old resolution restores an id.
+Current counts are 388 core-pending, 38 real-pending, 692 ledger ids, and 69 minimum ids.
+`am_2_one` remains a required test; `am_2_fairness` remains core-pending.
+No id removal follows from this review or from a reported real-pending pass.
+
+### CQ-RFT-5 / R319-SI-3: closed
+
+Commit `71ec2783` adds the real `botster_test_process::built_in_test!();` invocation at the root of `tests/props.rs`.
+The post-import delta is three lines: the comment, macro invocation, and separator.
+Both decoder harnesses and their assertions remain unchanged.
+The imported dependency provides the macro API that the old base lacked.
+The macro defines the reserved root test through the existing implementation; no hand-written substitute is used.
+The current default and slow tier selections include its unignored root test.
+
+The retained current-head check runs `slow-coverage` with the macro and exits 0, covering 1100 slow-only tests.
+The controlled reversal removes those three lines, then exits 1 with the missing-root finding for `botster-core-testkit::props` in both tiers.
+The script restores `props.rs` and records clean status, the exact head, and completion time.
+The source, positive check, and negative check close the omission. All five package findings are now closed.
+
+### Retained current-head checks and body
+
+Record: `~/botster-sessions/shared/core-stage1/evidence/pc-route-frames-taken/rft-merge-checks-71ec2783.log`.
+Verified SHA-256: `e4176b47cd9424919f7d509a4238a67fb26864dfa2d254fd1e00309aa62a0614`.
+The reviewer reads the complete record and its producing script.
+The record identifies clean head `71ec2783` and reports workspace `cargo check --workspace --tests` exit 0.
+That compile check precedes the recorded clean at `2026-10-12T20:42:39Z`.
+The later checks report ten xtask exits 0 and both Mac/Linux-target clippy exits 0.
+The local test summaries report 483/483 default, 13/13 focused slow, and strict 281 passed with zero failed and 412 ignored.
+The strict command uses `BOTSTER_SEEDS=0-31`.
+The existing producer filters test output and does not retain numeric test or clean exits or a complete target-writer history.
+These are supporting local results. No fresh Linux mutation, fuzz, or full-gate result on this head is claimed.
+The post-reversal restore has no numeric restore exit or new restored suite; its clean status and exact head are retained.
+
+The reviewer reads the complete current body and its complete import delta.
+Body SHA-256 without an added line feed: `ef3ba24b7b5a6c94dfa3cd5e047dad619a0626de027cc89eda8c53a0be9ea90b`.
+Body SHA-256 with one added line feed: `89a62e146d725ceb09cd8df35efd54bde68e3b63aebf9e6767edba3d8ec008cd`.
+The body names the approved merge, root fix, current checks, negative presence proof, and absence of a new full gate.
+It retains the old `.43` gate, RED repair history, two FLAKY trials without catch credit, and earlier local/scratch scopes.
+The parent `d1aa7334` gate remains evidence for its reviewed code only. It is not a gate on the new `.46` composition.
+
+### CLEAN scope and next step
+
+The complete #319 source/body/import delta is CLEAN on exact head `71ec2783`, with zero open package findings.
+The premature `cf37cdc7` CLEAN remains superseded; this completed round supplies the valid package closure.
+The matching complete formal integration delta verdict remains due.
+The lead's train construction, any applicable train/base delta reviews, exact train gate, final evidence receipts, and Q7 remain due.
+The lead's no-slot train decision applies. This verdict creates no final slot or provisional gate acceptance.
+The separate contracts route fence, kernel-state list addition, and later Core pin remain PC's work.
+No later head, status removal, specific retry, or completed merge is accepted.
+No reviewer build, test, gate, mutation, reversal, reproduction, or executable base-check job runs.
+Wait for the doorbell. Never poll.
