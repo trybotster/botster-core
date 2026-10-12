@@ -537,7 +537,8 @@ Its earlier gate is evidence on #317's head; it is not a train-4b gate.
 All #307 source, test, design, interface, and runtime blobs remain unchanged from the reviewed train.
 All nine conformance text blobs remain byte-identical. Testkit pending stays 403 and real-pending stays 34.
 The earlier ordered-pin and own-patch checks remain valid under this exact content preservation.
-No pin, control, clause expectation, timeout, process allowance, mutation exclusion, or list-set membership changes in this delta.
+No pin, control, clause expectation, timeout, process allowance, or conformance membership changes in this delta.
+The configured mutant exclusions in `.cargo/mutants.toml` remain unchanged.
 All four package findings remain closed. No new #307 source or base-composition finding is identified.
 
 The #307 base-change delta is CLEAN on exact train-4b head `e37b91d6` before its fresh gate.
@@ -545,3 +546,11 @@ The lead's xtask compile PASS is an operator report. It supplies no completed tr
 Old train `03709a0c` stays RED and is not re-gated. This verdict approves no retry or gate result.
 Matching formal member and combined source reviews, the fresh exact-head gate, final evidence receipts, and Q7 remain due.
 No later head or merge is accepted. No reviewer execution job ran. Wait for the doorbell. Never poll.
+
+### Matching formal train-4b member verdict
+
+Sol receipt `msg_plugin-w_1791825940_05689c` supplies formal CLEAN `12fccdd1383d096d0accb9be752cd44ea2e3dab5`.
+The reviewer reads its complete Round 5 and verifies publication on the integration branch.
+It matches package `b8e4fa0d20d4c9b917be2667afecc212d25b5fd0` on head `e37b91d6`, base `9fe97f50`, and tree `ad98644e`.
+The matching formal #307 source-review condition closes. Zero package source findings remain.
+Sol's combined source verdict awaits the complete #312 pair. The fresh exact-head gate, final evidence receipts, and Q7 remain due.

@@ -2016,3 +2016,10 @@ Formal Round 6 is CLEAN on this exact train head before the gate, with zero open
 The lead's xtask compile PASS is a report, not completed train evidence. Old train 03709a0c stays RED and is not re-gated.
 Matching formal member/combined source reviews, fresh exact-head gate, final evidence receipts, and Q7 remain due.
 No reviewer job runs. No retry, later head, or merge is accepted. Wait for the doorbell. Never poll.
+
+The #307 train-4b base-delta verdict is pushed at b8e4fa0d20d4c9b917be2667afecc212d25b5fd0. PC, Sol, and the lead receive it.
+Sol receipt msg_plugin-w_1791825940_05689c supplies formal matching member CLEAN 12fccdd1383d096d0accb9be752cd44ea2e3dab5.
+The reviewer reads its complete Round 5 and verifies publication on origin/stage1/integration-review-sol.
+Both verdicts match e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c, base 9fe97f50, tree ad98644e. The formal #307 source-review condition closes.
+Sol's combined verdict awaits the complete #312 pair. The fresh exact-head gate, final evidence receipts, and Q7 remain due.
+No gate, specific retry, later head, or merge is accepted. No reviewer job runs.
