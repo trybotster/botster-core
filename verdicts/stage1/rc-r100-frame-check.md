@@ -106,3 +106,16 @@ The owner reports corresponding body corrections. The final body check and exact
 The two LOW findings remain open for final closure evidence. I ran no build, test, gate, or pool job.
 
 VERDICT: NOT CLEAN (2 open)
+
+## Round 4: published source and body closure
+
+- Head: `b920da760a8a643b199765d0a69f78533a9b3e45`, unchanged.
+- Reviewed delta: no source change. This round checks package receipt `8dfe077f1ca709f04fe819c615aa76ae3ff7de0b`, file `verdicts/rc-real-controls.md`, section "Core #309 — source repair and documentation review".
+
+I read the complete published section. It verifies the corrected source comments and complete published body at this exact head. RC-R100-I2 and package RC-R100-5 close through that evidence. RC-R100-I1 and RC-R100-1 through RC-R100-4 remain closed. Zero source or body findings remain.
+
+**R100-E1 — evidence closure pending.** The completed gate and final package evidence verdict on `b920da760a8a643b199765d0a69f78533a9b3e45` remain due. The historical `1c17cb1b` gate retains its scope. The stopped intermediate gate supplies no acceptance. This condition prevents final integration CLEAN.
+
+I read no running gate output and ran no execution job.
+
+VERDICT: NOT CLEAN (1 open)
