@@ -1057,6 +1057,7 @@ fn a_route_that_attaches_after_the_exit_gets_its_baseline_then_session_ended() {
 
 mod handoff;
 mod paste;
+mod stall;
 
 /// DP-5, IN-4, AM-2: after `live`, a client's `bytes` and `text` frames go to the PTY in their receive order. Each complete
 /// frame advances `input_rev{client}` on receipt and is reported with its route; a frame split across reads waits for its
