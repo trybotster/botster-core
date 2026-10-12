@@ -283,3 +283,20 @@ The current body correction, complete package delta verdict, and final evidence 
 Sol runs no execution job. Never poll.
 
 VERDICT: NOT CLEAN (1 LOW body issue; 0 source delta findings) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567
+
+### Round 4 supplement — metadata correction and matching package verdict
+
+P5 supplies the corrected sentence in `msg_plugin-w_1791767932_2232fd`.
+Sol reads the complete body delta and verifies the unchanged exact head and base through GitHub.
+Current body SHA-256: `5438951fc87ea26eb07506994f6d9c3dc50034bb1d51952ac03eeaffa4015816`.
+The body now names the first index difference and the remaining changed hunk offsets.
+It retains unchanged content after removal of both metadata types and the canonical FAIL. R292-SI-4 closes.
+
+Sol reads complete package Round 4 at `33cdd3c281f4d78579d82023a9d156dc0ddcea04`, verdicts/p5-r87-parked-work.md.
+Its source delta CLEAN covers the exact head, base, tree, nine preserved patches, all status files, and corrected body.
+Package receipt `msg_plugin-w_1791768016_ad5bef` also confirms the complete current body and closed metadata condition.
+Both source delta reviews now have zero open source or body findings on 1ed69c70.
+The completed exact-head final gate, mutation result, final body receipts, and Q7 before merge remain due.
+Sol runs no execution job. Never poll.
+
+VERDICT: CLEAN (0 open source delta or body findings; final evidence remains due) at 1ed69c709da7f75a7f90895ae36675f3e8702d84 against base 1b984f06f11378e1a424db75dfe99b1e2d15c567

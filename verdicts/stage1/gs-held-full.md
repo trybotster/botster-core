@@ -167,3 +167,53 @@ The completed exact-head final gate, final body, and final package acceptance re
 Sol reads no running gate output and runs no execution job. Never poll.
 
 VERDICT: CLEAN (0 open source delta findings; final gate remains due) at ac457ca6a83731e68e4fc44ad3551b8ec39e3612 against base 9053b1df868bbec2d62977660f44907e73323c55
+
+## Round 4 — completed final evidence and merge receipt
+
+Exact head: `ac457ca6a83731e68e4fc44ad3551b8ec39e3612`.
+Reviewed base: `9053b1df868bbec2d62977660f44907e73323c55`.
+Tree: `98bb9f0393e4b63201927920a55d5d32c9cbdcd4`.
+Package receipt `msg_plugin-w_1791767925_7aae76` supplies completed evidence and the merge identity.
+Sol receives and reviews this completed evidence after the merge.
+The complete Round 3 source delta review remains applicable to this exact head.
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-gs-held-full-ac457ca6-pool-20261011-171824-68670.log`.
+SHA-256: `15e7b62998676f468cc0948c4aba3d128e2dfe9086d1589468b4aec769cf58d2`.
+The header names this exact head and base, with four CPUs.
+The Linux node is structvr-MS-7C77, kernel 6.8.0-142-generic; it is not an msa1 run.
+All ten steps PASS in 571.1 seconds.
+The job exits zero after 682 seconds, with zero queued seconds. The wrapper exits zero after 683 seconds.
+Default: 1832 PASS, 445 skipped, 20.479 seconds. Slow: 599 PASS, 2044 skipped, 61.422 seconds.
+Both conformance runs report 245 PASS and zero failures, in 7.80 and 6.99 seconds.
+The strict report checks 334 of 352 pending transcripts, with eighteen real-only identifiers not run and three held entries.
+Minimum coverage is testkit-passing 63/69, real-passing 57/68, and real-accepted 58/69.
+All four named real-process proofs have normal PASS results.
+
+The held-full run reports two budget identifiers at 32 seeds, with one trial per seed.
+It reports 64 ignored expected held results, zero failures, and 19.32 seconds of run time.
+This covers the two budget entries preserved in the source delta: ev_8 and dp_5.
+The earlier seed-1 negative proof retains its exact old-head source and scratch scope.
+This final gate supplies current-head positive validation, not a new negative-proof run.
+
+Stage 1 has 23 mutants: 21 caught, zero missed, zero timeout, and two unviable, in 122.6 seconds.
+Stage 2 does not run because stage 1 misses no mutant.
+Sol independently matches all 21 unique raw catches to all 21 unique named citations.
+Each selected catcher has a normal PASS before mutation. The two unviable results supply no catch.
+The log contains no FLAKY token. Fuzz PASS reports no changed crate with a decoder harness.
+No bound, selection, or budget change beyond the reviewed source is accepted.
+
+Sol reads the complete final body delta against the previously read SLOT body.
+Body SHA-256: `36e790a1f1e66e3a16740a3fcffcc4e3d373df1d48ca16013c52579cc649c2c5`.
+It replaces the running-gate statement with the completed exact-head result and both held identifiers.
+It preserves the earlier one-identifier evidence's source scope and the source delta receipts.
+Sol reads the complete package final evidence and merge section at `24444c61811fc875a4e2ff59cddb1cf5cb788ac8`.
+Its CLEAN covers the same exact head, base, completed gate, body, and merged tree.
+
+GitHub confirms merge `b0c0a419af27259006b5e06d4e5da3b3d00083e6`.
+Sol independently verifies its parents are the exact reviewed base and head.
+Its tree equals the reviewed and gated tree 98bb9f03 byte for byte.
+Both source delta reviews and both completed evidence reviews have zero open findings.
+This completes Sol's final evidence and merge receipt for #286.
+Sol runs no build, test, gate, mutation, reversal, measurement, or executable base-check job. Never poll.
+
+VERDICT: CLEAN (0 open; final source, evidence, body, and merge receipt) at ac457ca6a83731e68e4fc44ad3551b8ec39e3612 against base 9053b1df868bbec2d62977660f44907e73323c55; merge b0c0a419 retains the gated tree
