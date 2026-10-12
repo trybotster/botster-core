@@ -227,7 +227,7 @@ impl Facts {
 
     /// The facts of the log now. With `after`, only the entries after it; `gap` when retention removed an entry after it,
     /// or when it is a cursor of another ordinal (then every kept entry is returned). Without `after`, every kept entry, and
-    /// `gap` when retention ever removed one.
+    /// `gap` when retention ever removed one. Any read is `gap` while the protected pair is over the byte bound (R-116).
     pub(super) fn read(&self, now: Instant, after: Option<InputCursor>) -> FactsRead {
         let after = after.map(|InputCursor(c)| (c >> SEQ_BITS, c & MAX_SEQ));
         let (from, gap) = match after {
@@ -235,6 +235,9 @@ impl Facts {
             Some(_) => (0, true),
             None => (0, self.dropped_upto > 0),
         };
+        // R-116: the protected pair over the byte bound is the one list over it, and the overflow itself is a gap, for
+        // every reader, with or without an older record to drop.
+        let gap = gap || self.list_len() > self.bounds.bytes;
         let since = self.last_client.unwrap_or(self.start);
         FactsRead {
             records: self
