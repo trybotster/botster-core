@@ -285,23 +285,11 @@ impl HostEngine {
         use botster_core_link::msg::WorkerMsg;
         match input {
             // The answer to a route's due step has the slot that the step holds (R-90, E3-1 item 4).
-            Input::LinkMsg {
-                msg:
-                    WorkerMsg::RouteClosed { route, .. } | WorkerMsg::RouteStalled { route, .. },
-                ..
-            } if self.route_holds_slot(*route) => true,
-            Input::LinkMsg {
-                msg:
-                    WorkerMsg::RouteClosed { .. }
-                    | WorkerMsg::RouteStalled { .. }
-                    | WorkerMsg::RouteResumed { .. }
-                    // The frames that cause a state transition stay unread until their event fits (EV-5b).
-                    | WorkerMsg::Exited { .. }
-                    | WorkerMsg::Launched { .. }
-                    | WorkerMsg::LaunchFailed { .. }
-                    | WorkerMsg::Adopted { .. },
-                ..
-            } => room,
+            Input::LinkMsg { msg, .. } if self.answer_has_slot(msg) => true,
+            // A frame ahead of a due step's answer on the same link takes over the step's slot (`take_over_slot`).
+            Input::LinkMsg { link, msg } if needs_room(msg) => {
+                room || self.slot_of_link(*link).is_some()
+            }
             // The events of the model belong to the running session: an observation stays unread on its link while the
             // session's start or adoption is not through, so it follows `Running` and the completion of `Start` (OR-2, EV-5).
             // The link keeps the worker's order (ST-4, EV-6), and its one held frame bounds what waits (plan 2.5 rule 7).
@@ -315,6 +303,13 @@ impl HostEngine {
             }),
             _ => true,
         }
+    }
+
+    /// True for the answer of a due step that still holds its slot: the route's `RouteStalled` or `RouteClosed`.
+    pub(crate) fn answer_has_slot(&self, msg: &botster_core_link::msg::WorkerMsg) -> bool {
+        use botster_core_link::msg::WorkerMsg;
+        matches!(msg, WorkerMsg::RouteClosed { route, .. } | WorkerMsg::RouteStalled { route, .. }
+            if self.route_holds_slot(*route))
     }
 
     pub(crate) fn mono(&self) -> Option<Instant> {
@@ -775,4 +770,19 @@ pub(crate) fn new_session(
         pending_end: None,
         adopting: None,
     }
+}
+
+/// The worker frames that cause a state transition: they stay unread until their mandatory event fits (EV-5b).
+pub(crate) fn needs_room(msg: &botster_core_link::msg::WorkerMsg) -> bool {
+    use botster_core_link::msg::WorkerMsg;
+    matches!(
+        msg,
+        WorkerMsg::RouteClosed { .. }
+            | WorkerMsg::RouteStalled { .. }
+            | WorkerMsg::RouteResumed { .. }
+            | WorkerMsg::Exited { .. }
+            | WorkerMsg::Launched { .. }
+            | WorkerMsg::LaunchFailed { .. }
+            | WorkerMsg::Adopted { .. }
+    )
 }

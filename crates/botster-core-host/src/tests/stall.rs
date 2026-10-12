@@ -23,11 +23,16 @@ fn world(mandatory: u32) -> World {
 
 /// A route of `s1` with a `stall_deadline` of [`STALL`].
 fn attach(w: &mut World) -> RouteId {
+    attach_to(w, "s1")
+}
+
+/// A route of `session` with a `stall_deadline` of [`STALL`].
+fn attach_to(w: &mut World, session: &str) -> RouteId {
     let route = w
         .engine
         .attach(
             ClientId("c".into()),
-            sid("s1"),
+            sid(session),
             RouteTransport::Stream(StreamEndpoint::new(())),
             AttachOptions {
                 file_directory: "/tmp".into(),
@@ -47,7 +52,7 @@ fn attach(w: &mut World) -> RouteId {
         .unwrap()
         .route;
     w.pump();
-    w.worker_says("s1", WorkerMsg::RouteReceived { route });
+    w.worker_says(session, WorkerMsg::RouteReceived { route });
     w.engine.poll_events(64);
     route
 }
@@ -275,41 +280,56 @@ fn a_parked_due_step_is_parked_work_of_the_routes_session() {
     );
 }
 
-/// E3-1 item 4, EV-5b: the answer of a due step has the slot that the step holds. The full queue takes that route's
-/// `RouteStalled` or `RouteClosed`, and no other route event.
+/// E3-1 item 4, EV-5b, R-90 follow-up (contracts `main` `1798a65d`): the answer of a due step has the slot that the step
+/// holds, and a mandatory frame that Core reads from the same link ahead of the answer may take that slot over. So the full
+/// queue takes the answer and every mandatory frame of that worker's link, and no mandatory frame of another worker.
 #[test]
-fn the_full_queue_takes_only_the_answer_of_the_due_step() {
+fn the_full_queue_takes_the_answer_and_the_frames_ahead_of_it_on_its_link() {
     let mut w = world(1);
+    w.running("s2");
+    w.engine.poll_events(64);
     let route = attach(&mut w);
     let other = attach(&mut w);
+    let elsewhere = attach_to(&mut w, "s2");
     progress(&mut w, route, 3, true);
     w.advance(STALL);
     w.pump();
     assert!(!w.engine.queue.has_mandatory_room(), "the slot is held");
-    let link = w.link_of("s1");
-    let takes = |w: &World, msg| w.engine.can_accept(&Input::LinkMsg { link, msg });
-    assert!(takes(&w, WorkerMsg::RouteStalled { route, mark: 3 }));
+    let takes = |w: &World, session: &str, msg| {
+        w.engine.can_accept(&Input::LinkMsg {
+            link: w.link_of(session),
+            msg,
+        })
+    };
+    assert!(takes(&w, "s1", WorkerMsg::RouteStalled { route, mark: 3 }));
     assert!(takes(
         &w,
+        "s1",
         WorkerMsg::RouteClosed {
             route,
             reason: RouteCloseReason::StallTimeout,
             route_tag: None,
         }
     ));
-    assert!(
-        !takes(&w, WorkerMsg::RouteResumed { route, mark: 4 }),
-        "a resume is no answer of a stall step"
-    );
+    assert!(takes(&w, "s1", WorkerMsg::RouteResumed { route, mark: 4 }));
+    assert!(takes(
+        &w,
+        "s1",
+        WorkerMsg::RouteStalled {
+            route: other,
+            mark: 0
+        }
+    ));
     assert!(
         !takes(
             &w,
+            "s2",
             WorkerMsg::RouteStalled {
-                route: other,
+                route: elsewhere,
                 mark: 0
             }
         ),
-        "another route has no slot"
+        "another worker has no slot"
     );
 }
 

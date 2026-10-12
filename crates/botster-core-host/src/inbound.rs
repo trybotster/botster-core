@@ -43,6 +43,13 @@ impl HostEngine {
             Input::LinkHello { link, hello } => self.on_hello(link, hello),
             Input::LinkMsg { link, msg } => {
                 if let Some(id) = self.links.get(&link).cloned() {
+                    // A mandatory frame ahead of a due step's answer that waits only for room takes the step's slot over.
+                    if !self.has_room()
+                        && crate::engine::needs_room(&msg)
+                        && !self.answer_has_slot(&msg)
+                    {
+                        self.take_over_slot(link);
+                    }
                     self.on_worker_msg(&id, msg);
                 }
             }

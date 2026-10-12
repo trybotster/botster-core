@@ -21,6 +21,7 @@
 //!   no stall deadline, and a new host arms from the reports after `Adopted`.
 
 use crate::engine::HostEngine;
+use crate::io::LinkId;
 use botster_core_contract::prelude::*;
 use botster_core_link::msg::HostMsg;
 use std::time::{Duration, Instant};
@@ -45,6 +46,10 @@ pub(crate) struct RouteClock {
     stalled: Option<(u64, Instant)>,
     /// The due step that was sent and is not answered.
     asked: Option<Due>,
+    /// The asked step holds one mandatory slot for its answer. A mandatory frame that Core reads from the same link ahead of
+    /// the answer, and that waits only for room, takes the slot over (`take_over_slot`): the answer is then an ordinary
+    /// route report.
+    slot: bool,
     /// The host consumed the worker's `RouteReceived` of this route. Before it, a route report with this id is from another
     /// route: a route that survived a host restart keeps its id in the worker, and this host numbers its routes from 1
     /// (ID-2; DP-8 maps them later). The worker sends `RouteReceived` before any report of the route that it binds, and the
@@ -63,6 +68,7 @@ impl RouteClock {
             waiting: None,
             stalled: None,
             asked: None,
+            slot: false,
             received: false,
             parked: false,
         }
@@ -87,7 +93,7 @@ impl RouteClock {
 
     /// True while a due step of this route holds a mandatory slot for its answer.
     pub(crate) fn holds_slot(&self) -> bool {
-        self.asked.is_some()
+        self.slot
     }
 }
 
@@ -116,6 +122,7 @@ impl HostEngine {
         let entry = self.routes.get_mut(&route).expect("read above");
         if sent {
             entry.clock.asked = Some(due);
+            entry.clock.slot = true;
             self.queue.reserve();
         } else {
             // No worker link: no stall deadline runs (R-90 Q3). The route closes with its session's loss.
@@ -124,13 +131,37 @@ impl HostEngine {
         }
     }
 
-    /// Gives back the slot that a due step of `route` holds, when one does.
+    /// Ends the due step of `route` that waits for its answer, and gives back its slot when it still holds one.
     pub(crate) fn release_route_slot(&mut self, route: RouteId) {
         if let Some(entry) = self.routes.get_mut(&route) {
-            if entry.clock.asked.take().is_some() {
+            entry.clock.asked = None;
+            if std::mem::take(&mut entry.clock.slot) {
                 self.queue.release();
             }
         }
+    }
+
+    /// The first route, in id order, of the worker of `link` whose due step holds a slot.
+    pub(crate) fn slot_of_link(&self, link: LinkId) -> Option<RouteId> {
+        let session = self.links.get(&link)?;
+        self.routes
+            .iter()
+            .find(|(_, e)| e.session == *session && e.clock.slot)
+            .map(|(id, _)| *id)
+    }
+
+    /// A mandatory frame (EV-5(b)) that Core reads from the worker's link ahead of a due step's answer, and that waits only
+    /// for mandatory-queue room, takes over the slot of that step (R-90 follow-up, contracts `main` `1798a65d`): the
+    /// reservation ends, and the frame's event posts in it. The step still waits for its answer, which is then an ordinary
+    /// route report: with no room it is parked (EV-5(b)) until a poll frees room. Without this, a frame that the worker sent
+    /// before its answer could wait for room that only the answer frees (0181's ST298-R1).
+    pub(crate) fn take_over_slot(&mut self, link: LinkId) {
+        let Some(route) = self.slot_of_link(link) else {
+            return;
+        };
+        let entry = self.routes.get_mut(&route).expect("found above");
+        entry.clock.slot = false;
+        self.queue.release();
     }
 
     /// `RouteReceived` (DP-2) from the worker of `session`: the worker bound this route, so its later reports are this
