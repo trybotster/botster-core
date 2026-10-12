@@ -69,6 +69,20 @@ fn a_failed_write_is_partial_with_its_exact_pty_bytes_even_zero() {
     );
 }
 
+/// IN-6, ST-7: a queued host write that a cancel ends is `cancelled` in its record, with exact zero.
+#[test]
+fn a_cancelled_queued_write_ends_cancelled_with_exact_zero_in_its_record() {
+    let mut w = World::running();
+    w.send(&write(1, b"ab", None));
+    w.send(&write(2, b"cd", None));
+    w.send(&HostMsg::Cancel { req: 2 });
+    let facts = read_facts(&mut w, None);
+    assert_eq!(
+        status_updates(&facts),
+        [(InputRecordState::Cancelled, Some(0))]
+    );
+}
+
 /// R-101 Q3: a payload whose kind the worker cannot write is `NotWritten(Unsupported{what})`, in the op's result and in the
 /// record, never an error.
 #[test]

@@ -45,3 +45,6 @@ fn input_records_cost(
         })?;
     Ok(json!({ "bytes": cost }))
 }
+
+#[cfg(test)]
+mod tests;

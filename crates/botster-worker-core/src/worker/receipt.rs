@@ -250,4 +250,27 @@ mod tests {
             );
         }
     }
+
+    /// R-103 (1): a refused mouse or focus input keeps its 5.1A fields as sent.
+    #[test]
+    fn a_refused_mouse_or_focus_input_keeps_its_fields() {
+        let frame = |body: Value| {
+            let mut f = vec![TYPE_INPUT];
+            f.extend(serde_json::to_vec(&body).unwrap());
+            f
+        };
+        let mouse = serde_json::json!({
+            "kind": "mouse", "action": "press", "button": "left", "row": 0, "col": 3, "mods": []
+        });
+        let Receipt::Input(Kept::Payload(InputPayload::Mouse(m))) = of_raw(&frame(mouse)) else {
+            panic!("a mouse payload");
+        };
+        assert_eq!(serde_json::to_value(&m).unwrap()["col"], 3);
+        assert!(matches!(
+            of_raw(&frame(
+                serde_json::json!({"kind": "focus", "focused": true})
+            )),
+            Receipt::Input(Kept::Payload(InputPayload::Focus { focused: true }))
+        ));
+    }
 }

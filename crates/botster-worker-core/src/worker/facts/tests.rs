@@ -1,4 +1,5 @@
 use super::*;
+use botster_route_codec::prelude::{Key, KeyEvent, NamedKey};
 use std::time::Duration;
 
 /// The real instant that a test gives the log as the worker's start: the one read of the real clock in these tests (the
@@ -306,4 +307,187 @@ fn a_record_with_no_payload_is_never_payload_truncated() {
 
 fn probe_cursor() -> InputCursor {
     InputCursor(1 << SEQ_BITS | 1)
+}
+
+fn key() -> InputPayload {
+    InputPayload::Key(KeyInput {
+        key: Key::Named(NamedKey("enter".into())),
+        shifted_key: None,
+        base_layout_key: None,
+        mods: vec![],
+        event: KeyEvent::Press,
+        text: Some("x".repeat(64)),
+        repeat: None,
+    })
+}
+
+/// ST-7: a log that retention never cut is no gap, with or without a cursor of its own ordinal.
+#[test]
+fn a_read_with_nothing_dropped_has_no_gap() {
+    let t0 = start();
+    let mut facts = Facts::new(1, &CoreLimits::default(), t0);
+    assert!(!facts.read(t0, None).gap);
+    facts
+        .received(t0, client(), Content::Payload(&bytes(b"x")))
+        .unwrap();
+    assert!(!facts.read(t0, None).gap);
+    assert!(!facts.read(t0, Some(InputCursor(1 << SEQ_BITS))).gap);
+}
+
+/// ST-7: a list whose JSON length is exactly `input_events_bytes` is within the bound: nothing is dropped.
+#[test]
+fn retention_at_exactly_the_byte_bound_drops_nothing() {
+    let t0 = start();
+    let run = |bound: u64| {
+        let mut facts = Facts::new(1, &limits(1000, bound), t0);
+        for b in [b"a", b"b"] {
+            let id = facts
+                .received(t0, client(), Content::Payload(&bytes(b)))
+                .unwrap();
+            facts.ended(id, InputRecordState::Written, Some(1));
+        }
+        facts
+    };
+    let exact = run(u64::MAX).list_len();
+    let facts = run(exact);
+    assert_eq!(facts.list_len(), exact);
+    let read = facts.read(t0, None);
+    assert_eq!(read.records.len(), 4);
+    assert!(!read.gap);
+    assert!(run(exact - 1).read(t0, None).gap, "one byte less drops one");
+}
+
+/// R-101 follow-up: the largest cursor is the largest ordinal and the largest sequence number, 2^53 - 1, and the room kept
+/// for a status update holds every status update at that cursor.
+#[test]
+fn the_largest_cursor_and_the_room_of_a_status_update() {
+    assert_eq!(LARGEST_CURSOR, (MAX_ORDINAL << SEQ_BITS) + MAX_SEQ);
+    assert_eq!(LARGEST_CURSOR, (1 << 53) - 1);
+    let largest = largest_status_update();
+    let lens: Vec<u64> = [
+        InputRecordState::Written,
+        InputRecordState::Unknown,
+        InputRecordState::NotWritten {
+            reason: NotWrittenReason::ModePreconditionFailed,
+        },
+        InputRecordState::NotWritten {
+            reason: NotWrittenReason::Unsupported {
+                what: UnsupportedWhat::WheelDirection,
+            },
+        },
+    ]
+    .into_iter()
+    .map(|state| {
+        json_len(&InputRecordEntry::StatusUpdate(InputStatusUpdate {
+            cursor: InputCursor(LARGEST_CURSOR),
+            updates: InputCursor(LARGEST_CURSOR),
+            state,
+            pty_bytes: Some(u64::MAX),
+        }))
+    })
+    .collect();
+    assert!(lens.iter().all(|&n| n <= largest), "{lens:?} {largest}");
+    assert!(lens.contains(&largest), "{lens:?} {largest}");
+}
+
+/// ST-7: a record keeps at most `cap` payload bytes, and is `payload_truncated` only when it kept fewer than it got.
+#[test]
+fn a_record_keeps_its_payload_up_to_the_cap() {
+    for (cap, kept, cut) in [(2, 2, true), (3, 3, false), (4, 3, false)] {
+        let r = record_of(
+            probe_cursor(),
+            client(),
+            0,
+            Content::Payload(&bytes(b"abc")),
+            cap,
+        );
+        assert_eq!(r.payload, Some(HexBytes(b"abc"[..kept].to_vec())), "{cap}");
+        assert_eq!(r.payload_truncated, cut, "{cap}");
+    }
+}
+
+/// ST-7, R-103: a record keeps the fields of its kind: text as its bytes, a mouse event, a focus change, a key.
+#[test]
+fn a_record_keeps_the_fields_of_its_kind() {
+    let of = |payload: &InputPayload| {
+        record_of(
+            probe_cursor(),
+            client(),
+            0,
+            Content::Payload(payload),
+            usize::MAX,
+        )
+    };
+    let text = of(&InputPayload::Text { text: "hi".into() });
+    assert_eq!(
+        (text.kind, text.payload),
+        (InputKind::Text, Some(HexBytes(b"hi".to_vec())))
+    );
+    let mouse: MouseInput = serde_json::from_value(serde_json::json!({
+        "action": "press", "button": "left", "row": 0, "col": 3, "mods": []
+    }))
+    .unwrap();
+    let r = of(&InputPayload::Mouse(mouse.clone()));
+    assert_eq!(
+        (r.kind, r.mouse, r.payload),
+        (InputKind::Mouse, Some(mouse), None)
+    );
+    let r = of(&InputPayload::Focus { focused: true });
+    assert_eq!(
+        (r.kind, r.focus, r.payload),
+        (InputKind::Focus, Some(true), None)
+    );
+    let r = of(&key());
+    assert_eq!(r.kind, InputKind::Key);
+    assert_eq!(r.text.as_deref(), Some("x".repeat(64).as_str()));
+}
+
+/// ST-7: with room for exactly the empty payload, the newest record keeps an empty payload, `payload_truncated`; it is not
+/// minimal.
+#[test]
+fn a_newest_record_with_room_for_only_an_empty_payload_keeps_it() {
+    let t0 = start();
+    let probe = Facts::new(1, &CoreLimits::default(), t0);
+    let mut cut = record_of(
+        probe.cursor(1),
+        client(),
+        0,
+        Content::Payload(&bytes(b"")),
+        usize::MAX,
+    );
+    cut.payload_truncated = true;
+    let empty = json_len(&InputRecordEntry::Record(cut));
+    let mut facts = Facts::new(1, &limits(64, 3 + probe.status_room + empty), t0);
+    facts
+        .received(t0, client(), Content::Payload(&bytes(b"xyz")))
+        .unwrap();
+    let r = record(&facts.read(t0, None).records[0]).clone();
+    assert_eq!(r.payload, Some(HexBytes(Vec::new())));
+    assert!(r.payload_truncated);
+}
+
+/// ST-7: a newest record with no payload that does not fit is minimal, even when only `payload_truncated` would make it
+/// fit: a record with no payload has no prefix to cut.
+#[test]
+fn an_oversize_record_with_no_payload_is_minimal() {
+    let t0 = start();
+    let probe = Facts::new(1, &CoreLimits::default(), t0);
+    let whole = record_of(
+        probe.cursor(1),
+        client(),
+        0,
+        Content::Payload(&key()),
+        usize::MAX,
+    );
+    let len = json_len(&InputRecordEntry::Record(whole));
+    let mut facts = Facts::new(1, &limits(64, 3 + probe.status_room + len - 1), t0);
+    facts
+        .received(t0, client(), Content::Payload(&key()))
+        .unwrap();
+    let r = record(&facts.read(t0, None).records[0]).clone();
+    assert_eq!(
+        (r.kind, r.key, r.text, r.payload),
+        (InputKind::Key, None, None, None)
+    );
+    assert!(r.payload_truncated);
 }
