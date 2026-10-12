@@ -329,3 +329,55 @@ This verdict accepts no later train head, contracts pin, or status removal.
 I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
 
 VERDICT: CLEAN
+
+## Round 7 — 2026-10-12: final #300 evidence receipt on train 2
+
+Exact train head: `080987829a2e2245a7ea97606020400392c974d6`.
+Tree: `0dcf95bedeb3d86b27fafa322614b3b07b66b76b`.
+Gate and train base: `be95ef13edc6d9eccf87a8c0b2c09b9cf820963a`.
+Frozen #300 member: `484912ac58743b899c7856e87bdcad0f2b398300`.
+The train head and tree retain Round 6's manual source-delta review. No later source delta is accepted.
+Lead final-receipt requests: `msg_plugin-w_1791818307_ca460f` and `msg_plugin-w_1791818404_fd085d`.
+
+Final gate log: `~/botster-sessions/gates/botster-core-stage1-train-2-08098782-pool-20261011-234830-6797.log`.
+SHA256: `f0d787d78a5464f1a14e9cb0c6c73bc5489314f1babadd601caab3d472b5b867`.
+I read the exact-head/base header, lists and conformance records, relevant E1 outcomes, tier/stage summaries, mutation accounting, and final exits.
+All ten stages pass in 1194.2 seconds. The job and wrapper exit zero after 1293 seconds: one queued and 1292 running.
+Default passes 1935 tests, with 431 skipped, in 13.541 seconds.
+Slow passes 619 tests, with 2068 skipped, in 40.618 seconds.
+The unmutated stage-2 baseline passes all 619 tests.
+
+Atomic-transitions passes on both tiers. The public metadata, forwarded-op, held-stop, deadline, admission, and seeded-comparison tests pass.
+The registry hold/refusal proofs and the real hold/release wake proof pass.
+The deadline proof still observes the kill while the Stop operation is held on the combined train.
+The E1 mutation catches use the reviewed public behavior proofs, including metadata and forwarded operations.
+
+Stage 1 has 99 unique mutants: 71 caught, 16 missed, 12 unviable, and zero timeout, in 232.0 seconds.
+Stage 2 tests exactly those 16 misses and catches all, in 321.3 seconds.
+All 87 raw catches match their named catches. Every named catcher has a normal PASS.
+The aggregate has 87 caught, zero missed or timed out, and 12 unviable. Unviable outcomes supply no catch evidence.
+The complete log contains no FLAKY record or failed nextest result.
+Both link decoder fuzz harnesses finish their configured 60-second runs. Their completion records report 8032094 and 4636250 runs, each in 61 seconds.
+The fuzz stage passes. No sanitizer failure or written-crash record appears in the retained log.
+
+The lists command names the exact train base as both run base and merge base. It reports 406 pending and 43 real-pending identifiers.
+The testkit strict result passes 261, with zero failed. It runs 319 of 336 pending transcript identifiers, with 17 real-only exclusions and four held identifiers.
+The held-full command runs three budget identifiers at 32 seeds, one trial per seed. Its 96 expected ignored trials report zero failures.
+The minimum counts are testkit-passing 67/69, real-passing 61/68, and real-accepted 62/69.
+These inherited outcomes approve no additional #300 removal. The sole own removal remains atomic-transitions.
+
+I read the complete final live-body delta after GitHub MCP truncates the body.
+It names the frozen member, exact train head/tree/base, merge order, conflict resolution, Mac evidence, and final gate.
+It cites package Round 6 and the corresponding integration source records. The corrected round references and results match the retained records.
+Raw body SHA256: `885155751b280be6cb095b0a26318f6e77c73c0b8f31afa355de52ca12eb9f35`.
+GitHub still reports #300 open at the frozen member head. This receipt does not claim that the train has merged.
+I read the completed integration gate audit at `59f0957327ba8bdc5203c4acf2a3f6ced8356adb`.
+Its head, log hash, counts, and gate disposition agree. That audit leaves final member receipts pending and claims no final combined acceptance.
+
+No #300 package source finding or required package acceptance record remains for this exact train head.
+The source delta, required proofs, completed gate, and corrected final body are CLEAN within the recorded scope.
+The final combined integration receipt and the lead's merge/tree/push actions belong to their respective reviewers and the lead.
+This verdict accepts no later train head, contracts pin, or status removal.
+I changed no product code and ran no build, test, gate, mutation, reversal, diagnostic, or executable base-check job.
+
+VERDICT: CLEAN
