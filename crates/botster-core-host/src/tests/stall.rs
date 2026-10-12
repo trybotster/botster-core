@@ -412,6 +412,42 @@ fn new_progress_replaces_a_parked_step_with_a_step_that_is_not_parked() {
     assert_eq!(dues(&w), [HostMsg::RouteStallDue { route, mark: 4 }]);
 }
 
+/// OU-2, OU-9 (0181's ST298-R2, host half): a route whose resume failed stays `Stalled` in the worker and sends no resume,
+/// so the host keeps its close step. The worker answers that step with the close's own reason: the close posts with it in
+/// the step's slot, and the queue has its room again.
+#[test]
+fn the_close_step_answer_of_a_failed_resume_posts_its_reason_in_the_slot() {
+    let mut w = world(1);
+    let route = attach(&mut w);
+    progress(&mut w, route, 3, true);
+    w.advance(STALL);
+    w.pump();
+    w.worker_says("s1", WorkerMsg::RouteStalled { route, mark: 3 });
+    w.engine.poll_events(64);
+    // The resume failed in the worker: no report comes.
+    w.advance(CLOSE_AFTER);
+    w.pump();
+    assert!(matches!(
+        dues(&w).last(),
+        Some(HostMsg::RouteCloseDue { mark: 3, .. })
+    ));
+    assert!(!w.engine.queue.has_mandatory_room(), "the slot is held");
+    w.worker_says(
+        "s1",
+        WorkerMsg::RouteClosed {
+            route,
+            reason: RouteCloseReason::SnapshotTooLarge,
+            route_tag: None,
+        },
+    );
+    let events = w.engine.poll_events(64);
+    assert!(
+        matches!(&events[..], [Event::RouteClosed { route: r, reason: RouteCloseReason::SnapshotTooLarge, .. }] if *r == route),
+        "{events:?}"
+    );
+    assert!(w.engine.queue.has_mandatory_room());
+}
+
 /// ID-2, DP-8 (not built): a route that survived a host restart keeps its id in the worker, and this host numbers its routes
 /// from 1. A report with the new route's id is that route's only after the host consumed the route's `RouteReceived` from
 /// the session's own worker: before it, or from another session's worker, a report changes no clock and arms nothing.
