@@ -560,3 +560,120 @@ The reviewer reads its complete train-4b Round 2 and verifies publication.
 The combined verdict names the same train head, base, and tree. It reports all six complete member source receipts read and CLEAN.
 The combined source-review condition now has its published verdict. No combined source finding remains.
 The fresh exact-head gate, each final member body/evidence receipt, and Q7 remain due. No gate or merge is accepted.
+
+## Round 7: VERDICT: CLEAN (0 open; FINAL train-4b evidence receipt)
+
+Exact train head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Frozen #307 member: `2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54`.
+Lead FINAL request: `msg_plugin-w_1791827181_d7b91c`.
+Sol FINAL request: `msg_plugin-w_1791827227_9d250b`.
+Scope: #307 source, final body, and completed train evidence under the lead's ordered-pin completion decision.
+The reviewer reads the brief first. The prior exact-head source verdicts remain applicable.
+
+### Completed exact-head gate
+
+Log: `~/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log`.
+Verified SHA-256: `97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47`.
+The reviewer reads the completed canonical log and independently checks its records.
+No final client-copy comparison is claimed.
+The log identifies the exact train head and base above, MS-A1, four CPUs, and slot-0.
+Pool job: `jobq-botster-core-e37b91d6-20261012102808-4b3b`.
+Target: `botster-core-target-stage1-train-4b-cf54b647`.
+The dependency fetch identifies contracts commit `99e5983b` for the reviewed `.44` pin.
+The prebuild writes the candidate manifest and its three binaries.
+
+All ten checks PASS: fmt, clippy, taint, lists, public-api, prebuild-worker, test-budget, slow, mutants, and fuzz.
+The check total is 962.9 seconds. The pool job and client wrapper each exit 0 after 1064 seconds.
+The default tier passes 1957 tests, skips 427, and takes 12.302 seconds.
+The slow tier passes 633 tests, skips 2058, and takes 43.673 seconds.
+The unmutated Stage 2 baseline passes 633 tests, including 11 slow tests, and skips 2834.
+Its test summary takes 43.427 seconds. Its complete baseline step takes 61.1 seconds.
+The log has no FLAKY or RETRY record.
+
+### Mutation evidence
+
+Stage 1 tests 65 distinct mutants: 39 caught, 14 missed, 12 unviable, and zero timeout.
+Stage 2 tests exactly those 14 misses: 14 caught, zero missed, zero timeout, and zero unviable.
+The total is 53 caught, 12 unviable, zero missed, and zero timeout.
+The reviewer matches every raw catch to its named test citation.
+All 53 catching tests have a normal PASS before the mutation step.
+All 14 Stage 2 catching tests also have an unmutated baseline PASS.
+All 14 Stage 1 miss identities match the 14 Stage 2 catch identities.
+The 12 unviable identities match the member gate after source-line shifts.
+
+Thirteen Stage 2 catches recover the misses carried by #307.
+They cover `HostEdges::link_room`, `Tap::control_queue`, `Tap::link_room`, `EdgeTap::link_room`, and `RealCoreHarness::control_queue`.
+They also cover `has_control`, `control`, and the `tapped` match guard.
+The fourteenth catch covers #312's new `program::serve` path for `Report::Printed`.
+These are catches of the composed train; the fourteenth is not a #307 mutant.
+
+The named Stage 2 catching tests are:
+
+- `conf::a2_2_cancel_is_ok_cancelled_never_err`.
+- `conf::in_6_cancel_result_kinds`.
+- `conf::e3_1_due_step_beyond_budget_is_carried_with_more`.
+- `conf::a10_1_wrong_instance_is_never_signalled`.
+- `conf::a10_2_corrupted_row_is_lost_registry_corrupt`.
+- `real::slow_controls::the_tapped_harness_serves_the_process_storage_stand_in_and_start_controls`.
+
+The Stage 2 filter reports the single real EV-2 known-flaky exclusion, owner RC, removed by #316.
+No EV-2 result counts as a mutant catch.
+EV-2 passes in the normal testkit tier, normal real tier, and unmutated real baseline: 0.197, 0.115, and 0.119 seconds.
+The exclusion supplies no permission to ignore an unmutated failure.
+
+### Own behavior and conformance evidence
+
+Both removed IN-6 ids pass in the normal testkit tier, normal real tier, and unmutated real baseline.
+The full-stream refusal/drain test and the testkit control-queue regression pass.
+The ten `control_term` tests and the admitted-traffic-plus-four-cancels bound test pass.
+Both failed-write regressions pass: cancel is not `Refused(Full)`, and the old Full refusal retires without `SessionWritable`.
+The fatal-write mutant is caught by the first failed-write regression.
+The largest-frame and bound mutants are caught by the control-term and formula tests.
+
+IN-8 passes in the normal testkit tier, normal real tier, and unmutated real baseline: 0.190, 0.113, and 0.108 seconds.
+The reviewed `.44` held-write fence precedes #307 in this train.
+This gate completes the baseline, Stage 2 mutation evidence, and fuzz missing from the RED member gate.
+The contracts-checkout list test passes in the normal slow tier and baseline.
+
+Both strict summaries report 264 passed, zero failed, and 427 ignored.
+They take 6.78 and 5.83 seconds. The strict report runs 316 of 333 pending ids.
+It does not run 17 real-only ids and identifies four held ids.
+The held-full check covers three budget ids across 32 seeds: 96 expected ignored, zero failed, 22.93 seconds.
+The reviewer checks all 27 distinct `pending-real ... PASSED` records against the exact train's real-pending file.
+All 27 ids remain pending. No unpending action follows from this report.
+The reviewed counts remain 403 testkit pending, 34 real-pending, four held, 26 real-only, seven proof entries, 691 ledger, and 69 minimum.
+
+The fuzz step actually runs both decoders.
+`link_decoder` completes 6143074 runs in 61 seconds.
+`msg_decoder` completes 3614151 runs in 61 seconds.
+Both complete without a reported failure.
+
+### CQ-PC-5 / R307-SI-5: LOW, closed
+
+The first final-body update put #317 after #307 and attributed all 14 Stage 2 catches to #307.
+Package messages `msg_plugin-w_1791827451_657df6` and `msg_plugin-w_1791827451_651b96` report those two errors.
+PC correction `msg_plugin-w_1791827434_e78250` and confirmation `msg_plugin-w_1791827458_d532f3` supply the corrected body.
+The reviewer reads that body and compares its complete delta with the previous snapshot.
+It now starts from base `9fe97f50`, which contains #317, then merges #314, #312, and #307.
+It now attributes the 14 catches to 13 carried #307 misses plus one #312 `program::serve` mutant.
+It also records R307-SI-5. No source change occurs.
+
+The live body without an added line feed has SHA-256 `18d06ee4f25951a981e4c5dbd022aca241549f5d2d51e682c2805b670339d666`.
+The gh-style body with one added line feed has SHA-256 `bddf3e92198a6830f8575fc073bc9f6ab650efffb9bc72564e7b78a54af8735a`.
+Both match Sol's independent body closure in `msg_plugin-w_1791827567_d23a9b`.
+The body names the exact train head, base, tree, gate path, and gate hash above.
+The PR remains at member head `2ed85f93` and member base `08098782`; the final train evidence has separate labels.
+The body keeps the RED member gate, RED earlier train, earlier repair gate, and local evidence with their separate scopes.
+The reviewer does not independently audit the earlier train's raw RED log here.
+
+### FINAL scope
+
+All five package findings are closed. No source, body, or completed-record finding remains open.
+The FINAL #307 package receipt is CLEAN on exact train head `e37b91d6` and its completed GREEN gate.
+The matching formal FINAL Sol receipt, other FINAL member receipts, combined FINAL acceptance, and lead Q7 remain due.
+The lead must verify the equal tree and published merge before merge closure.
+This receipt accepts no later head or merge. It does not authorize a retry.
+No reviewer build, test, gate, mutation, reproduction, or executable base-check job runs.
+Wait for the doorbell. Never poll.

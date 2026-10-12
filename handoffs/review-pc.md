@@ -2030,3 +2030,35 @@ The reviewer reads its complete Round 2 and verifies publication. It names the s
 The combined record reports all six complete same-head member source receipts read and CLEAN. No combined source finding remains.
 The combined source-review condition has its published verdict. Fresh exact-head gate, all final member body/evidence receipts, and Q7 remain due.
 No reviewer job runs. No gate, specific retry, later head, or merge is accepted. Wait for the doorbell. Never poll.
+
+## #307 FINAL train-4b package receipt
+
+Lead FINAL request msg_plugin-w_1791827181_d7b91c names the completed GREEN gate.
+The reviewer independently reads and checks its complete records after the exact-head source reviews.
+Train head e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c; base 9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec.
+Tree ad98644e8be65b95b5fa03c39b350dee5d5a2502; frozen #307 member 2ed85f93f2c4d1a1d96eb4973fb694fc3357ac54.
+Gate: ~/botster-sessions/gates/botster-core-stage1-train-4b-e37b91d6-pool-20261012-102808-61022.log.
+Verified SHA-256: 97dee8f4d6269dee403c2ff9202709e83d03817bcafd05c04b10cff7725b5d47.
+All ten checks PASS, 962.9 seconds; job and wrapper exit 0 after 1064 seconds. No FLAKY or RETRY record exists.
+Default 1957/0; slow 633/0; unmutated baseline 633/0. Both strict summaries are 264/0 with 427 ignored.
+Stage 1 is 39 caught, 14 missed, 12 unviable; Stage 2 catches all 14 misses. Total: 53 caught, zero missed, zero timeout.
+All 53 raw catches match named citations and normal PASS records. All 14 Stage 2 catches also have baseline PASS records.
+Thirteen recover carried #307 misses. One covers #312's new program::serve path. No EV-2 mutant catch is cited.
+EV-2 and IN-8 pass in normal testkit, normal real, and unmutated real baseline tiers.
+Both removed IN-6 ids, both failed-write regressions, the ten control-term tests, and the control-queue tests pass.
+Both decoders actually fuzz: link_decoder 6143074 runs and msg_decoder 3614151 runs, each in 61 seconds.
+All 27 reported pending-real passes still appear in real-pending. No id is unpended.
+The held-full check has 96 expected ignored and zero failures across 32 seeds.
+
+CQ-PC-5 / R307-SI-5 LOW identifies two final-body errors: #317's order and attribution of all 14 catches to #307.
+The reviewer reads PC's corrected body and its complete delta. #317 is already in base9fe before #314/#312/#307.
+The body labels the 14 as 13 carried #307 misses plus one #312 program::serve mutant. The finding closes.
+Body without added LF: 18d06ee4f25951a981e4c5dbd022aca241549f5d2d51e682c2805b670339d666.
+Body with one added LF: bddf3e92198a6830f8575fc073bc9f6ab650efffb9bc72564e7b78a54af8735a.
+Sol independently confirms these hashes and the finding closure in msg_plugin-w_1791827567_d23a9b.
+The body retains member/base labels and all RED, repair, and local evidence scopes. No source change occurs.
+
+Formal Round 7 in verdicts/pc-control-queue.md is FINAL CLEAN, zero open findings, on exact e37b91d6 and the named completed gate.
+Matching formal FINAL Sol receipt, other FINAL member receipts, combined FINAL acceptance, lead Q7, and equal-tree published merge remain due.
+No later head or merge is accepted. No final client-copy comparison or independent old-train raw RED audit is claimed.
+No reviewer execution job runs. Wait for the doorbell. Never poll.
