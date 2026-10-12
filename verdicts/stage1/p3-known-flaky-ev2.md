@@ -127,3 +127,20 @@ The two exact-head reviews are complete and CLEAN.
 The lead's ancestry, equal-tree merge, and remote verification remain due.
 This receipt accepts no merge, later head, train-4b gate, or future retry.
 The old train stays RED and will not be re-gated. I ran no execution job.
+
+## Completed merge receipt
+
+Lead merge receipt: `msg_plugin-w_1791825491_e99ad8`.
+I independently verify origin/v1 with git ls-remote: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+GitHub's complete PR response reports #317 closed and merged, with that same head and merge_commit_sha.
+The commit's tree is `967b0c056186ed2aeca334898247a8dcb6cd8792`, equal to the reviewed and gated tree.
+The commit descends from the reviewed base `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+The lead fast-forwards v1 to this exact gated head, so the merge introduces no source resolution.
+The completed package and integration reviews, exact-head gate, tree equality, and remote/GitHub receipt agree.
+No #317 merge condition remains.
+
+This completion accepts only #317's merge. It grants no train-4b gate result or specific retry authority.
+The .46 pin must still remove the entry and restore the empty-list test.
+I ran no execution job.
+
+VERDICT: CLEAN (completed #317 merge at 9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec)

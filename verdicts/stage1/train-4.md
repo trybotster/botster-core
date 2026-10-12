@@ -273,8 +273,6 @@ This question identifies a source fact; it does not diagnose a second observed f
 The old source CLEAN stays valid. Future known-flaky and train-4b reviews remain unstarted pending exact-head READY.
 I ran no execution job.
 
-STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
-
 ## R107-SI-1 resolved by the corrected ruling
 
 Lead receipt: `msg_plugin-w_1791823877_c463c0`.
@@ -339,3 +337,67 @@ Sol-C's matching integration verdict and the lead's merge verification remain re
 The planned train-4b delta and exact composed gate remain due after that PR lands.
 No #317 evidence becomes a result on train 03709a0c. Its RED gate and no-re-gate ruling remain intact.
 I ran no execution job.
+
+## Train 4b source inspection — matching member receipts pending
+
+Lead assignment and #317 merge receipt: `msg_plugin-w_1791825491_e99ad8`.
+Exact train-4b head: `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`.
+Tree: `ad98644e8be65b95b5fa03c39b350dee5d5a2502`.
+Base: `9fe97f506a1bb5cef0d935b2ba2ccf3ff9ba90ec`.
+Sol owns the #307 integration delta and combined review. The other reviewer assignments stay unchanged.
+
+I independently verify the three ordered merge objects:
+
+1. `471c0dece49519bcd4f31932eb8bef449d723233`: base 9fe97f50 plus frozen #314 a4eac3c1.
+2. `89808877dc1e5664cd4ec59877c4980bc064dbf4`: first merge plus frozen #312 c0f8a09c.
+3. `e37b91d6d4b5c98739f0f1ebc475a1e13d48d71c`: second merge plus frozen #307 2ed85f93.
+
+The independent remote read names that exact train-4b head and exact v1 base.
+#317's completed merge receipt is recorded in verdicts/stage1/p3-known-flaky-ev2.md in this commit.
+No #316, #309, #311, #315, or A31 implementation is a member of this train.
+
+The complete full-index delta from old train 03709a0c to this train equals the accepted #317 base move exactly.
+SHA256: `7d1572807eb38d9abd05ebd26e4c76db5cbc27bf48e2674089308f1b85b8dde6`.
+Only ci/known-flaky.toml and xtask/src/known_flaky.rs change between those train heads.
+Both blobs equal the accepted new base. I read that complete two-file delta again.
+All 26 original train source/test/design/list blobs remain byte-identical to 03709a0c.
+The combined diff against the new base equals the previous train's combined diff against its old base exactly.
+Its full-index SHA256 remains `aa5a215608ed07d9f894c6265a9eb56d1d7d3c7f908dc9aa25926a7d340cde6b`.
+Git diff --check passes. This static check runs no executable base check.
+
+At each merge, the added and deleted own lines match the accepted frozen member.
+No extra path changes at any merge. The first two full-index patches equal their original member patches.
+The #307 merge full-index patch equals its previous train merge patch, SHA256 `174f783bbb6afd333174de13812476977251389c6ae9ef031765f5e6879926ce`.
+Its patch differs from the standalone member's full-index form because the prior #312 merge changes the pending blob.
+All twenty own added/deleted line sets still match. All nineteen own non-list blobs equal frozen 2ed85f93.
+This difference supplies no new source resolution or restored pending id.
+
+I independently check all nine conformance text-set formulas after each of the three merges. All 27 checks pass.
+Pending remains 406 -> 406 -> 405 -> 403. Real-pending remains 43 -> 43 -> 34 -> 34.
+The held, ledger, real-only, real-proof, deferred, withdrawn, and minimum sets retain the reviewed train-4 contents.
+The .44 pin still precedes #307. All prior runtime interface and transcript source checks remain applicable by exact blob equality.
+The seeded trace test retains its fresh state, public Scheduler assertions, and inactive control-room path.
+The real adapter retains disabled print reports. The checkout resolver retains the .44 lock selection.
+
+The new known-flaky entry matches only the real EV-2 id, step 71, step_timeout; its seed may vary.
+It does not match the host's seeded-trace test, the two IN-6 ids, or another failure signature.
+The exact-one-entry assertion remains compatible with the .44 pin and changes no production parser or filter.
+Unmutated slow and Stage 2 baseline runs still execute EV-2. Mutation stages omit only its named real-tier trial.
+The future gate must show that no skipped EV-2 trial supplies a mutation catch citation.
+R107-SI-2's .45-or-later structural fix remains assigned to RC through #316. Its removal and empty-list restoration remain due.
+
+The lead reports cargo check -p xtask --tests --locked PASS. No retained pre-check log is supplied here.
+I treat that as an operator report, not the completed composed gate.
+The fresh exact-head train gate and all final member evidence receipts remain due.
+Old train 03709a0c stays RED and will not be re-gated. The #317 gate is not a substitute for train-4b evidence.
+
+No new source or combined-interface finding appears in this inspection.
+The #307 package delta and the #314/#312 matching member receipts remain pending before formal source verdicts.
+Requests: `msg_plugin-w_1791825578_61796c`, `msg_plugin-w_1791825578_642cdd`, and `msg_plugin-w_1791825578_6e7ae6`.
+Sol-B and Sol-C independently confirm source equality in `msg_plugin-w_1791825570_1ec5cb` and `msg_plugin-w_1791825589_61ca02`.
+Their complete same-head package/integration receipts remain required.
+This inspection accepts no gate, final mutation result, retry, later source, status removal, or merge.
+I ran no execution job.
+
+STATUS: QUESTION R107-SI-1; old train re-gate withdrawn; new known-flaky PR and train-4b review pending
+
