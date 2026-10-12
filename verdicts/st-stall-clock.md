@@ -1,6 +1,22 @@
 # ST stall clock: design review
 
-VERDICT: PENDING CONTRACT DISPOSITION (ST313-Q1; Core #313)
+VERDICT: PENDING COMPLETED GATE (Core #313 at 5c24322b)
+
+## Core #313: R-104 disposition and comment-only follow-up
+
+Reviewed head: `5c24322b4f49cb13d468ee3b2e17da02f6e9c101`.
+Previous source-reviewed head: `5015b0120d7e4c9ad205e8fadf34fb5e6b97070a`.
+The reviewer read R-104 at contracts `2fa8ce2da4d05533d41ef4daef2c2a14a804221b`.
+
+ST313-Q1: CLOSED. R-104 requires optional tag fields under Core amendment A21.
+It permits #313 to use the current frozen String fields and map absent tags to empty strings until the A21 pin PR.
+The ruling requires a code comment citing R-104.
+The reviewer inspected the full follow-up diff: the source comment above the tag mapping and the host DESIGN.md citation satisfy that requirement.
+The diff changes no executable statement. ST313-R1 and R2 remain closed. No finding or contract question remains open.
+
+The implementer announced a running full gate for this exact head.
+The reviewer has not read or polled that running gate. The final receipt waits for its completion message.
+The completed gate at `5015b012` remains recorded below. The reviewer ran no local build or test.
 
 ## Core #313: round 3 source review
 

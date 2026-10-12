@@ -115,6 +115,11 @@ The lead announced restored inbox access. Earlier messages expired unread.
 The reviewer sent ST313-Q1 again with head `5015b012` and the source findings' closed disposition at receipt `57f14c14`.
 The final verdict still waits for the absent-tag contract answer. Wait for its doorbell.
 
+R-104 resolves ST313-Q1 at contracts `2fa8ce2da4d05533d41ef4daef2c2a14a804221b`.
+The reviewer verified the required source comment and DESIGN.md citation at `5c24322b4f49cb13d468ee3b2e17da02f6e9c101`.
+The delta from `5015b012` changes comments and documentation only. All findings and questions are closed.
+The final receipt waits for the completed exact-head gate. Do not poll; wait for the completion doorbell.
+
 The reviewer builds nothing locally. The reviewer waits for a doorbell and then receives messages once.
 The reviewer reviews revised design artifacts and exact PR heads when the pair sends them.
 Every later implementation review checks evidence for `BOTSTER_SEEDS=0-31` on both tiers.
