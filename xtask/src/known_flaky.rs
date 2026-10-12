@@ -340,7 +340,7 @@ removed_by = "#243"
         assert_eq!(absent(&entries[..2], &default, &slow), Vec::<String>::new());
     }
 
-    /// The repository's list parses, and it holds only the diagnosed ev_2 flake (R-107, R107-SI-1; lead, 2026-10-12). #243
+    /// The repository's list parses, and it holds only the diagnosed ev_2 flake (R-107, R107-SI-2; lead, 2026-10-12). #243
     /// removed the ev_5 flake's cause and entry. The Stage 1 exit needs the list empty.
     #[test]
     fn the_repository_list_holds_only_the_ev_2_flake() {
