@@ -14,16 +14,35 @@ measure() {
   local tag=$1 exe
   exe=$(bin); echo "B1 $tag binary $exe"
   for i in 1 2 3; do
-    /usr/bin/time -p "$exe" --format terse 2>&1 | grep -E '^(real|test result|FAIL)' | sed "s/^/B1 $tag run$i | /"
+    /usr/bin/time -p "$exe" 2>&1 | grep -E '^(real|test result|FAIL)' | sed "s/^/B1 $tag run$i | /"
   done
-  "$exe" --format terse > /dev/null 2>&1 &
+  "$exe" > /dev/null 2>&1 &
   local pid=$!
   sleep 0.2
-  sample "$pid" 30 -file "/tmp/b1-$tag.sample.txt" > /dev/null 2>&1
+  sample "$pid" 4 -file "/tmp/b1-$tag.sample.txt" > /dev/null 2>&1
   wait "$pid"
   echo "B1 $tag sample: $(wc -l < /tmp/b1-$tag.sample.txt) lines"
-  grep -E 'CoreDriver|::exec |::exec_step|clone_subtree|input_log_track|matcher::matches|pump_until|next_event' "/tmp/b1-$tag.sample.txt" \
-    | sed -E 's/^[ +!:|]*//' | sort | uniq -c | sort -rn | head -12 | sed "s/^/B1 $tag frame | /"
+  # The inclusive samples of each checker frame: the sum of the counts of its call-graph nodes that have no ancestor of
+  # the same frame (so a recursive frame counts once).
+  python3 - "/tmp/b1-$tag.sample.txt" "$tag" <<'PY'
+import re, sys
+want = ["CoreDriver as botster_conformance::driver::StepDriver>::exec ", "CoreDriver>::exec_step ", "core::clone::Clone>::clone",
+        "clone_subtree", "::input_log_track", "matcher::matches", "::pump_until", "::next_event", "thread_start"]
+total = {w: 0 for w in want}
+stack = []
+direct = 0
+for line in open(sys.argv[1], errors="replace"):
+    m = re.match(r"^([ +!:|]*)(\d+) (.*?)  \(in ", line)
+    if not m: continue
+    depth, count, name = len(m.group(1)), int(m.group(2)), m.group(3) + " "
+    while stack and stack[-1][0] >= depth: stack.pop()
+    for w in want:
+        if w in name and not any(w in n for _, n in stack): total[w] += count
+    if "core::clone::Clone>::clone " in name and stack and want[0] in stack[-1][1]: direct += count
+    stack.append((depth, name))
+print(f"B1 {sys.argv[2]} frame | {direct:6d} clone called by exec itself (the bindings copy)")
+for w in want: print(f"B1 {sys.argv[2]} frame | {total[w]:6d} {w.strip()}")
+PY
 }
 cargo xtask prebuild-worker 2>&1 | tail -1
 measure before
