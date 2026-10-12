@@ -145,8 +145,6 @@ pub enum Observation {
         #[serde(default)]
         tap_dropped_bytes: u64,
     },
-    /// The control queue has room again after a refusal (IN-6).
-    Writable,
 }
 
 /// A report of a session worker to the host.

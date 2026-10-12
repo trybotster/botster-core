@@ -1072,8 +1072,6 @@ fn each_observation_becomes_its_event_and_updates_the_cache() {
         [Event::ClipboardWrite { selection, contents: Some(c), total_bytes: 9, reason: Some(ClipboardReason::TooLarge), .. }]
             if selection == "c" && c.len() == 1 && c[0].mime == "text/plain" && c[0].bytes.0 == vec![1, 2]
     ));
-    let events = say(&mut w, Observation::Writable);
-    assert!(matches!(&events[..], [Event::SessionWritable { .. }]));
     // A loss marker, with the dropped tap bytes.
     let events = say(
         &mut w,
