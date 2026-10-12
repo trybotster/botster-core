@@ -110,7 +110,7 @@ mod tests {
         found
     }
 
-    /// The scan gives the cursor's result for every line of up to five characters over `a b - é space` (3906 lines), with
+    /// The scan gives the cursor's result for every line of up to six characters over `a b - é space` (19531 lines), with
     /// tokens that overlap themselves, start or end with a non-word character, or hold a multi-byte character: so a token
     /// at the start, at the end, after a partial match and inside an overlap.
     #[test]
@@ -121,14 +121,14 @@ mod tests {
         let alphabet = ['a', 'b', '-', 'é', ' '];
         let mut lines = vec![String::new()];
         let mut last = vec![String::new()];
-        for _ in 0..5 {
+        for _ in 0..6 {
             last = last
                 .iter()
                 .flat_map(|line| alphabet.map(|c| format!("{line}{c}")))
                 .collect();
             lines.extend(last.iter().cloned());
         }
-        assert_eq!(lines.len(), 3906);
+        assert_eq!(lines.len(), 19531);
         let mut hits = 0;
         for line in &lines {
             let found = hits_in_line(line, &tokens);
