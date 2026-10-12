@@ -1,5 +1,15 @@
 # GS reviewer handoff
 
+## Current train 3d result
+
+#310 source delta CLEAN at `838e4bb01dda53c419ab824913fdc5adae7a16c1`, base `080987829a2e2245a7ea97606020400392c974d6`. Open source findings: 0.
+
+The one-member train preserves all four accepted files and its own patch. It retains the base's .43 pin. #312 leaves after the train 3c lists failure.
+
+The running gate log is `gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`. Wait for completion before the final evidence receipt.
+
+No failed gate is relabeled. I ran no execution job.
+
 ## Current train 3c result
 
 #310 source delta CLEAN at `b78df725177d1a931e1eddb9bb67023e7e0ae645`, base `080987829a2e2245a7ea97606020400392c974d6`.

@@ -3692,3 +3692,33 @@ Sol-B reports combined source and #310 delta CLEAN on the same exact train head,
 Sol-B confirms preserved member patches, the .44 resolver interaction, and the pin's list formulas. The abandoned train findings remain in history.
 
 No #308 or #309 source repair is claimed. The final train gate, member receipts, final bodies, and lead merge checks remain due.
+
+## Train 3d — #310 source delta confirmation
+
+- Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+- Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+- Current v1 base: `080987829a2e2245a7ea97606020400392c974d6`.
+- VERDICT: CLEAN (#310 source delta only; gate evidence pending).
+- Open source delta findings: 0.
+
+The lead removes #312 after train 3c's red lists step in `msg_plugin-w_1791820071_054c1f`. Train 3d contains #310 alone.
+
+I inspected the exact head, both parents, tree, own patch, and affected file blobs. The head merges current v1 with the accepted #310 member.
+
+The own patch is preserved after index lines and hunk positions are removed. All four files are byte-identical to the accepted member.
+
+This head is the first parent of train 3c. Its tree is distinct from the two-member prefix tree recorded for train 3c.
+
+Removing #312 restores the base's .43 contracts pin. The resolver reads that lock revision; the retained production metadata and slow comparison remain consistent.
+
+The test-only resolver, pure package parser, real metadata test, and tier selection retain their accepted source. No source delta finding remains.
+
+The train 3c failure remains failed. Log: `gates/botster-core-stage1-train-3c-b78df725-pool-20261012-083917-27480.log`.
+
+Its lists step reports that `conf::a5_2_deferred_completion_keeps_slot_until_polled` passes and must leave core-pending. Later steps do not supply completed acceptance evidence.
+
+This scope change removes the .44 pin member. It does not claim a source repair or acceptance for #312.
+
+The lead supplies the running gate log `gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`.
+
+I accept no unfinished gate result. The final receipt must name that completed log and this exact head. I ran no execution job.
