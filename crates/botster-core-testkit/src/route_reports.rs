@@ -13,6 +13,14 @@
 //! - **The answer.** `closed`: Core consumed the worker's `RouteClosed` for the route. `activity_before_close`: Core consumed a
 //!   `ClientInput` observation of the route (the report that posts `Activity{source: Client(route)}`) before that close, or
 //!   with no close yet. Only the frames of one link are ordered: a route is the route of one worker link.
+//! - **`progressed`** (steward ruling R-90 follow-up, Q2). Core consumed a worker report of transport progress (OU-3a) that
+//!   happened after the route's latest `route_accept`. A progress report is `RouteProgress` or `RouteResumed`: its `mark`
+//!   counts the route's writes that the transport accepted bytes of. At `route_accept`, the route's control calls
+//!   [`RouteReports::accepted`] before the transport takes a byte: the base is the highest mark that the record received for
+//!   the route. A later consumed mark above the base is progress after the accept. The base is exact in the ruling's scope:
+//!   the fence before the accept leaves the route waiting with its reports consumed, and the worker reports each change of
+//!   the mark while the route waits, so the base is the worker's mark at the accept. With no mark of the route before the
+//!   accept, no report proves progress, and `progressed` stays false.
 //! - **No more than a pump.** A frame that the driver received and has not yet confirmed by a later call needs one more
 //!   pump. The control then signals the host's wake, as the tap's `edges_quiet` does when it holds bytes, so that the
 //!   waiting step pumps at once. That is the only effect of the control.
@@ -38,6 +46,8 @@ enum Report {
     Activity(RouteId),
     /// `RouteClosed{route}`.
     Closed(RouteId),
+    /// `RouteProgress{route, mark}` or `RouteResumed{route, mark}`.
+    Progress(RouteId, u64),
 }
 
 /// The answer of `route_reports` for one route.
@@ -45,6 +55,17 @@ enum Report {
 pub struct Seen {
     pub activity_before_close: bool,
     pub closed: bool,
+    pub progressed: bool,
+}
+
+/// The progress marks of one route.
+#[derive(Debug, Default)]
+struct Marks {
+    /// The highest mark that Core consumed.
+    consumed: Option<u64>,
+    /// The base of the route's latest `route_accept`. `None` with no accept, or when the record had no mark of the route at
+    /// the accept: then no report proves progress after it.
+    base: Option<u64>,
 }
 
 /// The frames of one link that the driver received.
@@ -83,6 +104,12 @@ impl Received {
                 observation: Observation::ClientInput { route, .. },
             }) => self.given.push(Report::Activity(route)),
             Ok(WorkerMsg::RouteClosed { route, .. }) => self.given.push(Report::Closed(route)),
+            Ok(
+                WorkerMsg::RouteProgress { route, mark, .. }
+                | WorkerMsg::RouteResumed { route, mark },
+            ) => {
+                self.given.push(Report::Progress(route, mark));
+            }
             Ok(_) => {}
             Err(_) => return false,
         }
@@ -95,6 +122,8 @@ impl Received {
 pub struct RouteReports {
     links: BTreeMap<LinkId, Received>,
     seen: BTreeMap<(InstanceId, RouteId), Seen>,
+    /// A route id names one route of the host, whatever its worker.
+    marks: BTreeMap<RouteId, Marks>,
 }
 
 impl RouteReports {
@@ -110,6 +139,17 @@ impl RouteReports {
             let (route, close) = match report {
                 Report::Activity(route) => (route, false),
                 Report::Closed(route) => (route, true),
+                Report::Progress(route, mark) => {
+                    let marks = self.marks.entry(route).or_default();
+                    marks.consumed = marks.consumed.max(Some(mark));
+                    if marks.base.is_some_and(|base| mark > base) {
+                        self.seen
+                            .entry((instance.clone(), route))
+                            .or_default()
+                            .progressed = true;
+                    }
+                    continue;
+                }
             };
             let seen = self.seen.entry((instance.clone(), route)).or_default();
             if close {
@@ -149,6 +189,27 @@ impl RouteReports {
     /// The driver closed `link`: no later call consumes the reports that it received on the link.
     pub fn closed(&mut self, link: LinkId) {
         self.links.remove(&link);
+    }
+
+    /// The route's client makes `route_accept`, before the transport takes a byte under it: `progressed` becomes false, and
+    /// only a later progress report with a mark above the highest mark received so far makes it true again.
+    pub fn accepted(&mut self, route: RouteId) {
+        let given = self
+            .links
+            .values()
+            .flat_map(|r| &r.given)
+            .filter_map(|report| match *report {
+                Report::Progress(r, mark) if r == route => Some(mark),
+                _ => None,
+            })
+            .max();
+        let marks = self.marks.entry(route).or_default();
+        marks.base = marks.consumed.max(given);
+        for ((_, r), seen) in &mut self.seen {
+            if *r == route {
+                seen.progressed = false;
+            }
+        }
     }
 
     /// The control's answer for `route` of the worker of `instance`. While a received report waits for the driver's next call,

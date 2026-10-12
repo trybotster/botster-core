@@ -304,6 +304,7 @@ impl CoreHarness for TestkitHarness {
             .get(handle)
             .map(|h| h.route_ends.clone())
             .unwrap_or_default();
+        let reports = self.handles.get(handle).map(|h| Arc::clone(&h.reports));
         // The route belongs to the session instance that the host held at the attach, which Core recorded: the attach can come
         // before the row is stored (Create and Start begun, not pumped), and the worker later still. So a fill reads the row
         // when it runs, and refuses a row of another instance.
@@ -333,6 +334,10 @@ impl CoreHarness for TestkitHarness {
             session: session_row,
             max_frame_bytes: usize::try_from(result.limits.max_frame_bytes).unwrap_or(usize::MAX),
         });
+        let route = match reports {
+            Some(reports) => route.with_reports(reports),
+            None => route,
+        };
         Ok((result, Box::new(route)))
     }
 }
@@ -647,6 +652,42 @@ mod tests {
             "C is the free room of the empty queue"
         );
         assert_eq!(read_output(&mut route, open), pattern(open));
+    }
+
+    /// R-90 follow-up, Q2: `route_reports {progressed}` is false while a filled, gated route waits, and true once the host
+    /// consumed the worker's progress report after `route_accept` let the stream take bytes.
+    #[test]
+    fn route_accept_sets_the_base_of_progressed() {
+        let (mut harness, mut core, mut route, result) = attached_route_and_result(json!({}));
+        read_baseline(route.as_mut());
+        let args = json!({"session": "s", "route": result.route.0});
+        let mut progressed = |harness: &mut TestkitHarness, core: &mut Box<dyn CoreApi>| {
+            for _ in 0..16 {
+                core.pump(Now {
+                    monotonic: Instant::now(),
+                    unix: 1,
+                });
+                core.poll_events(64);
+            }
+            harness.control("h", "route_reports", &args).unwrap()["progressed"] == json!(true)
+        };
+        route.control("route_gate", &json!({"on": true})).unwrap();
+        route
+            .control("route_fill", &json!({"op": "route_fill"}))
+            .unwrap();
+        assert!(!progressed(&mut harness, &mut core), "no accept yet");
+        route
+            .control("route_accept", &json!({"bytes": 10}))
+            .unwrap();
+        assert!(
+            progressed(&mut harness, &mut core),
+            "the stream took 10 bytes"
+        );
+        route.control("route_accept", &json!({"bytes": 0})).unwrap();
+        assert!(
+            !progressed(&mut harness, &mut core),
+            "a new accept with no bytes"
+        );
     }
 
     /// Core LC-1, LC-2, 9B: `open` builds the real Core, refuses a second open of the directory while the first lives, and a
