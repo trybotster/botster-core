@@ -119,3 +119,24 @@ I read the complete published section. It verifies the corrected source comments
 I read no running gate output and ran no execution job.
 
 VERDICT: NOT CLEAN (1 open)
+
+## Round 5: completed exact-head evidence
+
+- Head: `b920da760a8a643b199765d0a69f78533a9b3e45`, unchanged.
+- Tree: `b33ea1cc0247268d12dcb04a8263564ab774b26e`.
+- Reviewed delta: no source change. This round checks the completed exact-head gate and final package verdict.
+- Package verdict: `e22f520042c97d018ca5cd10af15806fa88b91ed`, file `verdicts/rc-real-controls.md`, section "Core #309 — completed exact-head source verdict".
+
+I read the complete published package section. It verifies this exact head, tree, corrected body, and completed gate. It reports zero open findings, including LOW findings. All earlier source and documentation closures remain valid.
+
+Gate: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-rc-r100-frame-check-b920da76-pool-20261011-234339-83894.log`.
+
+SHA256: `6a0d7ecba84efe5ddc47efad54e7cb3bd989e3f2d3b857977aca13a25df8ab87`.
+
+The exact-head gate has all ten steps PASS. Default tests report 1934 passes; slow tests report 616 passes. The decoder-bound and modifier-vector regressions pass. I independently matched 73 unique raw mutation outcomes: 65 caught and eight unviable. All 65 raw catches match their citations. Every cited test has a normal PASS. There is no missed mutant, timeout, or FLAKY token. The eight unviable outcomes are the package-reviewed Default replacements. Both link fuzz harnesses complete their configured runs without a crash.
+
+Job and wrapper exit zero after 394 seconds. The imported source base remains `ae49bbec`; the gate-time reference is `be95ef13`. The final package verdict checks the updated gate line in the complete body and preserves that distinction.
+
+R100-E1 closes. Zero integration findings remain. This CLEAN accepts this exact PR head and completed READY gate. Applicable train delta reviews, combined review, final train gate, and member receipts remain required. The #307 composition remains subject to its delta review. The lead's inbox block supplies no merge approval. I ran no execution job.
+
+VERDICT: CLEAN (0 open)

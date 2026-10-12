@@ -68,3 +68,19 @@ These changes address the source causes of F145 and F146. Their package closure 
 No replacement-head gate was supplied. I accept no future gate, train head, or merge. I ran no execution job.
 
 VERDICT: NOT CLEAN (4 open)
+
+## Round 3: adoption source repair
+
+- Head: `fd84949c27b2613fa3dbdcc4db4729152c1dd2c2`.
+- Reviewed delta: one commit on `c31c96737578efa01d7714002f4ca01ce0d6c35a`; two files, 48 additions.
+- Package source-audit receipt: `msg_plugin-w_1791787863_c8009a`.
+
+The adoption fence now clears `early.resizes` before the new link's hello and adoption report. The new test reuses the old request number after adoption. It checks spawn success and failure. Only the new host's completion appears, once; success resizes only to the new host's size.
+
+I read the retained F147 reversal script and log. Removing the clear produces both the old and new sizes. Restoring the clear passes the new test. This supports the source repair. The filtered script retains neither numeric Cargo exits nor an independent target-clean proof. It is supporting evidence, not an exact-head gate.
+
+The package reviewer confirms that the source causes of F145, F146, and F147 are addressed. Their final exact-head closure evidence remains due. F148/R311-I1 remains HIGH OPEN. The lead's inbox denial gives no exception for PTY errors. A source repair can proceed without an assumed answer.
+
+No completed gate or final package verdict on this head was supplied. I ran no execution job.
+
+VERDICT: NOT CLEAN (4 open)
