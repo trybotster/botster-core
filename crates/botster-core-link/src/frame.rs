@@ -159,6 +159,11 @@ impl FrameDecoder {
         self.header_len + self.payload.len()
     }
 
+    /// Whether [`FrameDecoder::next_frame`] would return a frame or the refusal now, without taking it.
+    pub fn ready(&self) -> bool {
+        self.failed.is_some() || self.announced() == Some(self.payload.len())
+    }
+
     /// The capacity that the payload buffer holds. It is zero when no payload is awaited.
     pub fn retained_capacity(&self) -> usize {
         self.payload.capacity()
@@ -404,5 +409,28 @@ mod tests {
         );
         assert_eq!(out, [0xAA], "a refusal writes nothing");
         assert!(encode_frame(FrameType(1), &[0; 4], 4, &mut out).is_ok());
+    }
+
+    /// `ready` reports a whole frame or the refusal without taking it, and is false for a part of a frame.
+    #[test]
+    fn ready_reports_a_whole_frame_or_a_refusal_without_taking_it() {
+        let mut decoder = FrameDecoder::new(64);
+        assert!(!decoder.ready(), "nothing is buffered");
+        let bytes = encoded(7, b"abc");
+        let took = decoder.push(&bytes[..bytes.len() - 1]);
+        assert_eq!(took, bytes.len() - 1);
+        assert!(!decoder.ready(), "a part of a frame");
+        decoder.push(&bytes[bytes.len() - 1..]);
+        assert!(decoder.ready());
+        assert!(decoder.ready(), "asking takes nothing");
+        assert_eq!(decoder.next_frame().unwrap().unwrap().payload, b"abc");
+        assert!(!decoder.ready(), "the frame was taken");
+        decoder.push(&encoded(7, b"")[..]);
+        assert!(decoder.ready(), "an empty payload is a whole frame");
+        decoder.next_frame().unwrap();
+        let mut refused = FrameDecoder::new(2);
+        refused.push(&encoded(7, b"abc"));
+        assert!(refused.ready(), "the refusal waits");
+        assert!(refused.next_frame().is_err());
     }
 }
