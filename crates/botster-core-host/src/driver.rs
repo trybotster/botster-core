@@ -231,6 +231,11 @@ impl<E: HostEdges> HostDriver<E> {
         ready.iter().any(|work| !self.held(work))
     }
 
+    /// TM-6: `PumpReport.more`: runnable work remains, or a link has input that the bound of this pump left unread.
+    fn more(&mut self, budget: &Budget) -> bool {
+        self.runnable() || budget.more_input
+    }
+
     /// Whether the scheduler holds this step (Core A5-2, `Scheduler::held`). A deadline, a `Silent`, and a step whose timing a
     /// clause fixes (R-20) are never held.
     fn held(&mut self, work: &Work) -> bool {
@@ -756,6 +761,8 @@ impl Budget {
 impl<E: HostEdges> CoreApi for HostDriver<E> {
     fn begin(&mut self, op: Op) -> Result<OpId, CoreError> {
         let id = self.engine.begin(op)?;
+        let fixed_timing = self.engine.fixed_timing(id);
+        self.edges.scheduler().admitted(id.0, fixed_timing);
         self.sync_wake();
         Ok(id)
     }
@@ -830,7 +837,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
         }
-        let mut more = self.runnable() || budget.more_input;
+        let mut more = self.more(&budget);
         if !more {
             self.edges.settle_wake();
             // A reaper may have queued an exit after the exits were taken above, and the settle consumed its wake: the exits
@@ -838,7 +845,7 @@ impl<E: HostEdges> CoreApi for HostDriver<E> {
             self.take_exits(&mut budget);
             self.service_links(&mut budget);
             self.perform_counted(&mut budget);
-            more = self.runnable() || budget.more_input;
+            more = self.more(&budget);
         }
         if more {
             // Work or input remains: the wake stays set, so a host that waits on it pumps again (TM-6).

@@ -6,8 +6,8 @@
 //! signals the host's wake, and a later pump runs the step.
 //!
 //! Op ids are numbered per host, so each host has its own [`OpHolds`]: the testkit's `SimEdges` scheduler answers from it,
-//! and on the real tier the edge tap's scheduler does. The layer in front of the driver records each op that Core admits,
-//! and whether a clause fixes its timing (R-20): such an op is never deferred, so a hold of it is refused.
+//! and on the real tier the edge tap's scheduler does. The driver tells that scheduler of each op that Core admits, and
+//! whether a clause fixes its timing (`Scheduler::admitted`, R-20): such an op is never deferred, so a hold of it is refused.
 
 use crate::controls::ControlRegistry;
 use crate::harness::TestkitHarness;
@@ -36,11 +36,11 @@ pub(crate) fn lock(holds: &Mutex<OpHolds>) -> MutexGuard<'_, OpHolds> {
 }
 
 impl OpHolds {
-    /// Records an op that Core admitted, and whether a clause fixes its timing.
-    pub fn begun(&mut self, op: OpId, fixed_timing: bool) {
-        self.begun.insert(op.0);
+    /// `Scheduler::admitted`: records an op that Core admitted, and whether a clause fixes its timing. It draws nothing.
+    pub fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        self.begun.insert(op);
         if fixed_timing {
-            self.fixed.insert(op.0);
+            self.fixed.insert(op);
         }
     }
 
@@ -146,6 +146,9 @@ pub(crate) fn release(
 }
 
 #[cfg(test)]
+mod harness_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -157,7 +160,7 @@ mod tests {
     #[test]
     fn a_hold_holds_its_op_until_the_release() {
         let holds = Mutex::new(OpHolds::default());
-        lock(&holds).begun(OpId(3), false);
+        lock(&holds).admitted(3, false);
         assert!(bad(hold(&holds, &json!({"for_op": 4}))), "not admitted");
         assert_eq!(hold(&holds, &json!({"for_op": 3})), Ok(Value::Null));
         assert!(bad(hold(&holds, &json!({"for_op": 3}))), "held already");
@@ -182,7 +185,7 @@ mod tests {
     #[test]
     fn a_hold_of_a_fixed_timing_op_is_refused() {
         let holds = Mutex::new(OpHolds::default());
-        lock(&holds).begun(OpId(5), true);
+        lock(&holds).admitted(5, true);
         assert_eq!(
             hold(&holds, &json!({"for_op": 5})),
             Err(ControlError::Refused(json!({"reason": "fixed_timing"})))

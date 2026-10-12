@@ -453,8 +453,8 @@ impl<E: HostEdges> Tap<E> {
         true
     }
 
-    /// The holds of `scheduler_hold` on this host (Core A5-2, R-88 group E). The layer in front of the driver records the ops
-    /// that Core admits in it.
+    /// The holds of `scheduler_hold` on this host (Core A5-2, R-88 group E). The tap's scheduler records in it the ops that
+    /// the driver reports as admitted (`Scheduler::admitted`).
     pub fn op_holds(&self) -> SharedHolds {
         Arc::clone(&self.op_holds)
     }
@@ -738,6 +738,13 @@ impl<E: HostEdges> Scheduler for SchedulerTap<E> {
     fn held(&mut self, ops: &[u64]) -> bool {
         let mut tap = lock(&self.tap);
         crate::op_holds::lock(&tap.op_holds).holds_any(ops) || tap.inner.scheduler().held(ops)
+    }
+
+    /// The tap's holds record the op (`scheduler_hold`), and the inner scheduler is told too.
+    fn admitted(&mut self, op: u64, fixed_timing: bool) {
+        let mut tap = lock(&self.tap);
+        crate::op_holds::lock(&tap.op_holds).admitted(op, fixed_timing);
+        tap.inner.scheduler().admitted(op, fixed_timing);
     }
 }
 

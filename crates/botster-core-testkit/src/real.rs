@@ -127,7 +127,6 @@ use std::time::Duration;
 mod route;
 mod row_file;
 mod snapshot;
-mod timed;
 
 /// The binary that a wrapper execs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1105,12 +1104,6 @@ impl CoreHarness for RealCoreHarness {
                 }
             }
             let driver = HostDriver::open(cfg, edges)?;
-            // The ops that Core admits go to the tap's holds, which its scheduler answers from (`scheduler_hold`).
-            let holds = tap
-                .upgrade()
-                .map(|tap| lock(&tap).op_holds())
-                .unwrap_or_default();
-            let driver = timed::Timed::new(driver, holds);
             // The crash slot holds the capture layer, so a `host_crash` drops the layer with the driver.
             let (layer, resume) = crate::capture_layer::CaptureLayer::new(Box::new(driver), {
                 let marks = self.programs.marks();
@@ -1563,6 +1556,8 @@ mod slow_controls {
             "release_start_at",
             "start_held",
             "route_reports",
+            "scheduler_hold",
+            "scheduler_release",
             "fail_next",
             "fail_handoff",
             "hold_handoff",
@@ -1735,6 +1730,64 @@ mod slow_controls {
             "the record outlives the Remove"
         );
         assert!(bad(ready(&mut harness, "s2")), "removed");
+        drop(core);
+    }
+
+    /// `scheduler_hold` and `scheduler_release` on the real tier (Core A5-2; steward ruling R-88, group E):
+    /// - A `Resize` of a running session to its own size has fixed timing (SZ-2, R-20), so its hold is refused.
+    /// - A held `Stop` makes no progress: the pump ends with the session `Running`, and the wake stays quiet.
+    /// - The release signals the wake, and the next pumps run the `Stop` to its end.
+    #[test]
+    fn a_held_stop_waits_for_its_release_and_the_release_wakes_the_host() {
+        let dir = Candidate::beside_test_binary().expect("the candidate directory");
+        let candidate = Candidate::locate(&dir).unwrap_or_else(|error| panic!("{error}"));
+        let mut harness = RealCoreHarness::new(candidate).unwrap();
+        let spec = OpenSpec {
+            handle: "a".into(),
+            data_dir: harness.data_dir("a"),
+            worker: harness.worker(WorkerBuild::Current),
+            limits: serde_json::to_value(CoreLimits::default()).unwrap(),
+        };
+        let mut core = harness.open(&spec).expect("open");
+        running(&harness, core.as_mut(), "s1");
+        let same = Size {
+            rows: 24,
+            cols: 80,
+            cell_px: None,
+        };
+        let resize = core
+            .begin(Op::Resize {
+                session: sid("s1"),
+                size: same,
+            })
+            .expect("resize");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": resize.0 })),
+            Err(ControlError::Refused(json!({ "reason": "fixed_timing" })))
+        );
+        pump_until(core.as_mut(), |_| true);
+
+        let stop = core.begin(Op::Stop { id: sid("s1") }).expect("stop");
+        assert_eq!(
+            harness.control("a", "scheduler_hold", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        pump_until(core.as_mut(), |_| true);
+        assert_eq!(state(core.as_ref(), "s1"), SessionState::Running);
+        let wake = core.wake_handle();
+        assert_eq!(wake.wait(Duration::ZERO), Wake::TimedOut);
+        assert_eq!(
+            harness.control("a", "scheduler_release", &json!({ "for_op": stop.0 })),
+            Ok(Value::Null)
+        );
+        assert_eq!(
+            wake.wait(Duration::ZERO),
+            Wake::Woken,
+            "the release signals the wake"
+        );
+        pump_until(core.as_mut(), |c| {
+            matches!(state(c, "s1"), SessionState::Exited { .. })
+        });
         drop(core);
     }
 
