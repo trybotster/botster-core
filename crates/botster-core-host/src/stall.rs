@@ -173,12 +173,17 @@ impl HostEngine {
         let Some(entry) = self.routes.get_mut(&route) else {
             return;
         };
-        entry.clock.waiting = match (waiting, entry.clock.waiting, now) {
+        let before = entry.clock.waiting;
+        entry.clock.waiting = match (waiting, before, now) {
             (false, ..) | (true, _, None) => None,
             // The same mark that already waits keeps its start.
             (true, Some((old, since)), _) if old == mark => Some((old, since)),
             (true, _, Some(now)) => Some((mark, now)),
         };
+        // A new step, or none, replaces the step that was parked: only a step that ran can be parked (E3-1 items 2 and 4).
+        if entry.clock.waiting != before {
+            entry.clock.parked = false;
+        }
     }
 
     /// `RouteStalled` (OU-2): the close deadline runs from this pump, and the reader deadline ends. The event goes into the
@@ -191,6 +196,7 @@ impl HostEngine {
         let now = self.now;
         if let Some(entry) = self.routes.get_mut(&route) {
             entry.clock.waiting = None;
+            entry.clock.parked = false;
             entry.clock.stalled = now.and_then(|now| {
                 now.checked_add(entry.clock.stall_close_after)
                     .map(|at| (mark, at))
@@ -213,6 +219,7 @@ impl HostEngine {
         }
         if let Some(entry) = self.routes.get_mut(&route) {
             entry.clock.stalled = None;
+            entry.clock.parked = false;
         }
         true
     }
