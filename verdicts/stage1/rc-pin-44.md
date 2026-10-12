@@ -166,3 +166,13 @@ The package section retains the four body closures and the earlier evidence limi
 Zero #312 integration delta findings remain. This CLEAN accepts source only at this train head. Sol owns the combined review. Other member reviews, the final train gate, final member receipts, and equal-tree merge verification remain due. I ran no build, test, gate, or pool job.
 
 VERDICT: CLEAN (0 open)
+
+### Train 4 RED and active producer path
+
+Sol receipt `msg_plugin-w_1791822878_b6b935` supplies combined record `dc4cc6fa5d40edec6d48f786affa71ba3e2f5638`, file `verdicts/stage1/train-4.md`. I read its complete requested EV-2 assessment.
+
+The completed gate is `gates/botster-core-stage1-train-4-03709a0c-pool-20261012-092150-15636.log` under the shared sessions directory. Its final summary is RED at slow. Mutants and fuzz do not run. The wrapper exits one. Sol records EV-2 seed 0, step 71, step_timeout. No final train acceptance follows.
+
+I independently read the complete .43-to-.44 probe control.rs and main.rs diff. Output previously sent directly to the writer channel before Ack. The pinned implementation calls Wire::output, locks WireState, and applies Queue then Ack. Disabling PRINTS_ENV prevents a wait for Recorded but does not bypass that new active path.
+
+This check identifies a changed candidate path, not a diagnosed defect. I cannot certify that the producer path is unchanged. Round 6's source CLEAN grants no final gate acceptance or retry authority. The combined record retains the earlier failure's historical scope. The lead must resolve the changed-path condition before using that assessment as retry authority. I ran no execution job.
