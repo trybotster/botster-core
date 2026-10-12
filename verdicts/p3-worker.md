@@ -15011,3 +15011,105 @@ The reviewer sends F160 directly to P3 and Sol-C and changes no product code.
 No new gate, execution, or future-head acceptance follows. Next package round remains 205.
 
 VERDICT: NOT CLEAN
+
+
+## Round 205 — #318 second v1 import and F159/F160 repairs, 2026-10-12
+
+Exact head: `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+Tree: `b01738869303a3d6e5d4eae1d385b69134b714c0`.
+Imported source base: `2d8e8acc52eca692a089af02b4ace508d6694cc3`.
+Previous member CLEAN: `acd6ced03f7306cbf250f25d668b239ef7d70b33`, against 3e655eff.
+Previous package import CLEAN: Round 201, `4aaa3091318b37911d29f7ea08d3fc9ac05db60e`.
+Previous integration import CLEAN: Round 4, `65fb0ea03d89d5306f80b7f45e3f8cd6a146df88`.
+Withdrawn train-9 findings: complete Round 204 at `0d1847317a23317f5af01acb767c782c474e54ba`; integration Round 5 at `d76d87f3982c87a03a96bb15ace15f456532cc8a`.
+READY: `msg_plugin-w_1791840693_a742fe`. Tier: HIGH, unchanged.
+Scope: second v1 import, F159/F160 repairs, member interfaces, complete body, and supplied local records.
+This is a source-only verdict for the intended train-10 member. No new exact-member gate is supplied or accepted.
+The old NOT CLEAN rounds, the explicit F154 SETTLE, and the lead's removal from train 9 remain preserved.
+
+### Import and retained interfaces
+
+Merge `12b2418aeb593f7757405421b1ca22c34fb4a886` has parents acd6ced0 and 2d8e8acc.
+Its tree is `4bc847460b8f50444ab359042b102096971a9ff9`. The unique common base is 3e655eff.
+All eight accepted member paths retain identical added/deleted lines at that import against the new base.
+The reviewer also checks the two later repair commits against the merge, not only the final own diff.
+Commit `2bb8465088fbac0b8cdc70f987d982ca7222e6fc` changes only the tail test's exit handling.
+Final commit 836d3395 changes only Action::DrainPty's doc comment.
+The complete final own diff has nine paths, 630 additions, and 144 deletions.
+
+The imported R-106 receiver, production watched-result dispatch, fixture watch_failed field, and failure action remain coherent.
+The repeated shared Drain, route read budget, real flushing/recount behavior, manual worker clock, and host-owned stop_grace paths retain their earlier reviewed behavior.
+The existing FIFO lifetime repair remains in the separate IN-6 test. It does not change the #318 tail or holder test.
+No additional product algorithm, signal, wait, payload lifecycle, or cleanup path is introduced by the two repairs.
+No subject getter, test hook, sleep, polling interval, or extra real-process fixture appears.
+
+All ten conformance blobs equal imported v1. The source inherits contracts .46.
+No list, CI, xtask, mutation-config, pin, or status change appears in #318's own diff against the imported base.
+Counts retain the base's held four, ledger 692, pending 385, real-pending 38, real proofs seven, and minimum 69.
+No #328 removal or future train-9b composition is imported or accepted in this member verdict.
+
+### F159 — MEDIUM — CLOSED
+
+The repaired EXIT arm matches both Result layers of the R-106 receiver.
+Only Ok(Ok(_status)) sets exited true. Ok(Err(failed)) panics before any DrainPty action.
+An outer receive error does not declare an exit; the existing absolute deadline bounds that wait.
+The previous false-success path is therefore removed from this exact source.
+The failure panic uses the test's existing owned harness and process cleanup. It adds no new cleanup branch or child.
+The actual poll event, one marked deadline, local PTY-event witness, Linux unread tail/count gap, Mac readiness reads, and complete output assertions remain unchanged.
+The source test can no longer pass its drain proof after receiving an exit-watch failure as if it were an observed payload exit.
+The own-diff sweep finds no other new use of the exits receiver. The older neighboring test retains the base's successful-watch expect.
+No new mirror test or fault-injection hook is required for this direct result-handling repair.
+
+### F160 — LOW — CLOSED
+
+Action::DrainPty now links to the shared Drain and states the repeated counted-part/flushing-read rule.
+It names the quiet-read, EIO, and EOF end conditions and removes the initial-count bound.
+It explicitly states that a remaining writer can delay exit and identifies the retained A24 gap in DESIGN.md.
+The action comment now agrees with the implementation, the accepted DESIGN note, and R-108.
+The final commit changes no enum member, type, signature, or executable statement.
+F150's earlier main.rs/drain.rs comment closures retain their separate scopes.
+
+F150-F154 and F157 retain their earlier closures. F159 and F160 are closed at this exact head.
+No new package source finding appears in the import or repair delta.
+
+### Complete body and supplied evidence
+
+The reviewer reads the complete PR body at /private/tmp/review-p3-pr318-836d3395.json.
+Body UTF-8 SHA256: `e98d05d204a37e86d0e9eb65d7b30471c45fec1179a1bc3f23b0c698af1ef7ca`.
+Its Second v1 import section matches the exact merge and two repairs, separates own list scope, and names the supplied records.
+It retains earlier red gates, FLAKY records, measurements, reversal limits, and the separate F28 and Mac IN-6 duties.
+It states that the intended train-10 gate supplies the merging evidence; no old gate is relabeled as execution of this head.
+
+Local record: shared/core-stage1/evidence/p3-a31/local-check-2bb84650.log.
+SHA256: `37fd3a78cbb9a696fe72043809952f0e63cef89f54b35ce0c5966ff2e35dcc23`.
+Its header names exact repair head 2bb84650, before the final doc-only commit.
+It records target removal at 2026-10-12T21:19:36Z. The existing producer records no numeric cargo-clean exit code or independent target-writer history.
+Format, actual CI taint, named xtask checks, lists, clippy, and prebuild-worker report exit zero.
+Default: 1127 passed/zero skipped/5.543 seconds. Worker slow: 148 passed/zero skipped/14.049 seconds.
+The corrected deterministic tail test has a normal PASS record at line 2060.
+Strict seeds 0-31: 579 passed/114 skipped/31.366 seconds, exit zero.
+These remain pre-doc local records. Mac timing is not the gate signal, and the source-only verdict does not promote them to pool evidence.
+
+Doc record: shared/core-stage1/evidence/p3-a31/f160-check.log.
+SHA256: `6a2fd420a8d718b4f9a05b3f734fc1bad55ae8ee5d5c6c8dca3476ce96618512`.
+It reports fmt/doc/clippy exit zero. It contains no exact-head header or printed doc command; the stated rustdoc flag remains the producer's report.
+The first actual CI taint call exits one because NEXTEST_TEST_THREADS is unset. The body preserves that failure.
+The later call with the cap reports taint PASS and exit zero. This is a corrected local invocation, not a full gate or a flaky-test rerun.
+
+Workspace record: shared/core-stage1/evidence/p3-a31/workspace-check-836d3395.log.
+SHA256: `9517385b079f3cdb040966f976dc3cba9c51ed32fb606bfa8b1c4fa5ab3aa3f7`.
+Its header names exact final head 836d3395 and base 2d8e8acc. Cargo check --locked --workspace --tests exits zero in 11.99 seconds.
+Read-only ancestry independently confirms that the submitted head contains that base.
+This compile record checks the submitted member against the stated v1 tip. It supplies no future-base or train execution acceptance.
+
+### Verdict and limits
+
+#318's second import and repairs are CLEAN in source at this exact head. No package finding remains, including LOW.
+This verdict accepts the reviewed member source and supplied-record limits only. It accepts no new exact-member or train gate result.
+Sol-C's matching source delta remains due. The intended train composition, applicable combined review, exact merging gate, ONE final combined receipt, and equal-tree/push verification remain due.
+Any later source, base import, pin, or train composition retains its applicable review requirements.
+#318 remains outside train 9b. This verdict does not diagnose Mac IN-6 or close F28/F33/F39, F61/F62, or the later A24 duty. #163 stays open.
+The reviewer requests no separate member gate and runs no tests, builds, measurements, mutants, reversals, gates, or executable merge-check jobs.
+The reviewer changes no product code. All earlier history remains preserved. Next package round: 206.
+
+VERDICT: CLEAN
