@@ -161,3 +161,10 @@ Landing note (016c, the same day): `4a8c917e` does not contain main `28e05487` (
 ### 44beb4b221b2be827ae95aeab5eea064f50b6701: the Q7 disjoint merge checks pass (CLEAN waits for its gate)
 
 Parents `4a8c917e` and main `8ce40a0d4915197431492d14242d49eb4975ec20`. `git merge-tree --write-tree` gives `b122f046d31ec57b93bcda63e252a560e4d2a085`, which equals the head's tree. Merge base `3c68880b`: no path changed on main since then is in #66's diff. `git patch-id --stable` of the PR's own diff is `cbd7d7a121a4bbb2919c2bf7e20ac3cb50592482` against both bases. RC's record: `~/botster-sessions/gates/botster-contracts-rc-r86-final-merge-delta-44beb4b2.txt` (six files IDENTICAL). No delta round is needed. The CLEAN on this head waits for the ONE gate (`...-44beb4b2-pool-20261011-171705-59813.log`).
+
+## Final: CLEAN on 44beb4b221b2be827ae95aeab5eea064f50b6701
+
+- Gate PASS on the exact head, all ten steps, exit 0 after 407 s on msa1, base main `8ce40a0d`: `~/botster-sessions/gates/botster-contracts-rc-r86-route-progress-44beb4b2-pool-20261011-171705-59813.log`. Mutants: 23 found, 19 caught, 4 unviable, 0 missed (line 9241). The R-89 test PASS in 0.208 s (line 247).
+- The pushed PR head is `44beb4b2`. The Q7 disjoint checks passed (above).
+- Main has since moved to `13ad6720480647e32ab30c63c0f7125a2afd6918` (`c6287e0`, `13ad672`). Both commits change only `docs/steward-rulings.md`. This is BUILD's rulings-only exception, so it needs no new merge and no new gate.
+- No open finding.
