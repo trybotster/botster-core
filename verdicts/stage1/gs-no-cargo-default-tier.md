@@ -124,3 +124,30 @@ The completed train 3d gate, final package receipt, body, and lead merge verific
 Sol-B accepts no running result and ran no execution job.
 
 VERDICT: CLEAN (0 open; train 3d source delta only, final gate evidence pending)
+
+## Round 4: train 3d final receipt
+
+Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+Round 3's source acceptance remains unchanged. The train contains #310 alone.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`.
+SHA256: `3293010b087dc1106ea5c4de545aee09cf056d8210b5481ee4129e546047927c`.
+Sol-B independently read the completed gate and full body.
+All ten steps PASS. Default passes 1,936 tests; slow passes 621 tests.
+The real resolver comparison and moved metadata test both PASS.
+The unmutated slow baseline passes all 621 tests.
+Stage 2 catches the stage 1 miss through the moved metadata test.
+Both raw catches match their citations and normal PASS results.
+The final mutation result has two caught, two unviable, zero missed, and zero timeout.
+No FLAKY or INCONCLUSIVE record appears. The job and wrapper exit 0 after 708 seconds on msa1.
+
+Sol-B read exact-head package receipt `3ff6b0ce4847bf78d653cf441278ff89679edb24`; it agrees and reports zero findings.
+The full final acceptance is Round 4 in `verdicts/stage1/train-3.md` in this commit.
+The earlier RED train remains failed. Initial Mac evidence retains its earlier scope.
+No source, body, or supplied-evidence finding remains on this exact head.
+The lead owns train publication and merge/tree/push verification. This verdict authorizes no #306 retry.
+Sol-B ran no execution job.
+
+VERDICT: CLEAN (0 open; #310 source and completed train 3d gate)

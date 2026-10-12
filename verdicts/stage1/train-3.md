@@ -165,3 +165,39 @@ Final exact-head gate evidence, the package final receipt, body, and merge verif
 Sol-B ran no execution job.
 
 VERDICT: CLEAN (0 open; train 3d source only, final gate evidence pending)
+
+## Round 4: train 3d final acceptance
+
+Exact head: `838e4bb01dda53c419ab824913fdc5adae7a16c1`.
+Tree: `a509da5c79a4b456acd1ffad1c96ca0a80a6d834`.
+Base: `080987829a2e2245a7ea97606020400392c974d6`.
+The one-member composition and source acceptance in Round 3 remain unchanged.
+
+Completed log: `/Users/jasonconigliari/botster-sessions/gates/botster-core-stage1-train-3d-838e4bb0-pool-20261012-084740-70545.log`.
+SHA256: `3293010b087dc1106ea5c4de545aee09cf056d8210b5481ee4129e546047927c`.
+Sol-B read the exact identity, base accounting, affected tests, raw mutation results, citations, summaries, and exits.
+The gate and merge base both equal the recorded base.
+All ten steps PASS in 484.0 seconds. Default passes 1,936 tests; slow passes 621 tests.
+The job-common test passes in 0.006 seconds. The pure metadata fixture passes in 0.002 seconds.
+The real resolver comparison passes in 0.111 seconds. The moved metadata test passes in 0.015 seconds.
+
+Stage 1 has one caught, one missed, and two unviable mutants. The unmutated slow baseline passes all 621 tests.
+Stage 2 catches the missed empty `packages` replacement through the moved real metadata test.
+Sol-B independently matches both raw catch identities to their citations. Both catchers have normal PASS results.
+The final result has two caught, two unviable, zero missed, and zero timeout.
+No FLAKY or INCONCLUSIVE record appears. Fuzz reports no changed decoder-harness crate.
+The job and wrapper exit 0 after 708 seconds on msa1, with 135 seconds queued and 573 seconds running.
+
+Sol-B read exact-head package receipt `3ff6b0ce4847bf78d653cf441278ff89679edb24`, its complete final train 3d section.
+The receipt agrees with these checks and reports zero findings.
+Sol-B read the full live #310 body. It retains the frozen member and initial gate with their correct scope.
+This final receipt separately records the exact train head and completed train gate.
+The initial Mac evidence retains its earlier scope. This gate supplies Linux evidence only.
+
+No source or evidence finding remains on this exact one-member train.
+The original train 3 and train 3c findings and RED gate remain recorded with their original scope.
+This acceptance covers no later composition, #312 repair, or #306 retry.
+The lead must still publish the train and verify the merged tree and remote refs.
+Sol-B ran no build, test, gate, mutation, reversal, diagnostic, or executable base check.
+
+VERDICT: CLEAN (0 open; train 3d source and completed final gate)
