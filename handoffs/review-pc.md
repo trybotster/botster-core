@@ -1728,3 +1728,37 @@ Sol receipt msg_plugin-w_1791766700_2a0875 and final verdict 99b916b375e7f559739
 Publication is verified. Both final source, evidence, and body CLEANs cover 69d41499 and base b0c0a419.
 The package reviewer matches the eight first-stage raw misses to the eight second-stage catches, without an unmatched identity.
 The matching final integration condition closes. The lead's Q7 check before merge remains required. Never poll.
+
+## #291 #295 import and ordering delta review in progress
+
+PC request msg_plugin-w_1791772688_d78b20 supplies head 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b.
+Plain merge b8fee77332770736f43886b35c387eef3fc996c4 imports base bfef88653bb59ad8d3cd38da1e206f7aba64ce92 into reviewed 8ac717c7.
+The resolution performs all queued actions after the first take_exits and before the first link read.
+The reviewer checks the complete resolution and exit/action/read/settle paths, including queued pre-pump cancel/handoff actions.
+All eleven drain tests and the named handoff/deadline exit sites are read. No source finding is identified.
+Ended-peer WouldBlock now uses #295's end_link, retaining the close when the event budget is spent.
+The main more expression stays runnable || more_input. The settle expression also includes draining().
+All five conformance blobs equal v1: ledger 691, testkit pending 410, real pending 44, real-only 26, held 3.
+The independent three-way set check finds no missing or extra id. Imported non-own blobs match the base.
+Sol receipt msg_plugin-w_1791772937_5fc763 has the same source assessment and head/base.
+The static, strict, host, and canonical base-check records remain due. The 331/331 report is not yet audited.
+The completed body and one final gate remain due. No new-head CLEAN or merge approval is issued.
+The Round 2 and Round 3 package draft remains uncommitted in verdicts/pc-r78-stopping.md while these records are awaited.
+The old source/evidence findings close under the accepted replacement records and attribution; no old failure is erased.
+No reviewer execution job runs. Wait for the evidence doorbell. Never poll.
+
+## #291 completed delta CLEAN on 4ccd6a7d
+
+PC receipts msg_plugin-w_1791773040_a23a33, msg_plugin-w_1791773188_ff0bd2, and msg_plugin-w_1791773308_1b2aef supply completed records and corrections.
+The canonical base check retains FAIL (2)/(3), with ancestry, no-conflict (1), and both pending (4) checks PASS.
+The local strict record reports 1221 passed, zero failed, seeds 0-31, exit zero. Host 331/331 includes every named drain and exit test.
+The source assessment and nine conformance blobs are independently checked. All nine blobs equal v1 bfef8865.
+R78-PC-6 LOW closes: the body withdraws the old IN-9 diagnosis, preserves controlled-attribution limits, and correctly counts ten distinct checks.
+The public-api refusal and capped success remain recorded. The historical script stays; the future copy exports both cap variables.
+R78-PC-7 LOW closes: the retained 330/331 failure is merge b8fee773 plus the uncommitted drain-end fix, not an untouched-merge proof.
+The body now states that scope and the unretained plain-merge limit. Source review independently supports the ordering diagnosis.
+Live body hash da2fa54e4a1df2f2ef7c68f473fa41460c25579500b19939390f4cdf91ce8c32 differs from retained 3aaf938e only by one final newline.
+The complete package delta verdict is CLEAN, zero open findings, on 4ccd6a7da142331c2d35fa25f5f12914cdf2d22b against bfef88653bb59ad8d3cd38da1e206f7aba64ce92.
+The prior source and evidence findings remain closed with their historical execution and controlled-attribution limits.
+The matching formal Sol delta verdict, one exact-head final gate, final evidence reviews, and Q7 remain due. No final merge is approved.
+No reviewer execution job runs. Never poll.
