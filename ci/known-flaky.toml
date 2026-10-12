@@ -6,8 +6,11 @@
 # binary      the nextest binary id
 # test        the exact test name
 # diagnosis   the diagnosed cause
-# signature   the recorded failure signature: comma-separated clauses of the step, the limit and the symptom, for
-#             example "seed any, step 8, step_timeout"; the seed is not part of it (a seed clause is only "seed any").
-#             A red gate may run once more only when its failure matches it (BUILD.md Testing rule 9, second exception).
+# signature   the recorded failure signature, with named fields (Core lead, 2026-10-12), which a re-gate must match
+#             (BUILD.md Testing rule 9, second exception):
+#             { step = "<gate step>", symptom = "<symptom>", seed = "any" | <n>, text = "<literal>" }
+#             step: a step name of `cargo xtask ci --list`; symptom: step_timeout, test_timeout, assertion, signal or
+#             exit_code; seed: "any" or a seed number; text (optional, not empty): a literal substring of the failing
+#             test's output.
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry
