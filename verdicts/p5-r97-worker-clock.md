@@ -137,3 +137,120 @@ The current green gate does not close these findings or carry to a source repair
 I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
 
 VERDICT: NOT CLEAN
+
+## Round 2 — 2026-10-11 — source repair and evidence dispositions
+
+- Head: `955ca290737453265d7eb4622c5e998abbe0c84f`
+- Tree: `cf37a37e2f982bb699fd41365cb1252eeebcb59c`
+- Stacked base: `403bbf689cc9f745a9552cc518374a6a8f2cdb32`, #301.
+- Parent: reviewed Round 1 head `cd0a468873fc9c318b5002a640d5c6b753007a35`.
+- Gate base: `fcc09461cb0c0de4ef067c160f24d205f0f65c30`.
+- Repair READY: `msg_plugin-w_1791779445_e5eeaf`.
+
+I read the complete two-file repair and its affected execution path.
+The repair diff SHA256 is `206d58bc080fe35b410caa2ed9e8eea5e15209e26800043bac37b37362e58dbf`.
+The complete own diff has seven files, 450 additions, and 69 deletions.
+Its full-index SHA256 is `5aaa67b8094e2e2012aaf12ba1e4c12929d69b7fe03f6efadd2c2b11d7e66b01`.
+The PR merge base remains the stacked base. The diff check reports no whitespace error.
+No id changes status. The earlier clock, wait, and deadline-query conclusions remain applicable.
+
+### R303-SI-1 closes
+
+`run_ready` now calls `run_at_clock`, so it advances the Sim to the worker clock before handling work.
+This also gives fresh candidate inputs the current worker time and applies due adoption deadlines before input handling.
+The path adds no host pump, host-clock advance, or program-edge step.
+The new manual-clock regression observes the peer: WouldBlock at 99 ms, then EOF when the orphan deadline acts at 100 ms.
+It asserts the worker deadline before and after expiry. The behavior proof satisfies the requested regression.
+Its normal gate run passes, and its `run_ready` no-op mutant is caught.
+
+I read `r303-si1-reversal.log` and P5's provenance receipt `msg_plugin-w_1791779624_c9afae`.
+The log SHA256 is `4fb847372ade7388bc575d7bf994a20fbbea1375b4ce5852ac018dc6208be91d`.
+The retained output shows this regression failing at the expiry assertion with the old `run_ready` body.
+The marked note, added after the run, supplies head 955, the old cd body, the test command, and the cache condition.
+The switch log records a clean of 20100 files and 5.3 GiB at 04:12:12 UTC after the prior worktree writer.
+P5 states that only this worktree wrote to the target before the reversal. This supplies the B13 condition as an owner statement.
+The filtered failure output contains no numeric command exit or original head header. Those limits remain explicit.
+The source regression and completed exact-head gate independently support this closure.
+
+### R303-F1 closes for the initial review
+
+I read the retained stage-2 mutant log. Its SHA256 is `5f2039919e2f02d190bab0b2c75b4608f5c08969042303c57f7474462c1d424c`.
+It preserves the real-tier failure at seed 0, zero-based step 28: activity_before_close false, closed true.
+The earlier gate's FLAKY result remains a failed-then-passed retry, not a catch.
+
+I independently match that signature to the R-66 follow-up.
+At .41 transcript index 25, `await_quiet` does not prove that Core consumed the client-activity report before Detach.
+At .42 and .43, that same step awaits route_reports with activity_before_close true and closed false.
+Index 28 is the retained expectation that failed. The corrected fence supplies its missing precondition without polling the event.
+RC owns this structural repair. The fix is already in the contracts tags and will reach this branch through #299's .43 pin.
+
+I read the real harness composition. It uses production RealEdges, HostDriver, and the real wake.
+The real trial constructs neither TestkitCore nor WorkerDeadlineWake. This PR's changed code and the wait mutation do not alter that failure path.
+I accept this diagnosis, non-interference, and owned structural disposition for the initial review.
+The complete body now retains the raw outcome, diagnosis, owner, fix, and branch-import obligation.
+The final import must carry the corrected fence before merge. This CLEAN does not accept a final branch that retains the old fence.
+
+### Comparison provenance and AD-7 scope close
+
+P5 explicitly withdraws the old `r97-raw` files because their producer and command cannot be established.
+Those files remain historical, unvalidated observations. The current evidence does not validate them retroactively.
+
+I read the complete replacement script, log, raw files, and their comparison results.
+`r303-compare.sh` records the commands and writes each exact head, time, target, and command into its raw output.
+Its script SHA256 is `31f36c41f43b49669f0899a30009e7fe5988a998879fef6c2dd232a18369f83a`.
+The comparison log SHA256 is `5de5beb0c7774c32c391da3e5a4d2787b4d797ddb43d3adbfe1e8cfe1240fe81`.
+It records a clean of 6320 files and 1.9 GiB, then one worktree writer across both runs.
+The script removes pending entries locally, runs testkit seeds 0–31 with four test threads, and restores the lists and Cargo.lock.
+The final branch and head match the repair; the final status is clean.
+
+Before raw SHA256: `5dbac2495ec22755d27d7f0dc059b15df4f5a84aab3ee4c541c32acdad577084`.
+After raw SHA256: `2766155c391f7024766ae82d4cc864fd2e35ec51025786e6d3c5bce2232cbe1d`.
+Their headers name #301 head 403 and repair head 955 with the actual commands.
+I independently parse all 691 outcomes in each file: 262 passes, 341 failures, and 88 ignored results.
+Every outcome cell matches. Only the startup id's diagnostic record changes, from seed 0 step 7 to step 24.
+The id stays pending for the remaining query-path failure. No new conformance status is claimed.
+The replacement records close the original provenance question.
+
+The AD-7 condition remains closed by corrected R-97 and the lead disposition recorded in Round 1.
+Both forced testkit trials report unsupported wait_worker_exit. They establish testkit scope, not real-tier PASS.
+The two R-97 unit proof requirements remain and pass on the repaired head.
+
+### Completed repair checks and gate
+
+I read complete `r303-checks.sh` and `r303-checks.log`.
+The log SHA256 is `41f74d502f0d20887a0460eec649d56b67890d76bee809d4cfb1e709d195c4f7`.
+It names this exact clean head, rustc 1.97.0, and macOS 27.0.1.
+Its script cites the preceding comparison clean and one subsequent worktree writer.
+The filtered output records fmt/clippy success, 305 host, 436 testkit, and 192 worker-core unit passes.
+It records 259 strict seed 0–31 conformance passes, taint PASS, and a clean final status.
+These pipelines retain outcomes and summaries, not numeric exits for every command.
+
+Gate: `~/botster-sessions/gates/botster-core-stage1-p5-r97-worker-clock-955ca290-pool-20261011-212423-85992.log`.
+SHA256: `b51fd95ae9cecf2333aafcb9232b92f0cdd8321fbf1cc53812cd79f9249407fd`.
+The header names the exact repair head and gate base. All ten steps PASS in 335.4 seconds.
+The job exits 0 after 347 seconds with no queue wait. The wrapper exits 0 after 348 seconds on msa1.
+Default: 1876 passes and 432 skips in 22.925 seconds. Slow: 611 passes and 2055 skips in 47.356 seconds.
+Coverage checks 1076 slow-only tests and four named real proofs.
+All nine clock/wait tests pass, including the new route-data-plane regression in 0.004 seconds.
+
+I independently parse 49 unique mutation outcomes: 35 caught, 14 unviable, no miss, and no timeout, in 162.1 seconds.
+All 35 raw catches equal the 35 citations. Every cited test has a normal PASS.
+No stage 2 is needed. The current completed log has no FLAKY token.
+The earlier FLAKY result retains its separate diagnosis and disposition above.
+Both strict summaries report 259 passes and no failure. The pending check runs 321 of 339 ids, with 18 real-only ids excluded and 3 held.
+The held budget check reports 64 ignored trials and no failure in 19.28 seconds.
+All 33 reported passing ignored real ids remain in the unchanged 44-entry real-pending list.
+Fuzz reports no changed crate with a decoder harness; no new fuzz execution is claimed.
+
+### Disposition
+
+Zero package findings or evidence questions remain for this initial stacked review.
+I read the complete corrected body at the unchanged repair head. It preserves all earlier gate and evidence scopes.
+This CLEAN covers the source repair, body, evidence dispositions, and completed repair gate.
+Gate base fcc is still not an ancestor; its merge base remains bfef. This is not final integration acceptance.
+After #301 merges, #303 needs the final slot, current-base import, applicable checks and delta reviews, and a completed exact-final-head gate.
+That import must carry #299's corrected R-66 fence. Both final reviews and Q7 remain required.
+The separate stop-grace change remains #305; this verdict does not accept it.
+I changed no product code and ran no build, test, gate, mutation, reversal, measurement, or executable merge check.
+
+VERDICT: CLEAN
