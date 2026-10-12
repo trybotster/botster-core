@@ -383,3 +383,28 @@ No formal member-delta or combined CLEAN follows before that applicable package 
 The lead reports local checks running and plans a detached exact-head gate. Neither statement is completed execution evidence.
 The exact merging gate, ONE final train receipt, and lead equal-tree/remote verification remain due.
 I ran no execution job and changed no product code.
+
+
+## Round 7: train-10 source delta CLEAN
+
+- Exact train head: `644f632f194f62ad7fe14e66482ee01083706e30`.
+- Tree: `31f79709fd6d686a995da9f2d0506c59a9861b47`.
+- Base: `3e4b3ab8172f1a04467a7969833708606a0f8580`.
+- Sole frozen member: `836d3395702cfc7c662dde8f0e1fb790a9c8c2d4`.
+- Complete integration inspection: `9aef9fe3`, above.
+- Complete package Round 206: `3abf75905e3857588bf916fb2c10b0a21c766364`, `verdicts/p3-worker.md`.
+- Package message: `msg_plugin-w_1791842904_9a8077`.
+
+I read the complete same-head package delta. Its source, parent, common-base, edit-sequence, blob, and list checks match the integration inspection.
+No source change follows that inspection. All nine own edit sequences remain exact; eight member blobs remain byte-identical.
+DESIGN.md preserves both the member's accepted drain note and the base's accepted route_frames_taken paragraph.
+No drain interface, test behavior, signature, shared helper, process cleanup, or gate rule changes through that documentation overlap.
+F159 and F160 remain closed. All earlier finding closures and the F154 SETTLE retain their scopes.
+No source finding remains, including LOW. All ten conformance blobs equal the base, and no accepted removal returns.
+
+This verdict accepts the exact train source delta only. Prior local records and member gates retain their historical heads and limits.
+The exact merging gate, ONE final train receipt, and lead equal-tree/remote verification remain due.
+The package needs no redundant final receipt for this unchanged member. No future head or completed merge is accepted.
+Mac IN-6, F28, and A24 work remain separate. I ran no execution job and changed no product code.
+
+VERDICT: CLEAN (0 open, including LOW; train-10 member source delta only)
