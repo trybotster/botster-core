@@ -389,3 +389,125 @@ fn a_hold_is_scoped_to_its_data_directory() {
         json!(true)
     );
 }
+
+fn link_hold(harness: &mut TestkitHarness, handle: &str, op: &str) -> Result<Value, ControlError> {
+    harness.control(handle, op, &json!({"session": "s1"}))
+}
+
+/// Core LC-4, A2-1 (`hold_start`, steward ruling R-71): Core spawns the worker, the edge keeps its control link from the
+/// accept, and the session stays `Starting` with no completion of `Start`. `start_held` is false while the hold is only
+/// armed, true once the link is held, and false after the release. After the release, the next accept takes the link, and
+/// `Start` completes `Running`.
+#[test]
+fn a_held_link_keeps_the_start_until_the_release() {
+    let (mut harness, mut core, mut at) = created(0);
+    assert_eq!(link_hold(&mut harness, "a", "hold_start"), Ok(Value::Null));
+    assert_eq!(held(&mut harness), json!(false), "only armed");
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    let events = settle(&mut harness, core.as_mut(), at);
+    assert!(
+        !completes(&events, start),
+        "the held start does not complete"
+    );
+    assert_eq!(held(&mut harness), json!(true), "the link is held");
+    assert_eq!(core.get(&sid("s1")).unwrap().state, SessionState::Starting);
+    assert_eq!(
+        link_hold(&mut harness, "a", "release_start"),
+        Ok(Value::Null)
+    );
+    match complete(core.as_mut(), &mut at, start) {
+        OpResult::Ok(OpOutput::Record(record)) => assert_eq!(record.state, SessionState::Running),
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(held(&mut harness), json!(false), "released");
+}
+
+/// `hold_start` and `release_start` refuse with `Bad`: an unknown handle or session, an argument that they do not take, a
+/// second hold, a release with no hold, and a hold of a start that has begun. A release of an armed hold disarms it: the
+/// start then runs at once.
+#[test]
+fn the_link_hold_refuses_what_it_cannot_do_and_a_release_disarms() {
+    let bad = |result: Result<Value, ControlError>| matches!(result, Err(ControlError::Bad(_)));
+    let (mut harness, mut core, mut at) = created(0);
+    for op in ["hold_start", "release_start"] {
+        assert!(bad(link_hold(&mut harness, "z", op)), "{op}");
+        assert!(
+            bad(control(&mut harness, op, json!({"session": "s2"}))),
+            "{op}"
+        );
+        assert!(
+            bad(control(&mut harness, op, json!({"session": "s1", "at": 1}))),
+            "{op}"
+        );
+    }
+    assert!(
+        bad(link_hold(&mut harness, "a", "release_start")),
+        "no hold"
+    );
+    assert_eq!(link_hold(&mut harness, "a", "hold_start"), Ok(Value::Null));
+    assert!(
+        bad(link_hold(&mut harness, "a", "hold_start")),
+        "a second hold"
+    );
+    assert_eq!(
+        link_hold(&mut harness, "a", "release_start"),
+        Ok(Value::Null),
+        "the release disarms"
+    );
+    assert!(
+        bad(link_hold(&mut harness, "a", "release_start")),
+        "no hold now"
+    );
+    let start = core.begin(Op::Start { id: sid("s1") }).unwrap();
+    assert!(matches!(
+        complete(core.as_mut(), &mut at, start),
+        OpResult::Ok(_)
+    ));
+    assert!(bad(link_hold(&mut harness, "a", "hold_start")), "begun");
+}
+
+/// The link hold is scoped to its host: the first session of two directories has the same instance (Core ID-1), and a hold
+/// on one directory holds no link of the other.
+#[test]
+fn a_link_hold_is_scoped_to_its_host() {
+    let mut harness = TestkitHarness::new(0);
+    let mut at = Instant::now();
+    let mut a = open_created(&mut harness, "a", &mut at);
+    let mut b = open_created(&mut harness, "b", &mut at);
+    assert_eq!(
+        session_row(&harness, "a", &sid("s1")).unwrap().instance,
+        session_row(&harness, "b", &sid("s1")).unwrap().instance
+    );
+    assert_eq!(link_hold(&mut harness, "a", "hold_start"), Ok(Value::Null));
+    assert!(
+        matches!(
+            link_hold(&mut harness, "b", "release_start"),
+            Err(ControlError::Bad(_))
+        ),
+        "no hold on b"
+    );
+    let start = b.begin(Op::Start { id: sid("s1") }).unwrap();
+    assert!(
+        matches!(complete(b.as_mut(), &mut at, start), OpResult::Ok(_)),
+        "the hold of a holds no link of b"
+    );
+    let _start = a.begin(Op::Start { id: sid("s1") }).unwrap();
+    for _ in 0..PUMPS {
+        if !a.pump(now(at)).more {
+            break;
+        }
+    }
+    assert_eq!(
+        harness
+            .control("a", "start_held", &json!({"session": "s1"}))
+            .unwrap()["held"],
+        json!(true)
+    );
+    assert_eq!(
+        harness
+            .control("b", "start_held", &json!({"session": "s1"}))
+            .unwrap()["held"],
+        json!(false)
+    );
+    assert_eq!(a.get(&sid("s1")).unwrap().state, SessionState::Starting);
+}

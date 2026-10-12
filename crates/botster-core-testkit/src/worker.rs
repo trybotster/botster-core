@@ -142,15 +142,24 @@ impl ProcessTable {
     /// control link of a worker that it holds (spawned or adopted) with bytes or an end of file that the host has not read. A new worker's link holds its hello,
     /// so a link that the host has not accepted yet counts too. It reads the state and changes nothing (`edges_quiet`).
     pub(crate) fn holds_reports(&self) -> bool {
+        self.holds_reports_but(&[])
+    }
+
+    /// [`ProcessTable::holds_reports`], where the control links of the `held` workers are no report.
+    pub(crate) fn holds_reports_but(&self, held: &[ProcessIdentity]) -> bool {
         let processes = lock(&self.0);
         !processes.exits.is_empty()
             || processes.connections.iter().any(EndControl::holds_for_peer)
-            || processes.links.values().any(|cell| {
-                lock(cell)
-                    .link
-                    .as_ref()
-                    .is_some_and(EndControl::holds_for_peer)
-            })
+            || processes
+                .links
+                .iter()
+                .filter(|(id, _)| !held.contains(id))
+                .any(|(_, cell)| {
+                    lock(cell)
+                        .link
+                        .as_ref()
+                        .is_some_and(EndControl::holds_for_peer)
+                })
     }
 }
 
@@ -778,7 +787,13 @@ impl Workers {
     /// to read, bytes to write, a payload's output or exit, a signal), and the host's process table holds no exit and no
     /// unread link report (`edges_quiet`). The fence of `await_quiet` (Core A5-2).
     pub(crate) fn edges_quiet(&self, table: &ProcessTable) -> bool {
-        !self.has_ready() && !table.holds_reports()
+        self.edges_quiet_but(table, &[])
+    }
+
+    /// [`Workers::edges_quiet`], where the control links of the `held` workers are no report: a `hold_start` holds them from
+    /// the host's accept, so their bytes wait for the release (steward ruling R-71, as the real tier's tap).
+    pub(crate) fn edges_quiet_but(&self, table: &ProcessTable, held: &[ProcessIdentity]) -> bool {
+        !self.has_ready() && !table.holds_reports_but(held)
     }
 
     /// The `Process` edge of the host of the data directory `dir` for its workers.
