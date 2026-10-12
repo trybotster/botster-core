@@ -8,10 +8,3 @@
 # diagnosis   the diagnosed cause
 # owner       the owner of the fix
 # removed_by  the pull request that removes the cause and this entry
-
-[[flaky]]
-binary = "botster-core::slow_conformance"
-test = "conf::ev_2_mandatory_and_keyed_never_dropped"
-diagnosis = "R-107/R107-SI-2: .44 ev_2 has no fence between the s67 title write and the s70 Stop (the probe Ack means queued; await_quiet sees only link bytes). Fixed by contracts #89 (d764f47, contracts-v0.1.45). Signature: INCONCLUSIVE seed=<any> step=71 limit=step_timeout."
-owner = "RC"
-removed_by = "#316"
