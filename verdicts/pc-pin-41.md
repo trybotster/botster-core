@@ -384,3 +384,50 @@ The stale body metadata identified by Sol as P289-SI-3 is corrected in this read
 Sol records body SHA-256 `97ea97bf34f8f82aa2b66924619cf25e87748534644bdd556b4eef4d3cdb319d`; the package reviewer does not independently hash this read.
 The completed final gate must report all eleven own testkit removals as normal PASS.
 Final evidence approval and Q7 remain due. No running output is read. Never poll.
+
+## Round 5: completed final gate and body
+
+VERDICT: CLEAN (0 open package findings)
+
+Head: `69d414995408a21a32b73d01608a798202057462`.
+Base: `b0c0a419af27259006b5e06d4e5da3b3d00083e6`.
+Completed evidence receipt: `msg_plugin-w_1791766453_57d995`.
+The prior complete source delta reviews cover this exact head. This round checks the completed evidence and final body.
+The reviewer runs no build, test, gate, mutant, reproduction, or executable base check.
+
+Final gate: `~/botster-sessions/gates/botster-core-stage1-pc-pin-41-69d41499-pool-20261011-174215-53790.log`.
+SHA-256: `5fb6af739f3bcc2cc75a876d6c8f96706eab3601c18da47116585d01ce202c2a`.
+The header names this exact head and base. The Linux job runs on msa1 with four CPUs.
+All ten steps PASS in 601.2 seconds. The job exits zero after 651 seconds; the gate wrapper exits zero after 652 seconds.
+Default: 1843 passed, 435 skipped. Slow: 606 passed, 2040 skipped.
+The unmutated slow baseline reports 606 passed, ten slow, and 2746 skipped.
+The list step names 691 ledger ids, 412 testkit-pending ids, and 44 real-pending ids.
+The conformance summary reports 256 passed and zero failures.
+
+The reviewer derives all eleven own testkit removals from the base-to-head id sets.
+Each removal has one normal PASS record in `botster-core::conformance`.
+All three own real-pending removals have normal PASS records in `botster-core::slow_conformance` and in the unmutated baseline.
+The accepted five-run proof remains tied to its earlier source. This gate supplies exact-final-head validation, not a new five-run record.
+The real-pending report observes 32 passing trials. All 32 remain in the current real-pending set.
+The eight own additions retain their pinned fence exceptions. The other retained ids keep their earlier fence or failure limits.
+This gate makes no extra pending removal. IN-7 remains real-pending despite this passing trial.
+
+Stage 1 tests eight mutants: zero caught, eight missed, zero timeout, zero unviable.
+Stage 2 tests those eight and catches all eight: zero missed, timeout, or unviable.
+The reviewer independently matches all eight unique raw catches to all eight named citations.
+Each cited catcher has a normal PASS in the slow run and its unmutated baseline.
+The log contains no FLAKY line. Fuzz PASS reports no changed decoder harness.
+
+The reviewer reads the complete final body and hashes it independently.
+Body SHA-256: `b3364d02e8d0d151c4c06b1e714849c2ddb92bada2e978f85cf85b152fa56c90`.
+GitHub reports the exact reviewed head and base.
+The body replaces RUNNING with the completed ten-step gate and names all eleven normal testkit PASS records.
+It preserves the conflict resolutions, list transfers, older evidence heads, red gates, IN-7 failure, and accepted EV-5 attribution.
+It claims no plain-v1 result for the four newer removals and no acceptance for their real tier.
+The prior A5-4 and N-run records retain their earlier source and seed scope. This final gate does not erase their failed trials.
+
+At the final check, remote v1 is b0c0a419 and the delivery branch is 69d41499.
+The retained base-merge-check remains FAIL. Both required source delta rounds explicitly review its conflicts and later list changes.
+The exact-final-head package source, evidence, and body are CLEAN.
+Sol's final evidence receipt and the lead's Q7 check before merge remain due.
+No later source head is accepted by this verdict. The reviewer waits for the doorbell and does not poll.
