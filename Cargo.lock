@@ -406,6 +406,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "botster-gate-kit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "botster-test-process",
+ "proc-macro2",
+ "regex",
+ "serde_json",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "botster-guardian-core"
 version = "0.1.0"
 dependencies = [
@@ -2055,6 +2068,7 @@ dependencies = [
  "botster-core-contract",
  "botster-core-sys",
  "botster-core-testkit",
+ "botster-gate-kit",
  "botster-test-process",
  "botster-test-support",
  "botster-worker-core",
