@@ -45,3 +45,9 @@ Cross-PR note: #73's `core-fence-exceptions.txt` has two `debt:` lines for this 
 ### e75d5515720aee921ebf335e1e796b83ec37d018: the Q7 disjoint merge checks pass (CLEAN waits for its gate)
 
 Parents `1562a9eb` and main `8adbe937`. The tree `12eea1625726b3fd48a0e3d7122d09dead1b4b9e` equals `git merge-tree`. The head differs from main only in the PR's ev_5 transcript, and `git patch-id --stable` is `78a8fe2102e5ea19773ce8805034927a6d68ce69`, as for the reviewed head. RC's record: `~/botster-sessions/gates/botster-contracts-rc-r66-final-merge-delta-e75d5515.txt`. Gate: `...-e75d5515-pool-20261011-173528-28995.log`.
+
+## Final: CLEAN on e75d5515720aee921ebf335e1e796b83ec37d018
+
+- Gate PASS on the exact head, all ten steps, exit 0 after 153 s on msa1, base main `8adbe937` (current main; the steward froze main for code until #69 lands): `~/botster-sessions/gates/botster-contracts-rc-r66-ev5-route-reports-fence-e75d5515-pool-20261011-173528-28995.log`. `conf_ev_5_route_closed_retires_route_keyed_events` PASS (line 615). Mutants: no Rust source changed.
+- The pushed PR head is `e75d5515`. Its Q7 checks passed (above). No open finding.
+- After #69 lands, #73 (CLEAN on `69301401`) merges main and removes `ev_5_route_closed`'s two debt lines (steps 28, 29). I review that delta.
